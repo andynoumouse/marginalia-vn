@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VN preview</title>
+<style>
+  :root {
+    --ink: #0e1117; --panel: #171b23; --line: #2a303c; --text: #e6e9ef; --muted: #8b93a3;
+    --accent: #5fd1c3; --warn: #e8b64c; --bad: #f0707a;
+    --vn-font: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--ink); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 10px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--muted); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #stage :focus-visible { outline-width: 4px; }
+
+  #bar { position: absolute; inset: 0 0 auto 0; height: 44px; display: flex; align-items: center; gap: 12px;
+    padding: 0 14px; background: var(--panel); border-bottom: 1px solid var(--line); z-index: 10; }
+  #bar .title { font-weight: 600; }
+  #status { color: var(--muted); font-variant-numeric: tabular-nums; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #diagBtn[data-errors="0"][data-warns="0"] { color: var(--muted); }
+  #diagBtn[data-errors]:not([data-errors="0"]) { color: var(--bad); border-color: var(--bad); }
+  #diagBtn[data-errors="0"]:not([data-warns="0"]) { color: var(--warn); border-color: var(--warn); }
+
+  #viewport { position: absolute; inset: 44px 0 0 0; overflow: hidden; background: #06080b; }
+  #stage { position: absolute; left: 50%; top: 50%; width: var(--stage-w, 1920px); height: var(--stage-h, 1080px); overflow: hidden;
+    background: #000; transform-origin: center; user-select: none; cursor: pointer; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  #box { position: absolute; left: 160px; right: 160px; bottom: 56px; min-height: 250px; padding: 44px 56px 36px;
+    background: rgba(10,13,19,calc(.84 * var(--box-alpha, 1))); border: 2px solid rgba(255,255,255,.14); border-radius: 8px; display: none; }
+  #box[data-visible="true"] { display: block; }
+  #name { position: absolute; left: 40px; top: -26px; padding: 6px 28px; border-radius: 6px; font-size: 34px; font-weight: 600;
+    background: #20252f; color: var(--ncolor, #fff); border: 2px solid var(--ncolor, rgba(255,255,255,.3)); }
+  #name:empty { display: none; }
+  #text { font: calc(var(--text-size, 44px) * var(--text-scale, 1))/var(--text-line, 1.45) var(--vn-font); white-space: pre-wrap; max-width: 62ch; }
+  #text .fx { display: inline-block; white-space: pre; }
+  #text .fx-wave { animation: vn-wave 1.1s ease-in-out infinite; }
+  #text .fx-shake { animation: vn-shake .14s linear infinite; }
+  @keyframes vn-wave { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-.16em); } }
+  @keyframes vn-shake { 0% { transform: translate(.02em, 0); } 25% { transform: translate(-.03em, .03em); }
+    50% { transform: translate(.03em, -.02em); } 75% { transform: translate(-.02em, -.03em); } 100% { transform: translate(.02em, 0); } }
+  #stage[data-reduce-motion="true"] #text .fx { animation: none; }
+  #text ruby { ruby-position: over; } #text rt { font-size: .45em; }
+  #text .i { font-style: italic; } #text .b { font-weight: 700; }
+  #box[data-done="true"]::after { content: ""; position: absolute; right: 36px; bottom: 26px; border: 14px solid transparent;
+    border-top-color: rgba(255,255,255,.7); border-bottom: 0; }
+
+  /* NVL: a full-screen page of narration filling from the top; when it is full the oldest lines fall off */
+  #nvl { position: absolute; inset: 0; display: none; padding: 80px 220px; box-sizing: border-box;
+    background: rgba(6,8,12,calc(.82 * var(--box-alpha, 1))); }
+  #nvl[data-visible="true"] { display: block; }
+  #nvl-page { height: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; gap: .5em;
+    font: calc(var(--text-size, 44px) * var(--text-scale, 1))/var(--text-line, 1.45) var(--vn-font); }
+  #nvl-page > div { white-space: pre-wrap; flex: none; }
+  #nvl-page .who { font-weight: 600; color: var(--ncolor, #fff); margin-right: .4em; }
+  #nvl-page .fx { display: inline-block; white-space: pre; }
+  #nvl-page .fx-wave { animation: vn-wave 1.1s ease-in-out infinite; }
+  #nvl-page .fx-shake { animation: vn-shake .14s linear infinite; }
+  #stage[data-reduce-motion="true"] #nvl-page .fx { animation: none; }
+  #nvl-page ruby { ruby-position: over; } #nvl-page rt { font-size: .45em; }
+  #nvl-page .i { font-style: italic; } #nvl-page .b { font-weight: 700; }
+  #nvl[data-done="true"]::after { content: ""; position: absolute; right: 120px; bottom: 36px; border: 14px solid transparent;
+    border-top-color: rgba(255,255,255,.7); border-bottom: 0; }
+
+  #menu { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: center; align-items: center; gap: 22px;
+    background: rgba(0,0,0,.35); }
+  #menu[data-visible="true"] { display: flex; }
+  /* Custom screens (show screen): everything is placed in stage pixels, so the layer scales with the stage. */
+  #screenui { position: absolute; inset: 0; display: none; cursor: default; }
+  #screenui[data-visible="true"] { display: block; }
+  #screenui .sc-img { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  #screenui .sc-text { position: absolute; font: 40px var(--vn-font); color: #fff; white-space: pre-wrap; text-shadow: 0 2px 8px #000; pointer-events: none; }
+  #screenui .sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #screenui .sc-hot { position: absolute; padding: 0; background: transparent; border: var(--hot-border-width, 2px) solid transparent; border-radius: 0; cursor: var(--cursor, pointer); }
+  #screenui .sc-ellipse { border-radius: 50%; }
+  #screenui .sc-mask { border: 0; pointer-events: none; }
+  #screenui .sc-mask[data-masked="true"] { -webkit-mask: var(--mask) center / 100% 100% no-repeat; mask: var(--mask) center / 100% 100% no-repeat; }
+  #screenui .sc-poly { fill: transparent; stroke: transparent; stroke-width: var(--hot-border-width, 3px); pointer-events: all; cursor: pointer; outline: none; }
+  #screenui .sc-hot[data-active="true"] { background: var(--hot-fill, rgba(255,255,255,.18)); border-color: var(--hot-border, var(--accent)); }
+  #screenui .sc-poly[data-active="true"] { fill: var(--hot-fill, rgba(255,255,255,.18)); stroke: var(--hot-border, var(--accent)); }
+  #screenui .sc-hot[data-on="false"] { cursor: not-allowed; }
+  #screenui .sc-btn { position: absolute; padding: 0 24px; font-size: 40px; background: rgba(14,17,23,.92); border: 2px solid rgba(255,255,255,.25);
+    border-radius: 8px; color: inherit; font-family: var(--vn-font); cursor: pointer; }
+  #screenui .sc-btn:hover, #screenui .sc-btn[data-active="true"] { border-color: var(--accent); }
+  #screenui .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
+  #screenui .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  #screenui .sc-hover[hidden] { display: none; }
+  #screenui [data-hover][data-active="true"], #screenui .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
+  #screenui .sc-poly[data-hover][data-active="true"] { fill: transparent; stroke: transparent; }
+  #screenui .sc-mask[data-hover][data-active="true"] { background: transparent; }
+  #screenui [data-tint][data-active="true"] { background: var(--tint); border-color: transparent; }
+  #screenui .sc-poly[data-tint][data-active="true"] { fill: var(--tint); stroke: transparent; }
+  #screenui [data-scale] { transform-origin: center; transform-box: fill-box; transition: transform .12s; }
+  #screenui [data-scale][data-active="true"] { transform: scale(var(--scale)); }
+  #stage[data-reduce-motion="true"] [data-scale] { transition: none; }
+  #screenui .sc-tip { position: absolute; display: none; padding: 8px 20px; font: 34px var(--tip-font, var(--vn-font)); color: var(--tip-color, inherit); background: var(--tip-bg, rgba(10,13,19,.92));
+    border: 2px solid rgba(255,255,255,.2); border-radius: 6px; white-space: nowrap; pointer-events: none; }
+  #screenui .sc-tip[data-show="true"] { display: block; }
+  /* HUD (hud on): the same elements as a screen, but the layers let clicks through except on the elements themselves. */
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) { position: absolute; inset: 0; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) > div { position: absolute; inset: 0; pointer-events: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll { position: absolute; overflow: hidden auto; overscroll-behavior: contain; pointer-events: auto; scrollbar-color: var(--bar-thumb, rgba(255,255,255,.4)) var(--bar-track, transparent); scrollbar-width: thin; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll[data-bar="off"] { scrollbar-width: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll[data-bar="off"]::-webkit-scrollbar { display: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll-in { position: relative; width: 100%; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-img { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-text { position: absolute; font: 40px var(--vn-font); color: #fff; white-space: pre-wrap; text-shadow: 0 2px 8px #000; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot { position: absolute; padding: 0; background: transparent; border: var(--hot-border-width, 2px) solid transparent; border-radius: 0; cursor: var(--cursor, pointer); pointer-events: auto; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-ellipse { border-radius: 50%; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-mask { border: 0; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-mask[data-masked="true"] { -webkit-mask: var(--mask) center / 100% 100% no-repeat; mask: var(--mask) center / 100% 100% no-repeat; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly { fill: transparent; stroke: transparent; stroke-width: var(--hot-border-width, 3px); pointer-events: all; cursor: pointer; outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot:focus-visible { background: var(--hot-fill, rgba(255,255,255,.18)); border-color: var(--hot-border, var(--accent)); outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly:focus-visible { fill: var(--hot-fill, rgba(255,255,255,.18)); stroke: var(--hot-border, var(--accent)); }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn { position: absolute; padding: 0 24px; font-size: 40px; background: rgba(14,17,23,.92); border: 2px solid rgba(255,255,255,.25);
+    border-radius: 8px; color: inherit; font-family: var(--vn-font); cursor: pointer; pointer-events: auto; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn:hover, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn:focus-visible { border-color: var(--accent); outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-slider { position: absolute; margin: 0; accent-color: var(--accent); pointer-events: auto; cursor: pointer; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hover[hidden] { display: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-hover]:focus-visible, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-hover]:focus-visible { fill: transparent; stroke: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-tint]:focus-visible { background: var(--tint); border-color: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-tint]:focus-visible { fill: var(--tint); stroke: transparent; }
+  :is(#hudui, #quickui, #titleui) [data-scale] { transform-origin: center; transform-box: fill-box; transition: transform .12s; }
+  :is(#hudui, #quickui, #titleui) [data-scale][data-active="true"], :is(#hudui, #quickui, #titleui) [data-scale]:focus-visible { transform: scale(var(--scale)); }
+  :is(#hudui, #quickui, #titleui) .sc-tip { position: absolute; display: none; padding: 8px 20px; font: 34px var(--tip-font, var(--vn-font)); color: var(--tip-color, inherit); background: var(--tip-bg, rgba(10,13,19,.92));
+    border: 2px solid rgba(255,255,255,.2); border-radius: 6px; white-space: nowrap; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui) .sc-tip[data-show="true"] { display: block; }
+  #menu button { width: 1000px; padding: 22px 32px; font-size: 40px; background: rgba(14,17,23,.92); border: 2px solid rgba(255,255,255,.25);
+    border-radius: 8px; text-align: left; font-family: var(--vn-font); }
+  #menu button:hover { border-color: var(--accent); }
+  #menu .prompt { font: 44px var(--vn-font); text-shadow: 0 2px 8px #000; }
+  #menu .timer { width: 1000px; height: 10px; border-radius: 5px; background: rgba(255,255,255,.2); overflow: hidden; }
+  #menu .timer i { display: block; height: 100%; background: var(--accent); transform-origin: left; }
+  #menu .timer[data-low="true"] i { background: var(--warn); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #menu button[data-seen="true"] { opacity: .7; }
+  #menu button[data-seen="true"]::after { content: " \2713"; opacity: .8; }
+  #menu button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+  #menu button[aria-disabled="true"]:hover { border-color: rgba(255,255,255,.25); }
+  #menu button .reason { display: block; margin-top: 6px; font-size: 28px; font-style: italic; opacity: .85; }
+  #menu input { width: 700px; padding: 18px 28px; font: 44px var(--vn-font); color: inherit; background: rgba(14,17,23,.92);
+    border: 2px solid var(--accent); border-radius: 8px; text-align: center; outline: none; }
+  #menu .osk { display: none; flex-direction: column; gap: 10px; align-items: center; }
+  #stage[data-pad="true"] #menu .osk { display: flex; }
+  #menu .osk div { display: flex; gap: 10px; }
+  #menu .osk button { width: 92px; padding: 12px 0; font-size: 40px; text-align: center; text-transform: lowercase; }
+  #menu .osk[data-caps="true"] button { text-transform: uppercase; }
+  #menu .osk button.space { width: 480px; text-transform: none; } #menu .osk button.wide { width: 160px; }
+  #menu input + .osk + button, #menu input + button { width: 240px; text-align: center; }
+  #hud { position: absolute; right: 24px; top: 20px; font-size: 24px; color: rgba(255,255,255,.55); text-align: right; }
+  #ended { position: absolute; inset: 50% 0 auto 0; transform: translateY(-50%); text-align: center; font-size: 28px; color: rgba(255,255,255,.5); display: none; }
+
+  .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 40px; cursor: default; }
+  .screen[hidden] { display: none; }
+  .screen:not([hidden]) { animation: screen-in .22s ease-out; }
+  @keyframes screen-in { from { opacity: 0; } }
+  #stage[data-reduce-motion="true"] .screen { animation: none; }
+  /* splash cards and the black curtain between the title screen and the game */
+  #splash { position: absolute; inset: 0; background: #000; cursor: default; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 40px; z-index: 50; }
+  #splash[hidden] { display: none; }
+  #splash > * { opacity: 0; transition: opacity var(--splash-fade, .6s); }
+  #splash[data-show="true"] > * { opacity: 1; }
+  #splashImg { width: 100%; flex: 1; background: center / contain no-repeat; }
+  #splashImg[hidden] { display: none; }
+  #splashText { margin: 0; padding: 0 120px; font: 600 64px/1.2 var(--vn-font); color: #fff; text-align: center; }
+  #splashText:empty { display: none; }
+  #curtain { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 40; transition: opacity .4s; }
+  #curtain[data-show="true"] { opacity: 1; pointer-events: auto; }
+  .screen.dim { background: rgba(4,6,10,.62); }
+  #title { justify-content: space-between; padding: 60px 160px 70px;
+    background: linear-gradient(to bottom, rgba(0,0,0,.25), rgba(0,0,0,0) 35%, rgba(0,0,0,.55)); }
+  #gameTitle { margin: 0; font: 600 112px/1.1 var(--vn-font);
+    text-shadow: 0 4px 24px rgba(0,0,0,.6); text-align: center; padding: 0 80px; }
+  #title[data-align="left"] { align-items: flex-start; }
+  #title[data-align="right"] { align-items: flex-end; }
+  #title[data-align="left"] #gameTitle { text-align: left; padding: 0; }
+  #title[data-align="right"] #gameTitle { text-align: right; padding: 0; }
+  :is(#pause, #options, #saves, #history, #gallery, #viewer, #musicRoom, #chapters)[data-custom="true"] > * { display: none; }
+  #title[data-custom="true"] { background: none; }
+  #title[data-custom="true"] > * { display: none; }
+  .menu-col { display: flex; flex-direction: column; gap: 18px; width: 600px; }
+  .screen button, .screen select { font: 40px var(--vn-font); color: var(--text);
+    background: rgba(14,17,23,.86); border: 2px solid rgba(255,255,255,.22); border-radius: 8px; padding: 16px 32px; cursor: pointer; }
+  .menu-col button { text-align: left; }
+  #titleNav { min-height: 0; overflow-y: auto; padding: 4px; margin: -4px; scrollbar-width: thin; }
+  #titleNav { gap: 12px; }
+  #titleNav button { padding: 10px 32px; }
+  #gameTitle { flex: none; }
+  .screen button:hover:not(:disabled), .screen select:hover { border-color: var(--accent); }
+  .screen button:disabled { opacity: .4; cursor: default; }
+  #continueInfo { display: block; font-size: 24px; color: var(--muted); margin-top: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #continueInfo:empty { display: none; }
+  .panel { width: 1100px; background: rgba(14,17,23,.95); border: 2px solid rgba(255,255,255,.18); border-radius: 10px;
+    padding: 32px 60px; font-size: 34px; display: flex; flex-direction: column; gap: 20px; max-height: 1040px; overflow-y: auto; }
+  .panel h2 { margin: 0; font: 600 60px var(--vn-font); }
+  .opt-tabs { display: flex; gap: 12px; border-bottom: 2px solid rgba(255,255,255,.18); }
+  .opt-tabs button { font-size: 32px; padding: 10px 28px; border-radius: 8px 8px 0 0; border-bottom: 0; margin-bottom: -2px; opacity: .65; }
+  .opt-tabs button[aria-selected="true"] { opacity: 1; border-color: var(--accent); background: rgba(95,209,195,.14); }
+  .opt-pages { display: grid; } /* all pages share one cell, so the panel keeps the height of the tallest */
+  .opt-page { grid-area: 1 / 1; display: grid; grid-template-columns: auto 1fr 5ch; gap: 18px 32px; align-content: start; align-items: center; }
+  .opt-page[inert] { visibility: hidden; }
+  .panel input[type=range] { width: 100%; height: 34px; accent-color: var(--accent); }
+  .panel output { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .panel select { font-size: 32px; padding: 8px 18px; justify-self: start; }
+  .panel .actions { display: flex; justify-content: space-between; gap: 20px; margin-top: 12px; }
+  .panel .actions button { font-size: 34px; padding: 12px 28px; }
+
+  #quick { position: absolute; left: 160px; right: 160px; bottom: 10px; display: flex; justify-content: center; gap: 6px;
+    font: 24px system-ui, "Segoe UI", sans-serif; }
+  #quick[hidden] { display: none; }
+  #quick[data-position="top"] { bottom: auto; top: 14px; }
+  #quick[data-align="left"] { justify-content: flex-start; }
+  #quick[data-align="right"] { justify-content: flex-end; }
+  #quick button { font: inherit; color: rgba(230,233,239,.7); background: transparent; border: 0; padding: 6px 12px;
+    border-radius: 6px; cursor: pointer; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.6); }
+  #quick button:hover { color: var(--text); background: rgba(255,255,255,.08); }
+  #quick button[aria-pressed="true"] { color: var(--accent); }
+  #stage[data-ui-hidden="true"] #box, #stage[data-ui-hidden="true"] #nvl, #stage[data-ui-hidden="true"] #quick, #stage[data-ui-hidden="true"] #quickui, #stage[data-ui-hidden="true"] #menu,
+  #stage[data-ui-hidden="true"] #hud { visibility: hidden; }
+  #toast { position: absolute; left: 50%; top: 40px; translate: -50% 0; padding: 12px 28px; border-radius: 8px;
+    background: rgba(14,17,23,.9); border: 2px solid rgba(255,255,255,.18); font: 28px system-ui, sans-serif;
+    opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast[data-show="true"] { opacity: 1; }
+  #caption { position: absolute; left: 50%; top: 110px; translate: -50% 0; max-width: 80%; padding: 6px 18px; border-radius: 6px;
+    background: rgba(0,0,0,.78); color: #fff; font: italic 26px system-ui, sans-serif; text-align: center;
+    opacity: 0; transition: opacity .15s; pointer-events: none; }
+  #caption[data-show="true"] { opacity: 1; }
+  #stage[data-ui-hidden="true"] #caption { visibility: hidden; }
+  html[data-studio] #caption { display: none; }
+  #loading { position: absolute; left: 50%; bottom: 60px; translate: -50% 0; width: 520px; height: 8px; border-radius: 4px;
+    background: rgba(255,255,255,.18); opacity: 0; transition: opacity .25s; pointer-events: none; overflow: hidden; }
+  #loading[data-show="true"] { opacity: 1; }
+  #loading i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .history-panel { width: 1400px; height: 900px; background: rgba(14,17,23,.96); border: 2px solid rgba(255,255,255,.18);
+    border-radius: 10px; padding: 30px 40px; display: flex; flex-direction: column; gap: 20px; }
+  .history-panel h2 { margin: 0; font: 600 52px var(--vn-font); }
+  #historyList { flex: 1; overflow-y: auto; margin: 0; padding: 0 12px 0 0; list-style: none;
+    font: 34px/1.45 var(--vn-font); }
+  #historyList li { padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  #historyList .who { display: block; font: 600 26px system-ui, sans-serif; margin-bottom: 4px; }
+  #historyList .empty { color: var(--muted); border: 0; }
+  .history-panel footer { display: flex; justify-content: flex-end; }
+  .saves-panel { width: 1360px; background: rgba(14,17,23,.96); border: 2px solid rgba(255,255,255,.18); border-radius: 10px;
+    padding: 30px 40px; display: flex; flex-direction: column; gap: 20px; }
+  .saves-panel header { display: flex; align-items: baseline; gap: 24px; }
+  .saves-panel h2 { margin: 0; font: 600 52px var(--vn-font); }
+  #savesNote { color: var(--bad); font-size: 28px; }
+  .slot-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+  .slot { position: relative; }
+  .screen .slot-main { width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 14px; text-align: left;
+    font: 26px/1.3 system-ui, "Segoe UI", sans-serif; }
+  .slot .thumb { aspect-ratio: 16 / 9; border-radius: 6px; background: #0b0e14 center / cover no-repeat;
+    display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .slot-head { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
+  .slot-head .when { font-weight: 400; color: var(--muted); }
+  .slot .line { color: #c9ced8; min-height: 2.6em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .screen .slot .del { position: absolute; top: 24px; right: 24px; font: 30px/1 system-ui, sans-serif; padding: 6px 14px; }
+  .saves-panel footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+  .pages { display: flex; gap: 10px; }
+  .screen .pages button { font: 30px system-ui, sans-serif; padding: 8px 0; width: 72px; }
+  .pages button[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
+  #galleryCount, #musicCount, #chapterCount { color: var(--muted); font-size: 30px; }
+  .row-list { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow-y: auto; }
+  .screen .row-list .row { font: 30px system-ui, sans-serif; padding: 14px 24px; text-align: left; }
+  .row-list .row[aria-current] { border-color: var(--accent); color: var(--accent); }
+  #musicNow { color: var(--muted); font-size: 28px; }
+  #galleryCount { color: var(--muted); font-size: 30px; }
+  .gallery-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; max-height: 760px; overflow-y: auto; }
+  .screen .tile { display: flex; flex-direction: column; gap: 8px; padding: 10px; font: 24px system-ui, sans-serif; text-align: left; }
+  .tile .thumb { aspect-ratio: 16 / 9; border-radius: 6px; background: #0b0e14 center / cover no-repeat; display: flex;
+    align-items: center; justify-content: center; color: var(--muted); font-size: 48px; }
+  .tile .thumb.named { font-size: 22px; padding: 0 12px; text-align: center; }
+  .tile .tile-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #viewer { background: #000; cursor: pointer; }
+  #viewerImg { position: absolute; inset: 0; }
+  #viewerTitle { position: absolute; left: 0; right: 0; bottom: 24px; text-align: center; font: 28px system-ui, sans-serif;
+    color: rgba(255,255,255,.75); text-shadow: 0 1px 4px #000; white-space: pre; }
+  .confirm { grid-template-columns: 1fr; width: 960px; }
+  .confirm p { margin: 0; font: 40px/1.35 var(--vn-font); }
+
+  html[data-mode="game"] #bar, html[data-mode="game"] #diag, html[data-mode="game"] #debug { display: none; }
+  html[data-mode="game"] #viewport { inset: 0; }
+  /* Animation studio (editor dialog): only the character on a plain backdrop. */
+  html[data-studio] #bar, html[data-studio] #diag, html[data-studio] #debug, html[data-studio] #hud, html[data-studio] #quick, html[data-studio] #quickui,
+  html[data-studio] #toast, html[data-studio] #menu, html[data-studio] #ended { display: none; }
+  html[data-studio] #viewport { inset: 0; }
+  #diag { position: absolute; right: 0; top: 44px; bottom: 0; width: min(460px, 100%); background: var(--panel); border-left: 1px solid var(--line);
+    padding: 12px 14px; overflow: auto; display: none; z-index: 9; }
+  #diag[data-visible="true"] { display: block; }
+  #diag h2 { font-size: 14px; margin: 0 0 8px; }
+  #diag ul { list-style: none; margin: 0; padding: 0; }
+  #diag li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  #diag .loc { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #diag .error { color: var(--bad); } #diag .warning { color: var(--warn); }
+  #diag p { color: var(--muted); }
+  #debug { position: absolute; right: 0; top: 44px; bottom: 0; width: min(460px, 100%); background: var(--panel); border-left: 1px solid var(--line);
+    padding: 12px 14px; display: none; flex-direction: column; gap: 8px; z-index: 9; }
+  #debug[data-visible="true"] { display: flex; }
+  #debug h2 { font-size: 14px; margin: 0; }
+  #debug .quick { display: flex; flex-wrap: wrap; gap: 6px; }
+  #debug .log { flex: 1; min-height: 0; overflow: auto; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 8px;
+    font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #debug .log .in { color: var(--accent); } #debug .log .err { color: var(--bad); } #debug .log .out { color: var(--text); }
+  #debug input { width: 100%; background: var(--ink); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+    font: 13px ui-monospace, Consolas, monospace; }
+  /* The first script error, over the stage: the story may stop at it and leave the stage black. */
+  #errBanner { position: absolute; left: 0; right: 0; top: 44px; z-index: 8; display: none; width: 100%; text-align: left; cursor: pointer;
+    background: rgba(40, 8, 12, .94); color: #ffd7d7; border: 0; border-bottom: 2px solid var(--bad); padding: 8px 14px; font: 13px/1.4 system-ui, sans-serif; }
+  #errBanner[data-visible="true"] { display: block; }
+  #errBanner b { color: var(--bad); }
+  html[data-mode="game"] #errBanner, html[data-studio] #errBanner { display: none; }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <span class="title">VN preview</span>
+    <span id="status">loading...</span>
+    <label>Language <select id="lang" aria-label="Language"></select></label>
+    <button id="restart" type="button">Restart</button>
+    <button id="diagBtn" type="button" data-errors="0" data-warns="0">Problems: 0</button>
+    <button id="debugBtn" type="button">Debug</button>
+  </div>
+  <div id="viewport">
+    <div id="stage">
+      <div id="hud"></div>
+      <div id="hudui" data-visible="false"></div>
+      <div id="box" data-visible="false" data-done="false"><div id="name"></div><div id="text"></div></div>
+      <div id="nvl" data-visible="false" data-done="false"><div id="nvl-page"></div></div>
+      <div id="menu" data-visible="false"></div>
+      <div id="screenui" data-visible="false"></div>
+      <div id="ended">End of script. Click to restart.</div>
+      <div id="quickui" data-visible="false"></div>
+      <nav id="quick" aria-label="Quick menu" hidden>
+        <button type="button" data-q="back" data-ui="q_back" title="Mouse wheel up / Page Up">Back</button>
+        <button type="button" data-q="history" data-ui="q_history" title="L">History</button>
+        <button type="button" data-q="auto" data-ui="q_auto" title="A" aria-pressed="false">Auto</button>
+        <button type="button" data-q="skip" data-ui="q_skip" title="Tab, or hold Ctrl" aria-pressed="false">Skip</button>
+        <button type="button" data-q="qsave" data-ui="q_qsave" title="F5">Q.Save</button>
+        <button type="button" data-q="qload" data-ui="q_qload" title="F9">Q.Load</button>
+        <button type="button" data-q="save" data-ui="q_save">Save</button>
+        <button type="button" data-q="load" data-ui="q_load">Load</button>
+        <button type="button" data-q="options" data-ui="q_options">Options</button>
+        <button type="button" data-q="voice" data-ui="q_voice" title="V" hidden>Voice</button>
+        <button type="button" data-q="hide" data-ui="q_hide" title="H / middle click">Hide</button>
+      </nav>
+      <div id="toast" role="status"></div>
+      <div id="menuLive" class="sr-only" role="status"></div>
+      <div id="caption" role="status" aria-live="polite"></div>
+      <div id="loading" role="progressbar" aria-label="Loading"><i></i></div>
+      <div id="curtain" aria-hidden="true"></div>
+      <div id="splash" hidden aria-label="Splash"><div id="splashImg"></div><p id="splashText"></p></div>
+
+      <div id="title" class="screen" hidden>
+        <h1 id="gameTitle"></h1>
+        <nav id="titleNav" class="menu-col" aria-label="Main menu">
+          <button id="newGame" type="button" data-ui="new_game">New game</button>
+          <button id="continue" type="button"><span data-ui="continue">Continue</span><span id="continueInfo"></span></button>
+          <button id="titleLoad" type="button" data-ui="load">Load</button>
+          <button id="titleGallery" type="button" data-ui="gallery">Gallery</button>
+          <button id="titleMusic" type="button" data-ui="music_room">Music</button>
+          <button id="titleChapters" type="button" data-ui="chapters">Chapters</button>
+          <button id="titleOptions" type="button" data-ui="options">Options</button>
+        </nav>
+      </div>
+      <div id="titleui" data-visible="false"></div>
+      <div id="pause" class="screen dim" hidden>
+        <nav class="menu-col" aria-label="Pause menu">
+          <button id="resume" type="button" data-ui="resume">Resume</button>
+          <button id="pauseSave" type="button" data-ui="save">Save</button>
+          <button id="pauseLoad" type="button" data-ui="load">Load</button>
+          <button id="pauseOptions" type="button" data-ui="options">Options</button>
+          <button id="toTitle" type="button" data-ui="main_menu">Main menu</button>
+        </nav>
+      </div>
+      <div id="pauseui" data-visible="false"></div>
+      <div id="options" class="screen dim" hidden>
+        <div class="panel" role="dialog" aria-labelledby="optTitle">
+          <h2 id="optTitle" data-ui="options">Options</h2>
+          <div class="opt-tabs" role="tablist" aria-label="Options">
+            <button id="tabAudio" type="button" role="tab" aria-controls="pageAudio" data-tab="audio" data-ui="tab_audio">Audio</button>
+            <button id="tabGame" type="button" role="tab" aria-controls="pageGame" data-tab="game" data-ui="tab_game">Game</button>
+            <button id="tabAccess" type="button" role="tab" aria-controls="pageAccess" data-tab="access" data-ui="tab_access">Accessibility</button>
+          </div>
+          <div class="opt-pages">
+            <div id="pageAudio" class="opt-page" role="tabpanel" aria-labelledby="tabAudio" data-page="audio">
+              <label for="optMaster" data-ui="master_volume">Master volume</label>
+              <input id="optMaster" type="range" min="0" max="1" step="0.05"><output id="optMasterOut"></output>
+              <label for="optMusic" data-ui="music_volume">Music</label>
+              <input id="optMusic" type="range" min="0" max="1" step="0.05"><output id="optMusicOut"></output>
+              <label for="optSound" data-ui="sound_volume">Sound</label>
+              <input id="optSound" type="range" min="0" max="1" step="0.05"><output id="optSoundOut"></output>
+              <label for="optVoice" data-ui="voice_volume">Voice</label>
+              <input id="optVoice" type="range" min="0" max="1" step="0.05"><output id="optVoiceOut"></output>
+              <label for="optBlips" data-ui="text_sounds">Text sounds</label>
+              <select id="optBlips">
+                <option value="on" data-ui="on">On</option><option value="off" data-ui="off">Off</option>
+              </select><span></span>
+            </div>
+            <div id="pageGame" class="opt-page" role="tabpanel" aria-labelledby="tabGame" data-page="game">
+              <label for="optText" data-ui="text_speed">Text speed</label>
+              <input id="optText" type="range" min="10" max="100" step="5"><output id="optTextOut"></output>
+              <label for="optAuto" data-ui="auto_advance">Auto speed</label>
+              <select id="optAuto">
+                <option value="3" data-ui="slow">Slow</option>
+                <option value="1.5" data-ui="normal">Normal</option><option value="0.6" data-ui="fast">Fast</option>
+              </select><span></span>
+              <label for="optSkip" data-ui="skip_mode">Skip</label>
+              <select id="optSkip">
+                <option value="read" data-ui="skip_read">Read text only</option><option value="all" data-ui="skip_all">All text</option>
+              </select><span></span>
+              <label for="optLang" data-ui="language">Language</label>
+              <select id="optLang"></select><span></span>
+            </div>
+            <div id="pageAccess" class="opt-page" role="tabpanel" aria-labelledby="tabAccess" data-page="access">
+              <label for="optSize" data-ui="text_size">Text size</label>
+              <input id="optSize" type="range" min="0.8" max="1.5" step="0.1"><output id="optSizeOut"></output>
+              <label for="optBox" data-ui="box_opacity">Text box opacity</label>
+              <input id="optBox" type="range" min="0.3" max="1" step="0.05"><output id="optBoxOut"></output>
+              <label for="optMotion" data-ui="reduce_motion">Reduce motion</label>
+              <select id="optMotion">
+                <option value="off" data-ui="off">Off</option><option value="on" data-ui="on">On</option>
+              </select><span></span>
+              <label for="optCaptions" data-ui="sound_captions">Sound captions</label>
+              <select id="optCaptions">
+                <option value="off" data-ui="off">Off</option><option value="on" data-ui="on">On</option>
+              </select><span></span>
+              <label for="optTimed" data-ui="timed_choices">Timed choices</label>
+              <select id="optTimed">
+                <option value="normal" data-ui="normal">Normal</option><option value="extended" data-ui="timed_extended">Extended (3x time)</option><option value="off" data-ui="timed_off">No time limit</option>
+              </select><span></span>
+            </div>
+          </div>
+          <div class="actions">
+            <button id="optFull" type="button" data-ui="fullscreen">Fullscreen</button>
+            <button id="optBack" type="button" data-ui="back">Back</button>
+          </div>
+        </div>
+      </div>
+      <div id="optionsui" data-visible="false"></div>
+      <div id="saves" class="screen dim" hidden>
+        <div class="saves-panel" role="dialog" aria-labelledby="savesTitle">
+          <header><h2 id="savesTitle"></h2><span id="savesNote" role="status"></span></header>
+          <div id="slotGrid" class="slot-grid"></div>
+          <footer>
+            <nav id="savePages" class="pages" aria-label="Pages"></nav>
+            <button id="savesBack" type="button" data-ui="back">Back</button>
+          </footer>
+        </div>
+      </div>
+      <div id="savesui" data-visible="false"></div>
+      <div id="history" class="screen dim" hidden>
+        <div class="history-panel" role="dialog" aria-labelledby="historyTitle">
+          <h2 id="historyTitle" data-ui="history">History</h2>
+          <ol id="historyList"></ol>
+          <footer><button id="historyBack" type="button" data-ui="back">Back</button></footer>
+        </div>
+      </div>
+      <div id="historyui" data-visible="false"></div>
+      <div id="gallery" class="screen dim" hidden>
+        <div class="saves-panel" role="dialog" aria-labelledby="galleryTitle">
+          <header><h2 id="galleryTitle" data-ui="gallery">Gallery</h2><span id="galleryCount"></span></header>
+          <div id="galleryGrid" class="gallery-grid"></div>
+          <footer><span></span><button id="galleryBack" type="button" data-ui="back">Back</button></footer>
+        </div>
+      </div>
+      <div id="galleryui" data-visible="false"></div>
+      <div id="musicRoom" class="screen dim" hidden>
+        <div class="saves-panel" role="dialog" aria-labelledby="musicTitle">
+          <header><h2 id="musicTitle" data-ui="music_room">Music</h2><span id="musicCount"></span></header>
+          <div id="musicList" class="row-list"></div>
+          <footer><span id="musicNow"></span><span><button id="musicStop" type="button" data-ui="stop">Stop</button> <button id="musicBack" type="button" data-ui="back">Back</button></span></footer>
+        </div>
+      </div>
+      <div id="musicui" data-visible="false"></div>
+      <div id="chapters" class="screen dim" hidden>
+        <div class="saves-panel" role="dialog" aria-labelledby="chaptersTitle">
+          <header><h2 id="chaptersTitle" data-ui="chapters">Chapters</h2><span id="chapterCount"></span></header>
+          <div id="chapterList" class="row-list"></div>
+          <footer><span></span><button id="chaptersBack" type="button" data-ui="back">Back</button></footer>
+        </div>
+      </div>
+      <div id="chaptersui" data-visible="false"></div>
+      <div id="viewer" class="screen" hidden tabindex="-1" aria-label="Image viewer">
+        <div id="viewerImg"></div>
+        <div id="viewerTitle"></div>
+      </div>
+      <div id="viewerui" data-visible="false"></div>
+      <div id="confirm" class="screen dim" hidden>
+        <div class="panel confirm" role="alertdialog" aria-labelledby="confirmText">
+          <p id="confirmText"></p>
+          <div class="actions">
+            <button id="confirmNo" type="button" data-ui="no" autofocus>No</button>
+            <button id="confirmYes" type="button" data-ui="yes">Yes</button>
+          </div>
+        </div>
+      </div>
+      <div hidden>
+        <span data-ui="instant">Instant</span>
+        <span data-ui="slot">Slot</span>
+        <span data-ui="page">Page</span>
+        <span data-ui="auto">Autosave</span>
+        <span data-ui="auto_short">A</span>
+        <span data-ui="quick">Quick save</span>
+        <span data-ui="locked">Locked</span>
+        <span data-ui="now_playing">Now playing</span>
+        <span data-ui="timed_announce">{n} seconds to choose</span>
+        <span data-ui="quick_short">Q</span>
+        <span data-ui="choice_short">C</span>
+        <span data-ui="choice_saves">Choice autosaves</span>
+        <span data-ui="choice">Before choice</span>
+        <span data-ui="history_empty">Nothing yet.</span>
+        <span data-ui="toast_qsaved">Quick saved</span>
+        <span data-ui="toast_no_qsave">No quick save yet</span>
+        <span data-ui="toast_skip_unread">Skip stops at unread text (see Options)</span>
+        <span data-ui="toast_pad_on">Gamepad connected</span>
+        <span data-ui="toast_pad_nonstandard">Gamepad connected, but with a non-standard layout (buttons may not match)</span>
+        <span data-ui="toast_pad_off">Gamepad disconnected</span>
+        <span data-ui="confirm_qload">Load the quick save? Progress since then will be lost.</span>
+        <span data-ui="empty_slot">Empty</span>
+        <span data-ui="delete">Delete save</span>
+        <span data-ui="save_failed">Could not save: browser storage is full or unavailable.</span>
+        <span data-ui="confirm_overwrite">Overwrite this save?</span>
+        <span data-ui="confirm_load">Load this save? Progress since your last save will be lost.</span>
+        <span data-ui="confirm_old_save">This save was made with an older version of the game and may not load correctly. Load it anyway?</span>
+        <span data-ui="confirm_delete">Delete this save?</span>
+        <span data-ui="confirm_title">Return to the main menu? Progress since your last save will be lost.</span>
+      </div>
+    </div>
+  </div>
+  <button id="errBanner" type="button" data-visible="false" title="Go to this line"></button>
+  <aside id="diag" data-visible="false" aria-label="Problems"></aside>
+  <aside id="debug" data-visible="false" aria-label="Debug"></aside>
+  <script type="importmap">{ "imports": { "pixi.js": "./vendor/pixi/pixi.min.mjs" } }</script>
+  <script type="module" src="dist/preview/preview.js"></script>
+</body>
+</html>

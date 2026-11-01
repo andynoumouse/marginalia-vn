@@ -1,0 +1,329 @@
+// Pure edits of a character's keyframe animations (rig.json `animations`) for the editor's animation dialog.
+// Every function returns new objects and leaves its input alone; keys stay sorted by `t`.
+
+import { ANCHORS, anchorToken, type Anchor, type Anchors } from './anchor.js';
+import { BUILTIN_POSITIONS, type Positions } from './positions.js';
+import { ANIMS, KEY_CHANNELS, keyframeFn, keyframeParts, type AnimDef, type KeyChannel, type KeyDef, type Offset } from './anim.js';
+
+export type Anims = Record<string, AnimDef>;
+
+const round4 = (n: number) => Math.round(n * 10000) / 10000;
+const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
+const sortKeys = (keys: KeyDef[]) => [...keys].sort((a, b) => a.t - b.t);
+
+/** The `Offset` field a key channel drives. */
+const OFFSET_FIELD: Record<KeyChannel, keyof Offset> = { x: 'dx', y: 'dy', scale: 'sy', rot: 'rot' };
+
+/** The parts that animation `def` has keys for, in order of first appearance. */
+export function animParts(def: AnimDef): string[] {
+  return [...new Set((def.keys ?? []).flatMap(k => (typeof k.part === 'string' ? [k.part] : [])))];
+}
+
+/** `steps + 1` values of one channel of `def` at evenly spaced progress 0-1, for the body or for the part `part`. */
+export function sampleChannel(def: AnimDef, ch: KeyChannel, part: string | null, steps = 60): number[] {
+  const body = keyframeFn(def), parts = keyframeParts(def);
+  const out: number[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const o = part === null ? body(i / steps) : parts?.(i / steps)[part];
+    out.push(o?.[OFFSET_FIELD[ch]] ?? 0);
+  }
+  return out;
+}
+
+/** Keys of `def` as a pair of (index, key) for the body (`part` null) or one part. */
+export function keysOf(def: AnimDef, part: string | null): { index: number; key: KeyDef }[] {
+  return (def.keys ?? []).flatMap((key, index) => ((key.part ?? null) === part ? [{ index, key }] : []));
+}
+
+/** `def` with a key added. A key at the same `t` (within 0.0005) for the same target gets the channels merged in. Returns the index it ended up at. */
+export function addKey(def: AnimDef, key: KeyDef): { def: AnimDef; index: number } {
+  const add = { ...key, t: round4(clamp01(key.t)) };
+  const keys = [...(def.keys ?? [])];
+  const same = keys.findIndex(k => (k.part ?? null) === (add.part ?? null) && Math.abs(k.t - add.t) < 0.0005);
+  if (same >= 0) keys[same] = { ...keys[same], ...add, t: keys[same].t };
+  else keys.push(add);
+  const sorted = sortKeys(keys);
+  return { def: { ...def, keys: sorted }, index: sorted.indexOf(same >= 0 ? keys[same] : add) };
+}
+
+/** `def` with key `index` changed by `patch` (an undefined channel in the patch removes it). Returns the key's new index, as a change of `t` may reorder. */
+export function setKey(def: AnimDef, index: number, patch: Partial<KeyDef>): { def: AnimDef; index: number } {
+  const keys = [...(def.keys ?? [])];
+  if (!keys[index]) return { def, index };
+  const next: KeyDef = { ...keys[index], ...patch };
+  for (const [k, v] of Object.entries(next)) if (v === undefined) delete (next as Record<string, unknown>)[k];
+  if (patch.t !== undefined) next.t = round4(clamp01(patch.t));
+  for (const ch of KEY_CHANNELS) if (next[ch] !== undefined) next[ch] = round4(next[ch]!);
+  keys[index] = next;
+  const sorted = sortKeys(keys);
+  return { def: { ...def, keys: sorted }, index: sorted.indexOf(next) };
+}
+
+/** `def` without key `index`. */
+export function deleteKey(def: AnimDef, index: number): AnimDef {
+  return { ...def, keys: (def.keys ?? []).filter((_, i) => i !== index) };
+}
+
+/** `def` with a new default length (seconds); anything not above 0 removes it (1 second applies). */
+export function setDur(def: AnimDef, dur: number): AnimDef {
+  const { dur: _old, ...rest } = def;
+  return Number.isFinite(dur) && dur > 0 ? { dur: round4(dur), ...rest } : rest as AnimDef;
+}
+
+/** A name from `base` that `anims` does not have yet: `base`, `base2`, `base3`... */
+export function uniqueName(anims: Anims, base: string): string {
+  if (!Object.hasOwn(anims, base)) return base;
+  let n = 2;
+  while (Object.hasOwn(anims, `${base}${n}`)) n++;
+  return `${base}${n}`;
+}
+
+/** `anims` plus an empty animation; returns the name it got. */
+export function newAnim(anims: Anims, name = 'anim'): { anims: Anims; name: string } {
+  const got = uniqueName(anims, name.trim() || 'anim');
+  return { anims: { ...anims, [got]: { dur: 1, keys: [] } }, name: got };
+}
+
+/** `anims` plus a copy of `name`; returns the copy's name. */
+export function duplicateAnim(anims: Anims, name: string): { anims: Anims; name: string } | null {
+  if (!Object.hasOwn(anims, name)) return null;
+  const got = uniqueName(anims, `${name}-copy`);
+  return { anims: { ...anims, [got]: structuredClone(anims[name]) }, name: got };
+}
+
+/** `anims` with `from` called `to`, keeping the order; null when `to` is empty or taken, or `from` is missing. */
+export function renameAnim(anims: Anims, from: string, to: string): Anims | null {
+  to = to.trim();
+  if (!to || !Object.hasOwn(anims, from) || (to !== from && Object.hasOwn(anims, to))) return null;
+  return Object.fromEntries(Object.entries(anims).map(([k, v]) => [k === from ? to : k, v]));
+}
+
+/** `anims` without `name`. */
+export function deleteAnim(anims: Anims, name: string): Anims {
+  return Object.fromEntries(Object.entries(anims).filter(([k]) => k !== name));
+}
+
+/** A preset turned into editable keys: its motion sampled `steps` times with linear easing. Null for an unknown name. */
+export function bakePreset(name: string, steps = 16): AnimDef | null {
+  if (!Object.hasOwn(ANIMS, name)) return null;
+  const preset = ANIMS[name];
+  const samples = Array.from({ length: steps + 1 }, (_, i) => preset.fn(i / steps));
+  const used = KEY_CHANNELS.filter(ch => samples.some(s => Math.abs(s[OFFSET_FIELD[ch]] ?? 0) > 1e-6));
+  const keys: KeyDef[] = [];
+  for (let i = 1; i < steps; i++) {
+    const key: KeyDef = { t: round4(i / steps), ease: 'linear' };
+    for (const ch of used) key[ch] = round4(samples[i][OFFSET_FIELD[ch]] ?? 0);
+    keys.push(key);
+  }
+  return { dur: preset.dur, keys };
+}
+
+// ---- editing the text of a rig.json ----
+
+/** A change to a text: the characters from `start` to `end` become `insert`. */
+export interface TextEdit { start: number; end: number; insert: string }
+
+/** End of the JSON string that starts at `i` (the index after its closing quote), or -1. */
+function skipString(s: string, i: number): number {
+  for (i++; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '"') return i + 1;
+  }
+  return -1;
+}
+/** End of the JSON value that starts at `i`, or -1. */
+function skipValue(s: string, i: number): number {
+  if (s[i] === '"') return skipString(s, i);
+  if (s[i] === '{' || s[i] === '[') {
+    let depth = 0;
+    for (; i < s.length; i++) {
+      if (s[i] === '"') { i = skipString(s, i) - 1; if (i < 0) return -1; }
+      else if (s[i] === '{' || s[i] === '[') depth++;
+      else if ((s[i] === '}' || s[i] === ']') && --depth === 0) return i + 1;
+    }
+    return -1;
+  }
+  const m = /^[^\s,\]}]+/.exec(s.slice(i));
+  return m ? i + m[0].length : -1;
+}
+const ws = (s: string, i: number) => { while (i < s.length && /\s/.test(s[i])) i++; return i; };
+
+const isScalar = (v: unknown) => v === null || typeof v !== 'object';
+
+/**
+ * `value` as JSON in the layout rig.json is written in: two-space indent, lists of plain values and objects of plain
+ * values inside lists (a key of an animation) on one line. `pad` is the indent of the line it starts on.
+ */
+function pretty(value: unknown, pad: string, inList = false): string {
+  if (isScalar(value)) return JSON.stringify(value) ?? 'null';
+  const list = Array.isArray(value);
+  const items: [string, unknown][] = list ? (value as unknown[]).map(v => ['', v]) : Object.entries(value as object).filter(([, v]) => v !== undefined);
+  if (!items.length) return list ? '[]' : '{}';
+  const one = (k: string, v: unknown, p: string, l: boolean) => `${list ? '' : `${JSON.stringify(k)}: `}${pretty(v, p, l)}`;
+  if ((list || inList) && items.every(([, v]) => isScalar(v))) {
+    const body = items.map(([k, v]) => one(k, v, pad, false)).join(', ');
+    return list ? `[${body}]` : `{ ${body} }`;
+  }
+  const inner = `${pad}  `;
+  return `${list ? '[' : '{'}\n${items.map(([k, v]) => `${inner}${one(k, v, inner, list)}`).join(',\n')}\n${pad}${list ? ']' : '}'}`;
+}
+
+/**
+ * The edit that sets the top-level property `key` of the JSON object `text` to `value` and leaves everything else as it
+ * is (hand-written layout included). The new value is written indented by two spaces. Null when `text` is not an object.
+ */
+export function setTopLevelProperty(text: string, key: string, value: unknown): TextEdit | null {
+  const ser = pretty(value, '  ');
+  let i = ws(text, 0);
+  if (text[i] !== '{') return null;
+  i++;
+  let lastEnd = -1;
+  for (;;) {
+    i = ws(text, i);
+    if (text[i] === ',') { i++; continue; }
+    if (text[i] === '}') break;
+    if (text[i] !== '"') return null;
+    const ke = skipString(text, i);
+    if (ke < 0) return null;
+    const name = JSON.parse(text.slice(i, ke)) as string;
+    i = ws(text, ke);
+    if (text[i] !== ':') return null;
+    const vs = ws(text, i + 1), ve = skipValue(text, vs);
+    if (ve < 0) return null;
+    if (name === key) return { start: vs, end: ve, insert: ser };
+    lastEnd = ve;
+    i = ve;
+  }
+  if (lastEnd < 0) return { start: i, end: i, insert: `\n  ${JSON.stringify(key)}: ${ser}\n` };
+  return { start: lastEnd, end: lastEnd, insert: `,\n  ${JSON.stringify(key)}: ${ser}` };
+}
+
+/** The edit that removes top-level property `key` (and its comma) from the JSON object `text`; null when it is not there or `text` is no object. */
+export function removeTopLevelProperty(text: string, key: string): TextEdit | null {
+  let i = ws(text, 0);
+  if (text[i] !== '{') return null;
+  i++;
+  let prevEnd = -1; // end of the property before, where a comma to remove would start
+  for (;;) {
+    i = ws(text, i);
+    if (text[i] === ',') { i++; continue; }
+    if (text[i] === '}') return null;
+    if (text[i] !== '"') return null;
+    const ks = i, ke = skipString(text, i);
+    if (ke < 0) return null;
+    const name = JSON.parse(text.slice(ks, ke)) as string;
+    i = ws(text, ke);
+    if (text[i] !== ':') return null;
+    const ve = skipValue(text, ws(text, i + 1));
+    if (ve < 0) return null;
+    if (name === key) {
+      const after = ws(text, ve);
+      if (text[after] === ',') return { start: ks, end: ws(text, after + 1), insert: '' };
+      return prevEnd < 0 ? { start: ks, end: ve, insert: '' } : { start: prevEnd, end: ve, insert: '' };
+    }
+    prevEnd = ve;
+    i = ve;
+  }
+}
+
+/** `pivots` with the same pivot `at` for every one of `parts` (a head made of several parts turns about one point). */
+export function setPivots(pivots: Pivots, parts: string[], at: [number, number] | null): Pivots {
+  return parts.reduce((p, part) => setPivot(p, part, at), pivots);
+}
+
+/** Where a character stands on the stage: `x` across (0-1), `y` from the floor (negative lifts), `scale` and mirroring. */
+export interface Placement { x: number; y: number; scale: number; flip: boolean; anchor?: Anchor }
+
+const round = (v: number, d = 3) => Math.round(v * 10 ** d) / 10 ** d;
+
+/** The `show` line that puts `char` (in `pose`) where `p` says: the named position when it matches, `y=` `scale=` `flip=` `anchor=` only when they differ from the default. */
+export function showLine(char: string, pose: string | null, p: Placement, positions: Positions = BUILTIN_POSITIONS, anchors: Anchors = ANCHORS): string {
+  const x = round(p.x), y = round(p.y), scale = round(p.scale, 2);
+  // A name stands for its x and its height, so it only matches when both agree.
+  const named = Object.entries(positions).find(([, v]) => v.x === x && (v.y ?? 0) === y)?.[0];
+  return ['show', char, pose, 'at', named ?? String(x), !named && y !== 0 && `y=${y}`, scale !== 1 && `scale=${scale}`, p.flip && 'flip=on', p.anchor && anchorToken(p.anchor, anchors) !== 'feet' && `anchor=${anchorToken(p.anchor, anchors)}`].filter(Boolean).join(' ');
+}
+
+/** `text` with `edit` done. */
+export const applyEdit = (text: string, e: TextEdit) => text.slice(0, e.start) + e.insert + text.slice(e.end);
+
+// ---- pivots: PSD pixels (from the top left of the canvas) and the stage ----
+
+export type Pivots = Record<string, [number, number]>;
+/** The size of the stage the character stands on, and the PSD canvas size of the character. */
+export interface PivotFrame { stageW: number; stageH: number; width: number; height: number }
+
+/** Where the PSD pixel (`x`, `y`) is on the stage when the character stands bottom-centre at the middle and is at rest. */
+export const psdToStage = (f: PivotFrame, x: number, y: number): [number, number] => [x - f.width / 2 + f.stageW / 2, y - f.height + f.stageH];
+/** The PSD pixel under the stage point (`x`, `y`), rounded: what a click on the stage sets as a pivot. */
+export const stageToPsd = (f: PivotFrame, x: number, y: number): [number, number] =>
+  [Math.round(x + f.width / 2 - f.stageW / 2), Math.round(y + f.height - f.stageH)];
+
+/** `pivots` with the pivot of `part` set to `at`, or removed when `at` is null. */
+export function setPivot(pivots: Pivots, part: string, at: [number, number] | null): Pivots {
+  if (!at) return Object.fromEntries(Object.entries(pivots).filter(([k]) => k !== part));
+  return { ...pivots, [part]: [Math.round(at[0]), Math.round(at[1])] }; // an existing part keeps its place in the list
+}
+
+/** What the animation studio edits of rig.json besides `animations` and `pivots`: null means "not written, use the default". */
+export interface RigSettings {
+  idle: string | null;
+  speakAnim: string | null; speakSlot: string | null; speakVariants: string[]; speakRate: number | null;
+  blink: boolean; blinkSlot: string | null; blinkVariant: string | null; blinkEvery: [number, number] | null; blinkDur: number | null;
+}
+
+export const noRigSettings = (): RigSettings => ({
+  idle: null, speakAnim: null, speakSlot: null, speakVariants: [], speakRate: null,
+  blink: false, blinkSlot: null, blinkVariant: null, blinkEvery: null, blinkDur: null,
+});
+
+const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+const nonEmpty = (v: unknown) => (typeof v === 'string' && v ? v : null);
+const positive = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null);
+
+/** The studio's settings as a parsed rig.json states them. */
+export function readRigSettings(data: unknown): RigSettings {
+  const d = obj(data), speak = obj(d.speak), blink = obj(d.blink);
+  const every = blink.every;
+  return {
+    idle: nonEmpty(d.idle),
+    speakAnim: nonEmpty(speak.anim), speakSlot: nonEmpty(speak.slot),
+    speakVariants: Array.isArray(speak.variants) ? speak.variants.filter((v): v is string => typeof v === 'string') : [],
+    speakRate: positive(speak.rate),
+    blink: !!d.blink, blinkSlot: nonEmpty(blink.slot), blinkVariant: nonEmpty(blink.variant),
+    blinkEvery: Array.isArray(every) && every.length === 2 && every.every(n => typeof n === 'number') ? [every[0], every[1]] : null,
+    blinkDur: positive(blink.dur),
+  };
+}
+
+/** Set or drop (null) a key of a copy of `base`, keeping the other keys and their order. */
+function withKey(base: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
+  const { [key]: _old, ...rest } = base;
+  if (value === null) return rest;
+  return key in base ? { ...base, [key]: value } : { ...rest, [key]: value };
+}
+
+/** The new `speak` value: `current` (the file's) with the studio's fields set; null when nothing is left to write. */
+export function speakValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
+  let out = obj(current);
+  out = withKey(out, 'anim', s.speakAnim);
+  out = withKey(out, 'slot', s.speakSlot);
+  out = withKey(out, 'variants', s.speakVariants.length ? s.speakVariants : null);
+  out = withKey(out, 'rate', s.speakRate);
+  return Object.keys(out).length ? out : null;
+}
+
+/** The new `blink` value: true for the defaults, an object when something differs, null when blinking is off. */
+export function blinkValue(current: unknown, s: RigSettings): true | Record<string, unknown> | null {
+  if (!s.blink) return null;
+  let out = obj(current);
+  out = withKey(out, 'slot', s.blinkSlot);
+  out = withKey(out, 'variant', s.blinkVariant);
+  out = withKey(out, 'every', s.blinkEvery);
+  out = withKey(out, 'dur', s.blinkDur);
+  return Object.keys(out).length ? out : true;
+}
+
+/** The parts of the settings that end up in `speak` / `blink`, to tell whether the file needs rewriting. */
+export const speakPart = (s: RigSettings) => JSON.stringify([s.speakAnim, s.speakSlot, s.speakVariants, s.speakRate]);
+export const blinkPart = (s: RigSettings) => JSON.stringify([s.blink, s.blinkSlot, s.blinkVariant, s.blinkEvery, s.blinkDur]);

@@ -1,0 +1,129 @@
+{
+  "generator": "psd-convert",
+  "width": 540,
+  "height": 1080,
+  "parts": [
+    {
+      "slot": "top",
+      "default": "school",
+      "variants": {
+        "casual": {
+          "file": "top/casual.png",
+          "x": 175,
+          "y": 400
+        },
+        "school": {
+          "file": "top/school.png",
+          "x": 175,
+          "y": 400
+        }
+      }
+    },
+    {
+      "slot": "bottom",
+      "default": "school",
+      "variants": {
+        "casual": {
+          "file": "bottom/casual.png",
+          "x": 160,
+          "y": 640
+        },
+        "school": {
+          "file": "bottom/school.png",
+          "x": 150,
+          "y": 640
+        }
+      }
+    },
+    {
+      "file": "legs.png",
+      "x": 215,
+      "y": 890
+    },
+    {
+      "file": "body.png",
+      "x": 235,
+      "y": 380
+    },
+    {
+      "file": "hair_back.png",
+      "x": 140,
+      "y": 120
+    },
+    {
+      "file": "face.png",
+      "x": 170,
+      "y": 150
+    },
+    {
+      "slot": "eyes",
+      "default": "open",
+      "variants": {
+        "smile": {
+          "file": "eyes/smile.png",
+          "x": 202,
+          "y": 251,
+          "poses": [
+            "happy"
+          ]
+        },
+        "closed": {
+          "file": "eyes/closed.png",
+          "x": 197,
+          "y": 262
+        },
+        "open": {
+          "file": "eyes/open.png",
+          "x": 197,
+          "y": 245
+        }
+      }
+    },
+    {
+      "slot": "mouth",
+      "default": "neutral",
+      "variants": {
+        "open": {
+          "file": "mouth/open.png",
+          "x": 255,
+          "y": 322,
+          "poses": [
+            "surprised"
+          ]
+        },
+        "smile": {
+          "file": "mouth/smile.png",
+          "x": 241,
+          "y": 329
+        },
+        "neutral": {
+          "file": "mouth/neutral.png",
+          "x": 245,
+          "y": 330
+        }
+      }
+    },
+    {
+      "file": "bangs.png",
+      "x": 160,
+      "y": 110
+    }
+  ],
+  "files": [
+    "top/casual.png",
+    "top/school.png",
+    "bottom/casual.png",
+    "bottom/school.png",
+    "legs.png",
+    "body.png",
+    "hair_back.png",
+    "face.png",
+    "eyes/smile.png",
+    "eyes/closed.png",
+    "eyes/open.png",
+    "mouth/open.png",
+    "mouth/smile.png",
+    "mouth/neutral.png",
+    "bangs.png"
+  ]
+}

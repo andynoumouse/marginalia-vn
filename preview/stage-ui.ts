@@ -1,0 +1,851 @@
+// Shared by the preview renderers: the text box, choice menu, HUD and audio live here (DOM over the
+// stage: crisp text, real buttons, any language), so a renderer subclass only draws the world.
+
+import { assetContext, captionFor, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type Src, type VisualOp } from '../engine/src/index.js';
+import { AudioSystem } from './audio.js';
+import { HudLayer, ScreenLayer } from './screen-ui.js';
+import { Blips } from './blips.js';
+import { OSK_ROWS, oskCaps, oskPress, type OskState } from './input.js';
+import { TEXT_INSTANT } from './settings.js';
+
+export { W, H } from './stage-size.js';
+
+/** Visual ops that change the picture; music, sound and wait are handled here. */
+export type WorldOp = Exclude<VisualOp, { op: 'music' | 'sound' | 'wait' }>;
+/** A file under assets/ as listed by the dev server; `v` changes when the file does. */
+export interface AssetFile { file: string; v: number }
+
+export const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+export const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+type TextRun = Extract<SayEvent['segments'][number], { kind: 'text' }>;
+/** Class and inline style of a styled run of text (italic, bold, effect, color, size). */
+const look = (el: HTMLElement, r: TextRun) => {
+  el.className = `${r.italic ? 'i ' : ''}${r.bold ? 'b ' : ''}${r.fx ? `fx fx-${r.fx}` : ''}`.trim();
+  if (r.color) el.style.color = r.color;
+  if (r.size) el.style.fontSize = `${r.size}em`;
+};
+/** Show a finished line at once (the earlier lines of an NVL page). */
+function appendRuns(target: HTMLElement, segments: SayEvent['segments']) {
+  for (const seg of segments) {
+    if (seg.kind !== 'text') continue;
+    const pieces = seg.ruby ? [seg.text] : seg.fx ? Array.from(seg.text) : [seg.text];
+    pieces.forEach((text, i) => {
+      const el = document.createElement(seg.ruby ? 'ruby' : 'span');
+      el.textContent = text;
+      if (seg.ruby) { const rt = document.createElement('rt'); rt.textContent = seg.ruby; el.append(rt); }
+      look(el, seg);
+      if (seg.fx) el.style.animationDelay = `${(i % 24) * 0.07}s`;
+      target.append(el);
+    });
+  }
+}
+
+export const stage = $('stage');
+const nvlEl = $('nvl'), nvlPage = $('nvl-page');
+const box = $('box'), nameEl = $('name'), textEl = $('text'), menuEl = $('menu'), hud = $('hud'), endedEl = $('ended');
+
+/** A line as the shell sees it (history, saves). */
+export interface LineInfo { name: string | null; color: string | null; text: string }
+
+const SKIP_MS = 45; // time each line stays on screen while skipping
+const LOADING_BAR_MS = 250; // a wait for files shows the loading bar only after this long
+const PREFETCH_PARALLEL = 4;   // files fetched ahead at once (8 while skipping); a file the story is waiting for never queues
+const HOLD_MAX_MS = 20000;  // a wait never lasts longer than this; the placeholder is drawn instead
+const IMAGE_FILE = /\.(png|webp|jpe?g|avif)$/i;
+const assetKey = (file: string) => file.replace(/\.[^./]+$/, '');
+const loadingEl = $('loading');
+/** How many lines ahead voice recordings are decoded (the cache holds a dozen; the rest of the lookahead is only for images and audio files). */
+const VOICE_AHEAD = 4;
+
+export abstract class StageRenderer implements Renderer {
+  characters: Record<string, CharacterDef> = {};
+  readonly audio = new AudioSystem();
+  readonly blips = new Blips(this.audio);
+  /** Characters per second; TEXT_INSTANT or more shows lines at once. */
+  textSpeed = 45;
+  /** Auto-advance: on/off, and seconds to wait after a line is shown. */
+  autoOn = false;
+  autoDelay = 1.5;
+  /** Skip mode fast-forwards through lines; unread lines stop it unless skipAll. Choices always stop it. */
+  skipping = false;
+  skipAll = false;
+  /** Accessibility: no shake, hop, flash or wipes; the camera snaps. Set from the player's options. */
+  reduceMotion = false;
+  /** The player's setting for timed menus: the written time, three times as long, or no clock. */
+  timedChoices: 'normal' | 'extended' | 'off' = 'normal';
+  private menuClock = 0;
+  /** Accessibility: caption sound effects (text from game.json `captions`, else the humanized name). */
+  captions = false;
+  captionTexts: CaptionTable = {};
+  private captionTimer = 0;
+  /** True while a menu screen covers the game: auto-advance and skipping hold. */
+  paused = false;
+  /** Read tracking, supplied by the shell. `seen` is asked before `markSeen` for the same line. */
+  isSeen: (ev: SayEvent) => boolean = () => false;
+  markSeen: (ev: SayEvent) => void = () => {};
+  /** Skip or auto stopped on its own (unread line, choice, click). */
+  onModeChange: () => void = () => {};
+  /** A background came on screen (gallery unlocks). */
+  onBackground: (name: string) => void = () => {};
+  /** A music track started (music room unlocks). */
+  onMusic: (name: string) => void = () => {};
+  /** Called for every line and choice; `line` is the line shown (none for choices). */
+  onPosition: (src: Src, line?: LineInfo) => void = () => {};
+  onEnded: () => void = () => {};
+  /** The player's language, which picks the voice recordings (assets/voice/<lang>/). */
+  lang = 'en';
+  /** The line on screen has a voice recording (or no longer does): the shell shows or hides its replay button. */
+  onVoice: (voiced: boolean) => void = () => {};
+  private lineVoice: string | null = null; // id of the line on screen, while it has a recording
+  /** Play the recording of the line on screen again (the replay button, key V). */
+  replayVoice() { if (this.lineVoice) void this.audio.voice(this.lineVoice, this.lang); }
+  protected epoch = 0;
+  private advanceFn: (() => void) | null = null;
+  private typeTimer = 0;
+  private settleTimer = 0;
+  private lineKick: (() => void) | null = null; // re-evaluates skip/auto for the line on screen
+  private sfxTimer = 0;
+  private menuOpen = false;
+  /** The project's files and rigs (keys: see engine/src/assets.ts). */
+  protected files: AssetContext = assetContext({ files: [] });
+  /** Custom screens (`show screen`), drawn in DOM over the stage. */
+  readonly screens = new ScreenLayer($('screenui'), n => this.hoverSound(n));
+  /** Screens shown with `hud on`, over the scene and under the text box. A choice is reported to the runtime through `onHudEvent`. */
+  readonly hudLayer = new HudLayer($('hudui'), (id, on) => this.onHudEvent(id, on), () => this.menuOpen || this.paused, n => this.hoverSound(n));
+  onHudEvent: (id: string, on: string) => void = () => {};
+  /** The project's `screen quickmenu`, drawn like a HUD above the text box; its elements run built-in actions through `onQuickAction`. */
+  readonly quickLayer = new HudLayer($('quickui'), (id, on) => { if (on === 'click') this.onQuickAction(this.quickView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => this.menuOpen || this.paused, n => this.hoverSound(n));
+  onQuickAction: (item: ViewItem | undefined) => void = () => {};
+  /** The project's `screen title`, drawn over the stock title screen's place; its elements run built-in actions through `onTitleAction`. */
+  readonly titleLayer = new HudLayer($('titleui'), (id, on) => { if (on === 'click') this.onTitleAction(this.titleView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onTitleAction: (item: ViewItem | undefined) => void = () => {};
+  private titleView: ScreenView | null = null;
+  /** The project's `screen pause`, drawn over the dimmed stage while the stock pause menu would be up; actions go to `onPauseAction`. */
+  readonly pauseLayer = new HudLayer($('pauseui'), (id, on) => { if (on === 'click') this.onPauseAction(this.pauseView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onPauseAction: (item: ViewItem | undefined) => void = () => {};
+  private pauseView: ScreenView | null = null;
+  /** The project's `screen options`, drawn over the dimmed stage in place of the stock options; actions go to `onOptionsAction`, slider moves to `onSlider`. */
+  readonly optionsLayer = new HudLayer($('optionsui'), (id, on) => { if (on === 'click') this.onOptionsAction(this.optionsView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onOptionsAction: (item: ViewItem | undefined) => void = () => {};
+  private optionsView: ScreenView | null = null;
+  /** The project's `screen saves`, drawn over the dimmed stage in place of the stock save/load screen; actions go to `onSavesAction`. */
+  readonly savesLayer = new HudLayer($('savesui'), (id, on) => { if (on === 'click') this.onSavesAction(this.savesView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onSavesAction: (item: ViewItem | undefined) => void = () => {};
+  private savesView: ScreenView | null = null;
+  /** The project's `screen history`, drawn over the dimmed stage in place of the stock history panel; actions go to `onHistoryAction`. */
+  readonly historyLayer = new HudLayer($('historyui'), (id, on) => { if (on === 'click') this.onHistoryAction(this.historyView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onHistoryAction: (item: ViewItem | undefined) => void = () => {};
+  private historyView: ScreenView | null = null;
+  /** The project's `screen gallery`, drawn over the dimmed stage in place of the stock gallery; actions go to `onGalleryAction`. */
+  readonly galleryLayer = new HudLayer($('galleryui'), (id, on) => { if (on === 'click') this.onGalleryAction(this.galleryView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onGalleryAction: (item: ViewItem | undefined) => void = () => {};
+  private galleryView: ScreenView | null = null;
+  /** The project's `screen viewer`, drawn over the black viewer backdrop in place of the stock picture and title; actions go to `onViewerAction`. */
+  readonly viewerLayer = new HudLayer($('viewerui'), (id, on) => { if (on === 'click') this.onViewerAction(this.viewerView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onViewerAction: (item: ViewItem | undefined) => void = () => {};
+  private viewerView: ScreenView | null = null;
+  /** The project's `screen music`, drawn over the dimmed stage in place of the stock music room; actions go to `onMusicAction`. */
+  readonly musicLayer = new HudLayer($('musicui'), (id, on) => { if (on === 'click') this.onMusicAction(this.musicView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onMusicAction: (item: ViewItem | undefined) => void = () => {};
+  private musicView: ScreenView | null = null;
+  /** The project's `screen chapters`, drawn over the dimmed stage in place of the stock chapter select; actions go to `onChaptersAction`. */
+  readonly chaptersLayer = new HudLayer($('chaptersui'), (id, on) => { if (on === 'click') this.onChaptersAction(this.chaptersView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onChaptersAction: (item: ViewItem | undefined) => void = () => {};
+  private chaptersView: ScreenView | null = null;
+  private quickView: ScreenView | null = null;
+  /** `hover sound "name"` on a screen or HUD element; a sound that is not there is silent. */
+  private hoverSound(name: string) { if (this.audio.has('sound', name)) void this.audio.sound(name); }
+  private endLine: (() => void) | null = null;
+  private imageUrls = new Map<string, string>();        // asset key -> URL of the image file, for the DOM layers
+  private versions = new Map<string, number>();     // asset key -> file version it was loaded from
+  private ready = new Set<string>();                // asset keys that are loaded
+  private loading = new Map<string, Promise<void>>();
+  private queue: PreloadTask[] = [];                // preload tasks not started yet, nearest first
+  private running = 0;                              // preload tasks in flight
+  private waiting = 0;                              // waits in progress (the loading bar is shown while any is slow)
+  private barTimer = 0;
+  private barDone = 0;
+  private barTotal = 0;
+
+  /**
+   * Take stock of the project's files; called before the runtime (re)starts, again on every hot reload. Nothing
+   * big is fetched here: images and music load when the story gets near them (see ensure).
+   */
+  async preload(assets: AssetFile[], rigs: Record<string, RigManifest> = {}): Promise<void> {
+    this.audio.setAssets(assets);
+    // Text blip samples are needed by the first lines; other sounds load in the background. Music loads when it plays.
+    const blips = [...Object.values(this.characters).map(c => c.style.blip), ...Object.values(this.blips.voices).flatMap(v => [v.sound, ...Object.values(v.vowels ?? {})])];
+    this.audio.prefetchSounds(blips.filter((b): b is string => !!b));
+    this.files = assetContext({ files: assets.map(a => a.file), rigs });
+    // Files that changed or went away must load again.
+    const versions = new Map(assets.map(a => [assetKey(a.file), a.v] as const));
+    for (const [key, v] of this.versions) {
+      if (versions.get(key) !== v) { this.ready.delete(key); this.loading.delete(key); }
+    }
+    this.versions = versions;
+    this.imageUrls = new Map(assets.filter(a => IMAGE_FILE.test(a.file)).map(a => [assetKey(a.file), `assets/${a.file}?v=${a.v}`] as const));
+    this.indexArt(assets);
+  }
+  /** The renderer learns which image files exist (and which changed). */
+  protected indexArt(_assets: AssetFile[]): void {}
+  /** Load one image into the renderer; never rejects (a missing or broken file is drawn as a placeholder). */
+  protected async loadImage(_key: string): Promise<void> {}
+
+  /** Load the files behind these asset keys (images, music, sounds) and resolve once they are all ready. */
+  ensure(keys: string[]): Promise<void> {
+    const todo = [...new Set(keys)].filter(k => !this.ready.has(k) && this.versions.has(k));
+    if (!todo.length) return Promise.resolve();
+    this.barTotal += todo.length;
+    if (++this.waiting === 1) this.barTimer = window.setTimeout(() => { loadingEl.dataset.show = 'true'; }, LOADING_BAR_MS);
+    const bar = () => { (loadingEl.firstElementChild as HTMLElement).style.width = `${(this.barDone / this.barTotal) * 100}%`; };
+    const all = Promise.all(todo.map(k => this.fetchKey(k).then(() => { this.barDone++; bar(); })));
+    let cap = 0;
+    return Promise.race([all, new Promise<void>(r => { cap = window.setTimeout(r, HOLD_MAX_MS); })]).then(() => {
+      clearTimeout(cap);
+      if (--this.waiting === 0) {
+        clearTimeout(this.barTimer);
+        loadingEl.dataset.show = 'false';
+        this.barDone = this.barTotal = 0;
+      }
+    });
+  }
+  private fetchKey(key: string): Promise<void> {
+    let p = this.loading.get(key);
+    if (!p) {
+      const m = /^(music|sound)\/(.+)$/.exec(key);
+      p = (m ? this.audio.prefetch(m[1] as 'music' | 'sound', m[2]) : this.loadImage(key)).then(() => { this.ready.add(key); });
+      this.loading.set(key, p);
+    }
+    return p;
+  }
+  /**
+   * The story came near these assets (nearest first; see Preload in the engine): fetch them in order, a few at a
+   * time. Each call replaces the list of what is still waiting, since the newest view of what is ahead is the
+   * best; files the story already waits for are loaded by ensure() at once, not queued here.
+   */
+  prefetch(tasks: PreloadTask[], always: string[]) {
+    this.queue = [...tasks, ...always.map(key => ({ key, lines: Infinity }))];
+    this.pump();
+  }
+  private pump() {
+    const limit = this.skipping ? PREFETCH_PARALLEL * 2 : PREFETCH_PARALLEL;
+    while (this.running < limit && this.queue.length) {
+      const { key, lines } = this.queue.shift()!;
+      if (key.startsWith(VOICE_KEY)) { // recordings are decoded only for the next few lines; the cache is small
+        if (lines <= VOICE_AHEAD) { this.running++; void this.audio.prefetchVoice(key.slice(VOICE_KEY.length), this.lang).then(() => { this.running--; this.pump(); }); }
+        continue;
+      }
+      if (this.ready.has(key) || this.loading.has(key) || !this.versions.has(key)) continue;
+      this.running++;
+      void this.fetchKey(key).then(() => { this.running--; this.pump(); });
+    }
+  }
+  /** Load everything `state` shows and plays, ahead of sync(). */
+  prepare(state: DisplayState): Promise<void> {
+    return this.ensure(stateAssets(state, this.files));
+  }
+  /** A small JPEG data URL of the scene for save slots; undefined when the renderer can't capture. */
+  async snapshot(): Promise<string | undefined> { return undefined; }
+  /** Replace the world (background, sprites, effects) with `state` instantly. */
+  protected abstract syncWorld(state: DisplayState): void;
+  /** A character is speaking: called for each character typed (with `who`) and with null when the line is complete. */
+  protected speakTick(_who: string | null): void {}
+  /** Animate a world op; stop early when `alive()` turns false (a sync happened). */
+  protected abstract applyWorld(op: WorldOp, state: DisplayState, alive: () => boolean): Promise<void>;
+
+  protected spriteColor(char: string) {
+    return this.characters[char]?.color ?? `hsl(${hue(char)} 45% 45%)`;
+  }
+
+  /** Player input (click, Space...): finish the line, or go to the next one. A click while skipping stops skipping. */
+  advance() {
+    if (this.menuOpen) return;
+    if (this.skipping) { this.setSkipping(false); return; }
+    this.advanceFn?.();
+  }
+
+  setSkipping(on: boolean) {
+    if (this.skipping === on) return;
+    this.skipping = on;
+    this.onModeChange();
+    this.refresh();
+  }
+
+  setAuto(on: boolean) {
+    if (this.autoOn === on) return;
+    this.autoOn = on;
+    this.onModeChange();
+    this.refresh();
+  }
+
+  /** Apply changed skip/auto settings to the line already on screen. */
+  refresh() {
+    clearTimeout(this.settleTimer);
+    this.lineKick?.();
+  }
+
+  // Cues without an audio file are shown as text, so the script can be followed before the sound exists.
+  private showMusic(state: DisplayState) {
+    hud.textContent = state.music && !this.audio.has('music', state.music) ? `music: ${state.music}` : '';
+  }
+
+  // ---- Renderer ----
+  sync(state: DisplayState) {
+    this.epoch++;
+    clearTimeout(this.typeTimer);
+    clearTimeout(this.settleTimer);
+    clearTimeout(this.sfxTimer);
+    this.advanceFn = null;
+    this.lineKick = null;
+    this.audio.stopVoice();
+    this.lineVoice = null;
+    this.onVoice(false);
+    this.menuOpen = false;
+    clearInterval(this.menuClock);
+    this.screens.close();
+    this.hudLayer.clear();
+    this.endLine = null;
+    box.dataset.visible = 'false';
+    this.clearPage();
+    menuEl.dataset.visible = 'false';
+    endedEl.style.display = 'none';
+    stage.dataset.skin = '';
+    if (state.bg) this.onBackground(state.bg);
+    this.showMusic(state);
+    if (state.music) this.onMusic(state.music);
+    void this.audio.music(state.music, state.musicLoop, 0.5, !!state.musicPaused);
+    void this.audio.syncAmbience(state.ambience ?? [], 0.5);
+    this.syncWorld(state);
+  }
+
+  /** Show the caption of a sound effect for a moment, when captions are on. */
+  private showCaption(name: string) {
+    const el = document.getElementById('caption');
+    const text = this.captions ? captionFor(name, this.captionTexts) : null;
+    if (!el || !text) return;
+    el.textContent = text;
+    el.dataset.show = 'true';
+    clearTimeout(this.captionTimer);
+    this.captionTimer = window.setTimeout(() => { el.dataset.show = 'false'; }, 2200);
+  }
+
+  async apply(op: VisualOp, state: DisplayState): Promise<void> {
+    const ep = this.epoch;
+    // Wait for the files of what is about to appear or play: a short hold, never a placeholder.
+    if (op.op === 'scene' || op.op === 'show' || (op.op === 'image' && op.action === 'show') || (op.op === 'music' && op.action === 'play') || (op.op === 'sound' && op.action === 'loop')) {
+      await this.ensure(stateAssets(state, this.files));
+      if (ep !== this.epoch) return;
+    }
+    switch (op.op) {
+      case 'music':
+        this.showMusic(state);
+        if (op.action === 'play' && op.name) this.onMusic(op.name);
+        if (op.action === 'pause') this.audio.pauseMusic(this.skipping ? 0 : op.fade);
+        else if (op.action === 'resume') this.audio.resumeMusic(this.skipping ? 0 : op.fade);
+        else void this.audio.music(op.action === 'play' ? op.name : null, op.loop, this.skipping ? 0 : op.fade);
+        return;
+      case 'sound':
+        if (op.action !== 'play') { void this.audio.syncAmbience(state.ambience ?? [], this.skipping ? 0 : op.fade); return; }
+        if (this.skipping || !op.name) return;
+        this.showCaption(op.name);
+        if (this.audio.has('sound', op.name)) { void this.audio.sound(op.name, 1, 1, op.duck); return; }
+        hud.textContent = `sound: ${op.name}`;
+        clearTimeout(this.sfxTimer);
+        this.sfxTimer = window.setTimeout(() => this.showMusic(state), 900);
+        return;
+      case 'wait':
+        if (!this.skipping) await sleep(op.dur * 1000);
+        return;
+      default:
+        if (op.op === 'scene') this.onBackground(op.bg);
+        // While skipping, jump straight to the result instead of animating.
+        if (this.skipping) { this.syncWorld(state); return; }
+        return this.applyWorld(op, state, () => ep === this.epoch);
+    }
+  }
+
+  clearPage() {
+    nvlEl.dataset.visible = 'false';
+    nvlEl.dataset.done = 'false';
+    nvlPage.replaceChildren();
+  }
+
+  /** Fill the NVL page with the lines already on it, in full, and add a row for the new line; returns that row. */
+  private openPage(ev: SayEvent): HTMLElement {
+    const row = (e: SayEvent) => {
+      const r = document.createElement('div');
+      if (e.name) {
+        const who = document.createElement('span');
+        who.className = 'who';
+        who.textContent = `${e.name}:`;
+        who.style.setProperty('--ncolor', e.color ?? '#ffffff');
+        r.append(who);
+      }
+      return r;
+    };
+    const rows = (ev.page ?? []).map(p => {
+      const r = row(p);
+      const t = document.createElement('span');
+      appendRuns(t, p.segments);
+      r.append(t);
+      return r;
+    });
+    const cur = row(ev);
+    const text = document.createElement('span');
+    cur.append(text);
+    nvlPage.replaceChildren(...rows, cur);
+    nvlEl.dataset.visible = 'true';
+    nvlEl.dataset.done = 'false';
+    return text;
+  }
+  /** Drop the oldest lines off the top while the page is taller than the screen. */
+  private fitPage() {
+    while (nvlPage.childElementCount > 1 && nvlPage.scrollHeight > nvlPage.clientHeight) nvlPage.firstElementChild!.remove();
+  }
+
+  say(ev: SayEvent): Promise<void> {
+    const plain = ev.segments.map(s => (s.kind === 'text' ? s.text : '')).join('');
+    this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain });
+    const wasSeen = this.isSeen(ev);
+    this.markSeen(ev);
+    const skippable = () => this.skipAll || wasSeen;
+    return new Promise<void>(resolve => {
+      clearTimeout(this.typeTimer);
+      clearTimeout(this.settleTimer);
+      // NVL lines type into a row of the full-screen page, others into the text box.
+      const frame = ev.nvl ? nvlEl : box;
+      const target = ev.nvl ? this.openPage(ev) : textEl;
+      if (ev.nvl) box.dataset.visible = 'false';
+      else { this.clearPage(); box.dataset.visible = 'true'; nameEl.textContent = ev.name ?? ''; nameEl.style.setProperty('--ncolor', ev.color ?? '#ffffff'); }
+      frame.dataset.done = 'false';
+      target.replaceChildren();
+      // The speaker's style (define ... text= font= size= italic box=); theme skins are keyed by `box`.
+      const st = ev.style;
+      stage.dataset.skin = ev.nvl ? '' : st.box ?? '';
+      target.style.color = st.textColor ?? '';
+      target.style.fontFamily = st.font ? `"${st.font}", var(--vn-font)` : '';
+      target.style.fontSize = st.size ? `calc(var(--text-size, 44px) * var(--text-scale, 1) * ${st.size})` : '';
+      target.style.fontStyle = st.italic ? 'italic' : '';
+      const blip = this.blips.forLine(st.blip);
+
+      type Run = Extract<SayEvent['segments'][number], { kind: 'text' }>;
+      type Item = { ch: string; run: Run } | { pause: number } | { wait: true };
+      const items: Item[] = [];
+      for (const seg of ev.segments) {
+        if (seg.kind === 'pause') items.push({ pause: seg.seconds });
+        else if (seg.kind === 'wait') items.push({ wait: true });
+        else if (seg.kind === 'text') {
+          // Ruby text is shown as one piece; wavy and shaking text animates per character.
+          if (seg.ruby) items.push({ ch: seg.text, run: seg });
+          else for (const ch of Array.from(seg.text)) items.push({ ch, run: seg });
+        }
+      }
+      const autoNext = ev.segments.some(s => s.kind === 'next');
+      const isText = (it: Item): it is { ch: string; run: Run } => 'ch' in it;
+
+      let idx = 0, done = false, waiting = false, span: HTMLSpanElement | null = null, key = '';
+      const put = (it: { ch: string; run: Run }) => {
+        const r = it.run;
+        if (r.ruby || r.fx) {
+          const el = document.createElement(r.ruby ? 'ruby' : 'span');
+          el.textContent = it.ch;
+          if (r.ruby) { const rt = document.createElement('rt'); rt.textContent = r.ruby; el.append(rt); }
+          look(el, r);
+          if (r.fx) el.style.animationDelay = `${(target.childElementCount % 24) * 0.07}s`;
+          target.append(el);
+          span = null;
+          if (ev.nvl) this.fitPage();
+          return;
+        }
+        const k = `${r.italic}${r.bold}${r.color ?? ''}${r.size ?? ''}`;
+        if (!span || k !== key) {
+          span = document.createElement('span');
+          look(span, r);
+          target.append(span);
+          key = k;
+        }
+        span.textContent += it.ch;
+        if (ev.nvl) this.fitPage();
+      };
+      // The recording starts with the line; auto-advance waits for it to end, and moving on (or skipping) cuts it.
+      let voicePlaying = false, over = false;
+      const voiced = this.audio.hasVoice(ev.id, this.lang);
+      this.lineVoice = voiced ? ev.id : null;
+      this.onVoice(voiced);
+      if (voiced && !(this.skipping && skippable())) {
+        voicePlaying = true;
+        void this.audio.voice(ev.id, this.lang)?.then(() => { voicePlaying = false; if (done && !over) settle(); });
+      } else this.audio.stopVoice();
+      const next = () => {
+        over = true;
+        this.audio.stopVoice();
+        clearTimeout(this.settleTimer);
+        this.endLine = null;
+        this.advanceFn = null;
+        this.lineKick = null;
+        resolve();
+      };
+      // The line is fully shown: skip on, auto-advance, or wait for the player.
+      const settle = () => {
+        clearTimeout(this.settleTimer);
+        const later = (ms: number) => { this.settleTimer = window.setTimeout(() => (this.paused ? settle() : next()), ms); };
+        if (this.skipping) {
+          if (skippable()) { later(SKIP_MS); return; }
+          this.skipping = false; // unread text: stop here
+          this.onModeChange();
+        }
+        if (autoNext) { later(this.skipping ? SKIP_MS : 250); return; }
+        if (this.autoOn && !voicePlaying) later((this.autoDelay + items.length * 0.02) * 1000);
+      };
+      const finishTyping = () => {
+        clearTimeout(this.typeTimer);
+        while (idx < items.length) { const it = items[idx++]; if (isText(it)) put(it); }
+        waiting = false;
+        this.speakTick(null);
+        this.advanceFn = () => (done ? next() : finishTyping());
+        done = true;
+        frame.dataset.done = 'true';
+        settle();
+      };
+      const instant = this.textSpeed >= TEXT_INSTANT;
+      const cps = this.textSpeed * (st.speed ?? 1);
+      const step = () => {
+        if (idx >= items.length) { finishTyping(); return; }
+        const it = items[idx++];
+        if ('pause' in it) { this.typeTimer = window.setTimeout(step, it.pause * 1000); return; }
+        if ('wait' in it) {
+          if (this.skipping && skippable()) { step(); return; }
+          // Stop here until the player clicks (or, in auto mode, for a moment); finishing the line still shows everything.
+          waiting = true;
+          const resume = () => {
+            if (!waiting) return;
+            waiting = false;
+            clearTimeout(this.settleTimer);
+            this.advanceFn = () => (done ? next() : finishTyping());
+            step();
+          };
+          this.advanceFn = resume;
+          if (this.autoOn) this.settleTimer = window.setTimeout(resume, this.autoDelay * 1000);
+          return;
+        }
+        put(it);
+        if (instant) { step(); return; } // pauses still wait
+        blip?.(it.ch);
+        this.speakTick(ev.who);
+        this.typeTimer = window.setTimeout(step, 1000 / cps);
+      };
+      this.endLine = () => { clearTimeout(this.typeTimer); next(); };
+      this.lineKick = () => {
+        if (done) settle();
+        else if (this.skipping && skippable()) finishTyping();
+      };
+      this.advanceFn = () => (done ? next() : finishTyping());
+      if (this.skipping && skippable()) finishTyping();
+      else step();
+    });
+  }
+
+  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }): Promise<number> {
+    this.onPosition(src);
+    if (this.skipping) { this.skipping = false; this.onModeChange(); } // choices are always the player's
+    return new Promise<number>(resolve => {
+      this.menuOpen = true;
+      const head: HTMLElement[] = [];
+      if (prompt) {
+        const p = document.createElement('div');
+        p.className = 'prompt';
+        p.id = 'menu-prompt';
+        p.textContent = prompt;
+        head.push(p);
+      }
+      menuEl.setAttribute('role', 'group');
+      if (prompt) menuEl.setAttribute('aria-labelledby', 'menu-prompt'); else menuEl.removeAttribute('aria-labelledby');
+      menuEl.replaceChildren(...head, ...options.map((o, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = o.text;
+        if (o.seen) b.dataset.seen = 'true';
+        if (o.disabled) {
+          // aria-disabled, not disabled: a screen reader can still reach it and read the reason; pad/keyboard focus
+          // moves (input.ts focusables) skip it, and a click does nothing.
+          b.setAttribute('aria-disabled', 'true');
+          b.dataset.disabled = 'true';
+          if (o.reason) {
+            const r = document.createElement('span');
+            r.className = 'reason';
+            r.id = `menu-reason-${i}`;
+            r.textContent = o.reason;
+            b.append(r);
+            b.setAttribute('aria-describedby', r.id);
+          }
+        }
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          if (o.disabled) return;
+          clearInterval(this.menuClock);
+          menuEl.querySelector('.timer')?.remove();
+          this.menuOpen = false;
+          menuEl.dataset.visible = 'false';
+          resolve(i);
+        });
+        return b;
+      }));
+      if (timer && this.timedChoices !== 'off') this.startClock(timer.seconds * (this.timedChoices === 'extended' ? 3 : 1), options.length, resolve);
+      menuEl.dataset.visible = 'true';
+      menuEl.querySelector<HTMLElement>(':scope > button:not([aria-disabled="true"])')?.focus();
+    });
+  }
+
+  /**
+   * The clock of a timed menu: a bar that empties under the options. It runs on real time and holds while a screen is open
+   * (`paused`), the interface is hidden or the tab is in the background. When it runs out the menu answers `timeoutAnswer`.
+   */
+  private startClock(total: number, timeoutAnswer: number, resolve: (i: number) => void) {
+    const bar = document.createElement('div'), fill = document.createElement('i');
+    bar.className = 'timer';
+    bar.setAttribute('aria-hidden', 'true');
+    bar.append(fill);
+    menuEl.append(bar);
+    const live = $('menuLive');
+    live.textContent = '';
+    const word = document.querySelector('[data-ui="timed_announce"]')?.textContent ?? '{n} seconds to choose';
+    window.setTimeout(() => { live.textContent = word.replace('{n}', String(Math.ceil(total))); }, 50); // after the menu is on screen, so it is read
+    let left = total, last = performance.now();
+    const ep = this.epoch;
+    clearInterval(this.menuClock);
+    this.menuClock = window.setInterval(() => {
+      const now = performance.now(), dt = (now - last) / 1000;
+      last = now;
+      if (ep !== this.epoch || !this.menuOpen) { clearInterval(this.menuClock); return; }
+      if (!this.paused && !document.hidden && stage.dataset.uiHidden !== 'true') left -= Math.min(dt, 0.5);
+      const frac = Math.max(0, left / total);
+      fill.style.transform = `scaleX(${frac})`;
+      bar.dataset.low = String(frac <= 0.25);
+      if (left > 0) return;
+      clearInterval(this.menuClock);
+      bar.remove();
+      this.menuOpen = false;
+      menuEl.dataset.visible = 'false';
+      resolve(timeoutAnswer);
+    }, 50);
+  }
+
+  /** A HUD event is waiting: end the line on screen now (the runtime shows it again after the event). */
+  interruptLine() { this.endLine?.(); }
+
+  /** Draw the HUD screens (the runtime pushes them again before every line, so variables stay live). */
+  hudViews: ScreenView[] = [];
+  async hud(views: ScreenView[]) {
+    this.hudViews = views;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const parts = views.flatMap(v => v.parts);
+    const keys = parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.hudViews !== views) return; }
+    this.hudLayer.update(views, file => this.imageUrls.get(key(file)) ?? null);
+  }
+
+  /** Draw the project's quick menu screen (null: it declares none, or the stock bar is wanted). Its view is pushed again with the HUD. */
+  quickShown = true;
+  async quick(view: ScreenView | null) {
+    const shown = this.quickShown ? view : null;
+    this.quickView = shown;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (shown?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.quickView !== shown) return; }
+    this.quickLayer.update(shown ? [shown] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.onModeChange(); // a redraw drops the pressed state of Auto and Skip
+  }
+
+  /** Draw the project's pause screen (null: hide it). */
+  async pause(view: ScreenView | null) {
+    this.pauseView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.pauseView !== view) return; }
+    this.pauseLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (view) this.pauseLayer.focusFirst();
+  }
+
+  /** Draw the project's options screen (null: hide it). A redraw keeps the focus; only the first one moves it onto the screen. */
+  async options(view: ScreenView | null) {
+    const fresh = !this.optionsView && !!view;
+    this.optionsView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.optionsView !== view) return; }
+    this.optionsLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.optionsLayer.focusFirst();
+  }
+
+  /** Draw the project's saves screen (null: hide it). A redraw keeps the focus; only the first one moves it onto the screen. */
+  async saves(view: ScreenView | null) {
+    const fresh = !this.savesView && !!view;
+    this.savesView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.savesView !== view) return; }
+    this.savesLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.savesLayer.focusFirst();
+  }
+
+  /** Draw the project's history screen (null: hide it). A redraw (scrolling) keeps the focus; only the first one moves it onto the screen. */
+  async history(view: ScreenView | null) {
+    const fresh = !this.historyView && !!view;
+    this.historyView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.historyView !== view) return; }
+    this.historyLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.historyLayer.focusFirst();
+  }
+
+  /** Draw the project's gallery screen (null: hide it). The first draw puts focus on the element `focusId` (the tile last viewed) or the first one. */
+  async gallery(view: ScreenView | null, focusId = '') {
+    const fresh = !this.galleryView && !!view;
+    this.galleryView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.galleryView !== view) return; }
+    this.galleryLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.galleryLayer.focusFirst(focusId);
+  }
+
+  /** Draw the project's viewer screen (null: hide it). Paging redraws it; only the first draw moves focus onto it. */
+  async viewer(view: ScreenView | null) {
+    const fresh = !this.viewerView && !!view;
+    this.viewerView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.viewerView !== view) return; }
+    this.viewerLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.viewerLayer.focusFirst();
+  }
+
+  /** Draw the project's music screen (null: hide it). The first draw puts focus on the element `focusId` or the first one; redraws keep the focus. */
+  async music(view: ScreenView | null, focusId = '') {
+    const fresh = !this.musicView && !!view;
+    this.musicView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.musicView !== view) return; }
+    this.musicLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.musicLayer.focusFirst(focusId);
+  }
+
+  /** Draw the project's chapter select (null: hide it). */
+  async chapters(view: ScreenView | null, focusId = '') {
+    const fresh = !this.chaptersView && !!view;
+    this.chaptersView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.chaptersView !== view) return; }
+    this.chaptersLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.chaptersLayer.focusFirst(focusId);
+  }
+
+  /** Draw the project's title screen (null: hide it). */
+  async title(view: ScreenView | null) {
+    this.titleView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.titleView !== view) return; }
+    this.titleLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (view) this.titleLayer.focusFirst();
+  }
+
+  /** Show a custom screen: its images are loaded first, then it waits for the player to pick an element. */
+  async screen(view: ScreenView, src: Src): Promise<string> {
+    this.onPosition(src);
+    if (this.skipping) { this.skipping = false; this.onModeChange(); } // screens are always the player's
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    await this.ensure(view.parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : 'shape' in p && p.shape.k === 'mask' ? [key(p.shape.file)] : [])));
+    if (ep !== this.epoch) return ''; // replaced while loading: the runtime has moved on and ignores this
+    this.menuOpen = true;
+    const id = await this.screens.show(view, file => this.imageUrls.get(key(file)) ?? null);
+    if (ep === this.epoch) this.menuOpen = false;
+    return id;
+  }
+
+  input(prompt: string, def: string, max: number, src: Src): Promise<string> {
+    this.onPosition(src);
+    if (this.skipping) { this.skipping = false; this.onModeChange(); }
+    return new Promise<string>(resolve => {
+      this.menuOpen = true;
+      const label = document.createElement('div');
+      label.className = 'prompt';
+      label.textContent = prompt;
+      const field = document.createElement('input');
+      field.type = 'text';
+      field.maxLength = max;
+      field.value = def;
+      field.autocomplete = 'off';
+      field.spellcheck = false;
+      const ok = document.createElement('button');
+      ok.type = 'button';
+      ok.textContent = 'OK';
+      ok.dataset.ok = 'true';
+      // On-screen keyboard for gamepads: always built, shown by CSS while the last input came from a pad.
+      let osk: OskState = { value: field.value, shift: false, fresh: true };
+      const board = document.createElement('div');
+      board.className = 'osk';
+      const key = (label: string, id: string, cls = '') => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.tabIndex = -1;
+        b.textContent = label;
+        b.dataset.osk = id;
+        if (cls) b.className = cls;
+        b.addEventListener('click', e => {
+          e.stopPropagation();
+          osk = oskPress(osk, id, max);
+          field.value = osk.value;
+          board.dataset.caps = String(oskCaps(osk));
+        });
+        return b;
+      };
+      const letters: HTMLButtonElement[] = [];
+      for (const row of OSK_ROWS) {
+        const r = document.createElement('div');
+        for (const ch of row) { const b = key(ch, ch); letters.push(b); r.append(b); }
+        board.append(r);
+      }
+      const bottom = document.createElement('div');
+      bottom.append(key('⇧', 'shift', 'wide'), key('space', 'space', 'space'), key('⌫', 'back', 'wide'));
+      board.append(bottom);
+      board.dataset.caps = 'true';
+      field.addEventListener('input', () => { osk = { value: field.value, shift: false, fresh: false }; });
+      const submit = () => {
+        this.menuOpen = false;
+        menuEl.dataset.visible = 'false';
+        resolve(field.value.trim() || def);
+      };
+      ok.addEventListener('click', e => { e.stopPropagation(); submit(); });
+      field.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+      menuEl.replaceChildren(label, field, board, ok);
+      menuEl.dataset.visible = 'true';
+      field.focus();
+      field.select();
+    });
+  }
+
+  end() {
+    box.dataset.visible = 'false';
+    this.clearPage();
+    endedEl.style.display = 'block';
+    this.advanceFn = () => { this.advanceFn = null; this.onEnded(); };
+  }
+}

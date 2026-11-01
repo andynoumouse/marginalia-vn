@@ -1,0 +1,60 @@
+# Marginalia VN Engine: notes for Claude
+
+TypeScript visual novel engine (script language, Monaco editor with live preview, PSD art pipeline, web export).
+README.md describes the features; `docs/commands.md` is the script command reference; `TODO.md` is the backlog.
+
+## Workflow
+
+- `npm test` runs `tsc` and then the fast set (everything but `browser.test.mjs`, a few seconds); `npm run test:browser`
+  runs only the browser file (~2.5 min) and `npm run test:all` both (`scripts/test.mjs`). The browser set is costly: don't
+  run it unless the user asks. For a change to `preview/`, `editor/` or the renderer, run `node scripts/browser-gate.mjs`
+  once per such change; it keeps a counter in `.claude/browser-test-counter` and prints RUN on every 5th call (then run
+  `npm run test:browser`) or SKIP (then don't, and say in the wrap-up that the browser set was skipped).
+  Tests import from `dist/`, so a stale build gives misleading results.
+  Don't run `tsc` (or `npm test`) while a browser run is going: it rewrites `dist/` under the dev server.
+- Browser tests run `VN_BROWSER_JOBS` at a time (default 1, in order; `VN_BROWSER_JOBS=2`
+  halves the time and was stable in 4 runs, 3+ is flaky). Each test needs its own context and must not write to the sample project (mock `/api/...` routes instead).
+- `engine/test/browser.test.mjs` plays the sample in a real browser (system Edge/Chrome through playwright-core; skipped
+  when none is found, `VN_BROWSER=<exe>` overrides). It starts its own dev server on a free port.
+- A fresh git worktree (`.claude/worktrees/...`) has no `node_modules`. Run `npm install` there before `npm test`, or
+  the browser tests have no PixiJS/Monaco to serve (node still finds `playwright-core` in the parent folder, so they
+  don't skip). `browser.test.mjs` now fails at once with that message instead of timing out test by test.
+- Start the dev server with the preview tools (`vn-dev` in `.claude/launch.json`), not Bash. Engine, editor and
+  preview code rebuild and reload by themselves; restart it after editing `preview/dev-server.mjs`.
+- Preview servers count against a per-folder limit (5) shared by all chats. Stop the one you started
+  (`preview_stop`) when your task is done, and don't leave servers running for finished chats.
+- To see a script change rendered, temporarily patch `sample/script/park.vn`, screenshot it with a throwaway
+  playwright script (dev server with `--no-build --no-art` on your own port; two Space presses, with a wait, get past
+  the first line), then `git checkout` the sample. The renderer exposes no handle to the pixi scene, so browser tests
+  can't assert on sprite bounds without adding a debug hook first.
+- Never kill node processes broadly: the dev server and the tsc watcher are node processes too.
+- After adding or editing script lines run `npm run ids`, then `npm run strings`. The resulting changes to
+  `sample/locale/en.json` and the scripts are expected.
+- Commit only when asked.
+
+## Architecture
+
+- `engine/src` has no DOM and runs in node. Put new logic there as pure functions with a test in
+  `engine/test/`; the editor (`editor/`) and game shell (`preview/`) stay thin.
+- All scripts in `script/` compile together: labels are global and `sample/script/park.vn` owns `start`. Other
+  sample scripts (`demo.vn`) are entered with Preview from cursor. Tests hard-code park.vn's choice order, so
+  don't reshuffle it.
+- Adding a script command touches: `parser.ts`, `types.ts`, `runtime.ts` (and `compile.ts` if it has
+  strings or targets), `editor-support.ts` (completions), `docs/commands.md`, the syntax block in the README,
+  and a test. A new `SpriteState` field also needs the whole-state `deepEqual`s in `engine.test.mjs` and
+  `assets.test.mjs` and the state built in `preview/studio.ts`.
+- The F1 help is built from `docs/commands.md` headings (`engine/src/help.ts`): `### a / b` makes topics `a`
+  and `b`, and the lookup uses the first word of the line. Rename those headings with care.
+- Localizable strings (dialogue, menu options, `input` prompts) carry ids like `#ab12`; new string-bearing
+  statements need support in `ids.ts` and `compile.ts` (`registerString`).
+
+## Conventions
+
+- `.gitattributes` forces LF; some working copies are CRLF, so git's CRLF warnings are harmless.
+- `TODO.md` legend: `[ ]` open, `[~]` partly done, `[x]` done, `[-]` deferred. Update it when finishing a task and
+  don't add duplicates. Deliberately deferred: asset unloading (step 4) and verifying asset loading on real
+  networks/devices. Don't start those unprompted.
+- When editing regexes with backslashes, use the Edit tool; shell heredocs and template strings mangle them.
+- `assignIds` grows ids past 4 characters when it keeps hitting taken ones, so a stuck `rng` no longer hangs it (still use a varying one in tests).
+- A synchronous infinite loop is not stopped by `node --test --test-timeout`. Run a new test file alone under a limit first:
+  `timeout 60 node --test engine/test/<file>.test.mjs` (`--test-name-pattern` narrows it to find the culprit).

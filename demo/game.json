@@ -1,0 +1,62 @@
+{
+  "id": "rainy-day-library",
+  "title": "Rainy Day Library",
+  "engine": "0.1",
+  "titleScreen": {
+    "background": "bg_library",
+    "music": "evening_theme",
+    "showTitle": true,
+    "align": "center",
+    "buttons": [
+      "new_game",
+      "continue",
+      "load",
+      "gallery",
+      "music_room",
+      "options"
+    ]
+  },
+  "gallery": [
+    {
+      "image": "cg_window_seat",
+      "title": "Window seat"
+    },
+    {
+      "image": "bg_reading_room",
+      "title": "The lamp room",
+      "unlock": "lamp_room"
+    }
+  ],
+  "labels": {},
+  "theme": {
+    "accent": "#5fd1c3"
+  },
+  "musicRoom": [
+    {
+      "track": "evening_theme",
+      "title": "Evening Theme"
+    }
+  ],
+  "chapters": [
+    {
+      "label": "start",
+      "title": "Arrival"
+    },
+    {
+      "label": "tour",
+      "title": "The tour"
+    },
+    {
+      "label": "hub",
+      "title": "The library"
+    },
+    {
+      "label": "archive",
+      "title": "The archive"
+    },
+    {
+      "label": "reading_room",
+      "title": "The lamp room"
+    }
+  ]
+}

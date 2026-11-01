@@ -1,0 +1,30 @@
+{
+  "name": "marginalia-vn",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Visual novel engine, script language, editor and live preview",
+  "bin": {
+    "vn": "bin/vn.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "dev": "node bin/vn.mjs dev",
+    "test": "tsc -p . && node scripts/test.mjs fast",
+    "test:browser": "tsc -p . && node scripts/test.mjs browser",
+    "test:all": "tsc -p . && node scripts/test.mjs all",
+    "ids": "node bin/vn.mjs ids",
+    "strings": "node bin/vn.mjs strings",
+    "art": "node bin/vn.mjs art",
+    "playtest": "node bin/vn.mjs playtest",
+    "export": "node bin/vn.mjs export"
+  },
+  "devDependencies": {
+    "ag-psd": "34.1.0",
+    "monaco-editor": "0.52.2",
+    "pixi.js": "8.22.0",
+    "playwright-core": "^1.64.1",
+    "typescript": "^5.6.0"
+  }
+}

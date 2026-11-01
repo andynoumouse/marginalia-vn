@@ -1,0 +1,30 @@
+{
+  "title": "Evening in the Park",
+  "titleScreen": {
+    "background": "bg_park_evening",
+    "music": "evening_theme",
+    "showTitle": true,
+    "align": "center",
+    "buttons": ["new_game", "continue", "load", "gallery", "music_room", "chapters", "options"]
+  },
+  "quickMenu": {
+    "items": ["back", "history", "auto", "skip", "qsave", "qload", "save", "load", "options", "hide"],
+    "position": "bottom",
+    "align": "center"
+  },
+  "gallery": [
+    { "image": "bg_park_evening", "title": "Evening park" },
+    { "image": "bg_park_night", "title": "Night park" }
+  ],
+  "musicRoom": [
+    { "track": "evening_theme", "title": "Evening Theme" }
+  ],
+  "chapters": [
+    { "label": "start", "title": "The bench" },
+    { "label": "bench_talk", "title": "A talk" }
+  ],
+  "labels": {},
+  "theme": {
+    "accent": "#5fd1c3"
+  }
+}

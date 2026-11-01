@@ -1,0 +1,50 @@
+# park.vn - sample scene. Lines starting with # are comments.
+# Dialogue, narration and menu lines get a hidden localization id (#abcd) via `npm run ids`.
+
+define alice "Alice" color=#ff6fa5 blip=high
+define you "You" color=#7cc4ff
+
+set trust = 0
+
+label start:
+  scene bg_park_evening fade 0.5
+  music play evening_theme loop
+
+  "The park was nearly empty. Only one bench was occupied." #joce
+
+  show alice neutral at center fade 0.4
+  alice: You're late. {pause=0.4}I almost left. #omn9
+
+  menu:
+    "Sorry, I got lost." #qw64:
+      set trust += 1
+      show alice smile
+      hop alice 0.25
+      alice: Lost? In your own neighborhood? #rubn
+      jump bench_talk
+
+    "You didn't have to wait." #kv6y:
+      show alice annoyed
+      shake alice 0.3 strength=6
+      alice: Don't flatter yourself. #a3f7
+      jump bench_talk
+
+label bench_talk:
+  wait 0.5
+  if trust >= 1:
+    alice: Fine. Sit down. I'll forgive you this once. #j30k
+  else:
+    alice: Sit. We need to talk anyway. #kx0c
+
+  move alice to left 0.6 ease=out
+  you: So, what did you want to say? #eamr
+  hide alice fade 0.3
+  "The evening light faded as the conversation went on." #n80q
+  scene bg_park_night dissolve 1.2
+  "Later, the park lights flickered on, and the bench was empty." #bt59
+  menu:
+    "Walk into town." #q7ln:
+      jump town_square
+
+    "Call it a night." #zsc9:
+      end

@@ -1,0 +1,154 @@
+# rooms.vn - the library's rooms. A clickable map (screen) leads to one room per group of features;
+# each room says which commands it uses. Characters and variables come from start.vn.
+
+define item key "Brass key" #vn1m
+define item novel "Rain novel" #wck9
+define item atlas "Old atlas" #d1bg
+
+set bag = []
+set visits = 0
+set archive_open = 0
+
+screen library_map:
+  image "bg/bg_library.png" size 1920,1080
+  text at 80,48 "{b}Rainy Day Library{/b}   Pages turned: [pages]   You carry: [bag]" #c2vc
+  hotspot stacks at 160,300 size 420,380 "The stacks" #opma hover tint rgba(255,220,120,.30)
+  hotspot desk ellipse at 800,640 size 460,220 "The front desk" #qlcp hover scale 1.06
+  hotspot archive at 1300,280 size 420,360 "The archive" #rf5t hover tint rgba(120,200,255,.30)
+  hotspot board at 1380,740 size 360,200 "The notice board" #swx9 hover tint rgba(255,220,120,.30)
+  button leave at 80,940 "Find a seat" #g71l hover scale 1.08
+  default stacks
+
+# A HUD stays up beside the story. Clicking its button runs a label, then the story carries on.
+screen status:
+  text at 40,30 "Pages: [pages]" #ffeb
+  button peek at 1620,30 size 260,80 "Bag" #ks9c on click look_in_bag
+
+label look_in_bag:
+  if count(bag) == 0:
+    you: My bag is empty. Nothing but an umbrella. #f952
+  else:
+    you: In my bag: [bag]. #s6g6
+  return
+
+label hub:
+  scene bg_library dissolve 0.8
+  hud on status keep
+  if visits == 0:
+    show iris smile at center fade 0.4
+    if unlocked.explorer:
+      iris: You're back! You've explored every corner before, so take your time. #nt37
+    iris: Go wherever you like, [name]. Click a place on the map. Each room shows off something different. #v3al
+  else:
+    show iris neutral at center fade 0.3
+    iris: Where to next? #xalc
+  show screen library_map
+  hide iris fade 0.2
+  if screen == "stacks":
+    jump stacks
+  elif screen == "desk":
+    jump desk
+  elif screen == "archive":
+    jump archive
+  elif screen == "board":
+    jump board
+  jump reading_room
+
+# Text tags, camera, filters, flash, animations.
+label stacks:
+  set visits += 1
+  scene bg_reading_room fade 0.6
+  show iris smile at center fade 0.4
+  animate iris breathe loop
+  iris: Welcome to the stacks. Text can be {i}italic{/i}, {b}bold{/b}, {color=#ff9f7c}coloured{/color}, {size=1.4}big{/size}, {wave}wavy{/wave} or {shake}nervous{/shake}. #j9xf
+  iris: It can wait for a click{wait} in the middle of a line, and move on by itself.{nw} #pcxj
+  camera zoom 1.6 at center y=0.35 1.2 ease=out
+  iris: A camera can lean in on a detail... #oahw
+  camera pan right 1
+  camera reset 0.8
+  filter sepia 0.8 1
+  iris: ...and a filter can make the room feel like an old photograph. #bfa5
+  filter off 1
+  flash #ffffff 0.5
+  iris: A lightning flash! {pause=0.5}Did you hear the thunder? #xa9b
+  shake iris 0.4 strength=8
+  animate iris stop
+  iris: Sorry. I'm jumpy in storms. #r76w
+  jump hub
+
+# Lists, items, an inventory screen, random, and a parameterised call.
+label desk:
+  set visits += 1
+  scene bg_library fade 0.5
+  show iris neutral at center fade 0.3
+  iris: The front desk. We lend out books, and the engine keeps a list of what you borrow. #wf0s
+  call borrow("novel")
+  call borrow("atlas")
+  call borrow("novel")
+  set pick_of_the_day = pick("novel", "atlas")
+  iris: My recommendation today is the {i}[pick_of_the_day]{/i}. {pause=0.3}Chosen at random, but the same every time you replay this save. #javx
+  if not contains(bag, "key"):
+    iris: One more thing: here's the key to the archive. Don't lose it. #hing
+    set bag += "key"
+    set archive_open = 1
+  show screen inventory
+  jump hub
+
+# Subroutine with a parameter: the name is local to each call.
+label borrow(book):
+  if contains(bag, book):
+    iris: You already have the [book]. #aqaq
+    return
+  set bag += book
+  set held = count(bag)
+  sound play page_flip1
+  iris: One [book] for you. You now carry [held] [held:book|books]. #gheb
+  return
+
+screen inventory:
+  text at 80,48 "Your bag" #alch
+  each bag as it at 120,200 step 0,130
+    button it at 200,0 size 640,100 "[it.name]" #q1yb
+  button back at 1580,940 "Back" #aknd
+  default back
+  cancel
+
+# Timed choice, disabled option with a reason, persistent flags.
+label archive:
+  set visits += 1
+  scene bg_reading_room fade 0.5
+  filter night 0.6 1
+  show iris neutral at center fade 0.3
+  iris: The archive. Closed to the public. #j1hm
+  menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" #g4mt timeout 8:
+    "Open the box" #ugk2 if archive_open == 1 else "You need the brass key." #u9yu:
+      iris: It's a stack of rain-stained postcards. {pause=0.4}Take one. #yyoc
+      image show postcard bg/cg_window_seat at 960,500 anchor=center scale=0.35 fade 0.4
+      iris: Postcards from people who waited out the rain here. #h4c7
+      image hide postcard fade 0.4
+      unlock lamp_room
+      set persistent.secrets += 1
+    "Hold the lamp steady" #jr0t:
+      iris: Thank you. The light steadies. #pdk0
+    on timeout:
+      flash #000000 0.4
+      iris: Too slow! The lamp went out. {pause=0.4}Never mind, it comes back. #cud0
+  filter off 1
+  if persistent.secrets >= 1:
+    set found = persistent.secrets
+    iris: You have found [found] [found:secret|secrets] here, over all your visits. #iibz
+  jump hub
+
+# Full-screen narration pages.
+label board:
+  set visits += 1
+  scene bg_reading_room fade 0.5
+  nvl on
+  "Notice board." #j3kf
+  "Lost: one green umbrella. Found: three odd socks." #dqlc
+  "Tonight's reading: the story of a library that never closes while it rains." #exnk
+  nvl clear
+  "A faded note, pinned in the corner: {i}For whoever reads this: stay as long as the rain does.{/i}" #qjwp
+  nvl off
+  you: A nice note. #id94
+  jump hub

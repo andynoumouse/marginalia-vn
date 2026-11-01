@@ -1,0 +1,137 @@
+# demo.vn - tour of the newer commands: input, flash, tint, camera and text tags.
+# park.vn is the entry story (label "start"); nothing jumps here. To play it, put the cursor on a line
+# below and use Preview from cursor (Ctrl+Enter), or add `jump demo` somewhere in park.vn.
+# Characters (alice, you) are defined in park.vn; top-level lines of every script run before the story.
+
+set demo_visits = 0
+
+label demo:
+  scene bg_park_evening fade 0.5
+  show alice neutral at center fade 0.4
+
+  # --- input: ask the player for text and store it in [player] ---
+  alice: Before we start: what should I call you? #mgwi
+  input player "What's your name?" default="Alex" max=16 #cfda
+  alice: Nice to meet you, [player]. #vbsv
+
+  # --- text tags ---
+  alice: Plain, {i}italic{/i}, {b}bold{/b}, {color=#ff6fa5}pink{/color} and {size=1.5}big{/size}. #ois0
+  alice: {wave}Wavy{/wave}, {shake}shaky{/shake}, and kanji with a reading: {ruby=kan}漢{/ruby}{ruby=ji}字{/ruby}. #tht2
+  alice: A pause{pause=0.6} in the middle. #aoyf
+  alice: Stops here until you click.{wait} And then goes on. #nryn
+  alice: This line moves on by itself.{nw} #x1xs
+  alice: ...like that. #es2o
+
+  # --- flash: a screen flash that fades out ---
+  alice: Watch the screen. #k01e
+  flash
+  alice: That was white. Now a red one, slower. #arg3
+  flash #ff3030 0.8
+
+  # --- tint: a colour wash over the scene (lasts until the next `scene`) ---
+  alice: It's getting late. #irt4
+  tint #203060 0.5 1.5
+  alice: Evening blue, half strength. #baef
+  tint off 1
+  alice: And back to normal. #e3gi
+
+  # --- camera: zoom about a point; resets on `scene` ---
+  alice: Come closer. #zg8k
+  camera zoom 1.6 at center y=0.4 1.0 ease=out
+  alice: Much closer. #dakv
+  camera reset 0.6
+  alice: That's enough of that. #we2g
+
+  # --- camera pan: while zoomed in, slide the view sideways without changing the zoom ---
+  camera zoom 1.5 at left 0.6
+  alice: Over here... #r3z3
+  camera pan right 1.2 ease=inout
+  alice: ...and over there. #iqmh
+  camera reset 0.6
+
+  # --- weather: falling particles (rain, snow, petals, embers); lasts until `weather off` or the next `scene` ---
+  weather rain 0.7 1
+  alice: Oh, it started to rain. #jyv8
+  weather snow 0.5 1
+  alice: Now it's snowing. #yguz
+  weather petals 0.4 1
+  alice: Petals, even. #j61h
+  weather off 1
+
+  # --- filter: a look over the whole scene (blur, grayscale, sepia, night, vignette) ---
+  filter sepia 1 0.8
+  alice: Like an old photograph. #cn02
+  filter night 0.8 0.8
+  alice: Or the middle of the night. #irps
+  filter blur 0.5 0.6
+  alice: Or I need new glasses. #edek
+  filter off 0.6
+
+  # --- image: a picture over the scene (stage pixels 1920x1080); layer=-1 goes behind the characters, `keep` survives `scene` ---
+  image show photo bg/bg_park_night at 1500,260 anchor=center scale=0.25 rot=-6 fade 0.5
+  alice: A photo, pinned over the scene. #wz9k
+  image move photo to 1500,300 scale=0.3 rot=4 0.6 ease=out
+  alice: It can slide, turn and fade like a character. #pqhg
+  image hide photo fade 0.4
+
+  # --- move: size, tilt, lift, opacity and mirroring tween together with the position ---
+  alice: Watch this. #k1ki
+  move alice scale=1.2 y=-0.03 0.4 ease=back
+  move alice rot=-6 0.3
+  move alice rot=6 0.3
+  move alice rot=0 scale=1 y=0 0.4 ease=bounce
+  move alice flip=on
+  alice: Backwards. #n79i
+  move alice flip=off alpha=0.4 0.5
+  move alice alpha=1 0.5
+
+  # --- animate: named animations; a loop runs until `animate <char> stop` ---
+  alice: Now I'm breathing, and nodding. #jc2t
+  animate alice breathe loop
+  animate alice nod
+  alice: Bouncing, then a gentle sway. #gm52
+  animate alice bounce 1.0 strength=1.5
+  animate alice sway loop
+  alice: And back to still. #mk0z
+  animate alice stop
+
+  # --- nvl: full-screen narration pages; `nvl clear` starts a new page ---
+  nvl on
+  "The lamps came on one by one along the path." #icsr
+  "Somewhere behind the trees, a bell rang twice." #fzd1
+  alice: Did you hear that? #ascz
+  nvl clear
+  "Neither of them said anything for a while." #mr2p
+  nvl off
+
+  # --- lists: an inventory in one variable (contains, count, item, index, pick) ---
+  set bag = []
+  set bag += "key"
+  set bag += ["map", "lamp"]
+  alice: In my bag: [bag]. #brlc
+  set bag -= "map"
+  set left = count(bag)
+  if contains(bag, "key"):
+    alice: I still have the key, and [left] things in all. #wswa
+
+  # --- audio: ambience on its own channel, pausing music, ducking (silent without files in assets/sound and assets/music) ---
+  alice: Rain starts under the music. #au01
+  sound loop rain fade 1
+  music pause
+  alice: Music paused, rain still going. #au02
+  music resume
+  sound play thunder duck
+  sound stop rain fade 2
+  alice: Everything audio is back to normal. #au03
+
+  # --- the effects combine with a menu and variables ---
+  set demo_visits += 1
+  menu "Decide quickly!" #q17w timeout 10:
+    "Show it again." #dm01:
+      jump demo
+    "That's all, thanks." #dm02:
+      alice: See you around, [player]. (Visits: [demo_visits]) #bu9l
+      end
+    on timeout:
+      alice: Too slow! Let's run it again. #dm03
+      jump demo

@@ -1,0 +1,153 @@
+# town.vn - a larger branching chapter, mostly to give the story outline (Outline button) something to draw.
+# Nothing links here from park.vn (its tests pin its structure). Put the cursor on a line below and use
+# Preview from cursor (Ctrl+Enter). It uses alice and you, defined in park.vn.
+
+set gold = 5
+set clue = 0
+set bread = false
+
+label town_square:
+  scene bg_park_evening fade 0.5
+  show alice neutral at center fade 0.4
+  alice: Pick a direction. We have until dark. #jklz
+  menu:
+    "The bakery smells nice." #lwg2:
+      jump bakery
+    "Let's try the library." #lgsr:
+      jump library
+    "Walk down to the harbor." #xbcp:
+      jump harbor
+    "I think we've seen enough." #qzo9 if clue >= 2:
+      jump finale_check
+    "Take me home." #k4ch:
+      jump home_early
+
+label bakery:
+  "A bell rang over the door. Warm air, sugar and burnt crust." #uggb
+  alice: Two coins a loaf. You're buying. #bbyv
+  menu:
+    "Buy a loaf." #fp7e:
+      if gold >= 2:
+        set gold -= 2
+        set bread = true
+        alice: Good. Half of it is mine. #p25s
+        jump baker_chat
+      else:
+        alice: You're broke? Already? #pc7t
+        jump town_square
+    "Ask the baker about the town." #s8c3:
+      jump baker_chat
+    "Leave." #fcc0:
+      jump town_square
+
+label baker_chat:
+  "The baker leaned on the counter." #u32a
+  if bread:
+    "Since you're a customer: the lighthouse keeper hides a key in the old reading room." #lvzd
+    set clue += 1
+  else:
+    "Buy something, then we talk." #fnif
+  jump town_square
+
+label library:
+  scene bg_park_night dissolve 0.8
+  "Dust hung in the lamplight." #k1nb
+  menu:        
+    "Search the shelves." #aq1f:
+      jump shelves
+    "Talk to the librarian." #uxkt:
+      jump librarian
+    "Back outside." #i077:
+      jump town_square
+
+label shelves:
+  "Most of the books were water-damaged. One was not." #sc7m
+  set clue += 1
+  alice: A map of the harbor. Someone marked the lighthouse. #oly7
+  jump library
+
+label librarian:
+  "The librarian looked up over thick glasses." #yzw8
+  menu:
+    "Ask about the lighthouse." #nit1:
+      if clue >= 1:
+        "She slid a brass key across the desk." #b7jc
+        set clue += 1
+        jump library
+      else:
+        "She shrugged and went back to her book." #tc37
+        jump library
+    "Ask for a riddle." #zfbm:
+      call riddle
+      jump library
+    "Never mind." #pkv5:
+      jump library
+
+label riddle:
+  "What has keys but opens no doors?" #llpe
+  menu:
+    "A piano." #sbft:
+      alice: Show-off. #rs7r
+      set gold += 1
+    "A map." #x16w:
+      alice: Not even close. #fwt0
+  return
+
+label harbor:
+  scene bg_park_evening dissolve 0.8
+  "Gulls, rope and the slap of water." #etbk
+  menu:
+    "Talk to the fisherman." #ogjx:
+      jump fisherman
+    "Take the ferry across." #upeo:
+      call ferry_ride
+      jump harbor
+    "Visit the lighthouse." #t1z3 if clue >= 2:
+      jump lighthouse
+    "Back to the square." #rcxu:
+      jump town_square
+
+label fisherman:
+  if trust >= 1:
+    "He grinned. 'You're the one who waited for her on the bench.'" #runo
+    set clue += 1
+  elif gold >= 4:
+    "He sold you a tip for a coin." #vouk
+    set gold -= 1
+    set clue += 1
+  else:
+    "He mumbled something about the weather." #vh49
+  jump harbor
+
+label ferry_ride:
+  "The ferry rocked. Alice leaned on the rail." #gpq3
+  alice: Nobody can hear us out here. #jxfx
+  return
+
+label lighthouse:
+  "At the top of the stairs a small door stood open." #mxzy
+  alice: You found it. Open it. #m6yh
+  jump finale_check
+
+label finale_check:
+  if clue >= 3 and bread:
+    jump good_ending
+  elif clue >= 2:
+    jump quiet_ending
+  else:
+    jump home_early
+
+label good_ending:
+  scene bg_park_night dissolve 1.2
+  show alice smile
+  "Inside was a note: thank you for looking." #pemu
+  unlock town_finale
+  end
+
+label quiet_ending:
+  "You found just enough to wonder what else was there." #bskt
+  end
+
+label home_early:
+  "You walked home with the day still unsolved." #z39x
+  end

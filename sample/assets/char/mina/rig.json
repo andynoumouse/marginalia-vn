@@ -1,0 +1,50 @@
+{
+  "order": ["bottom", "top"],
+  "groups": {
+    "outfit": ["top", "bottom"]
+  },
+  "poses": {
+    "shy": { "pose": "smile", "mouth": "neutral" },
+    "uniform": { "outfit": "school" },
+    "casual": { "pose": "happy", "outfit": "casual" }
+  },
+  "pivots": {
+    "hair_back": [270, 380], "face": [270, 380], "bangs": [270, 380], "eyes": [270, 380], "mouth": [270, 380]
+  },
+  "idle": "breathe",
+  "speak": { "variants": ["open", "neutral"], "rate": 7 },
+  "blink": true,
+  "animations": {
+    "wave": {
+      "dur": 1.2,
+      "keys": [
+        { "t": 0.2, "rot": 7, "y": -0.01, "ease": "out" },
+        { "t": 0.5, "rot": -5 },
+        { "t": 0.8, "rot": 4 }
+      ]
+    },
+    "head_tilt": {
+      "dur": 1,
+      "keys": [
+        { "part": "face", "t": 0.35, "rot": 6, "ease": "out" },
+        { "part": "bangs", "t": 0.35, "rot": 6, "ease": "out" },
+        { "part": "eyes", "t": 0.35, "rot": 6, "ease": "out" },
+        { "part": "mouth", "t": 0.35, "rot": 6, "ease": "out" },
+        { "part": "hair_back", "t": 0.5, "rot": 9, "ease": "out" },
+        { "part": "face", "t": 0.75, "rot": -2 },
+        { "part": "bangs", "t": 0.75, "rot": -2 },
+        { "part": "eyes", "t": 0.75, "rot": -2 },
+        { "part": "mouth", "t": 0.75, "rot": -2 },
+        { "part": "hair_back", "t": 0.85, "rot": -4 }
+      ]
+    },
+    "giggle": {
+      "dur": 0.6,
+      "keys": [
+        { "t": 0.15, "y": -0.015, "scale": 0.02 },
+        { "t": 0.3, "y": 0 },
+        { "t": 0.45, "y": -0.015, "scale": 0.02 }
+      ]
+    }
+  }
+}

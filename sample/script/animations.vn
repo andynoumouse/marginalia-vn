@@ -1,0 +1,109 @@
+# animations.vn - every animation feature, one after another: move transforms and easing, the animate presets,
+# loops, keyframe animations from rig.json, and a layered character that idles, talks and blinks by itself.
+# Nothing jumps here: put the cursor on the `label animation_showcase:` line and use Preview from cursor (Ctrl+Enter).
+# Characters: alice (park.vn, a flat image: presets and transforms) and mina (mina.vn, layered: also her rig.json).
+
+label animation_showcase:
+  scene bg_park_evening fade 0.5
+  show alice neutral at 0.25 fade 0.4
+  show mina at 0.75 fade 0.4
+  "Animation tour. Alice is a flat image, Mina is a layered character with a rig.json." #trnr
+  mina: Look at me before anything has been said: I breathe, and now and then I blink. That is rig.json "idle" and "blink". #g2bo
+
+  # --- 1. move: position, size, tilt, lift, opacity and mirroring, tweened together ---
+  "1. move: y= scale= rot= alpha= flip= tween together with the position, with an ease." #kglp
+  alice: Slide, with three different easings. #v6ag
+  move alice to center 0.6 ease=out
+  move alice to left 0.6 ease=back
+  move alice to 0.4 0.8 ease=bounce
+  move alice to left 0.5 ease=elastic
+  alice: Size, lift and tilt at once. #pzfi
+  move alice scale=1.25 y=-0.04 rot=-6 0.5 ease=back
+  move alice scale=1 y=0 rot=0 0.4
+  alice: Fade out, turn around, come back. #n7nk
+  move alice alpha=0.25 0.4
+  move alice flip=on
+  move alice alpha=1 0.4
+  move alice flip=off
+
+  # --- 2. animate presets: they add to where a character stands ---
+  "2. animate <char> <name>: nine presets. One-shots wait for the end." #jo5z
+  alice: nod #n7ym
+  animate alice nod
+  alice: bob #r0pc
+  animate alice bob
+  alice: bounce #k3lj
+  animate alice bounce
+  alice: hop #l2aq
+  animate alice hop
+  alice: pulse #zfnn
+  animate alice pulse
+  alice: shiver #dq7e
+  animate alice shiver
+  alice: shake #uwbe
+  animate alice shake
+  alice: sway #i1d6
+  animate alice sway
+  alice: breathe #vygv
+  animate alice breathe
+  alice: Seconds and strength change them: bounce again, 1.6 seconds and half again as high. #pqxk
+  animate alice bounce 1.6 strength=1.5
+
+  # --- 3. loops: they go on until stop, and survive a save or a rollback ---
+  "3. loop: repeats until stop (or hide, or the next scene). A new loop replaces the old one." #q9f1
+  animate alice sway loop
+  alice: I am swaying. This lasts across lines. #lwym
+  animate alice bob 0.8 loop strength=2
+  alice: Now bobbing quickly, and that replaced the sway. #snj2
+  animate alice pulse 1.4 loop
+  alice: Pulsing. A one-shot adds to a loop, so watch. #ciig
+  animate alice hop
+  alice: Both at once. Now stop. #t5ge
+  animate alice stop
+
+  # --- 4. nowait: run animations side by side ---
+  "4. nowait: start an animation and carry on, so several characters move together." #kase
+  animate alice bounce 1.2 nowait
+  animate mina hop nowait
+  move alice to center 1.2 ease=inout nowait
+  move mina scale=1.1 1.2 ease=inout
+  move alice to left 0.5
+  move mina scale=1 0.4
+
+  # --- 5. keyframe animations from Mina's rig.json "animations" ---
+  "5. rig.json animations: keyframes of your own. Mina has wave, giggle and head_tilt." #ah9s
+  mina: wave #h8ne
+  animate mina wave
+  mina: giggle, looping #t7ov
+  animate mina giggle loop
+  mina: Still giggling, while I talk. A rig animation can also be stretched: animate mina wave 3. #rukz
+  animate mina stop
+  animate mina wave 3
+
+  # --- 6. per-part animation: part= moves just that part, about its pivot ---
+  "6. part=: one part of a layered character, about its pivot (rig.json \"pivots\")." #woaw
+  mina: head_tilt is keyframes that move my face, bangs, eyes, mouth and hair together. #sn9t
+  animate mina head_tilt
+  mina: part= plays any animation on one part: my hair sways by itself. #pit0
+  animate mina sway 2.5 loop part=hair_back strength=2
+  mina: And my face nods, while the hair carries on. #juzh
+  animate mina nod 0.6 part=face strength=3
+  animate mina stop
+
+  # --- 7. what a layered character does by itself ---
+  "7. idle, speak and blink: nothing in the script asks for these." #odat
+  mina: Watch my mouth while I talk, a longer sentence helps: it moves while the letters appear, and stops when the line is done. #k1la
+  mina: Eyes closed on purpose: a slot set in the script wins over blinking. #w2b5
+  show mina eyes=closed
+  mina: And open again. #wekj
+  show mina eyes=open
+
+  # --- the end ---
+  "That is all of them. Reduce motion (Options) turns the loops, shakes and hops off." #feof
+  menu:
+    "Once more." #as01:
+      jump animation_showcase
+    "Done." #as02:
+      hide alice fade 0.4
+      hide mina fade 0.4
+      end

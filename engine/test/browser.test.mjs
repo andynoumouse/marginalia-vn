@@ -1,0 +1,1408 @@
+// Browser-level tests for the game shell: the dev server runs on the sample project and a real Chromium-family
+// browser (driven by playwright-core) plays park.vn and demo.vn through the title screen, the text box, choices,
+// skip/auto, rollback, quick save, menus, the name prompt, save/load screens, history, gallery and NVL.
+// The browser is the system's Edge or Chrome (set VN_BROWSER to an executable to use another one). Without
+// playwright-core or a browser the tests are skipped, so `npm test` still works everywhere.
+// Tests hard-code the start of park.vn (see CLAUDE.md), and need the build in dist/ (`npm test` does that).
+import { before, after, describe, test as nodeTest } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import net from 'node:net';
+
+const root = fileURLToPath(new URL('../..', import.meta.url));
+
+let chromium;
+try { ({ chromium } = await import('playwright-core')); } catch { /* optional */ }
+
+async function freePort() {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }).on('error', reject);
+  });
+}
+
+let server, browser, base, skipReason;
+
+// Every test has its own browser context (own localStorage, own mocked /api routes) and the dev server is read-only here,
+// so they do not interact: they are collected and run VN_BROWSER_JOBS at a time (default 1, in order) by the suite at the end of
+// the file. 2 jobs halve the time and passed 4 runs out of 4, but 3 or 4 make the hotspot, HUD and gamepad tests fail now
+// and then (pointer and timing waits under load), so the default stays at the safe 1; raise it only for a quick local run.
+const queued = [];
+const test = (...args) => { queued.push(args); };
+
+before(async () => {
+  if (!chromium) { skipReason = 'playwright-core is not installed'; return; }
+  const launch = process.env.VN_BROWSER ? [{ executablePath: process.env.VN_BROWSER }] : [{ channel: 'msedge' }, { channel: 'chrome' }];
+  for (const opts of launch) {
+    try { browser = await chromium.launch(opts); break; } catch { /* try the next one */ }
+  }
+  if (!browser) { skipReason = 'no Chrome or Edge found (set VN_BROWSER)'; return; }
+  // The dev server serves PixiJS and Monaco from the project's own node_modules. A fresh git worktree has none (node
+  // still finds playwright-core in a parent folder, so the tests do not skip): fail now, not 30 s per test later.
+  for (const dep of ['pixi.js', 'monaco-editor']) {
+    if (!existsSync(path.join(root, 'node_modules', dep))) {
+      throw new Error(`${dep} is missing from ${path.join(root, 'node_modules')}: run \`npm install\` here (a new git worktree has no node_modules)`);
+    }
+  }
+  const port = await freePort();
+  base =`http://localhost:${port}/`;
+  server = spawn(process.execPath, ['preview/dev-server.mjs', '--no-build', '--no-art'], {
+    cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore',
+  });
+  for (let i = 0; ; i++) {
+    try { if ((await fetch(base)).ok) break; } catch { /* not listening yet */ }
+    if (i > 100) throw new Error('dev server did not start');
+    await new Promise(r => setTimeout(r, 100));
+  }
+});
+
+after(async () => {
+  await browser?.close();
+  server?.kill();
+});
+
+// A fresh browser context per test: empty localStorage, so no saves or settings leak between tests.
+function play(name, fn, setup) {
+  test(name, async t => {
+    if (skipReason) { t.skip(skipReason); return; }
+    const context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+    await setup?.(context);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    try {
+      await page.goto(base);
+      await page.getByRole('button', { name: 'New game' }).waitFor();
+      await fn(page);
+      assert.deepEqual(errors, [], 'the page threw errors');
+    } finally {
+      await context.close();
+    }
+  });
+}
+
+const text = page => page.locator('#text').innerText();
+const status = page => page.locator('#status').innerText();
+// A generous wait: it costs time only when a test is failing anyway, and a machine that is busy with something else
+// (another build, a virus scan) stalled the typing timers past the old 8 s now and then, in a different test each time.
+const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 20000 });
+const newGame = async page => {
+  await page.getByRole('button', { name: 'New game' }).click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+};
+const textDone = page => until(page, () => document.getElementById('box').dataset.done === 'true');
+const menuOpen = page => until(page, () => document.getElementById('menu').dataset.visible === 'true');
+// Press Space until the choice menu is up: finishes the typing and moves through the lines before it.
+async function toChoice(page) {
+  for (let i = 0; i < 12; i++) {
+    if (await page.locator('#menu[data-visible="true"]').count()) return;
+    await textDone(page).catch(() => {});
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(150);
+  }
+  await menuOpen(page);
+}
+
+play('title screen offers the configured buttons and New game starts the story', async page => {
+  const buttons = await page.locator('#titleNav button:visible').allInnerTexts();
+  assert.deepEqual(buttons, ['New game', 'Continue', 'Load', 'Gallery', 'Music', 'Chapters', 'Options']);
+  await newGame(page);
+  assert.match(await status(page), /^park\.vn:\d+$/);
+  await textDone(page);
+  assert.match(await text(page), /^The park was nearly/);
+});
+
+play('a click finishes the typing, the next click advances to the next line', async page => {
+  await newGame(page);
+  const stage = page.locator('#stage');
+  await stage.click();
+  await textDone(page);
+  assert.equal(await text(page), 'The park was nearly empty. Only one bench was occupied.');
+  await stage.click();
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  assert.equal(await page.locator('#name').innerText(), 'Alice');
+});
+
+play('choices: number keys pick an option and the story branches', async page => {
+  await newGame(page);
+  await toChoice(page);
+  const options = await page.locator('#menu button').allInnerTexts();
+  assert.deepEqual(options, ['Sorry, I got lost.', "You didn't have to wait."]);
+  await page.keyboard.press('2');
+  await until(page, () => document.getElementById('menu').dataset.visible !== 'true');
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+});
+
+play('choices: arrow keys move focus and Enter picks', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), "You didn't have to wait.");
+  await page.keyboard.press('Enter');
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+});
+
+play('Tab does not skip unread text and says so', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Tab');
+  await page.locator('#toast[data-show="true"]').waitFor();
+  assert.match(await page.locator('#toast').innerText(), /unread/i);
+  assert.equal(await page.locator('#quick [aria-pressed="true"]').count(), 0);
+});
+
+play('with "skip unread" on, Tab skips through the lines and stops at the choice', async page => {
+  await page.locator('#titleOptions').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
+  await page.locator('#optSkip').selectOption('all');
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
+  await newGame(page);
+  await page.keyboard.press('Tab');
+  await menuOpen(page);
+  assert.equal(await page.locator('#menu button').count(), 2);
+  assert.equal(await page.locator('#quick [aria-pressed="true"]').count(), 0); // the choice ended the skipping
+});
+
+play('auto mode advances by itself up to the choice', async page => {
+  await newGame(page);
+  await page.keyboard.press('a');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await menuOpen(page);
+  await page.keyboard.press('a'); // off again
+});
+
+play('PageUp rolls back to the previous line', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await page.keyboard.press('PageUp');
+  await until(page, () => document.getElementById('name').textContent === '');
+  await until(page, () => /^The park was nearly/.test(document.getElementById('text').textContent));
+});
+
+play('F5 quick saves and F9 returns to the saved line', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  const saved = await status(page);
+  await page.keyboard.press('F5');
+  await toChoice(page);
+  await page.keyboard.press('1');
+  await until(page, () => /Lost\?/.test(document.getElementById('text').textContent));
+  await page.keyboard.press('F9');
+  await page.locator('#confirm').getByRole('button', { name: 'Yes' }).click();
+  await until(page, s => document.getElementById('status').textContent === s, saved);
+  assert.equal(await page.locator('#name').innerText(), 'Alice');
+});
+
+play('H hides the interface and a click brings it back', async page => {
+  await newGame(page);
+  await page.keyboard.press('h');
+  await until(page, () => document.getElementById('stage').dataset.uiHidden === 'true');
+  assert.equal(await page.locator('#box').isVisible(), false);
+  await page.locator('#stage').click();
+  await until(page, () => document.getElementById('stage').dataset.uiHidden !== 'true');
+  assert.equal(await page.locator('#box').isVisible(), true);
+});
+
+play('Escape opens the pause menu, Options has tabs, Escape closes them', async page => {
+  await newGame(page);
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').waitFor({ state: 'visible' });
+  await page.locator('#pause').getByRole('button', { name: 'Options' }).click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  const tabs = await page.locator('#options [role="tab"]').allInnerTexts();
+  assert.deepEqual(tabs, ['Audio', 'Game', 'Accessibility']);
+  await page.locator('#options [role="tab"]', { hasText: 'Accessibility' }).click();
+  assert.equal(await page.locator('#options [role="tab"][aria-selected="true"]').innerText(), 'Accessibility');
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').waitFor({ state: 'hidden' });
+  await textDone(page);
+  assert.match(await text(page), /^The park was nearly/); // still the same line: the game was only paused
+});
+
+play('the name prompt takes typed text and the story uses it', async page => {
+  await page.evaluate(() => window.postMessage({ type: 'goto', file: 'demo.vn', line: 14 }, location.origin));
+  await menuOpen(page);
+  const field = page.locator('#menu input[type="text"]');
+  await field.fill('Sam');
+  await page.keyboard.press('Enter');
+  await until(page, () => /Nice to meet you, Sam\./.test(document.getElementById('text').textContent));
+});
+
+play('animation studio: the embedded page shows one character and answers play/seek messages', async page => {
+  const result = await page.evaluate(async () => {
+    const f = document.createElement('iframe');
+    f.style.cssText = 'position:fixed;width:400px;height:300px;left:0;top:0';
+    const got = [];
+    addEventListener('message', e => { if (e.source === f.contentWindow) got.push(e.data); });
+    f.src = '/?studio=mina';
+    document.body.append(f);
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    for (let i = 0; i < 100 && !got.some(m => m.type === 'studioReady'); i++) await wait(100);
+    const post = m => f.contentWindow.postMessage(m, location.origin);
+    post({ type: 'studioAnims', anims: { wave: { dur: 0.3, keys: [{ t: 0.5, rot: 10 }] } } });
+    post({ type: 'studioSeek', name: 'wave', t: 0.5 });
+    post({ type: 'studioPlay', name: 'wave', dur: 0.3 });
+    await wait(800);
+    const doc = f.contentDocument;
+    return {
+      ready: got.some(m => m.type === 'studioReady'),
+      last: got.filter(m => m.type === 'studioTime').at(-1),
+      studio: doc.documentElement.dataset.studio,
+      bar: getComputedStyle(doc.getElementById('bar')).display,
+    };
+  });
+  assert.equal(result.ready, true);
+  assert.deepEqual(result.last, { type: 'studioTime', t: 1, playing: false });
+  assert.equal(result.studio, '');
+  assert.equal(result.bar, 'none');
+});
+
+const slotCards = page => page.locator('#slotGrid .slot');
+const slotButton = (page, n) => page.locator('#slotGrid .slot-main').nth(n);
+const confirmYes = page => page.locator('#confirm').getByRole('button', { name: 'Yes' }).click();
+async function openPause(page, button) {
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').waitFor({ state: 'visible' });
+  await page.locator('#pause').getByRole('button', { name: button }).click();
+  await page.locator('#saves').waitFor({ state: 'visible' });
+}
+
+play('saves: a manual save fills a slot, Continue/Load bring it back, the delete button removes it', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  const saved = await status(page);
+  await openPause(page, 'Save');
+  assert.equal(await slotCards(page).count(), 6);
+  await slotButton(page, 0).click(); // an empty slot saves at once, with no confirmation
+  await until(page, () => document.querySelector('#slotGrid .del'));
+  assert.match(await slotButton(page, 0).innerText(), /Alice/);
+  await slotButton(page, 0).click(); // a filled slot asks before overwriting
+  await page.locator('#confirm').waitFor({ state: 'visible' });
+  assert.match(await page.locator('#confirmText').innerText(), /Overwrite/);
+  await page.locator('#confirm').getByRole('button', { name: 'No' }).click();
+  await page.locator('#confirm').waitFor({ state: 'hidden' });
+  // Back to the title and load it from there.
+  await page.keyboard.press('Escape'); // closes the saves screen
+  await page.locator('#saves').waitFor({ state: 'hidden' });
+  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await confirmYes(page);
+  await page.locator('#titleLoad').click();
+  await page.locator('#saves').waitFor({ state: 'visible' });
+  await slotButton(page, 0).click(); // no game is running, so no confirmation
+  await until(page, s => document.getElementById('status').textContent === s, saved);
+  assert.equal(await page.locator('#name').innerText(), 'Alice');
+  // Delete it again.
+  await openPause(page, 'Save');
+  await page.locator('#slotGrid .del').click();
+  await confirmYes(page);
+  await until(page, () => !document.querySelector('#slotGrid .del'));
+  assert.equal(await page.evaluate(() => Object.keys(localStorage).some(k => /slot/i.test(k) && localStorage[k].includes('Alice'))), false);
+});
+
+play('load screen: empty slots are disabled and the Q and C pages list quick and choice saves', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('F5');
+  await page.keyboard.press('1'); // the choice writes a "before choice" autosave
+  await until(page, () => /Lost\?/.test(document.getElementById('text').textContent));
+  await openPause(page, 'Load');
+  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 0); // page 1 has no manual saves
+  await page.locator('#savePages [aria-label="Quick save"]').click();
+  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 1);
+  await page.locator('#savePages [aria-label="Choice autosaves"]').click();
+  assert.ok(await page.locator('#slotGrid .slot-main:not([disabled])').count() >= 1);
+});
+
+play('choice autosave: loading the newest one goes back before the decision, with the menu open again', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('1');
+  await until(page, () => /Lost\?/.test(document.getElementById('text').textContent));
+  await openPause(page, 'Load');
+  await page.locator('#savePages [aria-label="Choice autosaves"]').click();
+  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 1);
+  await page.locator('#slotGrid .slot-main:not([disabled])').first().click();
+  await page.locator('#confirm').waitFor({ state: 'visible' }); // a game is running: asks first
+  await confirmYes(page);
+  await menuOpen(page);
+  assert.deepEqual(await page.locator('#menu button').allInnerTexts(), ['Sorry, I got lost.', "You didn't have to wait."]);
+  await page.keyboard.press('2'); // and the other answer can be taken now
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+});
+
+play('history lists the lines so far, opens with L and closes with Escape', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await page.keyboard.press('l');
+  await page.locator('#history').waitFor({ state: 'visible' });
+  const rows = await page.locator('#historyList li').allInnerTexts();
+  assert.match(rows[0], /^The park was nearly empty\./);
+  assert.ok(rows.length >= 1 && !rows.some(r => /Nothing yet/.test(r)));
+  await page.keyboard.press('Escape');
+  await page.locator('#history').waitFor({ state: 'hidden' });
+});
+
+play('gallery: opens from the title screen, locked tiles are disabled, Escape goes back', async page => {
+  await page.locator('#titleGallery').click();
+  await page.locator('#gallery').waitFor({ state: 'visible' });
+  const count = await page.locator('#galleryGrid .tile').count();
+  assert.ok(count > 0);
+  assert.match(await page.locator('#galleryCount').innerText(), new RegExp('^[0-9]+ / ' + count + '$'));
+  assert.equal(await page.locator('#galleryGrid .tile:disabled').count() + await page.locator('#galleryGrid .tile:not(:disabled)').count(), count);
+  await page.keyboard.press('Escape');
+  await page.locator('#gallery').waitFor({ state: 'hidden' });
+  await page.locator('#titleNav').waitFor({ state: 'visible' });
+});
+
+play('extras: music room and chapters start locked, unlock as the story plays, and a chapter starts a new playthrough there', async page => {
+  await page.locator('#titleChapters').click();
+  await page.locator('#chapters').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#chapterList .row').count(), 2);
+  assert.equal(await page.locator('#chapterList .row:disabled').count(), 2);
+  assert.equal(await page.locator('#chapterCount').innerText(), '0 / 2');
+  await page.keyboard.press('Escape');
+  await page.locator('#titleMusic').click();
+  await page.locator('#musicList .row:disabled').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#musicRoom').waitFor({ state: 'hidden' });
+
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('2');
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+  for (let i = 0; i < 8 && !/Sit\. We need/.test(await text(page)); i++) { // on to the bench_talk label
+    await textDone(page).catch(() => {});
+    await page.keyboard.press('Space');
+    await page.waitForTimeout(200);
+  }
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await confirmYes(page);
+  await page.locator('#titleNav').waitFor({ state: 'visible' });
+
+  await page.locator('#titleMusic').click();
+  await page.locator('#musicRoom').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#musicCount').innerText(), '1 / 1');
+  await page.locator('#musicList .row').click();
+  assert.match(await page.locator('#musicNow').innerText(), /Evening Theme/);
+  await page.keyboard.press('Escape');
+  await page.locator('#musicRoom').waitFor({ state: 'hidden' });
+
+  await page.locator('#titleChapters').click();
+  assert.equal(await page.locator('#chapterCount').innerText(), '2 / 2');
+  await page.locator('#chapterList .row', { hasText: 'A talk' }).click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+  await until(page, () => /Sit. We need to talk anyway/.test(document.getElementById('text').textContent));
+});
+
+
+// localStorage key of a per-game value (the sample's game id is the slug of its title).
+const gameKey = key => `vn.evening-in-the-park.${key}`;
+
+play('gallery: seen backgrounds are unlocked tiles that open a viewer, arrows page through it', async page => {
+  // Playing shows bg_park_evening, which unlocks its tile; bg_park_night stays locked until it has been on screen.
+  await newGame(page);
+  await until(page, k => localStorage.getItem(k)?.includes('bg_park_evening'), gameKey('images'));
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await confirmYes(page);
+  await page.locator('#titleGallery').click();
+  await page.locator('#gallery').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#galleryCount').innerText(), '1 / 2');
+  const tiles = page.locator('#galleryGrid .tile');
+  assert.equal(await tiles.nth(0).isDisabled(), false);
+  assert.match(await tiles.nth(0).innerText(), /Evening park/);
+  assert.equal(await tiles.nth(1).isDisabled(), true);
+  assert.match(await tiles.nth(1).innerText(), /Locked/);
+  await tiles.nth(0).click();
+  await page.locator('#viewer').waitFor({ state: 'visible' });
+  assert.match(await page.locator('#viewerTitle').innerText(), /^Evening park/);
+  await page.keyboard.press('Escape'); // back to the grid, not the title
+  await page.locator('#viewer').waitFor({ state: 'hidden' });
+  await page.locator('#gallery').waitFor({ state: 'visible' });
+});
+
+play('gallery: with both images seen the viewer pages through them and wraps around', async page => {
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening', 'bg_park_night'])), gameKey('images'));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleGallery').click();
+  assert.equal(await page.locator('#galleryCount').innerText(), '2 / 2');
+  await page.locator('#galleryGrid .tile').nth(0).click();
+  const title = () => page.locator('#viewerTitle').innerText();
+  assert.match(await title(), /^Evening park\s+1 \/ 2/);
+  await page.keyboard.press('ArrowRight');
+  assert.match(await title(), /^Night park\s+2 \/ 2/);
+  await page.keyboard.press('ArrowRight');
+  assert.match(await title(), /^Evening park\s+1 \/ 2/);
+  await page.keyboard.press('ArrowLeft');
+  assert.match(await title(), /^Night park\s+2 \/ 2/);
+});
+
+play('Continue is disabled without a save and resumes the newest one, showing its line', async page => {
+  assert.equal(await page.locator('#continue').isDisabled(), true);
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  const saved = await status(page);
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await confirmYes(page);
+  await page.locator('#continue').waitFor({ state: 'visible' });
+  await until(page, () => !document.getElementById('continue').disabled);
+  assert.match(await page.locator('#continueInfo').innerText(), /late|park/i);
+  await page.locator('#continue').click();
+  await until(page, s => document.getElementById('status').textContent === s, saved);
+  assert.equal(await page.locator('#name').innerText(), 'Alice');
+});
+
+// A second language is injected into the project the page fetches; the sample ships only English.
+const withFinnish = async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.locales = { ...proj.locales, fi: { 'ui.new_game': 'Uusi peli', joce: 'Puisto oli melkein tyhjä.' } };
+    await route.fulfill({ response: res, json: proj });
+  });
+};
+
+play('language: the Options list offers the locales, switching translates the title and the story and is remembered', async page => {
+  await page.locator('#titleOptions').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
+  assert.deepEqual(await page.locator('#optLang option').allInnerTexts(), ['en', 'fi']);
+  await page.locator('#optLang').selectOption('fi');
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Uusi peli' }).waitFor(); // the title reloads in Finnish
+  assert.equal(await page.evaluate(k => JSON.parse(localStorage.getItem(k)).lang, gameKey('settings')), 'fi');
+  await page.locator('#titleNav button:visible', { hasText: 'Uusi peli' }).click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+  await textDone(page);
+  assert.equal(await text(page), 'Puisto oli melkein tyhjä.');
+  await page.reload(); // the choice survives a reload
+  await page.getByRole('button', { name: 'Uusi peli' }).waitFor();
+}, withFinnish);
+
+// A pad the page can read: navigator.getGamepads() returns this object, and the test presses its buttons.
+const withPad = async context => {
+  await context.addInitScript(() => {
+    const pad = { index: 0, id: 'Test Pad (STANDARD GAMEPAD)', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+    window.__pad = pad;
+    navigator.getGamepads = () => [pad];
+  });
+};
+const tap = async (page, n) => {
+  await page.evaluate(n => { __pad.buttons[n].pressed = true; }, n);
+  await page.waitForTimeout(80);
+  await page.evaluate(n => { __pad.buttons[n].pressed = false; }, n);
+  await page.waitForTimeout(80);
+};
+const focusedText = page => page.evaluate(() => document.activeElement?.textContent ?? '');
+
+play('gamepad: the d-pad moves focus between the title buttons, A presses, B goes back', async page => {
+  await tap(page, 13); // down: focus lands on a title button
+  const first = await focusedText(page);
+  assert.ok(/New game|Continue|Load|Gallery|Options/.test(first), `focus is on ${first}`);
+  await tap(page, 13);
+  const second = await focusedText(page);
+  assert.notEqual(second, first);
+  await tap(page, 12); // up again
+  assert.equal(await focusedText(page), first);
+  for (let i = 0; i < 6 && !/Options/.test(await focusedText(page)); i++) await tap(page, 13);
+  assert.match(await focusedText(page), /Options/);
+  await tap(page, 0); // A
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await tap(page, 5); // RB: next tab
+  assert.equal(await page.locator('#options [role="tab"][aria-selected="true"]').innerText(), 'Game');
+  await tap(page, 1); // B closes the screen
+  await page.locator('#options').waitFor({ state: 'hidden' });
+}, withPad);
+
+play('gamepad: in the game A advances, and at a choice the d-pad moves between options and A picks', async page => {
+  await newGame(page);
+  await textDone(page);
+  await tap(page, 0);
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await toChoice(page);
+  await tap(page, 13);
+  await tap(page, 13);
+  assert.equal(await focusedText(page), "You didn't have to wait.");
+  await tap(page, 0);
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+}, withPad);
+
+play('NVL: narration fills a full-screen page, a clear starts a new one, off returns to the box', async page => {
+  await page.evaluate(() => window.postMessage({ type: 'goto', file: 'demo.vn', line: 99 }, location.origin));
+  await until(page, () => document.getElementById('nvl').dataset.visible === 'true');
+  const nvlDone = () => until(page, () => document.getElementById('nvl').dataset.done === 'true');
+  const next = async () => { await nvlDone(); await page.keyboard.press('Space'); };
+  await nvlDone();
+  assert.equal(await page.locator('#box').isVisible(), false);
+  await next();
+  await until(page, () => document.querySelectorAll('#nvl-page > div').length === 2);
+  await next();
+  await until(page, () => document.querySelectorAll('#nvl-page > div').length === 3);
+  await nvlDone();
+  assert.match(await page.locator('#nvl-page > div').nth(2).innerText(), /^Alice:\s*Did you hear that\?/);
+  await next(); // nvl clear: the page starts over with the next line alone
+  await until(page, () => /^Neither of them/.test(document.getElementById('nvl-page').textContent));
+  assert.equal(await page.locator('#nvl-page > div').count(), 1);
+  await next(); // nvl off: back to the text box
+  await until(page, () => document.getElementById('nvl').dataset.visible !== 'true');
+});
+
+play('a gamepad shows the on-screen keyboard at the name prompt and its keys type into the field', async page => {
+  await page.evaluate(() => window.postMessage({ type: 'goto', file: 'demo.vn', line: 14 }, location.origin));
+  await menuOpen(page);
+  await page.evaluate(() => { document.getElementById('stage').dataset.pad = 'true'; });
+  assert.equal(await page.locator('#menu .osk').isVisible(), true);
+  // A real mouse click would clear the pad flag, so press the keys the way the pad's confirm does: element.click().
+  for (const k of ['s', 'o']) await page.evaluate(k => document.querySelector(`#menu .osk [data-osk="${k}"]`).click(), k);
+  assert.equal(await page.locator('#menu input[type="text"]').inputValue(), 'So'); // names start with a capital
+});
+
+// The project the page fetches, with a jump to a label that does not exist as the first line of the story: it ends at once.
+const withBrokenStart = async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    for (const s of proj.scripts) if (s.file === 'park.vn') s.text = s.text.replace('label start:\n', 'label start:\n  jump nowhere\n');
+    await route.fulfill({ response: res, json: proj });
+  });
+};
+
+test('a script error shows a banner over the black stage, and clicking it opens the problem list', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+  await withBrokenStart(context);
+  const page = await context.newPage();
+  try {
+    await page.goto(base);
+    const banner = page.locator('#errBanner');
+    await banner.waitFor({ state: 'visible' });
+    assert.match(await banner.innerText(), /Script error: Unknown label "nowhere" \(park\.vn:\d+\)/);
+    await banner.click();
+    assert.equal(await page.locator('#diag').getAttribute('data-visible'), 'true');
+  } finally {
+    await context.close();
+  }
+});
+
+test('editor: the preview error banner jumps to the line of the error', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  await withBrokenStart(context);
+  const page = await context.newPage();
+  try {
+    await page.goto(`${base}editor/`);
+    const banner = page.frameLocator('#preview').locator('#errBanner');
+    await banner.waitFor({ state: 'visible' });
+    const where = /\(([\w.]+):(\d+)\)/.exec(await banner.innerText());
+    assert.ok(where, 'the banner names the file and line');
+    await banner.click();
+    await page.locator('#tabs [aria-selected="true"], #tabs .active, #tabs .on').first().waitFor().catch(() => {});
+    // The jump (tab switch, then reveal) lands a moment after the click, so poll until the cursor row shows the failing line.
+    const cursorRows = () => page.evaluate(() => {
+      const line = document.querySelector('.monaco-editor .current-line');
+      if (!line) return [];
+      const y = line.getBoundingClientRect().top;
+      return [...document.querySelectorAll('.monaco-editor .view-line')]
+        .filter(e => Math.abs(e.getBoundingClientRect().top - y) < 4).map(e => e.textContent);
+    });
+    let rows = [];
+    for (let i = 0; i < 40 && !rows.some(r => /jump\s+nowhere/.test(r)); i++) {
+      rows = await cursorRows();
+      if (!rows.some(r => /jump\s+nowhere/.test(r))) await page.waitForTimeout(200);
+    }
+    assert.ok(rows.some(r => /jump\s+nowhere/.test(r)), `the cursor is on the failing line, saw ${JSON.stringify(rows)}`);
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the mouth and blink fields are written to rig.json by Apply', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  // The editor autosaves a rig.json edit; catch the request so the sample project is left alone.
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim').first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tab[data-tab="char"]').click();
+    await studio.locator('.as-sp-vars').waitFor();
+    const field =async (sel, v) => { await studio.locator(sel).fill(v); await studio.locator(sel).press('Tab'); };
+    assert.equal(await studio.locator('.as-bl-slot').isDisabled(), !(await studio.locator('.as-blink').isChecked()));
+    await field('.as-sp-vars', 'open, neutral');
+    await field('.as-sp-rate', '6');
+    await studio.locator('.as-blink').check();
+    await field('.as-bl-min', '2');
+    await field('.as-bl-dur', '0.2');
+    assert.equal(await studio.locator('.as-bl-max').inputValue(), '6'); // an empty end takes its default
+    await field('.as-bl-max', '1'); // a range that runs backwards is not kept
+    assert.equal(await studio.locator('.as-bl-max').inputValue(), '6');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; !saved.length && i < 50; i++) await page.waitForTimeout(100);
+    assert.ok(saved.length, 'the rig.json tab was not saved');
+    const rig = JSON.parse(saved.at(-1));
+    assert.deepEqual(rig.speak, { variants: ['open', 'neutral'], rate: 6 });
+    assert.deepEqual(rig.blink, { every: [2, 6], dur: 0.2 });
+    assert.ok(rig.animations && rig.pivots && rig.idle, 'the rest of the file stays');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: fills a 1280x720 window, every tab opens by keyboard, focus starts inside', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim').first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tab').first().waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('#animStudio') !== null), true, 'focus starts inside the studio');
+    const fits = await studio.locator('.as-card').evaluate(c => c.scrollHeight <= c.clientHeight + 1);
+    assert.equal(fits, true, 'the studio does not need to scroll at 1280x720');
+    const controls = { key: '.as-key', part: '.as-pick', char: '.as-sp-vars', stage: '.as-place-btn' };
+    await studio.locator('.as-tab[data-tab="key"]').focus();
+    for (const name of Object.keys(controls)) {
+      assert.equal(await studio.locator(`.as-tab[data-tab="${name}"]`).getAttribute('aria-selected'), 'true', `${name} tab is selected`);
+      assert.equal(await studio.locator(controls[name]).isVisible(), true, `${name} tab shows ${controls[name]}`);
+      await page.keyboard.press('ArrowRight');
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await studio.isHidden(), true, 'Esc closes the studio from a tab');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the part list flags parts a stage dress hides, and picking shows the other pivots as one ring', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim').first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tab[data-tab="stage"]').click();
+    await studio.locator('.as-slots select').first().waitFor();
+    const options =() => studio.locator('.as-part option').allTextContents();
+    assert.ok(!(await options()).some(o => o.includes('hidden in this pose')), 'nothing is hidden by default');
+    const slot = studio.locator('.as-slots select').first();
+    await slot.selectOption('none');
+    assert.ok((await options()).some(o => o.includes('hidden in this pose')), 'a slot set to none hides its part');
+    await slot.selectOption('');
+    assert.ok(!(await options()).some(o => o.includes('hidden in this pose')));
+    await studio.locator('.as-part').selectOption('face'); // opens the Part tab
+    assert.equal(await studio.locator('.as-tab[data-tab="part"]').getAttribute('aria-selected'), 'true');
+    await studio.locator('.as-pick').click();
+    const stage = page.frameLocator('#animStudio iframe');
+    const visible = () => stage.locator('div[title]').evaluateAll(els => els.filter(e => getComputedStyle(e).display !== 'none').map(e => e.title));
+    let rings = [];
+    for (let i = 0; !rings.length && i < 30; i++) { rings = await visible(); if (!rings.length) await page.waitForTimeout(100); }
+    assert.equal(rings.length, 1, 'parts sharing a pivot are one ring');
+    assert.ok(rings[0].includes('mouth') && !rings[0].includes('face'));
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+// ---- custom screens (sample/script/screens.vn): clicks, keys and a pad pick elements; the answer drives the story ----
+const screensVn = readFileSync(path.join(root, 'sample/script/screens.vn'), 'utf8').split('\n');
+const screensLine = needle => screensVn.findIndex(l => l.includes(needle)) + 1;
+const gotoScreens = (page, needle) => page.evaluate(m => window.postMessage({ type: 'goto', file: 'screens.vn', line: m }, location.origin), screensLine(needle));
+const screenUp = page => until(page, () => document.getElementById('screenui').dataset.visible === 'true');
+const screenGone = page => until(page, () => document.getElementById('screenui').dataset.visible !== 'true');
+const screenIds = page => page.evaluate(() => [...document.querySelectorAll('#screenui [data-id]')].map(e => e.dataset.id));
+const activeId = page => page.evaluate(() => document.querySelector('#screenui [data-active="true"]')?.dataset.id ?? null);
+
+play('screens: clicking a hotspot answers the screen and the story branches on it', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  assert.deepEqual(await screenIds(page), ['cafe', 'lake', 'closed', 'bag', 'leave']); // the station waits for visited > 0
+  assert.equal(await page.locator('#screenui .sc-text').innerText(), 'Where to? You carry: Brass key, Silver coin');
+  assert.equal(await page.locator('#screenui [data-id="closed"]').getAttribute('aria-disabled'), 'true');
+  await page.locator('#screenui [data-id="closed"]').click({ force: true }); // disabled: nothing happens
+  assert.equal(await page.locator('#screenui').getAttribute('data-visible'), 'true');
+  await page.locator('#screenui [data-id="cafe"]').hover();
+  assert.equal(await activeId(page), 'cafe');
+  assert.equal(await page.locator('#screenui .sc-tip').innerText(), 'The cafe');
+  await page.locator('#screenui [data-id="cafe"]').click();
+  await screenGone(page);
+  await until(page, () => /cafe smells of coffee/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('Space'); // the loop shows the map again, now with the station and the map in the bag
+  await screenUp(page);
+  assert.ok((await screenIds(page)).includes('station'));
+  assert.equal(await page.locator('#screenui .sc-text').innerText(), 'Where to? You carry: Brass key, Silver coin, Folded map');
+});
+
+play('screens: hover none draws no highlight and tooltip off shows no tooltip', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  const look = id => page.locator(`#screenui [data-id="${id}"]`).evaluate(e => { const c = getComputedStyle(e); return [c.backgroundColor, c.borderTopColor]; });
+  await page.locator('#screenui [data-id="cafe"]').hover();
+  assert.notDeepEqual(await look('cafe'), ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']); // the stock highlight
+  await page.locator('#screenui [data-id="lake"]').hover();
+  assert.equal(await activeId(page), 'lake'); // still active (focus, clicks)
+  assert.deepEqual(await look('lake'), ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0)']);
+  assert.equal(await page.locator('#screenui .sc-tip').getAttribute('data-show'), 'false');
+});
+
+play('screens: hover tint fills the active element and hover scale grows it', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  const css = (id, prop) => page.locator(`#screenui [data-id="${id}"]`).evaluate((e, prop) => getComputedStyle(e)[prop], prop);
+  await page.locator('#screenui [data-id="leave"]').hover();
+  assert.equal(await css('leave', 'backgroundColor'), 'rgba(255, 200, 100, 0.35)');
+  await page.locator('#screenui [data-id="bag"]').hover();
+  await until(page, () => getComputedStyle(document.querySelector('#screenui [data-id="bag"]')).transform.startsWith('matrix(1.1,')); // after its .12s transition
+  await page.locator('#screenui [data-id="cafe"]').hover();
+  await until(page, () => getComputedStyle(document.querySelector('#screenui [data-id="bag"]')).transform === 'none');
+});
+
+play('screens: theme hotFill, hotBorder and tipColor style the highlight and the tooltip', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  await page.locator('#screenui [data-id="cafe"]').hover();
+  const look = await page.locator('#screenui [data-id="cafe"]').evaluate(e => { const c = getComputedStyle(e); return [c.backgroundColor, c.borderTopColor, c.borderTopWidth]; });
+  assert.deepEqual(look, ['rgb(255, 0, 0)', 'rgb(0, 0, 255)', '6px']);
+  assert.equal(await page.locator('#screenui .sc-tip').evaluate(e => getComputedStyle(e).color), 'rgb(0, 128, 0)');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.game = { ...proj.game, theme: { ...proj.game?.theme, hotFill: '#f00', hotBorder: '#00f', hotBorderWidth: 6, tipColor: '#008000' } };
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+play('screens: row, column and grid place their buttons at the computed stage positions', async page => {
+  await gotoScreens(page, 'show screen layout_demo');
+  await screenUp(page);
+  const spots = await page.evaluate(() => {
+    const root = document.getElementById('screenui').getBoundingClientRect(), k = root.width / 1920;
+    return Object.fromEntries([...document.querySelectorAll('#screenui [data-id]')].map(e => {
+      const r = e.getBoundingClientRect();
+      return [e.dataset.id, [r.left - root.left, r.top - root.top, r.width, r.height].map(v => Math.round(v / k))];
+    }));
+  });
+  const at = id => spots[id].slice(0, 2);
+  assert.deepEqual([at('play'), at('options'), at('quit')], [[80, 160], [80, 264], [80, 368]]);
+  assert.deepEqual([at('g1'), at('g2'), at('g3'), at('g4')], [[700, 160], [1020, 160], [1340, 160], [700, 280]]);
+  assert.deepEqual([at('yes'), at('no')], [[1460, 956], [1680, 956]]);
+  assert.deepEqual(spots.play.slice(2), [200, 84]); // the drawn size is the size layouts assume
+  await page.locator('#screenui [data-id="g3"]').click();
+  await screenGone(page);
+  await until(page, () => /You chose g3/.test(document.getElementById('text').textContent));
+});
+
+play('screens: a polygon hotspot is hit only inside its outline', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  await page.locator('#screenui [data-id="cafe"]').click();
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await screenUp(page);
+  await page.locator('#screenui [data-id="station"]').waitFor({ state: 'attached' });
+  // stage point -> what the browser finds there (the stage is scaled to the window)
+  const at = (x, y) => page.evaluate(([x, y]) => {
+    const r = document.getElementById('screenui').getBoundingClientRect();
+    const e = document.elementFromPoint(r.left + (x / 1920) * r.width, r.top + (y / 1080) * r.height);
+    return e?.dataset?.id ?? null;
+  }, [x, y]);
+  assert.equal(await at(1490, 410), 'station');
+  assert.equal(await at(1305, 262), null); // inside the bounding box, outside the outline
+  await page.locator('#screenui [data-id="station"]').dispatchEvent('click');
+  await until(page, () => /The station is quiet/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  assert.match(await text(page), /3 things/);
+});
+
+play('screens: the keyboard moves between enabled elements by direction, Enter picks, Backspace cancels', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  assert.equal(await activeId(page), null);
+  await page.keyboard.press('ArrowDown'); // the first press lands on the default element
+  assert.equal(await activeId(page), 'cafe');
+  const seen = new Set();
+  for (const k of ['ArrowRight', 'ArrowDown', 'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowRight']) {
+    await page.keyboard.press(k);
+    seen.add(await activeId(page));
+  }
+  assert.ok(!seen.has('closed'), 'a disabled element is never focused');
+  await gotoScreens(page, 'show screen inventory');
+  await until(page, () => !!document.querySelector('#screenui [data-id="back"]'));
+  assert.deepEqual(await screenIds(page), ['key', 'coin', 'back']);
+  assert.deepEqual(await page.locator('#screenui .sc-btn').allInnerTexts(), ['Brass key', 'Silver coin', 'Back']);
+  await page.keyboard.press('ArrowDown'); // lands on the default, "back"
+  assert.equal(await activeId(page), 'back');
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await activeId(page), 'coin');
+  await page.keyboard.press('Enter');
+  await until(page, () => /You take out the coin/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('Space'); // bag_loop shows the inventory again
+  await until(page, () => !!document.querySelector('#screenui [data-id="back"]'));
+  await page.keyboard.press('Backspace'); // the screen declares cancel: "" returns to the map
+  await until(page, () => !!document.querySelector('#screenui [data-id="cafe"]'));
+});
+
+play('screens: a gamepad moves with the d-pad, A picks and B cancels', async page => {
+  await gotoScreens(page, 'show screen inventory');
+  await until(page, () => !!document.querySelector('#screenui [data-id="back"]'));
+  await tap(page, 13); // down: the default
+  assert.equal(await activeId(page), 'back');
+  await tap(page, 12);
+  assert.equal(await activeId(page), 'coin');
+  await tap(page, 0);
+  await until(page, () => /You take out the coin/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await tap(page, 0);
+  await until(page, () => !!document.querySelector('#screenui [data-id="back"]'));
+  await tap(page, 1); // B cancels
+  await until(page, () => !!document.querySelector('#screenui [data-id="cafe"]'));
+}, withPad);
+
+play('screens: rolling back from the line after a pick shows the screen again', async page => {
+  await gotoScreens(page, 'show screen town_map');
+  await screenUp(page);
+  await page.locator('#screenui [data-id="lake"]').click();
+  await until(page, () => /The lake is still/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('PageUp');
+  await screenUp(page);
+  assert.ok((await screenIds(page)).includes('lake'));
+});
+
+// ---- HUD (screens.vn "hud_demo"): a screen that stays up; clicking it calls a label and the interrupted line comes back ----
+const hudUp = page => until(page, () => document.getElementById('hudui').dataset.visible === 'true');
+
+play('hud: clicking a HUD button runs its label between lines, then the interrupted line returns', async page => {
+  await gotoScreens(page, 'hud_demo');
+  await until(page, () => /status strip stays up/.test(document.getElementById('text').textContent));
+  await hudUp(page);
+  await until(page, () => document.querySelector('#hudui .sc-text')?.textContent === 'Coins: 3');
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => /story picks up/.test(document.getElementById('text').textContent));
+  await page.locator('#hudui [data-id="purse"]').click(); // in the middle of the second line
+  await until(page, () => /another coin. Now you have 4/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => /story picks up/.test(document.getElementById('text').textContent)); // the line comes back
+  await textDone(page);
+  await until(page, () => document.querySelector('#hudui .sc-text')?.textContent === 'Coins: 4'); // live variable
+  await page.keyboard.press('Space');
+  await until(page, () => /That is all/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('hudui').dataset.visible !== 'true'); // hud off
+});
+
+play('hud: the HUD does not steal clicks meant for the story, and Shift+Tab reaches it from the keyboard', async page => {
+  await gotoScreens(page, 'hud_demo');
+  await hudUp(page);
+  await until(page, () => /status strip stays up/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.mouse.click(640, 400); // empty stage: advances like always
+  await until(page, () => /story picks up/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset?.id ?? null), 'purse');
+  await page.keyboard.press('Enter');
+  await until(page, () => /another coin/.test(document.getElementById('text').textContent));
+});
+
+play('hud: pointing at a HUD button with `on focus` runs its label, leaving it runs `on blur`', async page => {
+  await gotoScreens(page, 'hud_demo');
+  await hudUp(page);
+  await until(page, () => /status strip stays up/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  assert.equal(await page.locator('#hudui .sc-text').nth(1).innerText(), '');
+  await page.locator('#hudui [data-id="help"]').hover();
+  await until(page, () => /just a demo/.test(document.querySelector('#hudui')?.textContent ?? ''));
+  await page.mouse.move(640, 400);
+  await until(page, () => !/just a demo/.test(document.querySelector('#hudui')?.textContent ?? ''));
+});
+
+play('hud: a mask hotspot in a HUD hits only its opaque pixels and lets other clicks through to the story', async page => {
+  await gotoScreens(page, 'hud_demo');
+  await hudUp(page);
+  await until(page, () => /status strip stays up/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.waitForTimeout(300); // the mask image is read in the background
+  const at = (fx, fy) => page.evaluate(([fx, fy]) => { const r = document.getElementById('hudui').getBoundingClientRect(); return [r.left + r.width * fx, r.top + r.height * fy]; }, [fx, fy]);
+  const [cx, cy] = await at((860 + 100) / 1920, (700 + 75) / 1080);
+  const [ex, ey] = await at((860 + 4) / 1920, (700 + 4) / 1080); // a corner of the box: transparent
+  await page.mouse.move(ex, ey);
+  assert.equal(await page.locator('#hudui .sc-hover').isVisible(), false);
+  assert.notEqual(await page.locator('#hudui [data-id="orb"]').getAttribute('data-active'), 'true');
+  await page.mouse.move(cx, cy);
+  await until(page, () => document.querySelector('#hudui [data-id="orb"]').dataset.active === 'true');
+  assert.equal(await page.locator('#hudui .sc-hover').isVisible(), true, 'the hover image shows while the orb is active');
+  await page.mouse.click(cx, cy);
+  await until(page, () => /ten coins. Now you have 13/.test(document.getElementById('text').textContent));
+});
+
+// ---- a project's `screen quickmenu` replaces the stock quick menu bar ----
+play('quickmenu: a screen named quickmenu is drawn in place of the stock bar and its actions run', async page => {
+  await newGame(page);
+  assert.equal(await page.locator('#quick').isHidden(), true);
+  await until(page, () => document.getElementById('quickui').dataset.visible === 'true');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#quickui [data-id]')].map(e => e.dataset.act)), ['history', 'auto']);
+  await page.locator('#quickui [data-act="auto"]').click();
+  await until(page, () => document.querySelector('#quickui [data-act="auto"]').getAttribute('aria-pressed') === 'true');
+  await page.locator('#quickui [data-act="auto"]').click();
+  await until(page, () => document.querySelector('#quickui [data-act="auto"]').getAttribute('aria-pressed') === 'false');
+  await page.locator('#quickui [data-act="history"]').click();
+  await page.locator('#history').waitFor({ state: 'visible' });
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'qm.vn', text: 'screen quickmenu:\n  row anchor bottomright margin 20 gap 10:\n    button hist "History" action history\n    button auto "Auto" action auto\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen title` replaces the stock title screen ----
+play('title: a screen named title is drawn in place of the stock one and its actions run', async page => {
+  await until(page, () => document.getElementById('titleui').dataset.visible === 'true');
+  assert.equal(await page.locator('#newGame').isHidden(), true);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#titleui [data-id]')].map(e => e.dataset.act)), ['start', 'continue', 'options']);
+  assert.equal(await page.locator('#titleui [data-act="continue"]').getAttribute('aria-disabled'), 'true'); // no save yet
+  // the arrow keys move focus inside the project's screen (the stock title behind it is hidden), skipping the disabled button
+  assert.equal(await page.evaluate(() => document.activeElement.dataset.act), 'start');
+  await page.keyboard.press('ArrowDown');
+  await until(page, () => document.activeElement.dataset.act === 'options');
+  await page.keyboard.press('ArrowUp');
+  await until(page, () => document.activeElement.dataset.act === 'start');
+  await page.locator('#titleui [data-act="options"]').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await until(page, () => document.getElementById('titleui').dataset.visible === 'false');
+  await page.locator('#optBack').click();
+  await until(page, () => document.getElementById('titleui').dataset.visible === 'true');
+  await page.locator('#titleui [data-act="start"]').click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+  await until(page, () => document.getElementById('titleui').dataset.visible === 'false');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'title.vn', text: 'screen title:\n  column anchor center gap 12:\n    button s "New game" action start\n    button c "Continue" action continue\n    button o "Options" action options\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen options` replaces the stock options ----
+play('options: a screen named options is drawn in place of the stock one; sliders, cycles, tabs and close work', async page => {
+  await newGame(page);
+  await page.keyboard.press('Escape');
+  await page.locator('#pauseOptions').click();
+  await until(page, () => document.getElementById('optionsui').dataset.visible === 'true');
+  assert.equal(await page.locator('#options .panel').isHidden(), true);
+  // first tab: the slider only; moving it does not rebuild it
+  assert.equal(await page.locator('#optionsui [data-setting="master"]').count(), 1);
+  assert.equal(await page.locator('#optionsui [data-id="text_sounds"]').count(), 0);
+  await page.evaluate(() => {
+    const s = document.querySelector('#optionsui [data-setting="master"]');
+    s.dataset.same = 'yes';
+    s.value = '0.25';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  assert.equal(await page.evaluate(() => document.querySelector('#optionsui [data-setting="master"]').dataset.same), 'yes');
+  assert.equal(JSON.parse(await page.evaluate(() => localStorage.getItem(Object.keys(localStorage).find(k => k.endsWith('settings'))))).master, 0.25);
+  assert.equal(await page.locator('#optionsui .sc-readout').textContent(), '25%');
+  // second tab: the cycle button shows the word and steps it
+  await page.locator('#optionsui [data-id="game"]').click();
+  await page.locator('#optionsui [data-id="text_sounds"]').waitFor();
+  assert.equal(await page.locator('#optionsui [data-setting="master"]').count(), 0);
+  assert.equal(await page.locator('#optionsui [data-id="text_sounds"]').textContent(), 'Text sounds: on');
+  await page.locator('#optionsui [data-id="text_sounds"]').click();
+  await until(page, () => document.querySelector('#optionsui [data-id="text_sounds"]').textContent === 'Text sounds: off');
+  await page.locator('#optionsui [data-act="close"]').click();
+  await until(page, () => document.getElementById('optionsui').dataset.visible === 'false');
+  await page.locator('#resume').waitFor({ state: 'visible' });
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'options.vn', text: 'screen options:\n  button audio at 100,50 "Audio" action tab\n  button game at 400,50 "Game" action tab\n  slider master at 100,200 size 500,40 readout if tab == "audio"\n  button text_sounds at 100,300 "Text sounds: [text_sounds]" action cycle if tab == "game"\n  button done at 100,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen saves` replaces the stock save/load screen ----
+play('saves: a screen named saves is drawn in place of the stock one; slots, pages, delete mode and back work', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await openPause(page, 'Save');
+  await until(page, () => document.getElementById('savesui').dataset.visible === 'true');
+  assert.equal(await page.locator('#saves .saves-panel').isHidden(), true);
+  const slots = page.locator('#savesui [data-act="slot"]');
+  assert.equal(await slots.count(), 6);
+  assert.equal(await page.locator('#savesui [data-act="page"]').count(), 9); // Save has no auto/quick/choice pages
+  assert.match(await slots.first().textContent(), /Slot 1 .*Empty/i);
+  await slots.first().click(); // an empty slot saves at once
+  await until(page, () => /Alice/.test(document.querySelector('#savesui [data-act="slot"]').textContent));
+  await slots.first().click(); // a filled slot asks before overwriting
+  await page.locator('#confirm').waitFor({ state: 'visible' });
+  await until(page, () => document.getElementById('savesui').dataset.visible === 'false');
+  await page.locator('#confirm').getByRole('button', { name: 'No' }).click();
+  await until(page, () => document.getElementById('savesui').dataset.visible === 'true');
+  await page.locator('#savesui [data-id="page2"]').click(); // page 2 has other slots, all empty
+  await until(page, () => /Empty/i.test(document.querySelector('#savesui [data-act="slot"]').textContent));
+  assert.notEqual(await slots.first().getAttribute('data-id'), '1');
+  await page.locator('#savesui [data-id="page1"]').click();
+  await page.locator('#savesui [data-act="delete"]').click(); // delete mode: the next slot picked is deleted
+  await slots.first().click();
+  await page.locator('#confirm').waitFor({ state: 'visible' });
+  await confirmYes(page);
+  await until(page, () => /Empty/i.test(document.querySelector('#savesui [data-act="slot"]').textContent));
+  await page.locator('#savesui [data-act="close"]').click();
+  await until(page, () => document.getElementById('savesui').dataset.visible === 'false');
+  await page.locator('#pause').waitFor({ state: 'visible' });
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'saves.vn', text: 'screen saves:\n  each pages as pg at 100,50 step 140,0:\n    button pg at 0,0 "[pg.name]" action page\n  each slots as slot at 100,200 step 0,110:\n    button slot at 0,0 size 1100,96 "[slot.title] [slot.when] [slot.text]" action slot enabled mode == "save" or not slot.empty\n  button del at 1400,200 "Delete" action delete\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen history` replaces the stock history panel, with a scroll area ----
+play('history: a screen named history lists the lines in a scroll area that starts at the end; wheel and keys scroll it, close goes back', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await textDone(page);
+  await page.keyboard.press('l');
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'true');
+  assert.equal(await page.locator('#history .history-panel').isHidden(), true);
+  const area = page.locator('#historyui .sc-scroll');
+  const info = () => area.evaluate(e => ({ top: e.scrollTop, max: e.scrollHeight - e.clientHeight, rows: e.querySelectorAll('[data-id]').length, text: e.textContent }));
+  let v = await info();
+  assert.equal(v.rows, 2);
+  assert.ok(v.max > 0, 'two 120px rows do not fit in a 150px box');
+  assert.ok(Math.abs(v.top - v.max) <= 1, 'starts at the newest line');
+  assert.match(v.text, /Alice\|You're late/);
+  await area.hover();
+  await page.mouse.wheel(0, -400);
+  await until(page, () => document.querySelector('#historyui .sc-scroll').scrollTop === 0);
+  assert.equal(await page.locator('#history').isHidden(), false); // the wheel did not roll the story back or close anything
+  await area.focus();
+  await page.keyboard.press('ArrowDown');
+  await until(page, () => { const e = document.querySelector('#historyui .sc-scroll'); return e.scrollTop > 0; });
+  await page.locator('#historyui [data-act="close"]').click();
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'false');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'history.vn', text: 'screen history:\n  scroll at 100,100 size 1200,150 start bottom:\n    each lines as ln step 0,120:\n      button ln at 0,0 size 1100,100 "[ln.name]|[ln.text]"\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen gallery` replaces the stock gallery ----
+play('gallery screen: a screen named gallery draws the tiles; locked ones are disabled, a tile opens the viewer and Escape returns to it', async page => {
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening'])), gameKey('images'));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleGallery').click();
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'true');
+  assert.equal(await page.locator('#gallery .saves-panel').isHidden(), true);
+  const tiles = page.locator('#galleryui [data-act="tile"]');
+  assert.deepEqual(await tiles.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'Evening park', null], ['2', 'Locked', 'true']]);
+  assert.equal(await page.locator('#galleryui .sc-scroll img.sc-img').count(), 1); // only the unlocked tile has its picture
+  assert.match(await page.locator('#galleryui .sc-text').innerText(), /1 of 2/);
+  await tiles.nth(0).click();
+  await page.locator('#viewer').waitFor({ state: 'visible' });
+  assert.match(await page.locator('#viewerTitle').innerText(), /^Evening park/);
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'false');
+  await page.keyboard.press('Escape');
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'true');
+  await until(page, () => document.activeElement?.dataset.id === '1'); // focus is back on the tile that was viewed
+  await page.locator('#galleryui [data-act="close"]').click();
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'false');
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'gallery.vn', text: 'screen gallery:\n  scroll at 100,150 size 800,300:\n    each tiles as t step 0,260:\n      image "[t.file]" at 0,0 size 320,180 if t.unlocked\n      button t at 340,0 size 400,80 "[t.title]" action tile enabled t.unlocked\n  text at 100,60 "[count] of [total]"\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen viewer` replaces the stock picture viewer (here over the stock gallery) ----
+play('viewer screen: a screen named viewer shows the picture and title; next and prev page and wrap, Escape returns to the gallery', async page => {
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening', 'bg_park_night'])), gameKey('images'));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleGallery').click();
+  await page.locator('#galleryGrid .tile').nth(0).click();
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'true');
+  const text = () => page.locator('#viewerui .sc-text').innerText();
+  await until(page, () => /^Evening park 1\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
+  assert.equal(await page.locator('#viewerui img.sc-img').count(), 1);
+  assert.equal(await page.locator('#viewerTitle').isHidden(), true); // the stock title is replaced
+  await page.locator('#viewerui [data-act="next"]').click();
+  await until(page, () => /^Night park 2\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
+  await page.locator('#viewerui [data-act="next"]').click();
+  await until(page, () => /^Evening park 1\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? '')); // wraps around
+  await page.locator('#viewerui [data-act="prev"]').click();
+  await until(page, () => /^Night park 2\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
+  assert.match(await text(), /^Night park/);
+  await page.keyboard.press('Escape');
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'false');
+  await page.locator('#gallery').waitFor({ state: 'visible' });
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'viewer.vn', text: 'screen viewer:\n  image "[file]" at 0,0 size 1920,1080\n  text at 100,60 "[title] [position]/[total]"\n  button prev at 100,900 "<" action prev if total > 1\n  button next at 400,900 ">" action next if total > 1\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen music` and `screen chapters` replace the stock music room and chapter select ----
+play('music screen: a screen named music lists the tracks; a track plays, Stop and Back leave', async page => {
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['evening_theme'])), gameKey('music'));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleMusic').click();
+  await until(page, () => document.getElementById('musicui').dataset.visible === 'true');
+  assert.equal(await page.locator('#musicRoom .saves-panel').isHidden(), true);
+  assert.match(await page.locator('#musicui .sc-text').innerText(), /^ ?1 of 1/);
+  const tracks = page.locator('#musicui [data-act="track"]');
+  assert.deepEqual(await tracks.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'Evening Theme', null]]);
+  await tracks.nth(0).click();
+  await until(page, () => /^Evening Theme/.test(document.querySelector('#musicui .sc-text').textContent));
+  await page.locator('#musicui [data-act="stop"]').click();
+  await until(page, () => /^ ?1 of 1/.test(document.querySelector('#musicui .sc-text').textContent));
+  await page.keyboard.press('Escape');
+  await until(page, () => document.getElementById('musicui').dataset.visible === 'false');
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'music.vn', text: 'screen music:\n  each tracks as t step 0,100:\n    button t at 100,150 size 600,80 "[t.title]" action track enabled t.unlocked\n  text at 100,60 "[now] [count] of [total]"\n  button s at 1000,900 "Stop" action stop\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+play('chapters screen: a screen named chapters lists the chapters; a locked one is disabled, an unlocked one starts there', async page => {
+  await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['start'])), gameKey('chapters'));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleChapters').click();
+  await until(page, () => document.getElementById('chaptersui').dataset.visible === 'true');
+  assert.equal(await page.locator('#chapters .saves-panel').isHidden(), true);
+  const rows = page.locator('#chaptersui [data-act="chapter"]');
+  assert.deepEqual(await rows.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'The bench', null], ['2', 'Locked', 'true']]);
+  await rows.nth(0).click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+  assert.equal(await page.locator('#chaptersui').getAttribute('data-visible'), 'false');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'chapters.vn', text: 'screen chapters:\n  each chapters as c step 0,100:\n    button c at 100,150 size 600,80 "[c.title]" action chapter enabled c.unlocked\n  button done at 1400,900 "Back" action close\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- a project's `screen pause` replaces the stock pause menu ----
+play('pause: a screen named pause is drawn in place of the stock menu and its actions run', async page => {
+  await newGame(page);
+  await page.keyboard.press('Escape');
+  await until(page, () => document.getElementById('pauseui').dataset.visible === 'true');
+  assert.equal(await page.locator('#resume').isHidden(), true);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#pauseui [data-id]')].map(e => e.dataset.act)), ['resume', 'options']);
+  await page.locator('#pauseui [data-act="options"]').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await until(page, () => document.getElementById('pauseui').dataset.visible === 'false');
+  await page.locator('#optBack').click();
+  await until(page, () => document.getElementById('pauseui').dataset.visible === 'true');
+  await page.locator('#pauseui [data-act="resume"]').click();
+  await until(page, () => document.getElementById('pauseui').dataset.visible === 'false');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'pause.vn', text: 'screen pause:\n  column anchor center gap 12:\n    button r "Resume" action resume\n    button o "Options" action options\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// ---- game.json `stage` sizes the canvas and the box; screens anchor to the project's edges ----
+play('stage: a portrait stage sizes the canvas and #stage, and an anchored screen sits at its margins', async page => {
+  assert.deepEqual(await page.evaluate(() => {
+    const s = document.getElementById('stage'), c = document.getElementById('canvas');
+    return [s.offsetWidth, s.offsetHeight, c.width, c.height];
+  }), [1080, 1920, 1080, 1920]);
+  await newGame(page);
+  await until(page, () => document.getElementById('quickui').dataset.visible === 'true');
+  // the box is scaled to fit the window; read the button back in stage pixels
+  const at = await page.evaluate(() => {
+    const r = document.getElementById('stage').getBoundingClientRect(), b = document.querySelector('#quickui [data-act="auto"]').getBoundingClientRect();
+    return [Math.round((b.left - r.left) / r.width * 1080), Math.round((b.top - r.top) / r.height * 1920)];
+  });
+  // a lone 200x84 button, margin 10,40,60,0: 1080 - 40 - 200 = 840 across, 1920 - 60 - 84 = 1776 down
+  assert.deepEqual(at, [840, 1776]);
+  const fit = await page.evaluate(() => {
+    const r = document.getElementById('stage').getBoundingClientRect();
+    return [Math.round(r.width / r.height * 1000), r.height <= window.innerHeight];
+  });
+  assert.deepEqual(fit, [563, true]); // 1080/1920, scaled down to fit the window's height
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.game = { ...proj.game, stage: { width: 1080, height: 1920 } };
+    proj.scripts.push({ file: 'qm.vn', text: 'screen quickmenu:\n  row anchor bottomright margin 10,40,60,0:\n    button auto "Auto" action auto\n' });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// A silent half-second mono WAV: enough for the browser to decode and play.
+function silentWav(seconds = 0.5, rate = 8000) {
+  const n = Math.round(seconds * rate), buf = Buffer.alloc(44 + n);
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + n, 4); buf.write('WAVEfmt ', 8); buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate, 28);
+  buf.writeUInt16LE(1, 32); buf.writeUInt16LE(8, 34); buf.write('data', 36); buf.writeUInt32LE(n, 40);
+  buf.fill(128, 44);
+  return buf;
+}
+
+play('voice: a line with a recording offers a replay button and V plays it again', async page => {
+  await newGame(page);
+  await textDone(page);
+  assert.equal(await page.locator('#quick [data-q="voice"]').isVisible(), true, 'the first line (joce) has a recording');
+  assert.equal(await page.locator('#optVoice').count(), 1, 'the options have a voice slider');
+  const played = () => page.evaluate(() => window.__voiceStarts ?? 0);
+  await page.keyboard.press('v');
+  await page.locator('#quick [data-q="voice"]').click();
+  await until(page, () => (window.__voiceStarts ?? 0) >= 2);
+  assert.ok(await played() >= 2);
+  await page.evaluate(() => document.activeElement.blur()); // a focused button would take the Space
+  await page.keyboard.press('Space'); // the next line has no recording
+  await until(page, () => document.querySelector('#quick [data-q="voice"]').hidden === true);
+}, async context => {
+  await context.addInitScript(() => {
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...a) { if (this.buffer && this.buffer.duration < 1) window.__voiceStarts = (window.__voiceStarts ?? 0) + 1; return start.apply(this, a); };
+  });
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.assets = [...(proj.assets ?? []), { file: 'voice/joce.wav', v: 1 }];
+    await route.fulfill({ response: res, json: proj });
+  });
+  await context.route('**/assets/voice/joce.wav*', route => route.fulfill({ body: silentWav(), contentType: 'audio/wav' }));
+});
+
+// ---- timed menus: `menu ... timeout N:` with an `on timeout:` block ----
+const withTimedStart = seconds => async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    const menu = `label start:\n  "Ready."\n  menu "Quick!" timeout ${seconds}:\n    "Stay":\n      "Stayed put."\n    on timeout:\n      "Time ran out."\n`;
+    for (const s of proj.scripts) if (s.file === 'park.vn') s.text = s.text.replace('label start:\n', menu);
+    await route.fulfill({ response: res, json: proj });
+  });
+};
+const barScale = page => page.evaluate(() => {
+  const m = /scaleX\(([\d.]+)\)/.exec(document.querySelector('#menu .timer i')?.style.transform ?? '');
+  return m ? Number(m[1]) : null;
+});
+
+play('timed menu: the bar shows and, when the time runs out, the story takes the on timeout block', async page => {
+  await newGame(page);
+  await toChoice(page);
+  assert.equal(await page.locator('#menu .timer').count(), 1);
+  assert.match(await page.locator('#menuLive').textContent(), /^5 seconds to choose$/);
+  await until(page, () => /Time ran out/.test(document.getElementById('text').textContent));
+  assert.equal(await page.locator('#menu .timer').count(), 0);
+}, withTimedStart(5));
+
+play('timed menu: choosing an option in time ends the clock', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('1');
+  await until(page, () => /Stayed put/.test(document.getElementById('text').textContent));
+  await page.waitForTimeout(3500);
+  assert.match(await text(page), /Stayed put/); // the clock did not fire later
+}, withTimedStart(3));
+
+play('timed menu: opening the pause menu holds the bar', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.keyboard.press('Escape');
+  await page.locator('#pause').waitFor({ state: 'visible' });
+  const held = await barScale(page);
+  assert.ok(held > 0 && held <= 1);
+  await page.waitForTimeout(1500);
+  assert.equal(await barScale(page), held);
+  assert.equal(await page.locator('#menu[data-visible="true"]').count(), 1);
+}, withTimedStart(4));
+
+play('timed menu: with Timed choices off there is no clock and the player can wait', async page => {
+  await page.locator('#titleOptions').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await page.locator('#tabAccess').click();
+  await page.locator('#optTimed').selectOption('off');
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
+  await newGame(page);
+  await toChoice(page);
+  assert.equal(await page.locator('#menu .timer').count(), 0);
+  await page.waitForTimeout(2800);
+  assert.equal(await page.locator('#menu[data-visible="true"]').count(), 1);
+}, withTimedStart(2));
+
+describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 1) }, () => {
+  for (const args of queued) nodeTest(...args);
+});

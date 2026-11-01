@@ -1,0 +1,136 @@
+# screens.vn - custom screens: a map with clickable places and an inventory made of a list.
+# Nothing links here from park.vn. Put the cursor on a line below and use Preview from cursor (Ctrl+Enter).
+# A `screen` block declares a page once; `show screen name` blocks until the player picks an element and
+# stores that element's id (in `screen`, or in the variable given with `as`). Coordinates are stage pixels (1920x1080).
+# Characters (alice, you) are defined in park.vn.
+
+define item key "Brass key" #y1hd image=bg/bg_park_evening.png
+define item coin "Silver coin" #rl21
+define item map "Folded map" #un52
+
+set bag = ["key", "coin"]
+set visited = 0
+
+screen town_map:
+  image "bg/bg_park_night.png" size 1920,1080
+  text at 80,48 "Where to? You carry: [bag]" #lowx
+  hotspot cafe at 300,300 size 360,200 "The cafe" #h5et
+  hotspot lake ellipse at 900,600 size 440,240 "The lake" #sidg hover none tooltip off
+  hotspot station poly 1300,300 1600,260 1680,520 1340,560 "The station" #hpgg if visited > 0
+  hotspot closed at 700,150 size 260,120 "The library (closed)" #sqsx enabled false
+  button bag at 1580,940 "Bag" #pzdg hover scale 1.1
+  button leave at 80,940 "Leave" #r1zc hover tint rgba(255,200,100,.35)
+  default cafe
+
+screen inventory:
+  text at 80,48 "Your bag" #ko8v
+  each bag as item at 120,200 step 0,130
+    image "[item.image]" at 0,0 size 160,90
+    button item at 200,0 size 640,100 "[item.name]" #a6ns
+  button back at 1580,940 "Back" #r9j2
+  default back
+  cancel
+
+label screens_demo:
+  scene bg_park_evening fade 0.5
+  show alice neutral at center fade 0.4
+  alice: Let's look at the map. #kx4y
+
+label town_loop:
+  show screen town_map
+  if screen == "cafe":
+    jump cafe_visit
+  elif screen == "lake":
+    jump lake_visit
+  elif screen == "station":
+    jump station_visit
+  elif screen == "bag":
+    jump bag_loop
+  alice: That's enough wandering. #n3kp
+  end
+
+label cafe_visit:
+  alice: The cafe smells of coffee. Someone left a map on a table. #ln6x
+  set bag += "map"
+  set visited = 1
+  jump town_loop
+
+label lake_visit:
+  alice: The lake is still. A coin glints at the bottom. #ujnv
+  if not contains(bag, "coin"):
+    set bag += "coin"
+  jump town_loop
+
+label station_visit:
+  set carried = count(bag)
+  alice: The station is quiet. You have [carried] things with you. #drtm
+  jump town_loop
+
+label bag_loop:
+  show screen inventory as picked
+  if picked == "back" or picked == "":
+    jump town_loop
+  alice: You take out the [picked] and put it away again. #w0kd
+  jump bag_loop
+
+# --- hud: a screen that stays up while the story runs; `on click <label>` calls that label (and returns to the line) ---
+screen status:
+  text at 40,30 "Coins: [coins]" #i2gm
+  button purse at 1620,30 size 260,80 "Purse" #mxuk on click hud_purse
+  button help at 1620,130 size 260,80 "Help" #mciu on focus hud_help_on on blur hud_help_off
+  text at 40,90 "[hint]" #c302
+  hotspot orb mask "ui/hud_mask.png" at 860,700 size 200,150 "Orb" #w4lc hover "ui/hud_mask_lit.png" on click hud_orb
+
+label hud_demo:
+  set coins = 3
+  set hint = ""
+  scene bg_park_evening fade 0.5
+  show alice neutral at center fade 0.4
+  hud on status
+  alice: The status strip stays up while we talk. Click Purse any time. #lb2d
+  alice: The story picks up where it left off. #yr7m
+  alice: That is all. #o20i
+  hud off status
+  end
+
+# `on focus` / `on blur`: pointing at, tabbing to or arrowing onto Help runs these (keep them short)
+label hud_help_on:
+  set hint = "Help: it is just a demo."
+  return
+
+label hud_help_off:
+  set hint = ""
+  return
+
+label hud_orb:
+  set coins += 10
+  alice: The orb gives you ten coins. Now you have [coins]. #svc3
+  return
+
+label hud_purse:
+  set coins += 1
+  alice: You find another coin. Now you have [coins]. #pcxy
+  return
+
+# --- layout: row / column / grid place buttons without `at` ---
+screen layout_demo:
+  text at 80,48 "Layout containers" #dab8
+  column at 80,160 gap 20:
+    button play "Play" #izva
+    button options "Options" #x7et
+    button quit "Quit" #a7xt
+  grid 3 at 700,160 cell 300,100 gap 20:
+    button g1 "One" #ka0t
+    button g2 "Two" #l347
+    button g3 "Three" #ne08
+    button g4 "Four" #xrg6
+  row anchor bottomright margin 40 gap 20:
+    button yes "Yes" #oe07
+    button no "No" #ohtp
+  cancel
+
+label layout_demo:
+  scene bg_park_evening fade 0.5
+  show screen layout_demo as picked
+  alice: You chose [picked]. #rtfg
+  end

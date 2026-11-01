@@ -1,0 +1,81 @@
+# start.vn - Rainy Day Library, the demo project. A short guided tour: each part shows a few engine features
+# and says which. Art here is generated placeholder shapes; audio is CC0 (see CREDITS.md).
+
+define narrator "" text=#d8d2c0
+define iris "Iris" color=#7cc4ff blip=mid
+define you "You" color=#ffd27c
+
+set curious = 0
+set pages = 0
+set name = "friend"
+
+label start:
+  scene bg_library fade 0.8
+  music play evening_theme loop fade 2
+  sound loop rain fade 2
+  weather rain 0.5 2
+
+  "Rain had been falling since morning, and the only open door on the street was the library's." #os8z
+
+  show iris neutral at center fade 0.4
+  iris: Oh. A visitor. {pause=0.4}We close in an hour, but the rain doesn't seem to mind. #hg4r
+  you: I was hoping to wait it out. #kxd5
+  show iris smile
+  iris: Then you picked the right place. Would you like the tour? #h4yz
+
+  menu:
+    "Yes, show me around." #bggc:
+      set curious += 1
+      jump tour
+
+    "Just a quiet corner, please." #yl91:
+      iris: Back by the window, then. Nobody will bother you. #ufxb
+      jump window_seat
+
+label tour:
+  sound play page_flip1
+  iris: Everything on this stage is a script command: backgrounds, characters, sound, weather. #qb4g
+  move iris to left 0.6 ease=out
+  iris: Characters slide, {pause=0.3}hop, #m6sb
+  hop iris 0.25
+  iris: and shake when startled. #jhqi
+  shake iris 0.3 strength=6
+  move iris to center 0.5
+
+  iris: Pages, for example. Each choice you make can be remembered. #p8r8
+  sound play page_flip2
+  set pages += 1
+  sound play page_flip3
+  set pages += 1
+  iris: You have turned [pages] pages already. Variables work inside text. #ewgg
+
+  input name "Before we go on, what should I call you?" default="Reader" max=16 #z4iu
+  iris: Nice to meet you, [name]. Let me show you the rest. #pvf5
+  jump hub
+
+label reading_room:
+  scene bg_reading_room dissolve 1.2
+  weather off 2
+  tint #402010 0.3 1.5
+  show iris smile at center fade 0.4
+  iris: The lamp room. Scenes can be tinted, filtered, and cross-faded. #bpum
+  if curious >= 1:
+    iris: Since you asked for the tour, you get the good chair. #n74n
+  else:
+    iris: I'll bring you a blanket. #eelg
+  tint off 1
+  jump window_seat
+
+label window_seat:
+  scene cg_window_seat fade 0.8
+  weather rain 0.8 2
+  "The rain kept falling. For once, nobody was in a hurry." #nnh9
+  sound stop rain fade 3
+  music stop fade 3
+  hud off status
+  set persistent.finished += 1
+  if visits >= 3:
+    unlock explorer
+    "You visited [visits] rooms. Iris will remember that next time." #iz53
+  "End of the tour. Open the editor to see how each of these lines was written." #wvxe
+  end

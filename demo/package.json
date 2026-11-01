@@ -1,0 +1,16 @@
+{
+  "name": "rainy-day-library",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rainy Day Library (visual novel)",
+  "scripts": {
+    "dev": "vn dev",
+    "export": "vn export",
+    "art": "vn art",
+    "ids": "vn ids",
+    "strings": "vn strings"
+  },
+  "devDependencies": {
+    "marginalia-vn": "file:.."
+  }
+}

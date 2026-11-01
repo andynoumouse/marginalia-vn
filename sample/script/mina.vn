@@ -1,0 +1,46 @@
+# mina.vn - a layered PSD character (masters/char/mina.psd) with a hand-written rig (assets/char/mina/rig.json).
+# Nothing jumps here: put the cursor on a line below and use Preview from cursor (Ctrl+Enter).
+# Open her rig from the Files panel (Characters) or Ctrl+P, then #.
+
+define mina "Mina" color=#b48cff
+
+label mina_demo:
+  scene bg_park_evening fade 0.5
+  show mina at center fade 0.4
+  mina: This is a layered PSD character. Eyes, mouth and the two outfit parts are slots; the rest are plain parts. #p2r0
+
+  # A pose from the PSD: picks, per slot, the variant named or aliased "smile" (eyes and mouth here).
+  show mina smile
+  mina: "smile" is a PSD variant name, so it works without any rig.json. #dryj
+
+  # One slot by name: slot=variant. The line beats whatever a pose picked.
+  show mina eyes=closed
+  mina: slot=variant overrides a single slot. #xhdd
+
+  # A group (rig.json "groups"): one name that sets several slots at once.
+  show mina outfit=casual
+  mina: outfit=casual sets both top and bottom, because "outfit" is a group. #od2v
+  show mina outfit=school
+  mina: And outfit=school puts the uniform back. #bm9q
+
+  # A pose shorthand (rig.json "poses"): a pose plus overrides under one name.
+  show mina shy
+  mina: "shy" is the smile pose with a neutral mouth. #rdgs
+  show mina casual
+  mina: "casual" is the happy pose and the casual outfit in one word. #rbq9
+
+  # A line wins over a shorthand: casual, but the mouth open.
+  show mina casual mouth=open
+  mina: Explicit slot=variant after a shorthand wins over what it set. #mv0y
+
+  # rig.json "animations": keyframes of your own, played with `animate`.
+  mina: Keyframe animations live in rig.json too. #zz01
+  animate mina wave
+  animate mina giggle loop
+  mina: This one loops until it is stopped. #zz02
+  animate mina stop
+
+  # rig.json "order" re-stacks parts: top is drawn over bottom, so the shirt hangs over the skirt (see the rig).
+  show mina uniform
+  hide mina fade 0.4
+  end
