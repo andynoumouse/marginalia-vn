@@ -4,6 +4,7 @@ import { ANCHORS, type Anchors } from './anchor.js';
 import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import { shellEntryFields, shellVars, validateScreen, type ScreenDef, type ScreenNode } from './screens.js';
+import { withFix } from './suggest.js';
 import type { CharacterDef, Diagnostic, ItemDef, MenuOption, Op, OpBody, Program, Src } from './types.js';
 
 export interface SourceFile { file: string; text: string }
@@ -37,6 +38,9 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
   const diag = (src: Src, severity: 'error' | 'warning', message: string) =>
     diagnostics.push({ file: src.file, line: src.line, severity, message });
 
+  const unknownChar = (src: Src, who: string) =>
+    diagnostics.push(withFix(src, 'warning', `Unknown character "${who}"`, who, Object.keys(characters), ' (add a define line)'));
+
   const emit = (src: Src, body: OpBody): number => ops.push({ ...body, src } as Op) - 1;
 
   const registerString = (src: Src, id: string | null, text: string) => {
@@ -52,7 +56,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
           const b = n.body;
           if (b.op === 'say') {
             registerString(n.src, b.id, b.text);
-            if (b.who && !(b.who in characters)) diag(n.src, 'warning', `Unknown character "${b.who}" (add a define line)`);
+            if (b.who && !(b.who in characters)) unknownChar(n.src, b.who);
           } else if (b.op === 'unlock') {
             unlocked.add(b.name);
           } else if (b.op === 'screen') {
@@ -68,7 +72,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
           } else if (b.op === 'call') {
             for (const e of b.args ?? []) exprs.push({ e, src: n.src }); // random() is fine: arguments are evaluated once, at the call
           } else if ((b.op === 'show' || b.op === 'hide' || b.op === 'move' || b.op === 'hop' || b.op === 'animate') && !(b.char in characters)) {
-            diag(n.src, 'warning', `Unknown character "${b.char}" (add a define line)`);
+            unknownChar(n.src, b.char);
           }
           emit(n.src, b);
           break;
@@ -185,7 +189,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
   for (const op of ops) {
     if (op.op === 'jump' || op.op === 'call') {
       if (op.label in labels) op.target = labels[op.label];
-      else diag(op.src, 'error', `Unknown label "${op.label}"`);
+      else diagnostics.push(withFix(op.src, 'error', `Unknown label "${op.label}"`, op.label, Object.keys(labels)));
       const want = params[op.label]?.length ?? 0;
       if (op.label in labels) {
         if (op.op === 'jump' && want) diag(op.src, 'warning', `"${op.label}" takes parameters (${params[op.label].join(', ')}); jump does not set them (use call)`);
@@ -194,9 +198,9 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
         }
       }
     } else if (op.op === 'hud' && !(op.name in screens)) {
-      diag(op.src, 'error', `Unknown screen "${op.name}" (declare it with "screen ${op.name}:")`);
+      diagnostics.push(withFix(op.src, 'error', `Unknown screen "${op.name}"`, op.name, Object.keys(screens), ` (declare it with "screen ${op.name}:")`));
     } else if (op.op === 'screen' && !(op.name in screens)) {
-      diag(op.src, 'error', `Unknown screen "${op.name}" (declare it with "screen ${op.name}:")`);
+      diagnostics.push(withFix(op.src, 'error', `Unknown screen "${op.name}"`, op.name, Object.keys(screens), ` (declare it with "screen ${op.name}:")`));
     }
   }
 
@@ -205,7 +209,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
     for (const n of nodes) {
       if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') checkHandlers(n.body);
       else if (n.kind === 'hotspot' || n.kind === 'button') {
-        for (const [event, label] of Object.entries(n.on)) if (!(label in labels)) diag(n.src, 'error', `Unknown label "${label}" (on ${event} of ${n.id})`);
+        for (const [event, label] of Object.entries(n.on)) if (!(label in labels)) diagnostics.push(withFix(n.src, 'error', `Unknown label "${label}" (on ${event} of ${n.id})`, label, Object.keys(labels)));
       }
     }
   };

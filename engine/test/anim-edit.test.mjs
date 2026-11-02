@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   addKey, setKey, deleteKey, setDur, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset,
-  sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, noRigSettings,
+  sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, noRigSettings,
 } from '../../dist/engine/src/index.js';
 
 const wave = { dur: 1.2, keys: [{ t: 0.2, rot: 7 }, { t: 0.8, rot: 4 }] };
@@ -158,6 +159,7 @@ test('setPivots gives several parts one pivot; showLine writes the show line for
   assert.equal(showLine('alice', null, { ...at(0.5), anchor: [0.5, 1] }), 'show alice at center');
   assert.equal(showLine('alice', null, { ...at(0.5, 0, 1.5), anchor: [0.5, 0.5] }), 'show alice at center scale=1.5 anchor=center');
   assert.equal(showLine('alice', null, { ...at(0.2), anchor: [0.5, 0.30004] }), 'show alice at left anchor=0.5,0.3');
+  assert.equal(showLine('alice', 'smile', at(0.5), undefined, undefined, { glasses: 'none', eyes: 'closed' }), 'show alice smile at center glasses=none eyes=closed');
 });
 
 test('readRigSettings, speakValue and blinkValue round-trip the studio fields and keep the rest', () => {
@@ -173,4 +175,107 @@ test('readRigSettings, speakValue and blinkValue round-trip the studio fields an
   assert.deepEqual(readRigSettings({ blink: true, speak: 5 }), { ...noRigSettings(), blink: true });
   assert.notEqual(speakPart(s), speakPart({ ...s, speakRate: 7 }));
   assert.equal(blinkPart(s), blinkPart({ ...s }));
+});
+
+// A rig.json laid out by hand, like the sample's mina: a one-line `pivots` with several entries per line.
+const rigText = [
+  '{',
+  '  "order": ["bottom", "top"],',
+  '  "pivots": {',
+  '    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380]',
+  '  },',
+  '  "idle": "breathe",',
+  '  "speak": { "variants": ["open", "neutral"], "rate": 7 },',
+  '  "animations": {',
+  '    "wave": {',
+  '      "dur": 1.2,',
+  '      "keys": [',
+  '        { "t": 0.2, "rot": 7, "y": -0.01, "ease": "out" },',
+  '        { "t": 0.5, "rot": -5 }',
+  '      ]',
+  '    },',
+  '    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] }',
+  '  }',
+  '}',
+  '',
+].join('\n');
+const rigData = JSON.parse(rigText);
+/** The numbers of the lines that differ, or null when the line count changed. */
+const changedLines = (a, b) => {
+  const x = a.split('\n'), y = b.split('\n');
+  return x.length === y.length ? x.flatMap((l, i) => (l === y[i] ? [] : [i])) : null;
+};
+
+test('writeRigText leaves an unchanged rig exactly as written', () => {
+  const writes = [{ key: 'animations', value: structuredClone(rigData.animations) }, { key: 'pivots', value: structuredClone(rigData.pivots) }, { key: 'idle', value: 'breathe' }];
+  assert.equal(writeRigText(rigText, writes), rigText);
+  // the order of keys inside a value does not count as a change
+  const shuffled = { giggle: { keys: [{ y: -0.015, t: 0.15 }], dur: 0.6 }, wave: rigData.animations.wave };
+  assert.equal(writeRigText(rigText, [{ key: 'animations', value: shuffled }]), rigText);
+  assert.equal(textChange(rigText, rigText), null);
+  // and so does the sample's mina, whatever its line endings in this working copy
+  const mina = readFileSync(new URL('../../sample/assets/char/mina/rig.json', import.meta.url), 'utf8');
+  const data = JSON.parse(mina);
+  assert.equal(writeRigText(mina, [{ key: 'animations', value: data.animations }, { key: 'pivots', value: data.pivots }, { key: 'idle', value: data.idle }]), mina);
+});
+
+test('writeRigText rewrites only the animation that changed', () => {
+  const anims = structuredClone(rigData.animations);
+  anims.wave.keys[1].rot = -6;
+  const out = writeRigText(rigText, [{ key: 'animations', value: anims }, { key: 'pivots', value: rigData.pivots }]);
+  assert.deepEqual(changedLines(rigText, out), [12]);
+  assert.equal(out.split('\n')[12], '        { "t": 0.5, "rot": -6 }');
+  assert.deepEqual(JSON.parse(out).animations, anims);
+  // a changed one-line animation is written anew; the one before it keeps its text
+  anims.giggle.dur = 0.7;
+  const out2 = writeRigText(rigText, [{ key: 'animations', value: anims }]);
+  assert.ok(out2.includes('    "giggle": { "dur": 0.7, "keys": [{ "t": 0.15, "y": -0.015 }] }\n'), out2);
+});
+
+test('writeRigText keeps a one-line pivots on one line when a pivot changes, is added or removed', () => {
+  const moved = writeRigText(rigText, [{ key: 'pivots', value: { ...rigData.pivots, head: [271, 380] } }]);
+  assert.deepEqual(changedLines(rigText, moved), [3]);
+  assert.equal(moved.split('\n')[3], '    "hair_back": [270, 380], "head": [271, 380], "face": [270, 380]');
+  const added = writeRigText(rigText, [{ key: 'pivots', value: { ...rigData.pivots, eyes: [1, 2] } }]);
+  assert.equal(added.split('\n')[3], '    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380], "eyes": [1, 2]');
+  const { head, ...rest } = rigData.pivots;
+  const removed = writeRigText(rigText, [{ key: 'pivots', value: rest }]);
+  assert.equal(removed.split('\n')[3], '    "hair_back": [270, 380], "face": [270, 380]');
+  assert.deepEqual(JSON.parse(removed).pivots, rest);
+  const { hair_back, ...rest2 } = rigData.pivots;
+  assert.equal(writeRigText(rigText, [{ key: 'pivots', value: rest2 }]).split('\n')[3], '    "head": [270, 380], "face": [270, 380]');
+});
+
+test('writeRigText adds, renames and deletes animations in the layout of the file', () => {
+  const anims = { ...rigData.animations, nod: { dur: 1, keys: [{ t: 0.5, y: 0.01 }] } };
+  const added = writeRigText(rigText, [{ key: 'animations', value: anims }]);
+  assert.ok(added.endsWith([
+    '    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] },',
+    '    "nod": {', '      "dur": 1,', '      "keys": [', '        { "t": 0.5, "y": 0.01 }', '      ]', '    }', '  }', '}', ''].join('\n')), added);
+  const renamed = writeRigText(rigText, [{ key: 'animations', value: { greet: rigData.animations.wave, giggle: rigData.animations.giggle } }]);
+  assert.deepEqual(Object.keys(JSON.parse(renamed).animations), ['greet', 'giggle']);
+  assert.ok(renamed.includes('  "animations": {\n    "greet": {\n      "dur": 1.2,'), renamed);
+  assert.ok(renamed.includes('\n    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] }\n'));
+  const deleted = writeRigText(rigText, [{ key: 'animations', value: { giggle: rigData.animations.giggle } }]);
+  assert.ok(deleted.includes('  "animations": {\n    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] }\n  }\n}\n'), deleted);
+});
+
+test('writeRigText adds and removes top-level properties, and skips an empty object the file lacks', () => {
+  const plain = '{\n  "idle": "bob"\n}\n';
+  assert.equal(writeRigText(plain, [{ key: 'animations', value: {} }, { key: 'pivots', value: {} }, { key: 'speak', value: null }]), plain);
+  assert.equal(writeRigText(plain, [{ key: 'pivots', value: { a: [1, 2] } }]), '{\n  "idle": "bob",\n  "pivots": {\n    "a": [1, 2]\n  }\n}\n');
+  assert.equal(writeRigText(plain, [{ key: 'idle', value: null }, { key: 'blink', value: true }]), '{\n  "blink": true\n}\n');
+  const noSpeak = writeRigText(rigText, [{ key: 'speak', value: null }]);
+  assert.equal(noSpeak, rigText.replace('  "speak": { "variants": ["open", "neutral"], "rate": 7 },\n', ''));
+  assert.deepEqual(JSON.parse(writeRigText('{}', [{ key: 'animations', value: { a: 1 } }])), { animations: { a: 1 } });
+  assert.equal(writeRigText('[1]', []), null);
+  assert.equal(writeRigText('{ "a": ', []), null);
+});
+
+test('textChange is the one edit between the common start and end', () => {
+  const e = textChange('abcXYdef', 'abcZdef');
+  assert.deepEqual(e, { start: 3, end: 5, insert: 'Z' });
+  assert.equal(applyEdit('abcXYdef', e), 'abcZdef');
+  assert.equal(applyEdit('aaa', textChange('aaa', 'aaaa')), 'aaaa');
+  assert.equal(applyEdit('abab', textChange('abab', 'ab')), 'ab');
 });

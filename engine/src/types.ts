@@ -3,7 +3,8 @@ import type { Segment } from './text.js';
 import type { ScreenDef, ScreenView } from './screens.js';
 
 export interface Src { file: string; line: number }
-export interface Diagnostic { file: string; line: number; severity: 'error' | 'warning'; message: string }
+/** `fix`: the line's `word` is unknown and one of `options` (closest first) is probably what was meant (a quick fix). */
+export interface Diagnostic { file: string; line: number; severity: 'error' | 'warning'; message: string; fix?: { word: string; options: string[] } }
 /** How a character's lines look and sound (define ... text= font= size= italic speed= blip= box=). */
 export interface CharacterStyle {
   textColor?: string;

@@ -386,7 +386,7 @@ class Bot {
           return { kind: 'choice', at: here, key: this.key(s), choices };
         }
         case 'input':
-          s.vars[op.name] = op.default;
+          s.vars[op.name] = interpolate(op.default, this.scope(s, base));
           s.pc++;
           break;
         case 'set': {

@@ -3,7 +3,7 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  ANIM_NAMES, EASE_NAMES, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, rigSkeleton, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, setTopLevelProperty, removeTopLevelProperty, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex,
+  ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder,
   type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
@@ -29,6 +29,9 @@ const preview = $<HTMLIFrameElement>('preview');
 // kind 'rig' is a character's assets/char/<char>/rig.json (tab name char/<char>/rig.json)
 interface FileState { name: string; kind: 'script' | 'game' | 'rig'; char?: string; model: any; saved: string; timer: number }
 const files = new Map<string, FileState>();
+/** The "did you mean" names of the current markers, by fixKey(). */
+const quickFixes = new Map<string, string[]>();
+const fixKey = (uri: { toString(): string }, line: number, message: string) => `${uri.toString()}|${line}|${message}`;
 const GAME = 'game.json';
 const rigName = (char: string) => `char/${char}/rig.json`;
 const GAME_URI = 'file:///game.json';
@@ -152,7 +155,7 @@ function registerLanguage() {
     command: K.Keyword, keyword: K.EnumMember, character: K.Class, label: K.Reference, variable: K.Variable, asset: K.Value,
   };
   monaco.languages.registerCompletionItemProvider('vn', {
-    triggerCharacters: [' ', '{'],
+    triggerCharacters: [' ', '{', '[', ':'],
     provideCompletionItems(model: any, position: any) {
       const prefix = model.getValueInRange({
         startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: position.column,
@@ -175,7 +178,27 @@ function registerLanguage() {
       };
     },
   });
+  // Quick fixes (Ctrl+.) for the markers with a "did you mean": replace the unknown word with a close name.
+  monaco.languages.registerCodeActionProvider('vn', {
+    provideCodeActions(model: any, _range: any, context: any) {
+      const actions = (context.markers as any[]).flatMap(m => {
+        const options = quickFixes.get(fixKey(model.uri, m.startLineNumber, m.message)) ?? [];
+        return options.map((o, i) => ({
+          title: `Change to "${o}"`,
+          kind: 'quickfix',
+          diagnostics: [m],
+          isPreferred: i === 0,
+          edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: {
+            range: { startLineNumber: m.startLineNumber, endLineNumber: m.endLineNumber, startColumn: m.startColumn, endColumn: m.endColumn },
+            text: o,
+          } }] },
+        }));
+      });
+      return { actions, dispose() {} };
+    },
+  });
 }
+
 
 // ---- files, tabs, diagnostics ----
 const errorCount = (f: FileState) => (f.kind !== 'script'
@@ -265,8 +288,28 @@ function renderTabs() {
     tab.append(b, x);
     return [tab];
   }).concat(stockTab));
+  revealSelectedTab();
   renderSidebarFiles();
 }
+
+// Scrolls the strip (only it, not the page) so the selected tab is wholly visible.
+function revealSelectedTab() {
+  const tab = tabsEl.querySelector<HTMLElement>('.tab[data-selected="true"]');
+  if (!tab) return;
+  const r = tab.getBoundingClientRect();
+  const left = r.left - tabsEl.getBoundingClientRect().left - tabsEl.clientLeft + tabsEl.scrollLeft;
+  const right = left + r.width;
+  const pad = 8;
+  if (left - pad < tabsEl.scrollLeft) tabsEl.scrollLeft = left - pad;
+  else if (right + pad > tabsEl.scrollLeft + tabsEl.clientWidth) tabsEl.scrollLeft = right + pad - tabsEl.clientWidth;
+}
+
+// A vertical wheel scrolls the strip sideways (a mouse has no horizontal wheel to reach the hidden tabs).
+tabsEl.addEventListener('wheel', e => {
+  if (e.deltaY === 0 || e.deltaX !== 0 || tabsEl.scrollWidth <= tabsEl.clientWidth) return;
+  e.preventDefault();
+  tabsEl.scrollLeft += e.deltaY;
+}, { passive: false });
 
 const recentFiles: string[] = []; // most recently activated first (Ctrl+P ordering)
 
@@ -356,16 +399,20 @@ function recompile() {
   updateGameSchema();
   for (const f of files.values()) if (f.kind === 'rig') monaco.editor.setModelMarkers(f.model, 'vn', rigMarkers(f));
   outlineView?.update(buildOutline(program));
+  quickFixes.clear();
   for (const f of [...scripts(), ...(gameFile ? [gameFile] : [])]) {
     const markers = program.diagnostics.filter(d => d.file === f.name).map(d => {
       const line = Math.min(Math.max(d.line, 1), f.model.getLineCount());
       const text: string = f.model.getLineContent(line);
+      // A "did you mean" marks just the unknown word, and Ctrl+. offers the close names in its place.
+      const span = d.fix ? wordSpan(text, d.fix.word) : null;
+      if (d.fix && span) quickFixes.set(fixKey(f.model.uri, line, d.message), d.fix.options);
       return {
         severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
         message: d.message,
         startLineNumber: line, endLineNumber: line,
-        startColumn: text.length - text.trimStart().length + 1,
-        endColumn: f.model.getLineMaxColumn(line),
+        startColumn: span ? span[0] + 1 : text.length - text.trimStart().length + 1,
+        endColumn: span ? span[1] + 1 : f.model.getLineMaxColumn(line),
       };
     });
     monaco.editor.setModelMarkers(f.model, 'vn', markers);
@@ -380,9 +427,14 @@ function updateProblemCount() {
   const marks = (monaco.editor.getModelMarkers({}) as { severity: number; resource: { toString(): string } }[])
     .filter(m => m.severity >= monaco.MarkerSeverity.Warning && known.has(m.resource.toString()));
   const errors = marks.filter(m => m.severity >= monaco.MarkerSeverity.Error).length;
+  // A rig.json that is not open has no markers yet; count its checks anyway so the total does not depend on which tabs are open.
+  const rigs = liveRigs();
+  const unopened = Object.keys(rigs).reduce((n, char) => (files.has(rigName(char)) ? n : n + checkRig(rigs[char]).length), 0);
+  const warns = marks.length - errors + unopened;
   problemsEl.dataset.errors = String(errors);
-  problemsEl.dataset.warns = String(marks.length - errors);
-  problemsEl.textContent = `Problems: ${marks.length}`;
+  problemsEl.dataset.warns = String(warns);
+  problemsEl.textContent = `Problems: ${errors + warns}`;
+  problemsEl.title = 'Problems in all files, rig.json checks included (the preview header counts the script and game.json only)';
 }
 
 async function save(f: FileState) {
@@ -431,6 +483,7 @@ function addFile(name: string, text: string, kind: FileState['kind'] = 'script',
 // ---- game.json schema (completions, hover docs and validation in the JSON tab) ----
 interface Project {
   scripts: { file: string; text: string }[];
+  scriptDirs?: string[];
   gameText: string | null;
   assets: { file: string }[];
   rigs?: Record<string, RigManifest>;
@@ -444,6 +497,8 @@ const sbFilesEl = document.createElement('div'), sbAssetsEl = document.createEle
 $('sbList').append(sbFilesEl, sbAssetsEl);
 const SIDEBAR_KEY = 'vn.editor.sidebar';
 const openDirs = new Set<string>(); // asset folders the user expanded (all open while filtering)
+const collapsedDirs = new Set<string>(); // script folders the user collapsed (the tree starts open)
+let scriptDirs: string[] = []; // folders under script/, empty ones included
 
 function sbItem(label: string, o: { meta?: string; title?: string; current?: boolean; errors?: boolean; problems?: { errors: number; warns: number }; run(): void }) {
   const b = document.createElement('button');
@@ -478,15 +533,39 @@ const sbMatch = (text: string) => text.toLowerCase().includes(sbFilter.value.tri
 function renderSidebarFiles() {
   if (sidebarEl.hidden) return;
   const over = overriddenScreens([...files.values()].filter(f => f.kind === 'script').map(f => ({ file: f.name, text: f.model.getValue() })));
-  // A screen's own override file (ui/<name>.vn) is reached from its Built-in screens row, so it is not listed twice.
-  const ownFiles = new Set(UI_SCREENS.filter(u => over[u.name] === u.file).map(u => u.file));
-  const list = [...files.values()].filter(f => f.kind !== 'rig' && !ownFiles.has(f.name) && sbMatch(f.name))
-    .sort((a, b) => Number(a.kind === 'game') - Number(b.kind === 'game') || a.name.localeCompare(b.name));
-  sbFilesEl.replaceChildren(sbHeading('Scripts'), ...(list.length ? list.map(f => sbItem(f.name, {
-    current: f.name === active, errors: errorCount(f) > 0, problems: problemCounts(f),
-    meta: [isDirty(f) ? '•' : '', f.kind === 'game' ? 'game' : ''].filter(Boolean).join(' '),
+  const overrideFiles = new Set(UI_SCREENS.filter(u => over[u.name] === u.file).map(u => u.file));
+  const fileRow = (f: FileState, label: string) => sbItem(label, {
+    title: f.name, current: f.name === active, errors: errorCount(f) > 0, problems: problemCounts(f),
+    meta: [isDirty(f) ? '•' : '', overrideFiles.has(f.name) ? 'screen' : ''].filter(Boolean).join(' '),
     run: () => activate(f.name),
-  })) : [sbNone('No matching files')]));
+  });
+  const game = files.get(GAME);
+  const scripts = [...files.values()].filter(f => f.kind === 'script');
+  const tree = buildFileTree(scripts.map(f => f.name), scriptDirs, sbFilter.value);
+  const folderNode = (d: FileTreeFolder): HTMLElement => {
+    const el = document.createElement('details');
+    el.open = !collapsedDirs.has(d.path);
+    el.addEventListener('toggle', () => { if (el.open) collapsedDirs.delete(d.path); else collapsedDirs.add(d.path); });
+    const sum = document.createElement('summary');
+    sum.append(Object.assign(document.createElement('span'), { textContent: d.name }));
+    for (const [text, title, run] of [
+      ['+', `New script file in ${d.path}/`, () => void newFile(undefined, undefined, d.path)],
+      ['▸', `New folder in ${d.path}/`, () => void newFolder(undefined, d.path)],
+    ] as const) {
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'add', textContent: text, title });
+      b.addEventListener('click', run);
+      sum.append(b);
+    }
+    sum.addEventListener('click', e => { if ((e.target as HTMLElement).closest('.add')) e.preventDefault(); }); // the buttons do not fold the folder
+    el.append(sum, ...d.folders.map(folderNode), ...d.files.map(n => fileRow(files.get(n)!, n.slice(n.lastIndexOf('/') + 1))));
+    return el;
+  };
+  const scriptRows = tree.flat
+    ? tree.files.map(n => fileRow(files.get(n)!, n))
+    : [...tree.root.folders.map(folderNode), ...tree.root.files.map(n => fileRow(files.get(n)!, n))];
+  sbFilesEl.replaceChildren(
+    ...(game && sbMatch(GAME) ? [sbHeading('Project'), fileRow(game, GAME)] : []),
+    sbHeading('Scripts'), ...(scriptRows.length ? scriptRows : [sbNone(tree.flat ? 'No matching files' : 'No scripts yet')]));
   const screens = UI_SCREENS.filter(u => sbMatch(`${u.name} ${u.title}`));
   if (screens.length) sbFilesEl.append(sbHeading('Built-in screens'), ...screens.map(u => {
     const file = over[u.name] ? files.get(over[u.name]) : undefined;
@@ -567,6 +646,8 @@ function setSidebar(show: boolean) {
 }
 
 function setAssets(proj: Project) {
+  scriptDirs = proj.scriptDirs ?? [];
+  renderSidebarFiles();
   projectAssets = { files: proj.assets.map(a => a.file), rigs: proj.rigs ?? {}, rigTexts: proj.rigTexts ?? {} };
   renderSidebarAssets();
   const assets = proj.assets;
@@ -1064,11 +1145,17 @@ function addIds() {
   setStatus(`added ${added} ids`);
 }
 
-async function newFile(given?: string, starter?: string) {
-  const raw = given ?? window.prompt('New script file name (e.g. chapter2):');
-  if (!raw) return;
+/** The file name `raw` asks for, without `.vn`, or null when it is not a valid script path. */
+function newFileBase(raw: string): string | null {
   const base = raw.trim().replace(/\.vn$/, '');
-  if (!/^[\w\-./]+$/.test(base) || base.includes('..')) { setStatus('invalid file name'); return; }
+  return base && /^[\w\-./]+$/.test(base) && !base.includes('..') ? base : null;
+}
+
+// Without a name, ask in the palette (window.prompt is dismissed silently by some hosts).
+async function newFile(given?: string, starter?: string, dir?: string) {
+  if (given === undefined) { palette.setText(NEW_PICK + (dir ? `${dir}/` : '')); return; }
+  const base = newFileBase(given);
+  if (!base) { setStatus('invalid file name'); return; }
   const name = `${base}.vn`;
   if (files.has(name)) { activate(name); return; }
   const text = starter ?? `# ${name}\n`;
@@ -1079,6 +1166,18 @@ async function newFile(given?: string, starter?: string) {
   addFile(name, text);
   recompile();
   activate(name);
+}
+
+/** A new folder under script/ (made on disk so it stays when empty). Without a name, asks in the palette, inside `parent`. */
+async function newFolder(given?: string, parent?: string) {
+  if (given === undefined) { palette.setText(NEW_FOLDER + (parent ? `${parent}/` : '')); return; }
+  const dir = given.trim().replace(/\/+$/, '');
+  if (!dir || !/^[\w\-./]+$/.test(dir) || dir.includes('..')) { setStatus('invalid folder name'); return; }
+  const r = await fetch(`/api/folder?dir=${encodeURIComponent(dir)}`, { method: 'PUT', headers: { 'X-VN-Editor': '1' } });
+  if (!r.ok) { setStatus('could not create folder'); return; }
+  for (let p = dir; p; p = p.slice(0, Math.max(p.lastIndexOf('/'), 0))) if (!scriptDirs.includes(p)) scriptDirs.push(p);
+  collapsedDirs.delete(dir);
+  renderSidebarFiles();
 }
 
 // Pick up edits made outside the editor (for example in VS Code) when the file is not dirty here.
@@ -1179,10 +1278,12 @@ function addIdsEverywhere() {
   setStatus(total ? `added ${total} ids` : 'every line already has an id');
 }
 
-function goToLine(name: string, line: number) {
+/** Open `name` at `line` (clamped to the file), at column `col` if given, else at the line's first non-blank character. */
+function goToLine(name: string, line: number, col?: number) {
   activate(name);
+  line = Math.min(Math.max(line, 1), editor.getModel().getLineCount());
   editor.revealLineInCenter(line);
-  editor.setPosition({ lineNumber: line, column: 1 + (editor.getModel().getLineContent(line).match(/^\s*/)?.[0].length ?? 0) });
+  editor.setPosition({ lineNumber: line, column: col ?? 1 + (editor.getModel().getLineContent(line).match(/^\s*/)?.[0].length ?? 0) });
   editor.focus();
 }
 
@@ -1234,13 +1335,20 @@ function updateRigFromArt() {
 }
 
 let animStudio: AnimStudio;
-/** Open the animation studio for `char` (opening its rig.json tab) or else for the character of the active rig.json tab; unsaved text counts. */
+const RIG_PICK = '#rig:', ANIM_PICK = '#anim:'; // palette prefixes of the character pickers (setupPalette)
+const NEW_PICK = '#new:'; // palette prefix of the New Script File name field
+const NEW_FOLDER = '#folder:'; // palette prefix of the New Folder name field
 /** game.json as the tab holds it (unsaved edits count); null while it does not parse. */
 function openGame(): unknown {
   try { return JSON.parse(files.get(GAME)?.model.getValue() ?? '{}'); } catch { return null; }
 }
 
-function openAnimStudio(char?: string) {
+/** Open the animation studio for `char` (opening its rig.json tab) or else for the character of the active rig.json tab; unsaved text counts. */
+function openAnimStudio(char?: string, animation?: string, scene?: { file: string; line: number }) {
+  const wasOpen = char ? openTabs.includes(rigName(char)) : true; // a rig tab opened only for the studio goes away with it
+  const before = active;
+  const cursor = editor.getPosition();
+  const target = files.get(before)?.kind === 'script' && cursor ? { file: before, line: cursor.lineNumber } : null; // where Insert in script puts the show line
   if (char) openRig(char);
   const f = files.get(active);
   if (f?.kind !== 'rig' || !f.char) return;
@@ -1252,15 +1360,47 @@ function openAnimStudio(char?: string) {
   const slots: Record<string, string[]> = {};
   for (const part of manifest?.parts ?? []) if (part.slot && part.variants) slots[part.slot] = Object.keys(part.variants);
   animStudio.open(f.char, { anims: object(data?.animations), pivots: object(data?.pivots), rig: applied }, {
-    returnFocus: () => editor.focus(),
+    returnFocus: () => {
+      const rigTab = char ? rigName(char) : '';
+      // A generated skeleton (saved === '') stays: closing a tab autosaves it, which would create a rig.json nobody asked for.
+      if (rigTab && !wasOpen && active === rigTab && files.get(rigTab)?.saved !== '') {
+        closeTab(rigTab);
+        if (before && openTabs.includes(before)) {
+          activate(before);
+          if (cursor) { editor.setPosition(cursor); editor.revealPositionInCenterIfOutsideViewport(cursor); }
+        }
+      }
+      editor.focus();
+    },
+    insertLine: target ? (line => {
+      const m = files.get(target.file)!.model;
+      const at = Math.min(target.line, m.getLineCount());
+      const text: string = m.getLineContent(at);
+      const indent = /^\s*/.exec(text)![0];
+      m.pushEditOperations([], [{ range: new monaco.Range(at, text.length + 1, at, text.length + 1), text: `\n${indent}${line}` }], () => null);
+      target.line = at + 1; // the next insert goes under this one
+      return `Inserted under line ${at} of ${target.file}.`;
+    }) : undefined,
+    tryInScene: scene && (() => {
+      // The saved rig.json makes the preview reload its game; wait for that, or the jump would run on the old rig.
+      void (async () => {
+        await save(f);
+        const script = files.get(scene.file);
+        if (script) await save(script);
+        setTimeout(() => postPreview({ type: 'goto', file: scene.file, line: scene.line }), 600);
+      })();
+    }),
     positions: namedPositions(openGame()),
     anchors: namedAnchors(openGame()),
-    parts: manifest ? rigPartNames(manifest) : [],
+    parts: manifest ? rigPartNames({ ...manifest, rig: object(data) }) : [], // groups from the file as it is now
+    groups: manifest ? partGroups({ ...manifest, rig: object(data) }) : {},
     poses: manifest ? rigPoseNames(manifest) : [],
     slots,
     width: manifest?.width ?? 0,
     height: manifest?.height ?? 0,
     shown: manifest ? (pose, overrides) => rigLayers(manifest, pose, overrides).map(l => l.part) : undefined,
+    outline: manifest ? (pose, overrides) => rigOutline({ ...manifest, rig: object(data) }, pose, overrides) : undefined,
+    image: file => `/assets/char/${encodeURIComponent(f.char!)}/${encodeURI(file)}`,
     apply: change => {
       const writes: RigWrite[] = [{ key: 'animations', value: change.anims }, { key: 'pivots', value: change.pivots }];
       const now = change.rig;
@@ -1274,30 +1414,33 @@ function openAnimStudio(char?: string) {
       if (ok) applied = now;
       return ok;
     },
-  });
+  }, animation);
 }
 
-/** A top-level property of rig.json to put in; a null value removes the property. */
-interface RigWrite { key: string; value: unknown }
+/** The animation a script line plays, opened in the studio (F12 on an `animate` line); other lines get the normal Go to Definition. */
+function openAnimationAtCursor() {
+  const pos = editor.getPosition();
+  const ref = files.get(active)?.kind === 'script' && pos ? animateRef(editor.getModel().getLineContent(pos.lineNumber)) : null;
+  if (!ref) { editor.trigger('vn', 'editor.action.revealDefinition', null); return; }
+  if (!projectAssets.rigs[ref.char]) { setStatus(`${ref.char} has no rig (sprite.json) to open ${ref.name} in`); return; }
+  openAnimStudio(ref.char, ref.name, { file: active, line: pos!.lineNumber });
+}
 
 /**
  * Put values for top-level properties of the rig.json tab (what the studio edits) in as one undo step.
- * Only those values change, the rest of the file keeps its layout; an empty `animations` or `pivots` is not added to a file that lacks it.
+ * Only what changed is rewritten (`writeRigText`); the rest of the file keeps its layout.
  */
 function writeRigProperties(f: FileState, writes: RigWrite[]): boolean {
-  try { JSON.parse(f.model.getValue()); } catch { setStatus(`${f.name} has errors; fix them first`); return false; }
-  f.model.pushStackElement();
-  for (const { key, value } of writes) {
-    const text = f.model.getValue();
-    const has = new RegExp(`"${key}"\s*:`).test(text);
-    const empty = value === null || (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value as object).length);
-    if (empty && !has) continue;
-    const edit = value === null ? removeTopLevelProperty(text, key) : setTopLevelProperty(text, key, value);
-    if (!edit) { if (value === null) continue; setStatus(`${f.name} is not a JSON object`); return false; }
+  const text = f.model.getValue();
+  const out = writeRigText(text, writes);
+  if (out === null) { setStatus(`${f.name} has errors or is not a JSON object; fix it first`); return false; }
+  const edit = textChange(text, out);
+  if (edit) {
     const from = f.model.getPositionAt(edit.start), to = f.model.getPositionAt(edit.end);
+    f.model.pushStackElement();
     f.model.pushEditOperations([], [{ range: new monaco.Range(from.lineNumber, from.column, to.lineNumber, to.column), text: edit.insert }], () => null);
+    f.model.pushStackElement();
   }
-  f.model.pushStackElement();
   setStatus(`studio changes of ${f.char} applied to ${f.name}`);
   return true;
 }
@@ -1322,21 +1465,81 @@ function runPlaytest() {
     });
     monaco.editor.setModelMarkers(f.model, 'vn-playtest', marks);
   }
-  outputText.textContent = playtestText(report);
-  outputEl.hidden = false;
+  showOutput(playtestText(report));
   setStatus(`playtest: ${report.endings.length} endings, ${found.length} problem${found.length === 1 ? '' : 's'}${report.complete ? '' : ' (incomplete)'}`);
 }
+/** Fill the Output panel; `file.ext:line[:col]` references to open files become links. Stays scrolled to the end if it was there. */
+function showOutput(text: string) {
+  const atEnd = outputText.scrollTop + outputText.clientHeight >= outputText.scrollHeight - 4;
+  const names = [...files.keys()];
+  outputText.replaceChildren();
+  for (const [i, row] of text.replace(/\r\n?/g, '\n').split('\n').entries()) {
+    if (i) outputText.append('\n');
+    let at = 0;
+    for (const ref of findFileRefs(row)) {
+      const name = resolveFileRef(ref.path, names);
+      if (!name) continue;
+      const a = document.createElement('a');
+      a.href = '#';
+      a.textContent = row.slice(ref.start, ref.end);
+      a.title = `Open ${name} at line ${ref.line}`;
+      a.addEventListener('click', e => { e.preventDefault(); goToLine(name, ref.line, ref.col); });
+      outputText.append(row.slice(at, ref.start), a);
+      at = ref.end;
+    }
+    outputText.append(row.slice(at));
+  }
+  outputEl.hidden = false;
+  if (atEnd) outputText.scrollTop = outputText.scrollHeight;
+}
+
+/** Run a dev-server task; its output streams in as NDJSON (`{"out"}` chunks, then `{"ok"}`), see runTask in preview/dev-server.mjs. */
 async function runTask(name: string, label: string) {
   setStatus(`${label}...`);
+  let output = '', ok = false, frame = 0;
+  const show = () => { frame = 0; showOutput(output.trim() || '(running...)'); };
   try {
     const r = await fetch(`/api/task?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
-    const res = await r.json() as { ok: boolean; output: string };
-    setStatus(`${label}: ${res.ok ? 'done' : 'failed'} (see Output)`);
-    outputText.textContent = res.output.trim() || '(no output)';
-    outputEl.hidden = false;
+    if (!r.body) throw new Error('no body');
+    const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+    let pending = '';
+    show();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const rows = (pending + value).split('\n');
+      pending = rows.pop() ?? '';
+      for (const row of rows) {
+        if (!row) continue;
+        const m = JSON.parse(row) as { out?: string; ok?: boolean };
+        if (typeof m.out === 'string') output += m.out;
+        if (typeof m.ok === 'boolean') ok = m.ok;
+      }
+      if (!frame) frame = requestAnimationFrame(show);
+    }
   } catch {
+    cancelAnimationFrame(frame);
+    if (output) showOutput(output.trim());
     setStatus(`${label}: could not reach the dev server`);
+    return;
   }
+  cancelAnimationFrame(frame);
+  showOutput(output.trim() || '(no output)');
+  setStatus(`${label}: ${ok ? 'done' : 'failed'} (see Output)`);
+}
+
+/** Move keyboard focus between the three panes (Alt+1/2/3), showing the pane first when it is hidden. */
+function focusPane(pane: 'editor' | 'preview' | 'files') {
+  if (pane === 'editor') { editor.focus(); return; }
+  if (pane === 'preview') {
+    document.body.classList.remove('no-preview');
+    preview.focus();
+    preview.contentWindow?.focus(); // the game listens for keys on its own window
+    setStatus('preview focused: Alt+1 returns to the editor');
+    return;
+  }
+  if (sidebarEl.hidden) setSidebar(true);
+  $<HTMLInputElement>('sbFilter').focus();
 }
 
 function buildCommands(): Command[] {
@@ -1367,16 +1570,21 @@ function buildCommands(): Command[] {
     { title: 'Add Localization IDs to This File', when: isScript, run: addIds },
     { title: 'Add Localization IDs to All Files', run: addIdsEverywhere },
     { title: 'New Script File', run: () => newFile() },
+    { title: 'New Script Folder', run: () => newFolder() },
     { title: 'View: Show or Hide Files Panel', key: { code: K.CtrlCmd | C.KeyB, label: 'Ctrl+B' }, run: () => setSidebar(sidebarEl.hidden) },
+    { title: 'Focus: Editor', key: { code: K.Alt | C.Digit1, label: 'Alt+1' }, run: () => focusPane('editor') },
+    { title: 'Focus: Preview (play with the keyboard)', key: { code: K.Alt | C.Digit2, label: 'Alt+2' }, run: () => focusPane('preview') },
+    { title: 'Focus: Files Panel (filter box)', key: { code: K.Alt | C.Digit3, label: 'Alt+3' }, run: () => focusPane('files') },
     { title: 'Close Tab', key: { code: K.Alt | C.KeyW, label: 'Alt+W' }, when: () => active !== '' || !!stock, run: () => (stock ? closeStock() : closeTab(active)) },
     { title: 'Save', key: { code: K.CtrlCmd | C.KeyS, label: 'Ctrl+S' }, run: () => saveFile(files.get(active)) },
     { title: 'Save All', run: () => { for (const f of files.values()) saveFile(f); } },
     { title: 'Open game.json (title screen, menus, theme)', when: () => active !== GAME, run: () => activate(GAME) },
-    { title: 'Character: Edit Rig (z-order, groups, shorthands)', run: () => palette.setText('#char/') },
+    { title: 'Character: Edit Rig (z-order, groups, shorthands)', run: () => palette.setText(RIG_PICK) },
     { title: 'Character: Update Rig from Reconverted Art', when: () => files.get(active)?.kind === 'rig', run: updateRigFromArt },
     { title: 'Character: Animation Studio (play and inspect animations)', run: () => {
-      if (files.get(active)?.kind === 'rig') openAnimStudio(); else palette.setText('#char/'); // no rig tab: pick a character first
+      if (files.get(active)?.kind === 'rig') openAnimStudio(); else palette.setText(ANIM_PICK); // no rig tab: pick a character first
     } },
+    { title: 'Animation: Open the Animation on This Line in the Studio', key: { code: C.F12, label: 'F12' }, when: () => files.get(active)?.kind === 'script', run: openAnimationAtCursor },
     { title: 'Next Problem', key: { code: C.F8, label: 'F8' }, run: nextProblem },
     { title: 'Previous Problem', key: { code: K.Shift | C.F8, label: 'Shift+F8' }, run: () => editor.trigger('vn', 'editor.action.marker.prevInFiles', null) },
     { title: 'Toggle Word Wrap', key: { code: K.Alt | C.KeyZ, label: 'Alt+Z' }, run: () => {
@@ -1415,8 +1623,8 @@ function setupPalette() {
           f.name === active ? 'current' : ''].filter(Boolean).join('  '),
         run: () => activate(f.name),
       }));
-      const base = q.trim().replace(/\.vn$/, '');
-      if (base && /^[\w\-./]+$/.test(base) && !base.includes('..') && !files.has(`${base}.vn`) && !files.has(q.trim())) {
+      const base = newFileBase(q);
+      if (base && !files.has(`${base}.vn`) && !files.has(q.trim())) {
         items.push({ label: `Create ${base}.vn`, className: 'create', run: () => void newFile(base) });
       }
       return items;
@@ -1486,20 +1694,57 @@ function setupPalette() {
     },
   };
 
+  // Character pickers for the Edit Rig and Animation Studio commands: characters only, so Enter never opens an image.
+  const charMode = (prefix: string, title: string, run: (char: string) => void): PaletteMode => ({
+    prefix, title, placeholder: `${title}: pick a character`,
+    items: q => rank(Object.keys(projectAssets.rigs).sort(), q, c => c).map(({ entry: c, hits }) => ({ label: c, hits, detail: title, run: () => run(c) })),
+  });
+  const pickers = [charMode(RIG_PICK, 'Edit rig', openRig), charMode(ANIM_PICK, 'Animation studio', c => openAnimStudio(c))];
+  const newMode: PaletteMode = {
+    prefix: NEW_PICK, title: 'New script file', placeholder: 'New script file name (e.g. chapter2), Enter creates it',
+    items: q => {
+      if (!q.trim()) return [{ label: 'Type a name for the new file', detail: 'folders with /, .vn is added', className: 'empty', run: () => {} }];
+      const base = newFileBase(q);
+      if (!base) return [{ label: 'Not a valid file name', detail: 'letters, digits, _ - . and / for folders', className: 'empty', run: () => {} }];
+      if (files.has(`${base}.vn`)) return [{ label: `${base}.vn`, detail: 'exists: open it', run: () => activate(`${base}.vn`) }];
+      return [{ label: `Create ${base}.vn`, className: 'create', run: () => void newFile(base) }];
+    },
+  };
+  const newFolderMode: PaletteMode = {
+    prefix: NEW_FOLDER, title: 'New folder', placeholder: 'New folder name under script/ (e.g. chapter2), Enter creates it',
+    items: q => {
+      if (!q.trim()) return [{ label: 'Type a name for the new folder', detail: 'nested with /', className: 'empty', run: () => {} }];
+      const dir = q.trim().replace(/\/+$/, '');
+      if (!/^[\w\-./]+$/.test(dir) || dir.includes('..')) return [{ label: 'Not a valid folder name', detail: 'letters, digits, _ - . and / for nesting', className: 'empty', run: () => {} }];
+      if (scriptDirs.includes(dir)) return [{ label: `${dir}/`, detail: 'exists', className: 'empty', run: () => {} }];
+      return [{ label: `Create folder ${dir}/`, className: 'create', run: () => void newFolder(dir) }];
+    },
+  };
+  pickers.push(newMode, newFolderMode);
+
   const modes = [fileMode, commandMode, labelMode, lineMode, assetMode];
   const helpMode: PaletteMode = {
     prefix: '?', title: 'Help', placeholder: 'Pick a mode',
     items: () => modes.map(m => ({ label: `${m.prefix || '(nothing)'}  ${m.title}`, run: () => palette.setText(m.prefix) })),
   };
-  palette = new Palette($('left'), [...modes, helpMode], () => editor.focus());
+  palette = new Palette($('left'), [...pickers, ...modes, helpMode], () => editor.focus()); // pickers first: their prefixes start with '#'
   help = new HelpDialog(document.body);
   assetViewer = new AssetViewer(document.body);
   animStudio = new AnimStudio(document.body);
   outlineView = new OutlineView(document.body, goToLine);
 
-  // Ctrl+P and F1 work wherever focus is (capture phase beats Monaco and the browser's print shortcut),
-  // including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); F1 is help.
+  // Ctrl+P, F1 and Alt+1/2/3 work wherever focus is (capture phase beats Monaco and the browser's print shortcut),
+  // including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); F1 is help;
+  // Alt+1/2/3 focus the editor, the preview and the Files panel.
+  const panes = { Digit1: 'editor', Digit2: 'preview', Digit3: 'files' } as const;
   const onKey = (e: KeyboardEvent) => {
+    const pane = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? panes[e.code as keyof typeof panes] : undefined;
+    if (pane && !(palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen)) {
+      e.preventDefault();
+      e.stopPropagation();
+      focusPane(pane);
+      return;
+    }
     const ctrlP = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p';
     const f1 = e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.metaKey;
     if (!(ctrlP || f1)) return;
@@ -1568,6 +1813,20 @@ function registerRename() {
   };
   monaco.languages.registerRenameProvider('vn', provider);
   monaco.languages.registerRenameProvider('json', provider);
+  // Shift+F12: every use of the label or variable under the cursor, the same set F2 would rename.
+  const references = {
+    provideReferences(model: any, pos: { lineNumber: number; column: number }) {
+      const ref = target(model, pos);
+      if (!ref) return [];
+      const all = projectFiles();
+      const uses = 'kind' in ref ? labelRefs(all).filter(r => r.name === ref.name) : variableUses(all, ref);
+      return uses.filter(r => files.has(r.file)).map(r => ({
+        uri: files.get(r.file)!.model.uri, range: new monaco.Range(r.line, r.col + 1, r.line, r.col + 1 + r.length),
+      }));
+    },
+  };
+  monaco.languages.registerReferenceProvider('vn', references);
+  monaco.languages.registerReferenceProvider('json', references);
 }
 
 /** Color swatches and the picker for hex colors in scripts and game.json (`findColors` decides where one is valid). */
@@ -1591,7 +1850,8 @@ function registerColors() {
 let findDialog: FindDialog;
 function openFind() {
   const sel = editor.getSelection(), model = editor.getModel();
-  findDialog.open(sel && model && !sel.isEmpty() ? model.getValueInRange(sel) : '');
+  const word = model && sel?.isEmpty() ? model.getWordAtPosition(sel.getPosition())?.word : undefined;
+  findDialog.open(sel && model && !sel.isEmpty() ? model.getValueInRange(sel) : word ?? '');
 }
 
 // ---- boot ----
@@ -1642,7 +1902,8 @@ async function boot() {
   setSidebar(sidebarShown);
   sbFilter.addEventListener('input', () => { renderSidebarFiles(); renderSidebarAssets(); });
   $('filesBtn').addEventListener('click', () => setSidebar(sidebarEl.hidden));
-  $('newFile').addEventListener('click', () => void newFile());
+  $('sbNewFile').addEventListener('click', () => void newFile());
+  $('sbNewFolder').addEventListener('click', () => void newFolder());
   $('playHere').addEventListener('click', () => void previewFromCursor());
     $('commands').addEventListener('click', () => palette.open('>'));
   $('helpBtn').addEventListener('click', toggleHelp);

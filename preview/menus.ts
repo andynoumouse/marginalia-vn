@@ -7,6 +7,7 @@ import type { LineInfo } from './stage-ui.js';
 import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SLOTS_PER_PAGE, type SaveData } from './saves.js';
 import { saveSettings, TEXT_INSTANT, type Settings } from './settings.js';
 import { getItem, setItem } from './storage.js';
+import { autoFocus } from './input.js';
 import { $, hue } from './stage-ui.js';
 
 /** The title-screen part of game.json. */
@@ -269,7 +270,7 @@ export class Menus {
 
   // ---- screen stack ----
   private focusIn(screen: HTMLElement) {
-    screen.querySelector<HTMLElement>('[autofocus], button:not(:disabled), input, select')?.focus();
+    autoFocus(screen.querySelector<HTMLElement>('[autofocus], button:not(:disabled), input, select'));
   }
   private push(screen: HTMLElement) {
     const top = this.stack.at(-1);

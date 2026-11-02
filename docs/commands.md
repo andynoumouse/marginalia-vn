@@ -9,7 +9,8 @@ Durations are in seconds. Positions are `left` (0.2), `center` (0.5), `right` (0
 Visual commands (everything under "Stage") accept `nowait` to run in the background while the script goes on.
 
 Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) · [Stage](#stage) · [Effects](#effects) ·
-[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Persistent flags](#persistent-flags)
+[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Persistent flags](#persistent-flags) ·
+[Editor keys](#editor-keys)
 
 ## Story
 
@@ -47,6 +48,9 @@ label start:
 localization id (`#a3f9`), added by `npm run ids`. `[variable]` inserts a variable's value.
 `[n:2]` shows a number with 2 decimals, `[n:,]` groups thousands (`1,234`; `[n:,2]` does both), and
 `[n:coin|coins]` picks a plural form (`[n:no coins|a coin|coins]` adds a form for 0; a list counts its length).
+Languages with more forms name them by plural category: `[n:one=монета|few=монеты|many=монет|other=монеты]` uses
+the plural rules of the language being played (`zero`, `one`, `two`, `few`, `many`, `other`); an exact count such as
+`0=no coins` wins over the category, and a missing category falls back to `other`.
 Write each translation's own forms in the locale file. An unknown format leaves the tag as written.
 
 ```
@@ -167,7 +171,7 @@ scene bg_hall pixelate 0.8
 (PSD) characters a pose picks a variant per slot, and `slot=variant` overrides one slot (`glasses=none` empties it).
 A pose-less show keeps the character's current pose. `y=`, `scale=` and `flip=` place the character in the same
 units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
-Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand.
+Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand. The line includes the pose and slot variants chosen in the Parts tab, and "Insert in script" puts it under the line the cursor was on.
 `hide <char> [fade <seconds>]`.
 
 ```
@@ -217,7 +221,7 @@ its loop. The animation adds to where the character stands (`move`, `show at`), 
 it plays once for the seconds (a default for each name) and the script waits for it unless `nowait`. With `loop`
 it repeats until `stop`, `hide` or the next `scene`, the seconds being one cycle; a loop is kept in saves and
 rollback, and a new loop replaces the running one. With `part=` the animation moves just that part of a layered
-character (about its pivot, see [rig-json.md](rig-json.md)) instead of the whole body. `strength=` scales how far it moves. With reduce motion on,
+character (about its pivot, see [rig-json.md](rig-json.md)) instead of the whole body; a rig.json group moves all its parts as one. `strength=` scales how far it moves. With reduce motion on,
 animations do not play.
 
 | name | default seconds | motion |
@@ -457,7 +461,7 @@ label buy(item, cost):
 
 ### input
 `input <variable> "<Prompt>" [default="Name"] [max=24]` asks the player for text and stores it in the variable
-(cut to `max`). Answers are replayed with menu choices when rolling back or loading. Pad users get an
+(cut to `max`). The prompt and the default may hold `[variables]` (`default="[name]"` offers the last answer). Answers are replayed with menu choices when rolling back or loading. Pad users get an
 on-screen keyboard. `npm run ids` gives the prompt a localization id (`... max=16 #ab12`), so it is
 translated through `locale/<lang>.json` like dialogue.
 
@@ -811,3 +815,25 @@ unlock good_ending
 if unlocked.good_ending:
   "You remember the other ending."
 ```
+
+## Editor keys
+
+Keys of the editor at `/editor/` (Ctrl+P, then `>`, lists every command with its key).
+
+| Key | Does |
+|---|---|
+| Ctrl+P | palette: files; `@` labels, `:` lines, `#` assets, `>` commands (works with focus anywhere, also in the preview) |
+| F1 | this reference, at the statement under the cursor |
+| Ctrl+Enter | preview from the cursor line |
+| Alt+1 / Alt+2 / Alt+3 | focus the editor / the preview (play the game with the keyboard) / the Files panel filter (work from anywhere) |
+| Ctrl+M | Tab moves focus out of the script instead of indenting; Ctrl+M again makes Tab indent again |
+| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the icons beside the filter, or `+` on a folder, make a script or a folder) |
+| Ctrl+S | save (edits are also saved by themselves) |
+| Alt+W | close the tab |
+| F2 | rename the label or variable under the cursor everywhere |
+| Shift+F12 | list every use of the label or variable under the cursor (the same set F2 renames) |
+| Ctrl+Shift+F | find and replace in all files (starts from the selection, else the word under the cursor) |
+| F12 | on an `animate <char> <name>` line: open that animation in the character's Animation studio (Esc returns to the line; its "Try in scene" button applies the changes, saves, and plays the game from that line) |
+| Ctrl+. | quick fix ("did you mean") on a marked name |
+| F8 / Shift+F8 | next / previous problem |
+| Alt+Z | toggle word wrap |

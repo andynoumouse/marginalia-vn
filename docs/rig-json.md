@@ -29,9 +29,15 @@ shirt over a skirt (`["bottom", "top"]` when the PSD has `top` below `bottom`).
 
 ## groups
 
-One name that sets several slots at once: `"outfit": ["top", "bottom"]` makes `outfit=casual` set the `casual`
-variant of both slots. A slot of the group that lacks the variant is skipped with a warning. `outfit=none` empties
-every slot of the group. A real slot with the same name as a group wins over the group.
+One name for several parts. In a `show`, it sets several slots at once: `"outfit": ["top", "bottom"]` makes
+`outfit=casual` set the `casual` variant of both slots. A slot of the group that lacks the variant is skipped with a
+warning, and so are plain layers in the group. `outfit=none` empties every slot of the group. A real part with the same
+name as a group wins over the group.
+
+In an animation, a key's `part` or `animate ... part=` can name a group, and it moves all its parts as one piece: a head
+made of the face, bangs, eyes and mouth is keyed once with `"head": ["face", "bangs", "eyes", "mouth"]`. The group turns
+and scales about its own pivot (see `pivots`), or about its first part's when it has none. A part's own keys add to
+the group's.
 
 ## poses
 
@@ -43,7 +49,8 @@ shorthand sets: `show mina casual mouth=open`.
 ## pivots
 
 Where a part turns and scales from when an animation moves it by itself, in pixels of the PSD canvas, `[x, y]` from
-the top left (the same numbers as a layer's position in `sprite.json`). A part is a slot or a plain layer.
+the top left (the same numbers as a layer's position in `sprite.json`). A part is a slot or a plain layer; a group
+can have a pivot too.
 
 ```json
 "pivots": { "hair_back": [270, 380], "face": [270, 380] }
@@ -51,8 +58,8 @@ the top left (the same numbers as a layer's position in `sprite.json`). A part i
 
 A part without a pivot turns about the middle of its image. Parts move in two ways: a keyframe with a `part` (see
 `animations` below), or `animate <char> <name> part=<part>`, which plays any animation, presets included, on that
-part instead of on the whole character. Several parts can move together (a head is the face, bangs, eyes and mouth),
-each with the same pivot at the neck.
+part instead of on the whole character. To move several parts together (a head is the face, bangs, eyes and mouth), make
+them a group (see `groups`) and give the group a pivot at the neck.
 
 ## idle / speak / blink
 
@@ -100,7 +107,7 @@ Each key is at progress `t` from 0 to 1 and sets any of these channels (offsets 
 - `x`, `y`: sideways and vertical, as a fraction of the stage height (negative `y` is up).
 - `scale`: added to the size, so `0.05` is 5% bigger.
 - `rot`: tilt in degrees, clockwise, about the feet (about the pivot for a part).
-- `part`: not a channel but a target: a key with a `part` moves just that part (a slot or layer name, see `pivots`) with its
+- `part`: not a channel but a target: a key with a `part` moves just that part (a slot or layer name, or a group, see `pivots`) with its
   `x`, `y`, `scale` and `rot`; keys without one move the whole character.
 - `ease`: how the channels reach this key (`linear`, `in`, `out`, `inout` by default, `back`, `bounce`, `elastic`).
 
@@ -108,18 +115,29 @@ To make or tune animations without writing the keys by hand, press **Animate** b
 (Ctrl+B), or open its rig.json tab and run **Character: Animation Studio** (Ctrl+P, then `>`). The dialog plays the character's animations and the presets on a stage of their own, with a timeline
 of every channel. Drag a key to move it in time and value, double-click a lane to add one, and use the fields under the
 timeline for exact values and the ease. **Edit copy** turns a preset into keys you can change (give it a preset's name to
-replace that preset for this character). Pick a part in **Lanes of** to see and add the keys that move just that part, and to
-place its pivot: type x and y, or press **Pick on stage** and click where the part should turn. Nothing is written until
+replace that preset for this character). Pick a part or group in **Lanes of** (or in the **Parts** tab) to see and add the keys that move just that part, and to
+place its pivot: type x and y, or press **Pick on stage** and click where the part should turn. The stage dims the
+other parts so the chosen one stands out, and an animation that keys only parts opens at the first of them. Nothing is written until
 **Apply**, which puts the changes into the rig.json tab in one undo step: only the values the studio edits are rewritten
 (`animations`, `pivots`, `idle`, `speak` and `blink`), the rest of the file keeps its layout. Like any edit
 in the editor it is saved to disk a moment later.
 
-The rows under the pivot:
+The **Parts** tab shows what the character is made of, top layer first, as the PSD has it:
 
-- **Same pivot for…** lists the other parts as checkboxes: tick one to give it the pivot of the part chosen in **Lanes of**
+- each **slot** with a thumbnail of every variant (`*` marks the default). Click a variant to dress the stage with it (click
+  it again to go back to what the pose picks), or `none` to hide the slot. The dress is only for looking and is not saved;
+- each **layer** (a plain image that is always drawn) with its thumbnail;
+- the rig.json **groups** with their parts, and a mark on every part or group the current animation keys;
+- the **poses** `show` takes: rig.json shorthands and the pose tags on PSD variants, each with the variants it picks. Click
+  one to dress the stage in it.
+
+Click a row to choose that part, like **Lanes of**. Under the tree:
+
+- **Same pivot for…** lists the other parts as checkboxes: tick one to give it the pivot of the chosen part
   (a head of several parts turns about one point), untick it to remove that part's pivot.
-- **On stage** dresses the character with a pose and a variant per slot, to see animations on another outfit. It is only for
-  looking and is not saved.
+
+The other tabs:
+
 - **By itself** sets `idle`, `speak` (animation, mouth slot, variants, rate) and `blink` (slot, variant, interval, duration). Empty fields use the defaults; keys it does not know are kept.
 - **Place** shows where the character would stand in a scene. Press **Place on stage** and drag the character, or type x, y,
   scale and flip; the line below is the `show` command for it (`show mina at 0.35 y=0.02 scale=1.1`). **Copy** it into the script.

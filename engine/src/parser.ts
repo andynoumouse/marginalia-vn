@@ -5,6 +5,7 @@ import { parseExpr, parseExprList, ExprError, type Expr } from './expr.js';
 import { FILTER_NAMES, WEATHER_NAMES, isFilterName, isWeatherName, type FilterName, type WeatherName } from './fx.js';
 import type { ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
+import { withFix } from './suggest.js';
 import { ElementSyntaxError, parseEachHeader, parseElementLine, parseLayoutHeader, parseScrollHeader } from './screen-syntax.js';
 import { TRANSITIONS, type CharacterDef, type Diagnostic, type ItemDef, type OpBody, type Src, type Transition, type VisualBody } from './types.js';
 
@@ -42,6 +43,15 @@ export type Node =
 export interface ParsedFile { file: string; nodes: Node[]; characters: CharacterDef[]; items: ItemDef[]; screens: ScreenDef[] }
 
 class ParseError extends Error {}
+/** The first word of a line is not a command; `word` gets "did you mean" fixes from COMMAND_WORDS. */
+class UnknownCommand extends ParseError {
+  word: string;
+  constructor(cmd: string) { super(`Unknown command "${cmd}"`); this.word = cmd.replace(/:$/, ''); } // `mnue:` is `menu:` mistyped
+}
+/** Every word a statement can start with (for "did you mean" on an unknown one). */
+export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
+  'animate', 'hop', 'flash', 'tint', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'wait', 'call', 'jump', 'nvl',
+  'unlock', 'input', 'return', 'end'];
 interface RawLine { no: number; indent: number; text: string }
 
 export function unescapeText(s: string): string {
@@ -378,7 +388,7 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     case 'return': return { op: 'ret' };
     case 'end': return { op: 'end' };
     default:
-      throw new ParseError(`Unknown command "${cmd}"`);
+      throw new UnknownCommand(cmd);
   }
 }
 
@@ -408,7 +418,11 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     while (i < lines.length) {
       const ln = lines[i];
       if (ln.indent < indent) break;
-      if (ln.indent > indent) { err(ln, 'Unexpected indentation'); i++; continue; }
+      if (ln.indent > indent) { // a run of lines indented too far: reported once, then read as a block of its own
+        err(ln, 'Unexpected indentation');
+        nodes.push(...parseBlock(ln.indent).nodes);
+        continue;
+      }
       const node = parseStatement(ln);
       if (node) nodes.push(node);
     }
@@ -435,7 +449,11 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     const cond = (l: RawLine, e: string | null) => (e === null ? null : exprOf(l, e));
     while (i < lines.length && lines[i].indent >= indent) {
       const l = lines[i++];
-      if (l.indent > indent) { err(l, 'Unexpected indentation'); continue; }
+      if (l.indent > indent) { // reported once for the whole run of lines indented too far
+        err(l, 'Unexpected indentation');
+        while (i < lines.length && lines[i].indent > indent) i++;
+        continue;
+      }
       try {
         const word = /^[^\s:]+/.exec(l.text)?.[0] ?? '';
         if (word === 'default' || word === 'cancel') {
@@ -510,7 +528,11 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
       let timeout: Extract<Node, { k: 'menu' }>['timeout'] = null, lateOptions = false;
       while (i < lines.length && lines[i].indent >= optIndent) {
         const ol = lines[i];
-        if (ol.indent > optIndent) { err(ol, 'Unexpected indentation'); i++; continue; }
+        if (ol.indent > optIndent) { // reported once for the whole run of lines indented too far
+          err(ol, 'Unexpected indentation');
+          while (i < lines.length && lines[i].indent > optIndent) i++;
+          continue;
+        }
         if (RE_ON_TIMEOUT.test(ol.text)) {
           i++;
           const child = parseChild(ol);
@@ -600,7 +622,8 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     try {
       return { k: 'op', src: src(ln), body: parseCommand(t, positions, anchors, stage) };
     } catch (e) {
-      err(ln, e instanceof ParseError ? e.message : String(e));
+      if (e instanceof UnknownCommand) diags.push(withFix(src(ln), 'error', e.message, e.word, COMMAND_WORDS));
+      else err(ln, e instanceof ParseError ? e.message : String(e));
       return null;
     }
   }

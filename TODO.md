@@ -1,7 +1,7 @@
 # TODO
 
-Format: `- [ ]` open, `- [~]` partly done, `- [x]` done, `- [-]` deferred until much later (tagged **DEFERRED**).
-Sub-bullets are details; "Left:" lists what remains.
+Format: `- [ ]` open, `- [~]` partly done, `- [-]` deferred until much later (tagged **DEFERRED**).
+Finished items are removed (git history has them). Sub-bullets are details; "Left:" lists what remains.
 
 Phasing (a rough order, not a schedule; sections below are by topic, so use the tags):
 1. **Now**: untagged open items (`[ ]`, `[~]`), picked by value and size. Tutorial and docs come after the features they describe.
@@ -37,27 +37,20 @@ Phasing (a rough order, not a schedule; sections below are by topic, so use the 
 - [-] **DEFERRED (much later)** Verify asset loading beyond the synthetic project on localhost: real network, a low-end
   device, the web export (`npm run export`), the corrupted-PNG fallback, and that no placeholder ever flashes.
 - [ ] Replace the generated placeholder sample art (simple shapes) with real art when there is some.
-- [~] Royalty-free audio for the demo project: CC0 `evening_theme` (music), `rain` loop and `page_flip1-3` are in
-  `demo/assets/` (credits in `demo/CREDITS.md`), not in `sample/`, which stays the silent unit-test project; the page flips
-  are played in the tour. Left: a `thunder` file (candidate: OpenGameArt
-  "Rain + Long Thunder", CC0).
+- [~] Royalty-free audio for the demo project: CC0 files are in `demo/assets/` (credits in `demo/CREDITS.md`), not in
+  `sample/`, which stays the silent unit-test project. Left: a `thunder` file (candidate: OpenGameArt "Rain + Long Thunder", CC0).
 
 ## Documentation
 
 - [ ] Write tutorial and introduction. Do this last, after all the essential features are done, so refactors don't invalidate it.
-  - An example project that introduces a lot of the tech (script language, menus, screens, art pipeline, export, ...).
-    It is a separate demo project, not `sample/` (the unit-test project, whose scripts and choice order tests depend on).
-  - Started: `demo/` ("Rainy Day Library", `vn dev --project demo`, or the `vn-demo` preview config on port 5174).
-    One script (`script/start.vn`) with a short tour (scene/music/rain/sound, movement, variables, tint, a menu), generated
-    placeholder bg and one character (`iris`), and the staged audio copied in. Left: grow it chapter by chapter as features
-    land (screens, `animate`, layered PSD character, persistent/gallery unlocks, input, nvl), real art, scripted page flips,
-    a thunder sound, a browser/playtest check in `npm test`, then the tutorial text and screenshots.
-  - The tutorial walks through that project and includes screenshots of it.
-  - Screenshots so far: `docs/tutorial/img/` (the editor on the demo, taken with a throwaway playwright script against
-    `vn-demo`; retake them when the demo art or editor look changes), shown in `docs/tutorial/00-the-editor.md` and the README.
-  - Started: `docs/tutorial/` has four text pages (first scene, choices and variables, staging and effects, screens and
-    memory) that quote the demo scripts. Left: pages on the PSD art pipeline, localization and web export, screenshots, and
-    a check that the quoted snippets still match `demo/` after the features settle.
+  - The tutorial walks through the separate demo project `demo/` ("Rainy Day Library", `vn dev --project demo`, or the
+    `vn-demo` preview config on port 5174), not `sample/` (the unit-test project).
+  - Demo left: grow it chapter by chapter as features land (screens, `animate`, layered PSD character, persistent/gallery
+    unlocks, input, nvl), real art, scripted page flips, a thunder sound, a browser/playtest check in `npm test`.
+  - Tutorial left: pages on the PSD art pipeline (a layered-character chapter: PSD layout, `npm run art`, rig.json, the Animate
+    studio, `show` / `animate`; today only the README and docs/rig-json.md cover it), localization and web export, more
+    screenshots (`docs/tutorial/img/`; retake them when the demo art or editor look changes), and a check that the quoted
+    snippets still match `demo/` after the features settle.
 
 ## Presentation
 
@@ -66,7 +59,7 @@ Phasing (a rough order, not a schedule; sections below are by topic, so use the 
   - Left: placing on top of a real scene background and several characters at once (the studio shows one character on black).
 - [ ] **NEEDS PLANNING** Mesh-warp animation for layered characters (a Live2D-like look without Live2D): rig.json parts get warp
   deformers (e.g. hair sway, breathing, cloth) drawn with Pixi 8 `MeshPlane` / `MeshRope`, on top of the rigid-part animation
-  above (pivots, `part` keys). Chosen over embedding Live2D because Cubism Core is a proprietary WASM runtime with licensing
+  (pivots, `part` keys). Chosen over embedding Live2D because Cubism Core is a proprietary WASM runtime with licensing
   limits on bundling and redistribution, and the popular Pixi wrappers have targeted Pixi 6/7. Open questions for the plan:
   - Deformer model: grid size per part, which channels (control-point offsets? bend/sine/noise presets?), and whether keys
     animate control points or a few high-level parameters (`sway`, `bend`, `stretch`).
@@ -76,54 +69,59 @@ Phasing (a rough order, not a schedule; sections below are by topic, so use the 
   - Rendering cost and reduced motion (loops off), and how a mesh part interacts with slot variants and `order`.
   - Whether Live2D import (a `live2d` character kind via a Pixi plugin) is still wanted later; check Pixi 8 plugin status and
     the Cubism license first.
-- [~] Voice lines: `assets/voice/[<lang>/]<line id>.*` plays with the line (`voiceFile` in `engine/src/voice.ts`, `AudioSystem.voice` on its own bus with a Voice
-  slider in the stock and custom options, `setting` `voice`); auto-advance waits for it, advancing/skipping/rollback cut it, a replay button on the stock quick bar
-  (`action voice`, key V). Tests: `voice.test.mjs`, browser "voice:".
-  Preload: a voiced `say` adds a `voice/<id>` task to the lookahead (`opAssets`, `AssetContext.hasVoice`, any language folder); the shell decodes the next 4 lines'
-  recordings into a 12-entry LRU (`AudioSystem.prefetchVoice`, `VOICE_AHEAD` in `stage-ui.ts`), which also serves the replay button. `checkAssets` warns about a voice
-  file whose id matches no line (reported against `assets/voice/...`, line 1). Left: no completions, no warning for lines that lack a recording, no ducking of music,
-  no per-character volume, NVL lines voice each line as it is added, the prefetch and auto-advance wait are not covered by a browser test, not listened to with a real recording.
-
+- [ ] Keyframe animations for flat characters (one image per pose, like alice): whole-body keys need no parts, but only
+  characters with a `sprite.json` get a rig.json, appear under Characters and open in the studio.
+- [~] Link the script and the studio (F12 on `animate`, "Try in scene", "Insert in script" exist; no browser test).
+  - Left: a hover link; opening the studio from a `show` line starts from that placement.
+- [~] Studio stage: the pivot of the part chosen in "Lanes of" is only shown while picking, and after Apply the stage shows
+  the rest pose while the playhead sits on a key.
+- [~] Parts tree in the animation studio. Left: no keyboard arrows (Tab moves through its buttons).
+- [~] Character outfit variants in the PSD converter.
+  - Left: not tried with a real PSD. Assets open in a viewer dialog (images, sounds, fonts); no PSD-layer preview.
+- [~] Voice lines (`assets/voice/[<lang>/]<line id>.*`, see `engine/src/voice.ts`).
+  - Left: no completions, no warning for lines that lack a recording, no ducking of music, no per-character volume, NVL lines
+    voice each line as it is added, the prefetch and auto-advance wait are not covered by a browser test, not listened to
+    with a real recording.
 
 ## Accessibility
 
-- [~] Keyboard and gamepad navigation, tabbed options, on-screen keyboard for name prompts (Tab moves focus at choices).
-  - Done: captions for sound effects (Options, off by default; game.json `captions`).
-  - Left: text-to-speech.
+- [~] Keyboard and gamepad navigation, tabbed options, on-screen keyboard for name prompts.
   - Left: try with a real gamepad (only tested with a simulated one); non-standard pad mappings; the on-screen
     keyboard is Latin + å ö ä only.
+  - Left: text-to-speech (**DEFERRED (much later)**, with a high-contrast theme and a dyslexia-friendly font option).
 
 ## Tooling
 
-- [~] Debug console in the dev preview (Debug button, `preview/debug.ts`, grammar in `engine/src/debug.ts`, `debug.test.mjs`): `vars`, `set`,
-  expressions, `jump`, `labels`, `flags`/`unlock`/`lock`, `persistent`, `reset <target|progress|all>`.
+- [~] Debug console in the dev preview (`preview/debug.ts`, grammar in `engine/src/debug.ts`).
   - Left: no browser test; a `set` or `jump` is not undoable; no completions or hover for the commands; no live variable table that
     updates while playing; no timers/skip-to-line/force-random utilities; `unlock` only affects the next playthrough.
 - [~] Editor UX evaluation: go over the editor's usability as a whole and look for improvements to the overall experience.
-  - First pass covered a browser walk-through of the sample at desktop and 800x500; not yet covered: export, adding art, keyboard-only
-    flow, error markers, the studio's lower panels. Rank new findings by impact and turn each into its own TODO item.
-  - Left: "Animate" and "Edit rig" are not separate palette commands; closing the studio leaves the rig.json tab open and focused; the studio's stacked narrow layout (under 900px) is not looked at in a browser.
-  - [-] Problems appears in both the editor toolbar and the preview header: kept on purpose (the preview's opens its own list).
+  - Kept on purpose: Problems appears in both the editor toolbar and the preview header (the preview's opens its own list).
+- [~] Problem counts differ between the editor (includes every character's rig.json) and the preview header (script and
+  game.json only).
+  - Left: the fresh sample opens with 6 missing-audio warnings; consider a short silent placeholder track/sound for the sample.
+- [ ] Adding art from the editor (drop files on the Assets panel); today files are copied into `assets/` or `masters/` by hand
+  (the sidebar picks them up live).
+- [~] Files panel as a tree. Left: rename, delete and move for files and folders (right-click menu).
+- [~] Browser tests: make the timing-sensitive ones (polygon hotspot, HUD, gamepad) wait on state instead of fixed presses.
+- [~] Task output panel (`/api/task` streaming, clickable `file:line` references). Left: no browser test.
 - [~] Story outline: the Outline button draws labels, jumps, calls and run-on edges as a flowchart.
   - Left: back edges still arc below the nodes and can pass through labels in the same columns; not looked at on a real large storyline.
-- [~] Variable rename in the editor (F2 on a variable, `engine/src/var-refactor.ts`, tested in `var-refactor.test.mjs`).
-  - Done: `[name]` in `locale/*.json` follows a rename (found through the line's `#id`; the editor rewrites the files on disk through
-    `/api/locale`, so that part has no undo; HUD text lives in `.vn` screens and was already covered).
+- [~] Variable rename in the editor (F2, `engine/src/var-refactor.ts`).
   - Left: game.json text is not scanned; no browser test for the locale rewrite.
-- [~] Screens preview and built-in screen UX: the Files panel's "Built-in screens" rows preview the screen (title, pause,
-  quick menu, options, saves, history, gallery, music, chapters). A stock row also shows its starter code read-only; a customized row opens
-  its script override, and Customize makes one; the toolbar "Title screen" button is gone.
+- [~] Find all uses of a variable or label (Shift+F12, `variableUses`; Ctrl+Shift+F seeds the word under the cursor).
+  Left: not tried in the browser, no browser test.
+- [~] "Did you mean" quick fixes: not yet for game.json names or rig.json keys.
+- [~] Screens preview and built-in screen UX.
   - Left: custom `screen`s the project declares itself are not listed for preview; no browser test for the sidebar click yet.
-- [ ] Translation: a side-by-side view of the source script and each locale (not necessary for now, later).
-- [~] Character outfit variants in the PSD converter.
-  - Left: not tried with a real PSD. Assets open in a viewer dialog (images, sounds, fonts); no PSD-layer preview.
+- [ ] Translation: a side-by-side view of the source script and each locale, plus an export of all dialogue with context
+  (speaker, scene) for translators. Not necessary for now.
 
 ## Shipping
 
 - [~] Desktop app: Electron wrapper (`vn export --desktop`, docs/desktop.md) with saves stored as files.
   - [-] **DEFERRED (much later)** Run the installer build (`npm run dist`) and try it on Linux and macOS; only Windows `npm start` is verified.
   - [ ] Maybe let users drop modifier scripts in the folder that override some variables (needs a definition first).
-
 - [~] Configurable stage size (portrait / mobile targets). One size per project; a portrait version is a duplicated project
   with its own art and presentation, not a responsive layout.
   - [ ] Not done: the stock text box, title, pause and options screens are still laid out for landscape (a portrait project
@@ -145,17 +143,8 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
   - Left: custom `screen` data for the choice menu (menus are not screens yet), seen marker in the editor preview.
   - Left, by plan: timers for `input`/`screen`, a `timeleft` variable, per-menu extended time, saving the clock.
 - [~] As a writer, I want variables formatted in text and right-to-left text.
-  - Done: `[n:2]`, `[n:,]`, `[n:one|other]` (`interpolate` in `text.ts`, `text-format.test.mjs`).
-  - Left: right-to-left text; plural categories beyond one/other (few/many); no editor completions or hover for the format.
+  - Left: right-to-left text; no hover for the format.
 - [ ] As a player, I want an achievements list with notifications and an endings page, kept apart from saves.
 - [ ] As a player on a phone or tablet, I want touch gestures (swipe back, tap zones), safe-area insets and orientation
   handling; and a wrapper that ships the game to iOS/Android.
-- [-] **DEFERRED (much later)** As a player, I want a high-contrast theme, a dyslexia-friendly font option and text-to-speech (also listed under
-  Accessibility).
-- [ ] As a translator, I want an export of all dialogue with context (speaker, scene) and the side-by-side view
-  (see "Translation" under Tooling).
-- [x] As a developer, I want saves to survive engine updates (a version field and migration), since saves hold only
-  source position plus choices.
-  - Decided against an engine-level save format: the engine stays optimistic and loads whatever it finds (saves replay
-    choices from a source position, so script edits already work). The game's author decides when a release breaks old saves:
-    game.json `saveVersion` is recorded in each save, and Continue/Load/quick load ask first for saves with a lower number.
+- [-] **DEFERRED (much later)** As a player, I want a high-contrast theme, a dyslexia-friendly font option and text-to-speech.

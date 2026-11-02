@@ -5,7 +5,7 @@
 
 import {
   addKey, ANCHORS, anchorToken, FEET, parseAnchor, type Placement, type Positions, type Anchors, ANIMS, animParts, bakePreset, deleteAnim, deleteKey, duplicateAnim, EASE_NAMES, KEY_CHANNELS, keysOf, newAnim, renameAnim,
-  sampleChannel, setDur, setKey, setPivot, setPivots, showLine, uniqueName, noRigSettings, type RigSettings, type AnimDef, type Anims, type KeyChannel, type KeyDef, type Pivots,
+  sampleChannel, setDur, setKey, setPivot, setPivots, showLine, uniqueName, noRigSettings, type RigSettings, type AnimDef, type Anims, type KeyChannel, type KeyDef, type Pivots, type RigOutline,
 } from '../engine/src/index.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -37,8 +37,10 @@ export interface StudioHost {
   positions?: Positions;
   /** The game's named anchors (game.json `anchors` and the built-in ones). */
   anchors?: Anchors;
-  /** The character's parts (slots and plain layers) and the PSD canvas size, for the part list and for placing pivots. */
+  /** The character's parts (slots and plain layers, then rig.json groups) and the PSD canvas size, for the part list and for placing pivots. */
   parts: string[];
+  /** The rig.json groups among `parts`, with the parts each one moves. */
+  groups?: Record<string, string[]>;
   /** Pose and shorthand names for `show`, and each slot's variants, for dressing the character on the stage. */
   poses: string[];
   slots: Record<string, string[]>;
@@ -46,8 +48,16 @@ export interface StudioHost {
   height: number;
   /** The parts drawn for a pose and slot variants (what the stage shows); absent when the rig cannot tell. */
   shown?: (pose: string | null, overrides: Record<string, string>) => string[];
+  /** What the character is made of, dressed with a pose and slot variants, for the Parts tree. */
+  outline?: (pose: string | null, overrides: Record<string, string>) => RigOutline;
+  /** The URL of one of the character's images (a path from sprite.json), for thumbnails. */
+  image?: (file: string) => string;
   /** Write both to the character's rig.json; false when that failed (the studio then keeps its changes pending). */
   apply: (change: Snap) => boolean;
+  /** Set when the studio was opened from a script line: plays the game from that line once the rig.json is saved. */
+  tryInScene?: () => void;
+  /** Set when a script tab was in front: puts a line under the cursor line there and says where it went (for the note). */
+  insertLine?: (line: string) => string;
 }
 
 export class AnimStudio {
@@ -64,7 +74,7 @@ export class AnimStudio {
   private partSel: HTMLSelectElement;
   private durInput: HTMLInputElement;
   private note: HTMLElement;
-  private tools: Record<'new' | 'copy' | 'rename' | 'delete' | 'undo' | 'redo' | 'apply', HTMLButtonElement>;
+  private tools: Record<'new' | 'copy' | 'rename' | 'delete' | 'undo' | 'redo' | 'apply' | 'scene', HTMLButtonElement>;
   private keySel: HTMLSelectElement;
   private fields: Record<'t' | KeyChannel, HTMLInputElement>;
   private easeSel: HTMLSelectElement;
@@ -89,8 +99,10 @@ export class AnimStudio {
   private pivotClear: HTMLButtonElement;
   private pivotShare: HTMLButtonElement;
   private shareBox: HTMLElement;
-  private poseSel: HTMLSelectElement;
-  private slotsEl: HTMLElement;
+  private treeEl: HTMLElement;
+  private treeDrawn = '';               // what the tree shows now, so it is rebuilt only when that changes
+  private treePart: string | null | undefined; // the part the tree last scrolled to
+  private focusSent: string | null | undefined; // the part the stage was last told to bring forward
   private idleSel: HTMLSelectElement;
   private speakSel: HTMLSelectElement;
   private blinkBox: HTMLInputElement;
@@ -99,6 +111,7 @@ export class AnimStudio {
   private flipBox: HTMLInputElement;
   private anchorBox: HTMLInputElement;
   private placeLine: HTMLInputElement;
+  private insertBtn: HTMLButtonElement;
   private baseline = '';
   private past: Snap[] = [];
   private future: Snap[] = [];
@@ -124,6 +137,7 @@ export class AnimStudio {
           <span class="hint">Space: play or pause. Ctrl+Z / Ctrl+Y: undo and redo. Esc to close</span>
           <button type="button" data-t="undo">Undo</button><button type="button" data-t="redo">Redo</button>
           <button type="button" data-t="apply" class="primary">Apply</button>
+          <button type="button" data-t="scene" hidden title="Apply, close and play the script from the animate line you came from">Try in scene</button>
           <button type="button" class="close" aria-label="Close animation studio">Close</button></header>
         <div class="as-body">
           <div class="as-side">
@@ -149,7 +163,7 @@ export class AnimStudio {
           <div class="as-inspect">
             <div class="as-tabs" role="tablist" aria-label="Inspector">
               <button type="button" role="tab" class="as-tab" data-tab="key" id="as-tab-key" aria-controls="as-panel-key">Key</button>
-              <button type="button" role="tab" class="as-tab" data-tab="part" id="as-tab-part" aria-controls="as-panel-part">Part</button>
+              <button type="button" role="tab" class="as-tab" data-tab="part" id="as-tab-part" aria-controls="as-panel-part">Parts</button>
               <button type="button" role="tab" class="as-tab" data-tab="char" id="as-tab-char" aria-controls="as-panel-char">Character</button>
               <button type="button" role="tab" class="as-tab" data-tab="stage" id="as-tab-stage" aria-controls="as-panel-stage">Stage</button>
             </div>
@@ -168,6 +182,7 @@ export class AnimStudio {
         </div>
             </div>
             <div class="as-panel" role="tabpanel" data-panel="part" id="as-panel-part" aria-labelledby="as-tab-part" hidden>
+        <div class="as-tree"></div>
         <div class="as-pivot">
           <span class="as-pivot-name">Pivot</span>
           <label>x <input type="number" data-p="x" step="1"></label>
@@ -176,7 +191,7 @@ export class AnimStudio {
           <button type="button" class="as-pivot-clear">Clear</button>
           <button type="button" class="as-pivot-share" aria-expanded="false">Same pivot for…</button>
           <span class="as-share" hidden></span>
-          <span class="as-pivot-hint">Choose a part in "Lanes of". The pivot is where the part turns and scales; in PSD pixels.</span>
+          <span class="as-pivot-hint">Choose a part above (or in "Lanes of"). The pivot is where the part turns and scales; in PSD pixels.</span>
         </div>
             </div>
             <div class="as-panel" role="tabpanel" data-panel="char" id="as-panel-char" aria-labelledby="as-tab-char" hidden>
@@ -203,12 +218,6 @@ export class AnimStudio {
         </div>
             </div>
             <div class="as-panel" role="tabpanel" data-panel="stage" id="as-panel-stage" aria-labelledby="as-tab-stage" hidden>
-        <div class="as-dress">
-          <span class="as-pivot-name">On stage</span>
-          <label>Pose <select class="as-pose" aria-label="Pose shown on the stage"></select></label>
-          <span class="as-slots" role="group" aria-label="Slot variants shown on the stage"></span>
-          <span class="as-pivot-hint">Only for looking; the stage dress is not saved.</span>
-        </div>
         <div class="as-place">
           <span class="as-pivot-name">Place</span>
           <button type="button" class="as-place-btn" aria-pressed="false">Place on stage</button>
@@ -220,7 +229,8 @@ export class AnimStudio {
           <datalist id="as-anchornames"></datalist>
           <input type="text" class="as-place-line" readonly aria-label="The show line for this placement" size="38">
           <button type="button" class="as-place-copy">Copy</button>
-          <span class="as-pivot-hint">Drag the character on the stage, then paste the line into the script.</span>
+          <button type="button" class="as-place-insert" hidden>Insert in script</button>
+          <span class="as-pivot-hint">Drag the character on the stage, then insert or paste the line into the script. It includes the pose and slot variants chosen in Parts.</span>
         </div>
             </div>
           </div>
@@ -246,14 +256,13 @@ export class AnimStudio {
     this.delKey = q('.as-delkey');
     this.addCh = q('.as-addch');
     this.addBtn = q('.as-addkey');
-    this.tools = Object.fromEntries(['new', 'copy', 'rename', 'delete', 'undo', 'redo', 'apply'].map(n => [n, q<HTMLButtonElement>(`[data-t="${n}"]`)])) as StudioTools;
+    this.tools = Object.fromEntries(['new', 'copy', 'rename', 'delete', 'undo', 'redo', 'apply', 'scene'].map(n => [n, q<HTMLButtonElement>(`[data-t="${n}"]`)])) as StudioTools;
     this.fields = Object.fromEntries(['t', ...KEY_CHANNELS].map(n => [n, q<HTMLInputElement>(`[data-f="${n}"]`)])) as Record<'t' | KeyChannel, HTMLInputElement>;
     this.pivotBtn = q('.as-pick');
     this.pivotClear = q('.as-pivot-clear');
     this.pivotShare = q('.as-pivot-share');
     this.shareBox = q('.as-share');
-    this.poseSel = q('.as-pose');
-    this.slotsEl = q('.as-slots');
+    this.treeEl = q('.as-tree');
     this.idleSel = q('.as-idle');
     this.speakSel = q('.as-speak');
     this.blinkBox = q('.as-blink');
@@ -265,7 +274,6 @@ export class AnimStudio {
     this.anchorBox = q('.as-anchor');
     this.placeLine = q('.as-place-line');
     this.pivotShare.addEventListener('click', () => this.toggleShare());
-    this.poseSel.addEventListener('change', () => { this.pose = this.poseSel.value || null; this.overrides = {}; this.dressStage(); this.refreshView(); this.showDress(); this.showPlace(); });
     this.idleSel.addEventListener('change', () => this.edit(() => { this.rig = { ...this.rig, idle: this.idleSel.value || null }; }));
     this.speakSel.addEventListener('change', () => this.edit(() => { this.rig = { ...this.rig, speakAnim: this.speakSel.value || null }; }));
     this.blinkBox.addEventListener('change', () => this.edit(() => { this.rig = { ...this.rig, blink: this.blinkBox.checked }; }));
@@ -305,6 +313,8 @@ export class AnimStudio {
       this.placeLine.select();
       void navigator.clipboard?.writeText(this.placeLine.value).then(() => { this.note.textContent = 'Copied the show line.'; }, () => { this.note.textContent = 'Press Ctrl+C to copy the selected line.'; });
     });
+    this.insertBtn = q('.as-place-insert');
+    this.insertBtn.addEventListener('click', () => { this.note.textContent = this.host.insertLine?.(this.placeLine.value) ?? ''; });
     this.pivotFields = { x: q('[data-p="x"]'), y: q('[data-p="y"]') };
     this.pivotBtn.addEventListener('click', () => this.setPicking(!this.picking));
     this.pivotClear.addEventListener('click', () => { this.setPicking(false); this.edit(() => { if (this.part) this.pivots = setPivot(this.pivots, this.part, null); }); });
@@ -328,12 +338,13 @@ export class AnimStudio {
       });
     }
     this.showTab(this.tab);
-    // A click on a key opens the Key tab, choosing a part in "Lanes of" opens Part.
+    // A click on a key opens the Key tab, choosing a part in "Lanes of" opens Parts.
     this.tl.addEventListener('pointerdown', e => { if ((e.target as Element).closest('[data-key]')) this.showTab('key'); });
     this.partSel.addEventListener('change', () => { if (this.partSel.value) this.showTab('part'); });
     this.playBtn.addEventListener('click', () => this.toggle());
     this.slider.addEventListener('input', () => this.seek(Number(this.slider.value) / 1000));
-    this.partSel.addEventListener('change', () => { this.part = this.partSel.value || null; this.sel = null; this.setPicking(this.picking); this.refreshView(); });
+    this.partSel.addEventListener('change', () => this.choosePart(this.partSel.value || null));
+    this.treeEl.addEventListener('click', e => this.treeClick(e));
     this.loopBox.addEventListener('change', () => { if (this.playing) this.play(); });
     this.durInput.addEventListener('change', () => this.edit(() => { if (this.cur && !this.cur.preset) this.anims[this.cur.name] = setDur(this.cur.def, Number(this.durInput.value)); }));
     this.tools.new.addEventListener('click', () => this.newAnimation());
@@ -343,6 +354,7 @@ export class AnimStudio {
     this.tools.undo.addEventListener('click', () => this.undo());
     this.tools.redo.addEventListener('click', () => this.redo());
     this.tools.apply.addEventListener('click', () => this.apply());
+    this.tools.scene.addEventListener('click', () => this.tryInScene());
     this.keySel.addEventListener('change', () => { this.sel = this.keySel.value === '' ? null : Number(this.keySel.value); this.refreshView(); });
     for (const [name, input] of Object.entries(this.fields)) input.addEventListener('change', () => this.fieldChanged(name as 't' | KeyChannel, input.value));
     this.easeSel.addEventListener('change', () => this.patchSelected({ ease: this.easeSel.value || undefined }));
@@ -398,7 +410,7 @@ export class AnimStudio {
   private get dirty() { return JSON.stringify(this.doc()) !== this.baseline; }
 
   /** Show `char`'s animations: `start` is its rig.json `animations` and `pivots` and what it does by itself. */
-  open(char: string, start: Snap, host: StudioHost) {
+  open(char: string, start: Snap, host: StudioHost, animation?: string) {
     this.host = host;
     this.root.querySelector('#as-anchornames')!.replaceChildren(...Object.keys(host.anchors ?? ANCHORS).map(n => el('option', { value: n })));
     this.char = char;
@@ -411,6 +423,9 @@ export class AnimStudio {
     this.pose = null;
     this.overrides = {};
     this.shareBox.hidden = true;
+    this.note.textContent = ''; // a note from the last session (e.g. the discard warning) does not apply any more
+    this.presetNote = false;
+    this.closeWarned = false;
     this.baseline = JSON.stringify(this.doc());
     this.past = [];
     this.future = [];
@@ -418,14 +433,18 @@ export class AnimStudio {
     this.playing = false;
     this.sel = null;
     this.part = null;
+    this.treeDrawn = '';
+    this.treePart = undefined;
+    this.focusSent = undefined;
     this.rebuild();
-    this.showDress();
     this.showPlace();
     this.frame = el('iframe', { title: `${char} on the studio stage`, src: `/?studio=${encodeURIComponent(char)}` });
     this.stageHost.replaceChildren(this.frame);
     if (!host.parts?.length) this.stageHost.append(el('div', { className: 'as-empty', textContent: `No art for ${char} yet. Convert its PSD (or add its images) to see it here.` }));
     this.root.hidden = false;
-    this.select(this.entries[0] ?? null);
+    this.tools.scene.hidden = !host.tryInScene;
+    this.insertBtn.hidden = !host.insertLine;
+    this.select(this.entries.find(e => e.name === animation) ?? this.entries[0] ?? null);
     this.card.focus({ preventScroll: true });
   }
 
@@ -455,6 +474,8 @@ export class AnimStudio {
       this.postPivots();
       this.dressStage();
       this.sendPlace();
+      this.focusSent = undefined; // a reloaded stage starts with every part at full strength
+      this.sendFocus();
       if (this.picking) this.post({ type: 'studioPick', part: this.part });
       else if (this.cur) this.post({ type: 'studioSeek', name: this.cur.name, t: this.t });
     } else if (m?.type === 'studioPicked' && this.picking && typeof (m as { x?: unknown }).x === 'number' && typeof (m as { y?: unknown }).y === 'number') {
@@ -533,11 +554,20 @@ export class AnimStudio {
     } else this.note.textContent = 'Could not write to rig.json; fix its errors first.';
   }
 
+  /** Apply what is pending, leave the studio and let the host play the script from the line it was opened from. */
+  private tryInScene() {
+    this.apply();
+    if (this.dirty) return; // the note says why it could not be applied
+    const go = this.host.tryInScene;
+    this.close(true);
+    go?.();
+  }
+
   // ---- the animation list ----
   private select(entry: Entry | null) {
     if (this.picking) this.setPicking(false);
     this.cur = entry;
-    this.part = null;
+    this.part = this.startPart(entry);
     this.sel = null;
     this.playing = false;
     this.refreshList();
@@ -577,7 +607,7 @@ export class AnimStudio {
     input.focus();
     input.select();
   }
-  private pick(name: string) { this.cur = this.entries.find(e => e.name === name) ?? this.cur; this.part = null; this.sel = null; this.refreshList(); this.refreshView(); this.seek(this.t); }
+  private pick(name: string) { this.cur = this.entries.find(e => e.name === name) ?? this.cur; this.part = this.startPart(this.cur); this.sel = null; this.refreshList(); this.refreshView(); this.seek(this.t); }
 
   private newAnimation() {
     this.askName('Name of the new animation', uniqueName(this.anims, 'anim'), name => {
@@ -716,7 +746,9 @@ export class AnimStudio {
     if (!this.editable() || (e.target as Element).closest('[data-key]')) return;
     const p = this.local(e), ch = KEY_CHANNELS[this.laneOf(p.y)];
     if (p.x < LABEL) return;
-    this.addKeyAt(ch, p.t, this.valueAt(ch, p.y));
+    // A click lands anywhere on the lane: round to the step a nudge uses so the value reads cleanly.
+    const step = ch === 'rot' ? 0.1 : 0.001;
+    this.addKeyAt(ch, Math.round(p.t * 100) / 100, Math.round(this.valueAt(ch, p.y) / step) * step);
   }
 
   private diamondKey(e: KeyboardEvent) {
@@ -744,7 +776,7 @@ export class AnimStudio {
   private fillShare() {
     const part = this.part;
     this.shareBox.replaceChildren();
-    if (!part) { this.shareBox.append('Choose a part in "Lanes of" first.'); return; }
+    if (!part) { this.shareBox.append('Choose a part above first.'); return; }
     const at = this.pivots[part];
     if (!at) { this.shareBox.append(`${part} has no pivot yet.`); return; }
     for (const other of this.host.parts.filter(p => p !== part)) {
@@ -758,25 +790,124 @@ export class AnimStudio {
     }
   }
 
-  // ---- how the stage dresses the character ----
+  // ---- the Parts tree: what the character is made of, and how the stage dresses it ----
   private dressStage() { this.post({ type: 'studioShow', pose: this.pose, overrides: this.overrides }); }
-  private showDress() {
-    this.poseSel.replaceChildren(el('option', { value: '', textContent: '(default)' }), ...this.host.poses.map(p => el('option', { value: p, textContent: p })));
-    this.poseSel.value = this.pose ?? '';
-    this.slotsEl.replaceChildren();
-    for (const [slot, variants] of Object.entries(this.host.slots)) {
-      const sel = document.createElement('select');
-      sel.setAttribute('aria-label', `Variant of ${slot}`);
-      sel.append(el('option', { value: '', textContent: '(pose)' }), ...['none', ...variants].map(v => el('option', { value: v, textContent: v })));
-      sel.value = this.overrides[slot] ?? '';
-      sel.onchange = () => {
-        const { [slot]: _gone, ...rest } = this.overrides;
-        this.overrides = sel.value ? { ...rest, [slot]: sel.value } : rest;
-        this.dressStage();
-        this.refreshView();
-      };
-      this.slotsEl.append(el('label', {}, `${slot} `, sel));
+
+  /** The part an animation opens at: the first one it keys, when it has no keys for the whole character. */
+  private startPart(e: Entry | null) {
+    if (!e || e.def.keys.some(k => !k.part)) return null;
+    return animParts(e.def)[0] ?? null;
+  }
+  private choosePart(part: string | null) {
+    this.part = part;
+    this.sel = null;
+    this.setPicking(this.picking);
+    this.refreshView();
+  }
+  /** The stage dims every part but the chosen one (or a group's parts). */
+  private sendFocus() {
+    if (this.focusSent === this.part) return;
+    this.focusSent = this.part;
+    this.post({ type: 'studioFocus', part: this.part });
+  }
+
+  private treeClick(e: MouseEvent) {
+    const b = (e.target as Element).closest<HTMLButtonElement>('button');
+    if (!b || !this.treeEl.contains(b)) return;
+    const d = b.dataset;
+    if (d.slot !== undefined && d.variant !== undefined) {
+      // A variant sets the slot on the stage; clicking the one set here again goes back to what the pose picks.
+      const { [d.slot]: was, ...rest } = this.overrides;
+      this.overrides = was === d.variant ? rest : { ...rest, [d.slot]: d.variant };
+      this.dressStage();
+      this.refreshView();
+    } else if (d.pose !== undefined) {
+      this.pose = d.pose || null;
+      this.overrides = {};
+      this.dressStage();
+      this.refreshView();
+      this.showPlace();
+    } else if (d.part !== undefined) this.choosePart(d.part || null);
+  }
+
+  private showTree() {
+    const o = this.host.outline?.(this.pose, this.overrides);
+    const keyed = this.cur ? animParts(this.cur.def) : [];
+    const drawn = JSON.stringify([o, keyed, this.part, this.pose, this.overrides, this.cur?.name]);
+    if (drawn === this.treeDrawn) return;
+    this.treeDrawn = drawn;
+    const active = document.activeElement instanceof HTMLElement && this.treeEl.contains(document.activeElement) ? JSON.stringify(document.activeElement.dataset) : null;
+    this.treeEl.replaceChildren();
+    if (!o?.parts.length) {
+      this.treeEl.append(el('p', { className: 'as-tree-hint', textContent: `No parts: ${this.char} has no converted PSD (sprite.json) yet.` }));
+      return;
     }
+    const thumb = (file: string | null) => (file && this.host.image ? el('img', { src: this.host.image(file), alt: '', loading: 'lazy' }) : el('span', { className: 'as-thumb' }));
+    const badge = (kind: string, title: string) => el('span', { className: `as-badge as-badge-${kind}`, textContent: kind, title });
+    const keys = (name: string) => (keyed.includes(name) ? el('span', { className: 'as-keyed', textContent: 'keyed', title: `${this.cur!.name} moves it` }) : '');
+    const muted = (text: string) => el('span', { className: 'as-muted', textContent: text });
+    const row = (part: string | null, ...kids: (Node | string)[]) => {
+      const b = el('button', { type: 'button', className: 'as-row' }, ...kids);
+      b.dataset.part = part ?? '';
+      b.setAttribute('aria-pressed', String(this.part === part));
+      return b;
+    };
+
+    this.treeEl.append(
+      el('p', { className: 'as-tree-hint', textContent: `${this.char} is drawn from these parts, top layer first. A slot shows one of its variants at a time, a layer is always drawn, and a group moves its parts as one piece. Choose a row to see its lanes and set its pivot (the stage brings it forward); click a variant to dress the stage (only for looking, not saved; * marks the default).` }),
+      row(null, el('strong', { textContent: 'The whole character' }), keyed.length && this.cur?.def.keys.some(k => !k.part) ? el('span', { className: 'as-keyed', textContent: 'keyed' }) : ''),
+      el('h4', { textContent: 'Parts' }),
+    );
+    for (const p of o.parts) {
+      const item = el('div', { className: 'as-item' });
+      item.append(row(p.name, thumb(p.file), badge(p.kind, p.kind === 'slot' ? 'A slot: shows one of its variants at a time (show mina slot=variant)' : 'A layer: one image, always drawn'),
+        el('span', { className: 'as-pname', textContent: p.name }), keys(p.name),
+        p.groups.length ? muted(`in ${p.groups.join(', ')}`) : '', p.kind === 'slot' && !p.file ? muted('nothing shown') : ''));
+      if (p.kind === 'slot') {
+        const chips = el('div', { className: 'as-variants', role: 'group' } as Partial<HTMLDivElement>);
+        chips.setAttribute('aria-label', `Variants of ${p.name}`);
+        for (const v of [...p.variants, { name: 'none', file: null, poses: [], isDefault: false }]) {
+          const set = this.overrides[p.name] === v.name;
+          const c = el('button', { type: 'button', className: 'as-variant', title: [
+            v.name === 'none' ? 'Show nothing in this slot' : v.name,
+            v.isDefault ? 'the default' : '',
+            v.poses.length ? `picked by pose ${v.poses.join(', ')}` : '',
+            set ? 'set here: click again to go back to what the pose picks' : '',
+          ].filter(Boolean).join('; ') }, thumb(v.file), v.isDefault ? `${v.name}*` : v.name);
+          c.dataset.slot = p.name;
+          c.dataset.variant = v.name;
+          c.setAttribute('aria-pressed', String(p.shown === v.name || (v.name === 'none' && !p.file)));
+          if (set) c.classList.add('as-set');
+          chips.append(c);
+        }
+        item.append(chips);
+      }
+      this.treeEl.append(item);
+    }
+    if (o.groups.length) {
+      this.treeEl.append(el('h4', { textContent: 'Groups (rig.json)' }));
+      for (const g of o.groups) this.treeEl.append(row(g.name, badge('group', g.dresses ? `A group: moves its parts as one piece, and show ${this.char} ${g.name}=variant sets its slots` : 'A group: moves its parts as one piece'),
+        el('span', { className: 'as-pname', textContent: g.name }), keys(g.name), muted(g.parts.join(', '))));
+    }
+    const poses = el('div', { className: 'as-variants as-poses', role: 'group' } as Partial<HTMLDivElement>);
+    poses.setAttribute('aria-label', 'Poses');
+    const pose = (name: string | null, text: string, title: string) => {
+      const b = el('button', { type: 'button', className: 'as-variant', title }, text);
+      b.dataset.pose = name ?? '';
+      b.setAttribute('aria-pressed', String(this.pose === name));
+      poses.append(b);
+    };
+    pose(null, '(default)', 'Every slot at its default variant');
+    for (const p of o.poses) {
+      const picks = Object.entries(p.picks).map(([s, v]) => `${s} ${v}`).join(', ') || 'looks like the default';
+      pose(p.name, p.name, `${p.from === 'rig' ? 'A rig.json shorthand' : 'A pose tagged on variants in the PSD'}: ${picks}`);
+      poses.lastElementChild!.append(muted(picks));
+    }
+    this.treeEl.append(el('h4', { textContent: `Poses (show ${this.char} <pose>)` }), poses);
+
+    if (active) [...this.treeEl.querySelectorAll<HTMLElement>('button')].find(b => JSON.stringify(b.dataset) === active)?.focus({ preventScroll: true });
+    if (this.treePart !== this.part) this.treeEl.querySelector<HTMLElement>('.as-row[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+    this.treePart = this.part;
   }
 
   // ---- idle, talking, blinking ----
@@ -821,7 +952,7 @@ export class AnimStudio {
     this.flipBox.checked = this.place.flip;
     const tok = anchorToken(this.place.anchor ?? FEET, this.host.anchors);
     this.anchorBox.value = tok === 'feet' ? '' : tok;
-    this.placeLine.value = showLine(this.char, this.pose, this.place, this.host.positions, this.host.anchors);
+    this.placeLine.value = showLine(this.char, this.pose, this.place, this.host.positions, this.host.anchors, this.overrides);
   }
 
   // ---- transport ----
@@ -851,7 +982,7 @@ export class AnimStudio {
     this.pivotBtn.textContent = this.picking ? 'Done picking' : 'Pick on stage';
     this.pivotBtn.setAttribute('aria-pressed', String(this.picking));
     this.root.querySelector('.as-pivot-hint')!.textContent = this.picking ? 'Click the stage where the part should turn. The character is shown at rest.'
-      : part ? (at ? '' : 'No pivot: the part turns about the middle of its image.') : 'Choose a part in "Lanes of". The pivot is where the part turns and scales; in PSD pixels.';
+      : part ? (at ? '' : 'No pivot: the part turns about the middle of its image.') : 'Choose a part above (or in "Lanes of"). The pivot is where the part turns and scales; in PSD pixels.';
   }
 
   private toggle() { if (this.playing) this.pause(); else this.play(); }
@@ -904,14 +1035,20 @@ export class AnimStudio {
     const parts = [...new Set([...this.host.parts, ...keyed])];
     if (this.part && !parts.includes(this.part)) this.part = null;
     const shown = this.host.shown?.(this.pose, this.overrides);
+    const groups = this.host.groups ?? {};
     const label = (p: string) => {
-      const notes = [keyed.includes(p) ? 'has keys' : '', shown && !shown.includes(p) ? 'hidden in this pose' : ''].filter(Boolean);
+      const members = Object.hasOwn(groups, p) ? groups[p] : null;
+      const hidden = shown && (members ? !members.some(m => shown.includes(m)) : !shown.includes(p));
+      const kind = members ? `group: ${members.join(', ')}` : Object.hasOwn(this.host.slots, p) ? 'slot' : this.host.parts.includes(p) ? 'layer' : '';
+      const notes = [kind, keyed.includes(p) ? 'has keys' : '', hidden ? 'hidden in this pose' : ''].filter(Boolean);
       return notes.length ? `${p} (${notes.join(', ')})` : p;
     };
     this.partSel.replaceChildren(el('option', { value: '', textContent: 'the whole character' }),
       ...parts.map(p => el('option', { value: p, textContent: label(p) })));
     this.partSel.value = this.part ?? '';
     this.partSel.disabled = !parts.length;
+    this.showTree();
+    this.sendFocus();
     this.showPivot();
     this.showAuto();
     if (c?.preset) { this.note.textContent = `${c.name} is a preset (shown as a sampled copy; it plays exactly as in the game). "Edit copy" makes an editable version.`; this.presetNote = true; }
@@ -919,6 +1056,15 @@ export class AnimStudio {
     this.refreshInspector();
     this.drawTimeline();
     this.showTransport();
+    this.keepFocus();
+  }
+
+  /** A focused button that just got disabled (Apply, Undo, Delete key...) drops focus to the page, where the studio's keys
+   *  (Esc, Space, Ctrl+Z) no longer reach it: take focus back to the dialog. The browser moves focus off a disabled element
+   *  only later, so a disabled activeElement counts as lost already. */
+  private keepFocus() {
+    const a = document.activeElement as HTMLButtonElement | null;
+    if (!this.root.hidden && (!this.root.contains(a) || a?.disabled)) this.card.focus({ preventScroll: true });
   }
 
   private refreshInspector() {
@@ -974,6 +1120,9 @@ export class AnimStudio {
       }
     });
     const dur = this.cur!.dur, base = LANE * KEY_CHANNELS.length;
+    if (this.editable() && !keysOf(def, this.part).length) {
+      this.tl.append(svg('text', { x: this.xOf(0.5), y: base / 2, class: 'tl-empty', 'text-anchor': 'middle' }, 'No keys yet. Double-click a lane to add one, then drag it.'));
+    }
     for (const f of [0, 0.25, 0.5, 0.75, 1]) {
       const x = this.xOf(f);
       this.tl.append(svg('line', { x1: x, x2: x, y1: 0, y2: base + 4, class: 'tl-grid' }),
@@ -985,4 +1134,4 @@ export class AnimStudio {
   }
 }
 
-type StudioTools = Record<'new' | 'copy' | 'rename' | 'delete' | 'undo' | 'redo' | 'apply', HTMLButtonElement>;
+type StudioTools = Record<'new' | 'copy' | 'rename' | 'delete' | 'undo' | 'redo' | 'apply' | 'scene', HTMLButtonElement>;

@@ -6,6 +6,7 @@
 //   { type: 'studioSeek', name, t, part }                 stop and pose at progress t (0-1)
 //   { type: 'studioPlay', name, dur, loop, part }         play from the start; `studioPause` stops where it is
 //   { type: 'studioPivots', pivots, width, height }       the working copy of rig.json `pivots` and the PSD canvas size
+//   { type: 'studioFocus', part }                         dim every part but this one (or a group's parts); null shows all
 //   { type: 'studioPick', part }                          show the character at rest with that part's pivot; a click
 //                                                         answers { type: 'studioPicked', part, x, y } in PSD pixels; null ends it
 //   { type: 'studioPlace', on, x, y, scale, flip, anchor: [fx, fy] }        where the character stands; with `on` a drag on the stage moves it and
@@ -191,6 +192,9 @@ export class Studio {
         break;
       case 'studioPause':
         this.run = null;
+        break;
+      case 'studioFocus':
+        this.renderer.studioFocus(this.char, str(m.part));
         break;
     }
   }

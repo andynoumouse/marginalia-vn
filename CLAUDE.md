@@ -6,14 +6,14 @@ README.md describes the features; `docs/commands.md` is the script command refer
 ## Workflow
 
 - `npm test` runs `tsc` and then the fast set (everything but `browser.test.mjs`, a few seconds); `npm run test:browser`
-  runs only the browser file (~2.5 min) and `npm run test:all` both (`scripts/test.mjs`). The browser set is costly: don't
+  runs only the browser file (~30 s) and `npm run test:all` both (`scripts/test.mjs`). The browser set is costly: don't
   run it unless the user asks. For a change to `preview/`, `editor/` or the renderer, run `node scripts/browser-gate.mjs`
   once per such change; it keeps a counter in `.claude/browser-test-counter` and prints RUN on every 5th call (then run
   `npm run test:browser`) or SKIP (then don't, and say in the wrap-up that the browser set was skipped).
   Tests import from `dist/`, so a stale build gives misleading results.
-  Don't run `tsc` (or `npm test`) while a browser run is going: it rewrites `dist/` under the dev server.
-- Browser tests run `VN_BROWSER_JOBS` at a time (default 1, in order; `VN_BROWSER_JOBS=2`
-  halves the time and was stable in 4 runs, 3+ is flaky). Each test needs its own context and must not write to the sample project (mock `/api/...` routes instead).
+  The browser run serves a temp copy of `dist/`, so `tsc` during it is safe (it only uses the build as of its start).
+- Browser tests run `VN_BROWSER_JOBS` at a time (default 6, ~32 s; `VN_BROWSER_JOBS=1`
+  runs them in order, ~150 s, to tell a real failure from a load flake). Each test needs its own context and must not write to the sample project (mock `/api/...` routes instead).
 - `engine/test/browser.test.mjs` plays the sample in a real browser (system Edge/Chrome through playwright-core; skipped
   when none is found, `VN_BROWSER=<exe>` overrides). It starts its own dev server on a free port.
 - A fresh git worktree (`.claude/worktrees/...`) has no `node_modules`. Run `npm install` there before `npm test`, or
@@ -31,6 +31,21 @@ README.md describes the features; `docs/commands.md` is the script command refer
 - After adding or editing script lines run `npm run ids`, then `npm run strings`. The resulting changes to
   `sample/locale/en.json` and the scripts are expected.
 - Commit only when asked.
+
+## Branches and releases
+
+- `dev` is the working branch: commit there (when asked), as small as you like. `main` tracks `origin/main` (GitHub,
+  `andynoumouse/marginalia-vn`) and holds one squashed commit per release. `legacy` is the old private history; none of
+  `dev` or `legacy` is ever pushed. Never force-push `main`. Push only when the user asks.
+- Release when a milestone is done (a feature set, a tutorial chapter, a fix people want), not per change:
+  1. On `dev`: `npm test` is green, `npm run test:browser` has run since the last release, `package.json` version bumped,
+     README/docs match, `TODO.md` updated.
+  2. `git switch main && git merge --squash dev`, then commit with a changelog-style message (what is new and fixed).
+  3. `node scripts/sanitize-check.mjs` (local paths, personal email, tokens) must be clean.
+  4. `git tag -a vX.Y.Z -m "..."`, then `git push origin main vX.Y.Z` (and `git lfs push --all origin main` when
+     `sample/masters/` changed).
+  5. `git switch dev && git merge main -s ours -m "Sync release vX.Y.Z"`, so the next squash holds only new work.
+- Docs meant for public readers must not read as notes to Claude ("for a fresh session"), and must not cite commit hashes.
 
 ## Architecture
 

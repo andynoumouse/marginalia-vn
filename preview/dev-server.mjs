@@ -23,7 +23,10 @@ const localeDir = path.join(project, 'locale');
 const assetDir = path.join(project, 'assets');
 const gameFile = path.join(project, 'game.json');
 // URL prefixes: engine code, and the project's assets and exported game (build/).
-const served = { dist: root, preview: root, editor: root, docs: root, assets: project, build: project };
+// VN_DIST_ROOT=<folder holding a copy of dist/> serves (and watches) that copy instead, so a tsc run in the checkout cannot
+// touch a running server (the browser tests use it).
+const distRoot = process.env.VN_DIST_ROOT ? path.resolve(process.env.VN_DIST_ROOT) : root;
+const served = { dist: distRoot, preview: root, editor: root, docs: root, assets: project, build: project };
 const childEnv = { ...process.env, VN_PROJECT: project }; // tools started from here work on the same project
 // Browser builds of dev dependencies, served at /vendor/<name>/
 const vendorDirs = {
@@ -75,7 +78,7 @@ function watch(dir, type) {
 }
 watch(scriptDir, 'content');
 watch(localeDir, 'content');
-watch(path.join(root, 'dist'), 'engine');
+watch(path.join(distRoot, 'dist'), 'engine');
 watch(assetDir, 'content');
 fs.watchFile(gameFile, { interval: 300 }, () => broadcast('content', 'game.json')); // also notices it being created
 
@@ -103,6 +106,20 @@ async function saveScript(req, res, url) {
     const body = await readBody(req);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, body);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+  } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+}
+// A new folder under script/ (with a .gitkeep so git keeps it empty).
+function saveFolder(req, res, url) {
+  const dir = url.searchParams.get('dir') ?? '';
+  const target = path.resolve(scriptDir, dir);
+  const ok = /^[\w\-./]+$/.test(dir) && !dir.includes('..') && target.startsWith(scriptDir + path.sep);
+  if (!isLocalRequest(req) || !ok) { res.writeHead(403); res.end('Forbidden'); return; }
+  try {
+    fs.mkdirSync(target, { recursive: true });
+    const keep = path.join(target, '.gitkeep');
+    if (!fs.existsSync(keep) && fs.readdirSync(target).length === 0) fs.writeFileSync(keep, '');
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('{"ok":true}');
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
@@ -163,21 +180,26 @@ const TASKS = {
   art: ['tools/psd-convert.mjs', '--force'],
 };
 let taskRunning = false;
+// The answer streams as NDJSON while the task runs: `{"out": text}` per chunk of stdout/stderr, then `{"ok": bool}` at exit.
 function runTask(req, res, url) {
   const args = TASKS[url.searchParams.get('name') ?? ''];
   if (!isLocalRequest(req) || !args) { res.writeHead(403); res.end('Forbidden'); return; }
-  if (taskRunning) { res.writeHead(409, { 'Content-Type': 'application/json' }); res.end('{"ok":false,"output":"Another task is running."}'); return; }
+  const send = o => res.write(`${JSON.stringify(o)}\n`);
+  const head = status => res.writeHead(status, { 'Content-Type': 'application/x-ndjson', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+  if (taskRunning) { head(409); send({ out: 'Another task is running.' }); send({ ok: false }); res.end(); return; }
   taskRunning = true;
+  head(200);
   const child = spawn(process.execPath, args, { cwd: root, env: childEnv });
-  let output = '';
-  child.stdout.on('data', d => { output += d; });
-  child.stderr.on('data', d => { output += d; });
-  child.on('close', code => {
+  for (const s of [child.stdout, child.stderr]) { s.setEncoding('utf8'); s.on('data', out => send({ out })); }
+  const finish = (ok, note) => {
+    if (!taskRunning) return;
     taskRunning = false;
-    console.log(`[task] ${args.join(' ')} -> exit ${code}`);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: code === 0, output }));
-  });
+    console.log(`[task] ${args.join(' ')} -> ${note}`);
+    send({ ok });
+    res.end();
+  };
+  child.on('error', e => { send({ out: `${e.message}\n` }); finish(false, e.message); });
+  child.on('close', code => finish(code === 0, `exit ${code}`));
 }
 
 // ---- http ----
@@ -191,6 +213,7 @@ http.createServer((req, res) => {
     return;
   }
   if (url.pathname === '/api/script' && req.method === 'PUT') { saveScript(req, res, url); return; }
+  if (url.pathname === '/api/folder' && req.method === 'PUT') { saveFolder(req, res, url); return; }
   if (url.pathname === '/api/game' && req.method === 'PUT') { saveGame(req, res); return; }
   if (url.pathname === '/api/locales' && req.method === 'GET') { readLocales(res); return; }
   if (url.pathname === '/api/locale' && req.method === 'PUT') { saveLocale(req, res, url); return; }

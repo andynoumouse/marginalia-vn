@@ -14,6 +14,15 @@ export function listFiles(dir, ext = '') {
 
 const rel = (dir, f) => path.relative(dir, f).split(path.sep).join('/');
 
+/** Every folder under `dir` as a '/'-separated path, empty ones included (the editor lists them to create files in). */
+export function listDirs(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter(e => e.isDirectory())
+    .map(e => rel(dir, path.join(e.parentPath ?? e.path, e.name)))
+    .sort();
+}
+
 /** What checkAssets (engine/src/assets.ts) needs, from project data. */
 export function assetIndex(project) {
   const game = project.game ?? {};
@@ -28,6 +37,7 @@ export function assetIndex(project) {
 export function projectData(root) {
   const scriptDir = path.join(root, 'script'), localeDir = path.join(root, 'locale'), assetDir = path.join(root, 'assets');
   const scripts = listFiles(scriptDir, '.vn').map(f => ({ file: rel(scriptDir, f), text: fs.readFileSync(f, 'utf8') }));
+  const scriptDirs = listDirs(scriptDir);
   const locales = {};
   for (const f of listFiles(localeDir, '.json')) {
     try { locales[path.basename(f, '.json')] = JSON.parse(fs.readFileSync(f, 'utf8')); }
@@ -54,5 +64,5 @@ export function projectData(root) {
   let game = {}, gameText = null;
   try { gameText = fs.readFileSync(path.join(root, 'game.json'), 'utf8'); game = JSON.parse(gameText); }
   catch (e) { if (e.code !== 'ENOENT') console.warn(`Bad game.json: ${e.message}`); }
-  return { scripts, locales, assets, rigs, rigTexts, game, gameText };
+  return { scripts, scriptDirs, locales, assets, rigs, rigTexts, game, gameText };
 }

@@ -9,7 +9,9 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": ".",
-    "sourceMap": true
+    "sourceMap": true,
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["engine/src", "preview/*.ts", "editor/*.ts"]
 }

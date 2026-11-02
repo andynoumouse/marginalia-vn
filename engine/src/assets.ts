@@ -15,7 +15,8 @@ import { captionProblem } from './captions.js';
 import { positionProblem } from './positions.js';
 import { stageProblem } from './stage.js';
 import { hudLabels, type ScreenNode } from './screens.js';
-import { expandShow, liveOverrides, orderedParts, partName, type RigData } from './rig.js';
+import { expandShow, liveOverrides, orderedParts, partName, rigPartNames, rigPoseNames, type RigData } from './rig.js';
+import { withFix } from './suggest.js';
 
 /** One image of a layered character, or a slot with its variants (bottom to top in `parts`). */
 export interface RigPart {
@@ -51,9 +52,12 @@ const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   const out: Diagnostic[] = [];
   const seen = new Set<string>();
-  const warn = (src: Src, message: string) => {
+  /** With `word` and `known`, the message offers the closest known names ("did you mean") instead of `otherwise`. */
+  const warn = (src: Src, message: string, word?: string, known?: Iterable<string>, otherwise = '') => {
     const key = `${src.file}:${src.line}:${message}`;
-    if (!seen.has(key)) { seen.add(key); out.push({ file: src.file, line: src.line, severity: 'warning', message }); }
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(word !== undefined && known ? withFix(src, 'warning', message, word, known, otherwise) : { file: src.file, line: src.line, severity: 'warning', message: message + otherwise });
   };
 
   // Names by folder: "bg/park.png" -> bg: park; images at the root also count as backgrounds.
@@ -87,14 +91,14 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   for (const op of program.ops) {
     switch (op.op) {
       case 'scene':
-        if (bgs.size && !bgs.has(op.bg)) warn(op.src, `No background "${op.bg}" in assets/bg (a placeholder is drawn)`);
+        if (bgs.size && !bgs.has(op.bg)) warn(op.src, `No background "${op.bg}" in assets/bg`, op.bg, bgs, ' (a placeholder is drawn)');
         break;
       case 'show': {
         const rig = rigs.get(op.char);
         if (rig) {
           const shown = expandShow(index.rigs![op.char], op.pose, op.overrides); // rig.json shorthands and groups
           for (const problem of shown.problems) warn(op.src, `${op.char}: ${problem}`);
-          if (shown.pose && !rig.poses.has(shown.pose)) warn(op.src, `${op.char} has no layer named or aliased "${shown.pose}" (see its PSD)`);
+          if (shown.pose && !rig.poses.has(shown.pose)) warn(op.src, `${op.char} has no layer named or aliased "${shown.pose}"`, shown.pose, rigPoseNames(index.rigs![op.char]), ' (see its PSD)');
           for (const [slot, value] of Object.entries(shown.overrides)) {
             const variants = rig.slots.get(slot);
             if (!variants) warn(op.src, `${op.char} has no slot "${slot}" (slots: ${[...rig.slots.keys()].join(', ') || 'none'})`);
@@ -102,23 +106,23 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
           }
         } else if (op.pose) {
           const images = charImages(op.char);
-          if (images.size && !images.has(op.pose)) warn(op.src, `No image for ${op.char} "${op.pose}" in assets/char/${op.char}`);
+          if (images.size && !images.has(op.pose)) warn(op.src, `No image for ${op.char} "${op.pose}" in assets/char/${op.char}`, op.pose, images);
         }
         break;
       }
       case 'animate': {
-        const parts = (index.rigs?.[op.char]?.parts ?? []).map(partName);
-        if (op.part && !parts.includes(op.part)) warn(op.src, `${op.char} has no part "${op.part}" (parts: ${parts.join(', ') || 'none: only layered characters have parts'})`);
+        const rigOf = index.rigs?.[op.char], parts = rigOf ? rigPartNames(rigOf) : [];
+        if (op.part && !parts.includes(op.part)) warn(op.src, `${op.char} has no part "${op.part}"`, op.part, parts, ` (parts: ${parts.join(', ') || 'none: only layered characters have parts'})`);
         if (op.name === null || resolveAnim(op.name, index.rigs?.[op.char]?.rig?.animations)) break;
         const own = Object.keys(index.rigs?.[op.char]?.rig?.animations ?? {});
-        warn(op.src, `${op.char} has no animation "${op.name}" (${[...ANIM_NAMES, ...own].join(', ')})`);
+        warn(op.src, `${op.char} has no animation "${op.name}"`, op.name, [...ANIM_NAMES, ...own], ` (${[...ANIM_NAMES, ...own].join(', ')})`);
         break;
       }
       case 'music':
-        if (op.name && !music.has(op.name)) warn(op.src, `No track "${op.name}" in assets/music`);
+        if (op.name && !music.has(op.name)) warn(op.src, `No track "${op.name}" in assets/music`, op.name, music);
         break;
       case 'sound':
-        if (op.name && !sounds.has(op.name)) warn(op.src, `No sound "${op.name}" in assets/sound`);
+        if (op.name && !sounds.has(op.name)) warn(op.src, `No sound "${op.name}" in assets/sound`, op.name, sounds);
         break;
     }
   }

@@ -42,6 +42,13 @@ const TEXT_TAGS: Suggestion[] = ([
   ['ruby', '{ruby=reading}base{/ruby}', 'ruby=}$0{/ruby}'], ['pause', '{pause=0.5}  pause typing (seconds)', 'pause=0.5}'],
   ['wait', '{wait}  stop until a click, then continue the line', 'wait}'], ['nw', '{nw}  go on to the next line without a click', 'nw}'],
 ] as [string, string, string][]).map(([label, detail, insertText]) => ({ label, kind: 'keyword' as const, detail, insertText }));
+// Formats after `[variable:` in text (`formatValue` in text.ts).
+const TEXT_FORMATS: Suggestion[] = ([
+  ['2', '[n:2]  2 decimals', '2'], [',', '[n:,]  group thousands (1,234)', ','], [',2', '[n:,2]  grouped, 2 decimals', ',2'],
+  ['coin|coins', '[n:one|other]  plural form (a list counts its length)', '${1:coin}|${2:coins}$0'],
+  ['none|one|other', '[n:zero|one|other]  plural form with one for 0', '${1:no coins}|${2:a coin}|${3:coins}$0'],
+  ['one=|few=|many=|other=', '[n:one=..|few=..|other=..]  plural forms by the language\'s rules', 'one=$1|few=$2|many=$3|other=$0'],
+] as [string, string, string][]).map(([label, detail, insertText]) => ({ label, kind: 'keyword' as const, detail, insertText }));
 // Elements of a `screen` block (offered on any new line: the completion does not know the block).
 const SCREEN_ELEMENTS: [string, string][] = [
   ['image', 'image "file.png" [at x,y] [size w,h]'], ['hotspot', 'hotspot <id> at x,y size w,h | ellipse ... | poly x,y x,y x,y | mask "file.png"  "Label"'],
@@ -67,10 +74,23 @@ const assets = (labels: Iterable<string>, detail: string): Suggestion[] =>
 export function getCompletions(program: Program, linePrefix: string, rigs: Record<string, RigManifest> = {}): Suggestion[] {
   const trimmed = linePrefix.trimStart();
   if (trimmed.startsWith('#')) return [];
-  if (trimmed.startsWith('"') || /^[A-Za-z_]\w*:\s/.test(trimmed)) { // inside dialogue, narration or option text
+  const assigned = program.ops.flatMap(o => (o.op === 'set' && !o.name.startsWith('persistent.') ? [o.name] : o.op === 'input' ? [o.name] : o.op === 'screen' && o.as ? [o.as] : []));
+  const variables: Suggestion[] = [...new Set([...assigned, ...Object.values(program.params ?? {}).flat()])]
+    .map(label => ({ label, kind: 'variable' }));
+  const flags: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'unlock' ? [o.name] : [])))]
+    .map(name => ({ label: `unlocked.${name}`, kind: 'variable', detail: 'persistent flag' }));
+  const persistent: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'set' && o.name.startsWith('persistent.') ? [o.name] : [])))]
+    .map(label => ({ label, kind: 'variable', detail: 'persistent value' }));
+
+  const inString = (trimmed.match(/"/g)?.length ?? 0) % 2 === 1; // e.g. an `input` prompt or a screen's text
+  if (trimmed.startsWith('"') || /^[A-Za-z_]\w*:\s/.test(trimmed) || inString) { // inside dialogue, narration or option text
     const open = trimmed.lastIndexOf('{');
-    return open >= 0 && !trimmed.includes('}', open) ? TEXT_TAGS : [];
+    if (open >= 0 && !trimmed.includes('}', open)) return TEXT_TAGS;
+    const ref = /\[([A-Za-z_][\w.]*)?(:[^\][]*)?$/.exec(trimmed); // an unclosed [variable or [variable:format
+    if (!ref) return [];
+    return ref[2] !== undefined ? (ref[2] === ':' ? TEXT_FORMATS : []) : [...variables, ...persistent];
   }
+  if (trimmed.endsWith(':')) return []; // a `:` typed after a speaker or block opener
 
   const endsWithSpace = /\s$/.test(trimmed);
   const toks = trimmed.split(/\s+/).filter(Boolean);
@@ -82,13 +102,6 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
     const ps = program.params?.[label];
     return ps?.length ? { label, kind: 'label' as const, detail: '(' + ps.join(', ') + ')' } : { label, kind: 'label' as const };
   });
-  const variables: Suggestion[] = [...new Set([...program.ops.flatMap(o => (o.op === 'set' && !o.name.startsWith('persistent.') ? [o.name] : [])), ...Object.values(program.params ?? {}).flat()])]
-    .map(label => ({ label, kind: 'variable' }));
-  const flags: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'unlock' ? [o.name] : [])))]
-    .map(name => ({ label: `unlocked.${name}`, kind: 'variable', detail: 'persistent flag' }));
-  const persistent: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'set' && o.name.startsWith('persistent.') ? [o.name] : [])))]
-    .map(label => ({ label, kind: 'variable', detail: 'persistent value' }));
-
   if (prev.length === 0) {
     return [
       ...SCREEN_ELEMENTS.map(([label, detail]) => ({ label, kind: 'command' as const, detail })),

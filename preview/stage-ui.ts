@@ -5,7 +5,7 @@ import { assetContext, captionFor, stateAssets, VOICE_KEY, type CaptionTable, ty
 import { AudioSystem } from './audio.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
 import { Blips } from './blips.js';
-import { OSK_ROWS, oskCaps, oskPress, type OskState } from './input.js';
+import { autoFocus, OSK_ROWS, oskCaps, oskPress, type OskState } from './input.js';
 import { TEXT_INSTANT } from './settings.js';
 
 export { W, H } from './stage-size.js';
@@ -594,7 +594,7 @@ export abstract class StageRenderer implements Renderer {
       }));
       if (timer && this.timedChoices !== 'off') this.startClock(timer.seconds * (this.timedChoices === 'extended' ? 3 : 1), options.length, resolve);
       menuEl.dataset.visible = 'true';
-      menuEl.querySelector<HTMLElement>(':scope > button:not([aria-disabled="true"])')?.focus();
+      autoFocus(menuEl.querySelector<HTMLElement>(':scope > button:not([aria-disabled="true"])'));
     });
   }
 
@@ -828,7 +828,10 @@ export abstract class StageRenderer implements Renderer {
       board.append(bottom);
       board.dataset.caps = 'true';
       field.addEventListener('input', () => { osk = { value: field.value, shift: false, fresh: false }; });
+      // In the editor the field waits for the player to enter the preview (a click or Alt+2) before taking focus.
+      const takeFocus = () => { if (autoFocus(field)) { field.select(); window.removeEventListener('focus', takeFocus); } };
       const submit = () => {
+        window.removeEventListener('focus', takeFocus);
         this.menuOpen = false;
         menuEl.dataset.visible = 'false';
         resolve(field.value.trim() || def);
@@ -837,8 +840,8 @@ export abstract class StageRenderer implements Renderer {
       field.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
       menuEl.replaceChildren(label, field, board, ok);
       menuEl.dataset.visible = 'true';
-      field.focus();
-      field.select();
+      window.addEventListener('focus', takeFocus);
+      takeFocus();
     });
   }
 

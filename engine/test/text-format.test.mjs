@@ -20,6 +20,22 @@ test('[n:one|other] picks a plural form, three forms add a zero form', () => {
   assert.equal(interpolate('[bag:item|items]', { bag: ['key', 'map'] }), 'items'); // a list counts its length
 });
 
+test('keyed plural forms follow the language rules, exact counts first, then other', () => {
+  const ru = '[n:one=монета|few=монеты|many=монет|other=монеты]';
+  assert.equal(interpolate(ru, { n: 1 }, {}, 'ru'), 'монета');
+  assert.equal(interpolate(ru, { n: 3 }, {}, 'ru'), 'монеты');
+  assert.equal(interpolate(ru, { n: 5 }, {}, 'ru'), 'монет');
+  assert.equal(interpolate(ru, { n: 21 }, {}, 'ru'), 'монета');
+  assert.equal(interpolate(ru, { n: 1.5 }, {}, 'ru'), 'монеты');
+  assert.equal(interpolate('[n:0=none|one=a coin|other=coins]', { n: 0 }), 'none');
+  assert.equal(interpolate('[n:one=a coin|other=coins]', { n: 2 }), 'coins');
+  assert.equal(interpolate('[n:few=x|other=y]', { n: 1 }, {}, 'en'), 'y'); // 'one' missing: falls back to other
+  assert.equal(interpolate('[n:one=a|two=b]', { n: 5 }), '[n:one=a|two=b]'); // no form fits
+  assert.equal(interpolate('[n:one=a|other=b]', { n: 1 }, {}, 'not a lang!'), 'a'); // bad tag: en-like rules
+  assert.equal(interpolate('[bag:one=item|other=items]', { bag: ['key'] }), 'item');
+  assert.equal(interpolate('[name:one=a|other=b]', { name: 'Ann' }), '[name:one=a|other=b]');
+});
+
 test('unknown variables, formats and non-numbers stay as written', () => {
   assert.equal(interpolate('[x:2]', {}), '[x:2]');
   assert.equal(interpolate('[t:wat]', { t: 1 }), '[t:wat]');

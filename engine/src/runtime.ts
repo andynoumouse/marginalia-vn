@@ -222,6 +222,16 @@ export class Runtime {
   /** Set while a restore() to a source line the story never reaches is rerun to enter that label body directly. */
   private forced = false;
   private triedForce = false;
+  /**
+   * A forced rerun first enters at the start of the label around the line and replays up to it (so the label's earlier
+   * lines set up the scene); `forceLabel` is set while that runs, with `budget` ops left before it gives up and `forceOp`
+   * the op it must get to. If the label never gets there, a second rerun enters at the line itself (`forceDirect`, also
+   * used by step restores).
+   */
+  private forceLabel = false;
+  private forceDirect = false;
+  private forceOp = -1;
+  private budget = 0;
   /** Menus a restore() answered with its default (nothing recorded): a story that loops through menus never ends this way. */
   private guessed = 0;
   /** True when the last restore() had to jump straight to its line (the story does not get there on its own). */
@@ -366,7 +376,8 @@ export class Runtime {
     this.replay = replay;
     this.forced = this.triedForce = false;
     this.forceAt = null;
-    if ('step' in target && target.from) { this.forced = this.triedForce = true; this.forceAt = target.from; }
+    this.forceLabel = this.forceDirect = false;
+    if ('step' in target && target.from) { this.forced = this.triedForce = this.forceDirect = true; this.forceAt = target.from; }
     this.guessed = 0;
     this.jumped = false;
     this.jumpedFrom = null;
@@ -451,7 +462,7 @@ export class Runtime {
   private fmt(text: string): string {
     const names: Record<string, string> = {};
     for (const it of Object.values(this.program.items ?? {})) names[it.id] = this.locale.t(it.nameId, it.name);
-    return interpolate(text, this.scope(), names);
+    return interpolate(text, this.scope(), names, this.locale.lang);
   }
 
   /** What the screen of a `show screen` op looks like with the variables as they are now. */
@@ -466,7 +477,7 @@ export class Runtime {
       names[it.id] = this.locale.t(it.nameId, it.name);
       items[it.id] = { name: names[it.id], image: it.image };
     }
-    return resolveScreen(def, { ...this.scope(), ...extra }, { items, entries, stage: this.program.stage, text: (id, raw, vars) => interpolate(this.locale.t(id, raw), vars, names) });
+    return resolveScreen(def, { ...this.scope(), ...extra }, { items, entries, stage: this.program.stage, text: (id, raw, vars) => interpolate(this.locale.t(id, raw), vars, names, this.locale.lang) });
   }
 
   /** The project's `screen quickmenu` as it looks now, or null when it declares none (the shell then keeps its stock bar). */
@@ -701,12 +712,16 @@ export class Runtime {
     const { ops } = this.program;
 
     while (gen === this.gen) {
+      if (this.forceLabel && this.instant && --this.budget < 0) this.pc = ops.length; // the label goes round in circles
       if (this.pc < 0 || this.pc >= ops.length) {
         const t = this.target;
-        if (this.instant && t && 'file' in t && !this.triedForce && ops.some(o => o.src.file === t.file && o.src.line >= t.line && o.src.line > 0)) {
-          // The story never gets to that line: rerun the setup, then enter the code at the line directly.
+        if (this.instant && t && 'file' in t && (!this.triedForce || this.forceLabel) && ops.some(o => o.src.file === t.file && o.src.line >= t.line && o.src.line > 0)) {
+          // The story never gets to that line: rerun the setup, then enter the label around it (or, when that failed too, the line itself).
+          this.forceDirect = this.forceLabel;
+          this.forceLabel = false;
           this.reset();
           this.replay = [];
+          this.guessed = 0;
           this.forced = this.triedForce = true;
           this.forceAt = t;
           this.syncRenderer();
@@ -718,7 +733,9 @@ export class Runtime {
         return;
       }
       const op = ops[this.pc];
-      const stops = op.op === 'say' || op.op === 'input' || (op.op === 'menu' && this.visibleOptions(op).length > 0)
+      // Replaying a label went past the line without running it (an `if` around it was false): enter the line itself.
+      if (this.forceLabel && this.instant && this.pc !== this.forceOp && this.reached(op)) { this.pc = ops.length; continue; }
+      const stops =op.op === 'say' || op.op === 'input' || (op.op === 'menu' && this.visibleOptions(op).length > 0)
         || (op.op === 'screen' && blocks(this.screenView(op)));
       if (stops) { // a safe point: HUD events are taken here, before the line or choice is shown
         if (this.takeHudEvent()) continue;
@@ -814,7 +831,7 @@ export class Runtime {
             this.pc = shown[idx].o.target;
           }
           // Still guessing after this many menus: the story goes round in circles and never gets to the line (see the forced rerun).
-          if (this.instant && this.target && 'file' in this.target && !this.triedForce && this.guessed > RESTORE_GUESS_LIMIT) this.pc = ops.length;
+          if (this.instant && this.target && 'file' in this.target && (!this.triedForce || this.forceLabel) && this.guessed > RESTORE_GUESS_LIMIT) this.pc = ops.length;
           break;
         }
         case 'screen': {
@@ -835,17 +852,17 @@ export class Runtime {
           this.choices.push(id);
           this.vars[op.as] = id;
           // Still guessing after this many answers: a screen loop that never leaves (see the menu case).
-          if (this.instant && this.target && 'file' in this.target && !this.triedForce && this.guessed > RESTORE_GUESS_LIMIT) this.pc = ops.length;
+          if (this.instant && this.target && 'file' in this.target && (!this.triedForce || this.forceLabel) && this.guessed > RESTORE_GUESS_LIMIT) this.pc = ops.length;
           break;
         }
         case 'input': {
           this.step++;
           let text: string;
-          if (this.instant) text = String(this.replay.shift() ?? op.default);
+          if (this.instant) text = String(this.replay.shift() ?? this.fmt(op.default));
           else {
             this.pending = 'modal';
             this.queued = [];
-            text = (await this.renderer.input(this.fmt(this.locale.t(op.id, op.prompt)), op.default, op.max, op.src)).slice(0, op.max);
+            text = (await this.renderer.input(this.fmt(this.locale.t(op.id, op.prompt)), this.fmt(op.default), op.max, op.src)).slice(0, op.max);
             this.pending = null;
             if (gen !== this.gen) return;
           }
@@ -866,7 +883,15 @@ export class Runtime {
             const t = this.forceAt;
             const gi = ops.indexOf(op);
             const at = ops.findIndex((o, i) => i > gi && o.src.file === t.file && o.src.line >= t.line);
-            if (at >= 0) {
+            // The label the line is in (the nearest one before it in that file): its earlier lines replay first.
+            const label = this.forceDirect ? -1
+              : Math.max(-1, ...Object.values(this.program.labels).filter(l => l > gi && l <= at && ops[l]?.src.file === t.file));
+            if (label >= 0) {
+              this.pc = label; this.jumped = true; this.jumpedFrom = ops[label].src;
+              this.forceLabel = true;
+              this.forceOp = at;
+              this.budget = 100000;
+            } else if (at >= 0) {
               this.pc = at; this.jumped = true; this.jumpedFrom = t;
               // Entering mid-page: NVL is whatever the nearest earlier `nvl on|off` of that file left it as.
               for (let i = at - 1; i >= 0 && ops[i].src.file === t.file; i--) {

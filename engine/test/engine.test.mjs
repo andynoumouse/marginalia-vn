@@ -448,6 +448,48 @@ test('rolling back after a direct entry stays in that code instead of replaying 
   assert.equal(r.says[0].text, 'b'); // not 'a' from start
 });
 
+test('restore to a line the story never reaches replays its label from the start', async () => {
+  const text = 'label start:\n  "a"\n  end\nlabel hidden:\n  set n = 2\n  "b"\n  "c"\n';
+  const p = compile([{ file: 't.vn', text }]);
+  const r = new NullRenderer();
+  const rt = new Runtime(p, r);
+  await rt.restore({ file: 't.vn', line: 7 });
+  assert.equal(r.says[0].text, 'c');
+  assert.equal(rt.vars.n, 2); // the label's earlier lines ran
+  assert.equal(rt.jumped, true);
+  assert.equal(rt.jumpedFrom.line, 5); // steps count from the label's start
+  const r2 = new NullRenderer();
+  const rt2 = new Runtime(p, r2);
+  await rt2.restore({ step: 1, from: rt.jumpedFrom });
+  assert.equal(r2.says[0].text, 'c');
+  assert.equal(rt2.vars.n, 2);
+});
+
+test('a run of lines indented too far is one error, and the code after it still compiles', () => {
+  // the first line of a label one level too deep: the rest of the label sits at the "wrong" depth
+  const deep = compile([{ file: 't.vn', text: 'label start:\n    "a"\n  "b"\n  "c"\n  jump next\nlabel next:\n  "d"\n' }]);
+  assert.deepEqual(errors(deep).map(d => [d.line, d.message]), [[3, 'Unexpected indentation']]);
+  assert.ok(deep.labels.next !== undefined);
+  // a menu option body and a screen with one stray line each
+  const menu = compile([{ file: 't.vn', text: 'label start:\n  menu:\n    "x":\n      "a"\n        "b"\n        "c"\n    "y":\n        "d"\n          "e"\n' }]);
+  assert.deepEqual(errors(menu).map(d => d.line), [5, 9]);
+  const screen = compile([{ file: 't.vn', text: 'screen s:\n  text "a" at 10,10\n    text "b" at 10,10\n    text "c" at 10,10\n  text "d" at 10,10\nlabel start:\n  end\n' }]);
+  assert.deepEqual(errors(screen).map(d => d.line), [3]);
+});
+
+test('restore into a label that skips or never gets to the line enters the line itself', async () => {
+  const skipped = 'label start:\n  end\nlabel hidden:\n  set n = 1\n  if n == 2:\n    "x"\n  "y"\n';
+  const r = new NullRenderer();
+  const rt = new Runtime(compile([{ file: 't.vn', text: skipped }]), r);
+  await rt.restore({ file: 't.vn', line: 6 });
+  assert.equal(r.says[0].text, 'x'); // not 'y' after the false `if`
+  assert.deepEqual(rt.jumpedFrom, { file: 't.vn', line: 6 });
+  const loops = 'label start:\n  end\nlabel hidden:\n  "a"\n  jump hidden\n  "b"\n';
+  const r2 = new NullRenderer();
+  await new Runtime(compile([{ file: 't.vn', text: loops }]), r2).restore({ file: 't.vn', line: 6 });
+  assert.equal(r2.says[0].text, 'b');
+});
+
 test('rich text tags: colour, size, effects, ruby, wait and next; unknown tags stay literal', () => {
   const segs = parseRich('a{color=#f00}b{size=1.5}c{/size}{/color}{wave}d{/wave}{ruby=kan}X{/ruby}{wait}e{nw}');
   const text = segs.filter(s => s.kind === 'text');
@@ -501,6 +543,16 @@ test('input prompts are localizable: ids are assigned, exported and translated',
   assert.equal(compile([{ file: 't.vn', text: 'label start:\n  input x #abcd\n' }]).diagnostics.length, 1);
 });
 
+test('input fills [variables] in its prompt and default', async () => {
+  const p = compile([{ file: 't.vn', text: 'label start:\n  set who = "Sam"\n  input nick "Nickname for [who]?" default="[who]y"\n' }]);
+  assert.deepEqual(errors(p), []);
+  const r = new NullRenderer();
+  const rt = new Runtime(p, r);
+  await rt.start();
+  assert.deepEqual(r.inputs, ['Nickname for Sam?']);
+  assert.equal(rt.vars.nick, 'Samy');
+});
+
 test('completions offer text tags after { in dialogue, narration and option text', () => {
   const p = compile([{ file: 't.vn', text: 'define al "Al"\nlabel start:\n  al: hi\n' }]);
   const labels = prefix => getCompletions(p, prefix).map(s => s.label);
@@ -510,6 +562,28 @@ test('completions offer text tags after { in dialogue, narration and option text
   assert.ok(getCompletions(p, '  al: {i}x{/i} {').length > 0);
   assert.deepEqual(getCompletions(p, '  al: {color=#fff}closed{/color} plain'), []);
   assert.deepEqual(getCompletions(p, '  al: Hello {wait} there'), []);
+});
+
+test('completions offer variables after [ in text and formats after [variable:', () => {
+  const p = compile([{ file: 't.vn', text: 'define al "Al"\nlabel start:\n  set gold = 3\n  set persistent.wins = 1\n  al: hi\n' }]);
+  const labels = prefix => getCompletions(p, prefix).map(s => s.label);
+  for (const prefix of ['  al: You have [', '  al: You have [go', '  "Wins: [']) {
+    assert.ok(labels(prefix).includes('gold') && labels(prefix).includes('persistent.wins'), prefix);
+  }
+  assert.ok(labels('  al: [gold:').includes('one=|few=|many=|other='));
+  assert.ok(labels('  al: [gold:').includes(','));
+  assert.deepEqual(getCompletions(p, '  al: [gold:,'), []);
+  assert.deepEqual(getCompletions(p, '  al: [gold] coins'), []);
+  assert.deepEqual(getCompletions(p, '  al:'), []); // the `:` trigger after a speaker offers nothing
+  assert.ok(labels('  ').includes('scene'));
+  // Variables set by input and `show screen ... as`; any quoted text, such as an input's prompt and default.
+  const q = compile([{ file: 't.vn', text: 'label start:\n  input name "Name?"\n  show screen s as pick\n  "x"\nscreen s:\n  button a at 0,0 "A"\n' }]);
+  const qs = prefix => getCompletions(q, prefix).map(s => s.label);
+  assert.ok(qs('  "Hello [').includes('name') && qs('  "Hello [').includes('pick'));
+  assert.ok(qs('  input who "Give name [').includes('name'));
+  assert.ok(qs('  input who "Name?" default="[').includes('name'));
+  assert.ok(qs('  input who "Name?" default="{').includes('wait'));
+  assert.ok(!qs('  input who "Name?" ').includes('name'));
 });
 
 test('help: commands.md renders, and every statement the parser knows has a topic', () => {

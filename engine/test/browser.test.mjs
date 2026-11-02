@@ -7,7 +7,8 @@
 import { before, after, describe, test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, mkdtempSync, cpSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import net from 'node:net';
@@ -23,12 +24,12 @@ async function freePort() {
   });
 }
 
-let server, browser, base, skipReason;
+let server, browser, base, skipReason, snapshot;
 
 // Every test has its own browser context (own localStorage, own mocked /api routes) and the dev server is read-only here,
-// so they do not interact: they are collected and run VN_BROWSER_JOBS at a time (default 1, in order) by the suite at the end of
-// the file. 2 jobs halve the time and passed 4 runs out of 4, but 3 or 4 make the hotspot, HUD and gamepad tests fail now
-// and then (pointer and timing waits under load), so the default stays at the safe 1; raise it only for a quick local run.
+// so they do not interact: they are collected and run VN_BROWSER_JOBS at a time (default 6; 1 runs them in order) by the suite at the
+// end of the file. 6 jobs take ~32 s against ~150 s for 1 and passed 6 runs out of 6 (also with tsc running alongside), but
+// an earlier 4-job run failed one pointer/timing test once, so if a test fails only in a full run, retry it with VN_BROWSER_JOBS=1.
 const queued = [];
 const test = (...args) => { queued.push(args); };
 
@@ -46,10 +47,14 @@ before(async () => {
       throw new Error(`${dep} is missing from ${path.join(root, 'node_modules')}: run \`npm install\` here (a new git worktree has no node_modules)`);
     }
   }
+  // Serve a frozen copy of dist/: a tsc run in the checkout meanwhile rewrites dist/ in place, which broke running tests
+  // (half-written files, and the server's watcher reloading every page).
+  snapshot = mkdtempSync(path.join(tmpdir(), 'vn-browser-'));
+  cpSync(path.join(root, 'dist'), path.join(snapshot, 'dist'), { recursive: true });
   const port = await freePort();
   base =`http://localhost:${port}/`;
   server = spawn(process.execPath, ['preview/dev-server.mjs', '--no-build', '--no-art'], {
-    cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore',
+    cwd: root, env: { ...process.env, PORT: String(port), VN_DIST_ROOT: snapshot }, stdio: 'ignore',
   });
   for (let i = 0; ; i++) {
     try { if ((await fetch(base)).ok) break; } catch { /* not listening yet */ }
@@ -61,6 +66,7 @@ before(async () => {
 after(async () => {
   await browser?.close();
   server?.kill();
+  if (snapshot) rmSync(snapshot, { recursive: true, force: true });
 });
 
 // A fresh browser context per test: empty localStorage, so no saves or settings leak between tests.
@@ -652,7 +658,7 @@ test('animation studio: the mouth and blink fields are written to rig.json by Ap
   });
   try {
     await page.goto(`${base}editor/`);
-    await page.locator('button.anim').first().click();
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click();
     const studio = page.locator('#animStudio');
     await studio.locator('.as-tab[data-tab="char"]').click();
     await studio.locator('.as-sp-vars').waitFor();
@@ -687,7 +693,7 @@ test('animation studio: fills a 1280x720 window, every tab opens by keyboard, fo
   page.on('pageerror', e => errors.push(e.message));
   try {
     await page.goto(`${base}editor/`);
-    await page.locator('button.anim').first().click();
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click();
     const studio = page.locator('#animStudio');
     await studio.locator('.as-tab').first().waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.closest('#animStudio') !== null), true, 'focus starts inside the studio');
@@ -708,7 +714,7 @@ test('animation studio: fills a 1280x720 window, every tab opens by keyboard, fo
   }
 });
 
-test('animation studio: the part list flags parts a stage dress hides, and picking shows the other pivots as one ring', async t => {
+test('animation studio: the Parts tree dresses the stage, and picking shows the other pivots as one ring', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -716,19 +722,26 @@ test('animation studio: the part list flags parts a stage dress hides, and picki
   page.on('pageerror', e => errors.push(e.message));
   try {
     await page.goto(`${base}editor/`);
-    await page.locator('button.anim').first().click();
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click();
     const studio = page.locator('#animStudio');
-    await studio.locator('.as-tab[data-tab="stage"]').click();
-    await studio.locator('.as-slots select').first().waitFor();
-    const options =() => studio.locator('.as-part option').allTextContents();
+    await studio.locator('.as-tab[data-tab="part"]').click();
+    await studio.locator('.as-tree .as-row').first().waitFor();
+    const kinds = await studio.locator('.as-tree .as-badge').allTextContents();
+    assert.ok(['slot', 'layer', 'group'].every(k => kinds.includes(k)), `the tree names slots, layers and groups, saw ${kinds}`);
+    assert.ok(await studio.locator('.as-tree img').count() > 0, 'parts and variants have thumbnails');
+    const options = () => studio.locator('.as-part option').allTextContents();
     assert.ok(!(await options()).some(o => o.includes('hidden in this pose')), 'nothing is hidden by default');
-    const slot = studio.locator('.as-slots select').first();
-    await slot.selectOption('none');
+    const none = studio.locator('.as-tree [data-variant="none"]').first();
+    await none.click();
     assert.ok((await options()).some(o => o.includes('hidden in this pose')), 'a slot set to none hides its part');
-    await slot.selectOption('');
+    assert.equal(await none.getAttribute('aria-pressed'), 'true');
+    await none.click(); // again: back to what the pose picks
     assert.ok(!(await options()).some(o => o.includes('hidden in this pose')));
-    await studio.locator('.as-part').selectOption('face'); // opens the Part tab
+    await studio.locator('.as-list button', { hasText: 'head_tilt' }).click();
+    assert.notEqual(await studio.locator('.as-part').inputValue(), '', 'an animation that only keys parts opens at one of them');
+    await studio.locator('.as-part').selectOption('face'); // opens the Parts tab
     assert.equal(await studio.locator('.as-tab[data-tab="part"]').getAttribute('aria-selected'), 'true');
+    assert.equal(await studio.locator('.as-tree .as-row[data-part="face"]').getAttribute('aria-pressed'), 'true', 'the tree marks the chosen part');
     await studio.locator('.as-pick').click();
     const stage = page.frameLocator('#animStudio iframe');
     const visible = () => stage.locator('div[title]').evaluateAll(els => els.filter(e => getComputedStyle(e).display !== 'none').map(e => e.title));
@@ -1403,6 +1416,6 @@ play('timed menu: with Timed choices off there is no clock and the player can wa
   assert.equal(await page.locator('#menu[data-visible="true"]').count(), 1);
 }, withTimedStart(2));
 
-describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 1) }, () => {
+describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
   for (const args of queued) nodeTest(...args);
 });

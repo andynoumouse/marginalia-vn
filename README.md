@@ -294,7 +294,9 @@ http://localhost:5173/editor/ edits the scripts and game.json next to the live p
 the palette (it works with focus anywhere, including in the preview); what you type picks the mode.
 The **Files** panel (button or Ctrl+B) lists the scripts, game.json, characters (click to open the rig.json) and
 the assets by folder (click to view an image, play a sound or preview a font in a dialog; Left/Right step through the folder), with a filter box. Tabs close with their × (or middle-click,
-or Alt+W); closing only hides the tab, the script still compiles with the rest.
+or Alt+W); closing only hides the tab, the script still compiles with the rest. **Alt+1**, **Alt+2** and **Alt+3**
+move focus to the editor, the preview (to play it with the keyboard) and the Files panel's filter, from anywhere; Monaco's
+**Ctrl+M** makes Tab leave the script instead of indenting. F1 lists all the editor's keys under "Editor keys".
 
 | Type | Mode |
 |---|---|
@@ -314,7 +316,12 @@ art to `order` and reports ones that are gone. `show alice ` completes rig.json 
 Hex colors show a swatch in the editor, and clicking it opens a color picker that rewrites the value (`#rrggbb`, or `#rrggbbaa` when not opaque). In scripts that covers colors after `=` (`color=`, `text=`, `{color=#...}`) and after `tint` / `flash`; in game.json any quoted hex string (the `theme`). Named colors and `rgba(...)` get no swatch. The logic is in engine/src/colors.ts.
 
 Preview from cursor also works on lines the story never reaches (a label nothing jumps to yet): the preview runs
-the top-level setup, then enters the code at that line. The **Variables** button (or the command) shows the
+the top-level setup, then plays that label from its start up to the line, so a `show` before it is on stage. When the
+label skips the line (an `if` that is false) or never gets to it, the preview enters the code at the line itself.
+
+A mistyped name (a command, a label, a character, a screen, or a background, pose, track, sound, animation or part
+that has no file) is marked with the closest known names in the message, `Unknown command "shwo" (did you mean
+"show"?)`, and **Ctrl+.** on it offers each one as a quick fix. The matching is in engine/src/suggest.ts. The **Variables** button (or the command) shows the
 story variables, unlock flags and persistent values live while the preview plays; values that just changed are highlighted. Double-click
 a variable to edit it (`true`/`false`, a number, or text; Enter applies, Esc cancels); persistent values are editable and stored at once, unlock flags are read-only.
 
@@ -333,7 +340,8 @@ opens docs/game-json.md, and in a rig.json tab docs/rig-json.md at the key (`ord
 Keys: Ctrl+Enter preview from cursor, Ctrl+S save, F8 / Shift+F8 next /
 previous problem, Alt+Z word wrap. Commands are one list in `buildCommands()` (editor/editor.ts): a title,
 an optional key (bound automatically and shown in the palette), an optional `when`, and `run`. Project tasks
-(export, strings, art) run in the dev server (`/api/task`, a fixed whitelist) and print to the Output panel.
+(export, strings, art) run in the dev server (`/api/task`, a fixed whitelist) and stream to the Output panel, where
+`file:line` references open that line.
 
 ## Look and feel
 

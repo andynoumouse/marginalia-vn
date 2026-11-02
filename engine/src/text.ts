@@ -10,25 +10,33 @@ export type Segment =
 /**
  * Replace [name] with the variable's value (also [persistent.name]). Unknown names are left as written. A list shows its
  * entries joined with commas; `itemNames` (item id -> display name, from `define item`) swaps the entries that are items.
+ * `lang` picks the plural rules for keyed plural forms (`[n:one=...|few=...|other=...]`).
  */
-export function interpolate(text: string, vars: Record<string, Value>, itemNames: Record<string, string> = {}): string {
+export function interpolate(text: string, vars: Record<string, Value>, itemNames: Record<string, string> = {}, lang = 'en'): string {
   return text.replace(/\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?::([^\][]+))?\]/g, (m, n: string, fmt?: string) => {
     if (!(n in vars)) return m;
     const v = vars[n];
-    if (fmt !== undefined) return formatValue(v, fmt) ?? m;
+    if (fmt !== undefined) return formatValue(v, fmt, lang) ?? m;
     return Array.isArray(v) ? v.map(x => (typeof x === 'string' && Object.hasOwn(itemNames, x) ? itemNames[x] : String(x))).join(', ') : String(v);
   });
 }
 
 /**
  * `[n:2]` shows a number with 2 decimals (0-8), `[n:,]` groups thousands, `[n:,2]` both, and `[n:coin|coins]` picks a
- * plural form: one `|` means 1 / other, two mean 0 / 1 / other. A list counts as its length. Returns null for a
- * format it does not know, so the tag stays as written.
+ * plural form: one `|` means 1 / other, two mean 0 / 1 / other. Keyed forms (`one=coin|few=coins|other=coins`, plus
+ * exact counts like `0=none`) follow the language's plural rules, falling back to `other`. A list counts as its length.
+ * Returns null for a format it does not know, so the tag stays as written.
  */
-function formatValue(v: Value, fmt: string): string | null {
+function formatValue(v: Value, fmt: string, lang: string): string | null {
   const count = Array.isArray(v) ? v.length : Number(v);
   if (fmt.includes('|')) {
     const forms = fmt.split('|');
+    const keyed = forms.map(f => PLURAL_KEY.exec(f));
+    if (keyed.every(k => k)) {
+      if (Number.isNaN(count)) return null;
+      const table = new Map(keyed.map(k => [k![1], k![2]]));
+      return table.get(String(count)) ?? table.get(pluralCategory(count, lang)) ?? table.get('other') ?? null;
+    }
     if (forms.length > 3 || Number.isNaN(count)) return null;
     return forms.length === 2 ? forms[count === 1 ? 0 : 1] : forms[count === 0 ? 0 : count === 1 ? 1 : 2];
   }
@@ -37,6 +45,17 @@ function formatValue(v: Value, fmt: string): string | null {
   const digits = num[2] === undefined ? undefined : Number(num[2]);
   if (digits !== undefined && digits > 8) return null;
   return count.toLocaleString('en-US', { useGrouping: !!num[1], minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 20 });
+}
+
+const PLURAL_KEY = /^(zero|one|two|few|many|other|\d+)=(.*)$/s;
+
+/** The CLDR plural category of `count` in `lang` ('other' when the language is unknown to Intl). */
+function pluralCategory(count: number, lang: string): string {
+  try {
+    return new Intl.PluralRules(lang).select(count);
+  } catch {
+    return count === 1 ? 'one' : 'other';
+  }
 }
 
 const COLOR = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;

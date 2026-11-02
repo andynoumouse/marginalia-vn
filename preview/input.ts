@@ -14,6 +14,16 @@ export type Action = Dir | 'confirm' | 'cancel' | 'tabPrev' | 'tabNext' | 'backs
 export interface Box { x: number; y: number; w: number; h: number }
 
 /**
+ * Focus `el` for a prompt or menu that just opened, unless the game sits in the editor and the player is not in it:
+ * focusing inside a same-origin iframe pulls focus out of the editor, and every edit replays the preview to the cursor.
+ */
+export function autoFocus(el: HTMLElement | null | undefined, opts?: FocusOptions): boolean {
+  if (!el || (window.parent !== window && !document.hasFocus())) return false;
+  el.focus(opts);
+  return true;
+}
+
+/**
  * The box to move to from `boxes[from]` in direction `dir`, or -1. Candidates must lie mostly in that direction
  * (entirely past the starting box's edge). Of those, the nearest row (or column) wins, and within it the
  * one best aligned with the starting box, so a wide button does not skip over the row below it.

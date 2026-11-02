@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkAssets, checkRig, compile, getCompletions, NullRenderer, Runtime, expandShow, mergeRig, orderedParts, rigLayers, rigAnimNames, rigPoseNames, rigSkeleton, rigSlotNames } from '../../dist/engine/src/index.js';
+import { checkAssets, checkRig, compile, getCompletions, NullRenderer, Runtime, expandShow, mergeRig, orderedParts, rigLayers, rigAnimNames, rigPoseNames, rigSkeleton, rigSlotNames, rigPartNames, partGroups, spreadPartOffsets, rigOutline, NO_OFFSET } from '../../dist/engine/src/index.js';
 
 const v = file => ({ file });
 const manifest = rig => ({
@@ -79,7 +79,7 @@ test('checkRig reports problems in rig.json', () => {
   assert.deepEqual(found.find(p => p.message.includes('no slot or group')).at, 'hat');
   assert.deepEqual(rigPoseNames(manifest(rig)), ['angry', 'casual', 'down', 'narrow', 'on', 'open', 'plain', 'school', 'shy']);
   assert.deepEqual(rigSlotNames(manifest(rig)), ['outfit_back', 'outfit_front', 'eyes', 'blush', 'outfit']);
-  for (const part of ['no part named "ghost"', 'names slot "nope"', '"eyes" is also a slot', '"open" is also a variant', 'no layer named or aliased "zzz"', 'no slot or group "hat"', 'slot "eyes" has no variant "closed"']) {
+  for (const part of ['no part named "ghost"', 'names part "nope"', '"eyes" is also a slot', '"open" is also a variant', 'no layer named or aliased "zzz"', 'no slot or group "hat"', 'slot "eyes" has no variant "closed"']) {
     assert.ok(bad.some(m => m.includes(part)), part);
   }
 });
@@ -144,12 +144,48 @@ test('parts: rigLayers names the part of each layer; pivots and key parts are ch
   assert.deepEqual(rigLayers(m, null, {}).map(l => l.part), ['hair', 'outfit_back', 'body', 'outfit_front', 'eyes']);
   const msgs = rig => checkRig(manifest(rig)).map(p => p.message);
   assert.deepEqual(msgs({ pivots: { hair: [10, 20], eyes: [0, 0] } }), []);
-  assert.match(msgs({ pivots: { tail: [1, 2] } })[0], /no part named "tail"/);
+  assert.match(msgs({ pivots: { tail: [1, 2] } })[0], /no part or group named "tail"/);
   assert.match(msgs({ pivots: { hair: [1] } })[0], /use \[x, y\]/);
   assert.match(msgs({ pivots: { hair: ['a', 2] } })[0], /use \[x, y\]/);
   const anim = key => ({ animations: { wave: { keys: [key] } } });
   assert.deepEqual(msgs(anim({ t: 0.5, part: 'hair', rot: 5 })), []);
-  assert.match(msgs(anim({ t: 0.5, part: 'tail', rot: 5 }))[0], /no part named "tail"/);
+  assert.match(msgs(anim({ t: 0.5, part: 'tail', rot: 5 }))[0], /no part or group named "tail"/);
+});
+
+test('groups of parts: keys, pivots and part= can name a group; slot=variant only takes groups with slots', () => {
+  const head = { groups: { head: ['hair', 'eyes'], face: ['hair'] }, pivots: { head: [50, 40] } };
+  const m = manifest(head);
+  assert.deepEqual(partGroups(m), { head: ['hair', 'eyes'], face: ['hair'] });
+  assert.deepEqual(rigPartNames(m).slice(-2), ['head', 'face']);
+  assert.deepEqual(rigSlotNames(m).slice(-1), ['head']); // `face` has no slot to set
+  const msgs = rig => checkRig(manifest(rig)).map(p => p.message);
+  assert.deepEqual(msgs({ ...head, animations: { tilt: { keys: [{ t: 0.5, part: 'head', rot: 5 }] } } }), []);
+  assert.match(msgs({ groups: { hair: ['eyes'] } })[0], /"hair" is also a part name; the part wins/);
+  assert.deepEqual(partGroups(manifest({ groups: { hair: ['eyes'], g: ['eyes', 'nope'] } })), { g: ['eyes'] });
+  // a plain layer in a group is skipped by slot=variant; a group of only plain layers sets nothing
+  assert.deepEqual(expandShow(m, null, { head: 'down' }), { pose: null, overrides: { eyes: 'down' }, problems: [] });
+  assert.match(expandShow(m, null, { face: 'down' }).problems[0], /group "face" has no slots/);
+  const src = 'define al "Al"\nlabel start:\n  show al\n  animate al nod part=head\n  end\n';
+  assert.deepEqual(checkAssets(compile([{ file: 't.vn', text: src }]), { files: [], rigs: { al: m } }).map(d => d.message), []);
+});
+
+test('spreadPartOffsets: a group moves its parts as one piece about its pivot', () => {
+  const o = (x = {}) => ({ ...NO_OFFSET, ...x });
+  const pivots = { a: [0, 0], b: [10, 0], g: [0, 0] };
+  const pv = n => pivots[n] ?? null;
+  // a turn of 90 degrees about (0,0): b's own pivot (10,0) ends at (0,10), a shift of (-10, 10); a turns in place
+  const out = spreadPartOffsets(new Map([['g', o({ rot: 90 })], ['a', o({ rot: 5 })]]), { g: ['a', 'b'] }, pv, 1);
+  assert.deepEqual(out.get('a'), o({ rot: 95 })); // its own offset adds to the group's
+  const b = out.get('b');
+  assert.equal(b.rot, 90);
+  assert.ok(Math.abs(b.dx + 10) < 1e-9 && Math.abs(b.dy - 10) < 1e-9, JSON.stringify(b));
+  // dx/dy are in units of `unit` pixels; a part name that is not a group passes through
+  const half = spreadPartOffsets(new Map([['g', o({ rot: 90 })], ['c', o({ dx: 1 })]]), { g: ['b'] }, pv, 2).get('b');
+  assert.ok(Math.abs(half.dx + 5) < 1e-9 && Math.abs(half.dy - 5) < 1e-9);
+  assert.deepEqual(spreadPartOffsets(new Map([['c', o({ dx: 1 })]]), { g: ['b'] }, pv, 2).get('c'), o({ dx: 1 }));
+  // without a pivot of its own the group turns about its first part's
+  const first = spreadPartOffsets(new Map([['g', o({ rot: 90 })]]), { g: ['b', 'a'] }, n => (n === 'g' ? null : pv(n)), 1);
+  assert.deepEqual(first.get('b'), o({ rot: 90 }));
 });
 
 test('animate part=: parsed, kept on a loop and checked against the character\'s parts', async () => {
@@ -169,4 +205,31 @@ test('animate part=: parsed, kept on a loop and checked against the character\'s
   const rt = new Runtime(compile([{ file: 't.vn', text: src.replace(/.*part=\n/, '').replace(/  animate (mina nod|bo bob).*\n/g, '') + '' }]), r);
   await rt.start();
   assert.deepEqual(rt.state.sprites[0].anim, { name: 'sway', dur: null, strength: 1, part: 'hair' });
+});
+
+test('rigOutline: parts top first with what is shown, groups, and the variants each pose picks', () => {
+  const m = manifest({ ...rig, groups: { ...rig.groups, still: ['hair', 'body', 'nope'] } });
+  const o = rigOutline(m, null, {});
+  assert.deepEqual(o.parts.map(p => `${p.kind}:${p.name}`), ['slot:blush', 'slot:eyes', 'slot:outfit_front', 'layer:hair', 'slot:outfit_back', 'layer:body']);
+  const part = (x, n) => x.parts.find(p => p.name === n);
+  assert.deepEqual(part(o, 'eyes'), {
+    name: 'eyes', kind: 'slot', file: 'e_open.png', shown: 'open', groups: [],
+    variants: [
+      { name: 'open', file: 'e_open.png', poses: [], isDefault: true },
+      { name: 'down', file: 'e_down.png', poses: [], isDefault: false },
+      { name: 'narrow', file: 'e_narrow.png', poses: ['angry'], isDefault: false },
+    ],
+  });
+  assert.equal(part(o, 'blush').shown, null, 'a slot without a default shows nothing');
+  assert.deepEqual(part(o, 'hair'), { name: 'hair', kind: 'layer', file: 'hair.png', variants: [], shown: null, groups: ['still'] });
+  assert.deepEqual(part(o, 'outfit_front').groups, ['outfit']);
+  assert.deepEqual(o.groups, [{ name: 'outfit', parts: ['outfit_back', 'outfit_front'], dresses: true }, { name: 'still', parts: ['hair', 'body'], dresses: false }]);
+  assert.deepEqual(o.poses, [
+    { name: 'shy', from: 'rig', picks: { eyes: 'narrow', blush: 'on' } },
+    { name: 'plain', from: 'rig', picks: { outfit_front: 'casual', outfit_back: 'casual' } },
+    { name: 'angry', from: 'art', picks: { eyes: 'narrow' } },
+  ]);
+  const dressed = rigOutline(m, 'shy', { eyes: 'down', outfit: 'none' });
+  assert.deepEqual(['blush', 'eyes', 'outfit_front'].map(n => part(dressed, n).shown), ['on', 'down', null]);
+  assert.equal(part(dressed, 'outfit_back').file, null);
 });

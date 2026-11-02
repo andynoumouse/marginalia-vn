@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { variableRefs, variableAt, renameVariable, applyTextEdits } from '../../dist/engine/src/index.js';
+import { variableRefs, variableAt, variableUses, renameVariable, applyTextEdits } from '../../dist/engine/src/index.js';
 
 const A = `define alice "Alice"
 set trust = 0
@@ -39,6 +39,15 @@ const apply = res => { assert.ok(res.ok, res.error); return applyTextEdits(A, re
 test('variableRefs finds sets, conditions, text, call args and declarations, not strings or functions', () => {
   const t = variableRefs(files).filter(r => r.name === 'trust' && !r.persistent && !r.scope);
   assert.deepEqual(t.map(r => r.line), [2, 5, 5, 7, 9, 10, 11, 12, 13, 13, 14, 14, 15, 20, 22, 23]);
+});
+
+test('variableUses lists one variable only: the global, the persistent value and a local stay apart', () => {
+  const g = variableUses(files, variableAt(files, 'a.vn', 2, 6));
+  assert.deepEqual(g.map(r => r.line), [2, 5, 5, 7, 9, 10, 11, 12, 13, 13, 14, 14, 15, 20, 22, 23]);
+  const p = variableUses(files, variableAt(files, 'a.vn', 3, 'set persistent.'.length));
+  assert.ok(p.length && p.every(r => r.persistent));
+  const local = variableUses(files, variableAt(files, 'a.vn', 21, 'label buy('.length));
+  assert.ok(local.length && local.every(r => r.line >= 21 && r.scope));
 });
 
 test('renaming a global leaves persistent, locals and strings alone', () => {

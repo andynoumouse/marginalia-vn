@@ -226,6 +226,119 @@ export function removeTopLevelProperty(text: string, key: string): TextEdit | nu
   }
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Whether two JSON values are the same (the order of an object's keys does not count). */
+function jsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((v, i) => jsonEqual(v, b[i]));
+  }
+  if (!isObject(a) || !isObject(b)) return false;
+  const ka = Object.keys(a).filter(k => a[k] !== undefined), kb = Object.keys(b).filter(k => b[k] !== undefined);
+  return ka.length === kb.length && ka.every(k => Object.hasOwn(b, k) && jsonEqual(a[k], b[k]));
+}
+
+/** The indent of the line that holds index `i` of `s`. */
+function lineIndent(s: string, i: number): string {
+  const start = s.lastIndexOf('\n', i - 1) + 1;
+  return /^[ \t]*/.exec(s.slice(start))![0];
+}
+
+/** One property of an object as written: `lead` is the space before it (after the comma), `ks` its key, `vs`-`ve` its value. */
+interface Member { key: string; lead: string; ks: number; vs: number; ve: number }
+
+/** The properties of the JSON object that starts at `i` (a `{`), and the space before its `}`; null when it is malformed. */
+function readMembers(s: string, i: number): { members: Member[]; tail: string } | null {
+  const members: Member[] = [];
+  let from = ++i; // where the space before the next key starts
+  for (;;) {
+    i = ws(s, i);
+    if (s[i] === '}') return { members, tail: s.slice(from, i) };
+    if (members.length) {
+      if (s[i] !== ',') return null;
+      from = ++i;
+      i = ws(s, i);
+    }
+    if (s[i] !== '"') return null;
+    const ks = i, ke = skipString(s, i);
+    if (ke < 0) return null;
+    i = ws(s, ke);
+    if (s[i] !== ':') return null;
+    const vs = ws(s, i + 1), ve = skipValue(s, vs);
+    if (ve < 0) return null;
+    members.push({ key: JSON.parse(s.slice(ks, ke)) as string, lead: s.slice(from, ks), ks, vs, ve });
+    i = from = ve;
+  }
+}
+
+/**
+ * The text for the JSON value written in `s` from `vs` to `ve` (whose value is `was`) once it becomes `now`. A value that
+ * did not change keeps its text; in an object only the properties that changed are written anew (in the layout of
+ * `pretty`), the others keep theirs, and the space between them is kept too. A one-line object that would get a
+ * multi-line property, or that keeps none of its properties, is written anew as a whole.
+ */
+function rewriteValue(s: string, vs: number, ve: number, was: unknown, now: unknown): string {
+  if (jsonEqual(was, now)) return s.slice(vs, ve);
+  const pad = lineIndent(s, vs);
+  if (!isObject(was) || !isObject(now) || s[vs] !== '{') return pretty(now, pad);
+  const read = readMembers(s, vs);
+  if (!read) return pretty(now, pad);
+  const old = new Map(read.members.map((m, i) => [m.key, { m, i }]));
+  const keys = Object.keys(now).filter(k => now[k] !== undefined);
+  if (old.size !== read.members.length || !keys.some(k => old.has(k))) return pretty(now, pad);
+  const first = read.members[0].lead;
+  const sep = read.members[1]?.lead ?? (first.includes('\n') ? first : ' ');
+  const oneLine = !s.slice(vs, ve).includes('\n');
+  let out = '{';
+  for (const [j, k] of keys.entries()) {
+    const had = old.get(k);
+    let lead: string, body: string;
+    if (had) {
+      lead = j === 0 ? first : had.i === 0 ? sep : had.m.lead;
+      body = s.slice(had.m.ks, had.m.vs) + rewriteValue(s, had.m.vs, had.m.ve, was[k], now[k]);
+    } else {
+      lead = j === 0 ? first : sep;
+      body = `${JSON.stringify(k)}: ${pretty(now[k], lead.includes('\n') ? lead.slice(lead.lastIndexOf('\n') + 1) : pad)}`;
+    }
+    if (oneLine && body.includes('\n')) return pretty(now, pad);
+    out += `${j ? ',' : ''}${lead}${body}`;
+  }
+  return `${out}${read.tail}}`;
+}
+
+/** A top-level property of rig.json to put in; a null value removes the property. */
+export interface RigWrite { key: string; value: unknown }
+
+/**
+ * The text of rig.json `text` with the top-level properties of `writes` put in (what the animation studio's Apply does).
+ * Only what changed is written anew: a property, an animation or a pivot whose value is the same keeps its text and layout
+ * (a one-line `pivots` stays one line), so a diff shows just the edit. An empty object is not added to a file that lacks
+ * the property. Null when `text` is not a JSON object.
+ */
+export function writeRigText(text: string, writes: RigWrite[]): string | null {
+  let was: unknown;
+  try { was = JSON.parse(text); } catch { return null; }
+  if (!isObject(was)) return null;
+  const now: Record<string, unknown> = { ...was };
+  for (const { key, value } of writes) {
+    if (value === null) delete now[key];
+    else if (Object.hasOwn(now, key) || !isObject(value) || Object.keys(value).length) now[key] = value;
+  }
+  const vs = ws(text, 0), ve = skipValue(text, vs);
+  return text.slice(0, vs) + rewriteValue(text, vs, ve, was, now) + text.slice(ve);
+}
+
+/** The one edit (between the common start and end of both) that turns `before` into `after`; null when they are the same. */
+export function textChange(before: string, after: string): TextEdit | null {
+  if (before === after) return null;
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let end = 0;
+  while (end < before.length - start && end < after.length - start && before[before.length - 1 - end] === after[after.length - 1 - end]) end++;
+  return { start, end: before.length - end, insert: after.slice(start, after.length - end) };
+}
+
 /** `pivots` with the same pivot `at` for every one of `parts` (a head made of several parts turns about one point). */
 export function setPivots(pivots: Pivots, parts: string[], at: [number, number] | null): Pivots {
   return parts.reduce((p, part) => setPivot(p, part, at), pivots);
@@ -236,12 +349,12 @@ export interface Placement { x: number; y: number; scale: number; flip: boolean;
 
 const round = (v: number, d = 3) => Math.round(v * 10 ** d) / 10 ** d;
 
-/** The `show` line that puts `char` (in `pose`) where `p` says: the named position when it matches, `y=` `scale=` `flip=` `anchor=` only when they differ from the default. */
-export function showLine(char: string, pose: string | null, p: Placement, positions: Positions = BUILTIN_POSITIONS, anchors: Anchors = ANCHORS): string {
+/** The `show` line that puts `char` (in `pose`, with the slot variants in `overrides`) where `p` says: the named position when it matches, `y=` `scale=` `flip=` `anchor=` only when they differ from the default. */
+export function showLine(char: string, pose: string | null, p: Placement, positions: Positions = BUILTIN_POSITIONS, anchors: Anchors = ANCHORS, overrides: Record<string, string> = {}): string {
   const x = round(p.x), y = round(p.y), scale = round(p.scale, 2);
   // A name stands for its x and its height, so it only matches when both agree.
   const named = Object.entries(positions).find(([, v]) => v.x === x && (v.y ?? 0) === y)?.[0];
-  return ['show', char, pose, 'at', named ?? String(x), !named && y !== 0 && `y=${y}`, scale !== 1 && `scale=${scale}`, p.flip && 'flip=on', p.anchor && anchorToken(p.anchor, anchors) !== 'feet' && `anchor=${anchorToken(p.anchor, anchors)}`].filter(Boolean).join(' ');
+  return ['show', char, pose, 'at', named ?? String(x), !named && y !== 0 && `y=${y}`, scale !== 1 && `scale=${scale}`, p.flip && 'flip=on', p.anchor && anchorToken(p.anchor, anchors) !== 'feet' && `anchor=${anchorToken(p.anchor, anchors)}`, ...Object.entries(overrides).map(([slot, variant]) => `${slot}=${variant}`)].filter(Boolean).join(' ');
 }
 
 /** `text` with `edit` done. */

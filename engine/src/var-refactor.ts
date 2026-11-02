@@ -173,6 +173,10 @@ export function variableAt(files: ProjectFile[], file: string, line: number, col
   return variableRefs(files).find(r => r.file === file && r.line === line && col >= r.col && col <= r.col + r.length);
 }
 
+/** Every use of `target` itself (not an unrelated variable of the same name, a persistent value or another label's local). */
+export const variableUses = (files: ProjectFile[], target: VarRef): VarRef[] =>
+  variableRefs(files).filter(r => r.name === target.name && r.persistent === target.persistent && r.scope === target.scope);
+
 /** Edits that rename the variable `target` (all its uses, not an unrelated one of the same name), or why that cannot be done. */
 export function renameVariable(files: ProjectFile[], target: VarRef, to: string): RenameResult {
   if (!NAME.test(to)) return { ok: false, error: `"${to}" is not a valid variable name (letters, digits and _, not starting with a digit)` };

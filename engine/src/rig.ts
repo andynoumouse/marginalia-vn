@@ -2,14 +2,15 @@
 // converter's sprite.json:
 //  - order:  part names (a slot, or a plain part's file name without extension), bottom to top. Listed parts are
 //            re-stacked among the positions they already occupy; parts not listed stay where the PSD had them.
-//  - groups: one name that sets several slots at once (`outfit=school` sets outfit_back and outfit_front).
+//  - groups: one name for several parts: `outfit=school` sets the variant of each slot in it, and an animation key or
+//            `animate ... part=` naming the group moves all its parts as one piece (about the group's pivot).
 //  - poses:  named shorthands for a pose plus slot overrides (`show alice shy`).
 //  - animations: keyframe animations for `animate alice <name>` (see anim.ts).
 //  - idle, speak, blink: what the character does by itself (see idle.ts): a looping animation while it is on stage, a
 //    mouth and/or animation while its lines type, and blinking through a slot.
 // project-data.mjs attaches the file to the manifest as `rig`, so renderer, preloads and checks all see it.
 
-import { ANIM_NAMES, EASE_NAMES, KEY_CHANNELS, resolveAnim, type AnimDef } from './anim.js';
+import { ANIM_NAMES, EASE_NAMES, KEY_CHANNELS, NO_OFFSET, addOffset, resolveAnim, type AnimDef, type Offset } from './anim.js';
 import type { RigManifest, RigPart } from './assets.js';
 
 export interface RigData {
@@ -86,13 +87,15 @@ export function expandShow(rig: RigManifest, pose: string | null, overrides: Rec
   const data = rig.rig;
   const problems: string[] = [];
   if (!data) return { pose, overrides, problems };
-  const slots = slotsOf(rig);
+  const slots = slotsOf(rig), names = new Set((rig.parts ?? []).map(partName));
   const out: Record<string, string> = {};
   const apply = (key: string, value: string) => {
     const members = data.groups?.[key];
     if (!members || slots.has(key)) { out[key] = value; return; } // a real slot wins over a group of the same name
+    if (!members.some(m => slots.has(m))) { problems.push(`group "${key}" has no slots to set (only plain parts: it is for animation)`); return; }
     for (const slot of members) {
       const variants = slots.get(slot);
+      if (!variants && names.has(slot)) continue; // a plain layer in the group: it has no variants
       if (!variants) problems.push(`group "${key}" names slot "${slot}", which this character does not have`);
       else if (value !== 'none' && !variants[value]) problems.push(`slot "${slot}" of group "${key}" has no variant "${value}"`);
       else out[slot] = value;
@@ -118,14 +121,56 @@ const variantNames = (rig: RigManifest): Set<string> => {
 /** What `show <char> <pose>` accepts: PSD variant names and aliases, and rig.json shorthands. */
 export const rigPoseNames = (rig: RigManifest): string[] => [...new Set([...Object.keys(rig.rig?.poses ?? {}), ...variantNames(rig)])].sort();
 
-/** The parts of a layered character (slots and plain layers) that `animate ... part=` and keyframe `part`s can name. */
-export const rigPartNames = (rig: RigManifest): string[] => (rig.parts ?? []).map(partName);
+/**
+ * The rig.json groups that can move parts: a group named like a part is left out (the part wins), and members that
+ * are not parts are dropped.
+ */
+export function partGroups(rig: RigManifest): Record<string, string[]> {
+  const names = new Set((rig.parts ?? []).map(partName));
+  const out: Record<string, string[]> = {};
+  for (const [g, members] of Object.entries(rig.rig?.groups ?? {})) {
+    if (!names.has(g) && Array.isArray(members)) out[g] = members.filter(m => names.has(m));
+  }
+  return out;
+}
+
+/** What `animate ... part=` and keyframe `part`s can name: the parts of a layered character (slots and plain layers), then its groups. */
+export const rigPartNames = (rig: RigManifest): string[] => [...(rig.parts ?? []).map(partName), ...Object.keys(partGroups(rig))];
 
 /** What `animate <char> <name>` accepts beyond the presets. */
 export const rigAnimNames = (rig: RigManifest): string[] => Object.keys(rig.rig?.animations ?? {});
 
-/** What `slot=variant` accepts on the left: slots and rig.json groups. */
-export const rigSlotNames = (rig: RigManifest): string[] => [...new Set([...slotsOf(rig).keys(), ...Object.keys(rig.rig?.groups ?? {})])];
+/** What `slot=variant` accepts on the left: slots and the rig.json groups that have a slot in them. */
+export const rigSlotNames = (rig: RigManifest): string[] => {
+  const slots = slotsOf(rig);
+  const groups = Object.entries(rig.rig?.groups ?? {}).filter(([, m]) => Array.isArray(m) && m.some(s => slots.has(s))).map(([g]) => g);
+  return [...new Set([...slots.keys(), ...groups])];
+};
+
+/**
+ * Animation offsets by part or group name (`named`) spread onto the parts. A group moves each of its parts as one
+ * piece: about the group's pivot, where `pivot` gives it (local pixels; a part turns about its own, so the difference
+ * becomes a shift), and added to the part's own offset. `unit` is how many local pixels an offset's dx/dy of 1 is.
+ */
+export function spreadPartOffsets(named: Map<string, Offset>, groups: Record<string, string[]>, pivot: (name: string) => [number, number] | null, unit: number): Map<string, Offset> {
+  const out = new Map<string, Offset>();
+  const add = (part: string, o: Offset) => out.set(part, addOffset(out.get(part) ?? NO_OFFSET, o));
+  for (const [name, o] of named) {
+    const members = Object.hasOwn(groups, name) ? groups[name] : null;
+    if (!members) { add(name, o); continue; }
+    const q = pivot(name) ?? (members.length ? pivot(members[0]) : null);
+    const r = (o.rot * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+    for (const m of members) {
+      const p = pivot(m);
+      if (!q || !p || !unit) { add(m, o); continue; }
+      // Turning about q instead of p: x -> q + M(x - q) = p + M(x - p) + (q - p) - M(q - p), with M = rotate . scale.
+      const vx = q[0] - p[0], vy = q[1] - p[1];
+      const mx = cos * (1 + o.sx) * vx - sin * (1 + o.sy) * vy, my = sin * (1 + o.sx) * vx + cos * (1 + o.sy) * vy;
+      add(m, { ...o, dx: o.dx + (vx - mx) / unit, dy: o.dy + (vy - my) / unit });
+    }
+  }
+  return out;
+}
 
 /** A problem in rig.json; `at` is the key it is about, so the editor can find its line. */
 export interface RigProblem { message: string; at: string }
@@ -141,9 +186,10 @@ export function checkRig(rig: RigManifest): RigProblem[] {
   const variants = variantNames(rig);
   for (const n of data.order ?? []) if (!names.has(n)) problem(`order: no part named "${n}"`, n);
   for (const [g, members] of Object.entries(data.groups ?? {})) {
-    if (slots.has(g)) problem(`groups: "${g}" is also a slot name; the slot wins`, g);
-    for (const s of members) if (!slots.has(s)) problem(`groups: "${g}" names slot "${s}", which does not exist`, s);
+    if (names.has(g)) problem(`groups: "${g}" is also a ${slots.has(g) ? 'slot' : 'part'} name; the ${slots.has(g) ? 'slot' : 'part'} wins`, g);
+    for (const s of members) if (!names.has(s)) problem(`groups: "${g}" names part "${s}", which does not exist`, s);
   }
+  const groups = partGroups(rig);
   const target = (k: string) => (slots.has(k) ? [k] : data.groups?.[k]?.filter(s => slots.has(s)));
   for (const [name, def] of Object.entries(data.poses ?? {})) {
     if (variants.has(name)) problem(`poses: "${name}" is also a variant or pose name in the PSD; the shorthand wins`, name);
@@ -151,11 +197,12 @@ export function checkRig(rig: RigManifest): RigProblem[] {
       if (k === 'pose') { if (v && !variants.has(v)) problem(`poses.${name}: no layer named or aliased "${v}"`, name); continue; }
       const members = target(k);
       if (!members) { problem(`poses.${name}: no slot or group "${k}"`, k); continue; }
+      if (!members.length) { problem(`poses.${name}: group "${k}" has no slots to set`, k); continue; }
       for (const s of members) if (v !== 'none' && !slots.get(s)![v]) problem(`poses.${name}: slot "${s}" has no variant "${v}"`, name);
     }
   }
   for (const [part, pv] of Object.entries(data.pivots ?? {})) {
-    if (!names.has(part)) problem(`pivots: no part named "${part}"`, part);
+    if (!names.has(part) && !Object.hasOwn(groups, part)) problem(`pivots: no part or group named "${part}"`, part);
     else if (!Array.isArray(pv) || pv.length !== 2 || !pv.every(Number.isFinite)) problem(`pivots.${part}: use [x, y] in pixels of the PSD canvas`, part);
   }
   const knownAnim = (n: string) => resolveAnim(n, data.animations) !== null;
@@ -190,7 +237,7 @@ export function checkRig(rig: RigManifest): RigProblem[] {
     def.keys.forEach((k, i) => {
       const at = `animations.${name}.keys[${i}]`;
       if (!k || typeof k !== 'object') { problem(`${at}: not a key`, name); return; }
-      if (k.part !== undefined && !names.has(k.part)) problem(`${at}: no part named "${k.part}" (parts: ${[...names].join(', ') || 'none'})`, name);
+      if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(groups, k.part)) problem(`${at}: no part or group named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name);
       if (!(k.t >= 0 && k.t <= 1)) problem(`${at}: t must be a number from 0 to 1`, name);
       if (k.ease !== undefined && !EASE_NAMES.includes(k.ease)) problem(`${at}: unknown ease "${k.ease}" (${EASE_NAMES.join(', ')})`, name);
       const channels = KEY_CHANNELS.filter(c => k[c] !== undefined);

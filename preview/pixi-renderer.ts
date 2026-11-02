@@ -5,7 +5,7 @@
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
 import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
-import { addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, rigLayers, scaleOffset, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
+import { addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
 import { $, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
@@ -56,6 +56,7 @@ export class PixiRenderer extends StageRenderer {
   private flashLayer = new Graphics();
   private fade = new Graphics();
   private actors = new Map<string, Actor>();
+  private focused = new Map<string, string>();       // the animation studio's chosen part, by character
   private tweens = new Set<Tween>();
   private art = new Map<string, Texture>();          // "bg/park" -> texture, from assets/
   private artUrl = new Map<string, string>();        // "bg/park" -> the url (with version) its texture came from
@@ -231,6 +232,17 @@ export class PixiRenderer extends StageRenderer {
     this.poseBody(a, NO_OFFSET);
     this.posePartsOf(a, new Map());
   }
+  /** The animation studio brings one part (or a group's parts) of `char` forward by dimming the rest; null shows all. */
+  studioFocus(char: string, part: string | null) {
+    if (part) this.focused.set(char, part); else this.focused.delete(char);
+    const a = this.actors.get(char);
+    if (a) this.dimParts(a);
+  }
+  private dimParts(a: Actor) {
+    const part = this.focused.get(a.s.char), rig = this.files.rigs[a.s.char];
+    const lit = part ? (rig ? partGroups(rig)[part] : undefined) ?? [part] : null;
+    for (const [name, c] of a.parts) c.alpha = !lit || lit.includes(name) ? 1 : 0.2;
+  }
   /** The studio's working copy of `pivots` replaces the character's own, and its layers are built again with them. */
   studioPivots(char: string, pivots: Record<string, [number, number]>) {
     const rig = this.files.rigs[char], a = this.actors.get(char);
@@ -375,14 +387,22 @@ export class PixiRenderer extends StageRenderer {
     const nodes = build();
     a.body.addChild(...nodes);
     a.parts = new Map(nodes.filter(c => c.label).map(c => [c.label, c]));
+    if (this.focused.size) this.dimParts(a);
     a.key = key;
     this.posePartsOf(a, a.partPose);
   }
-  /** Turn the parts about their pivots: `o` has the offsets of those that move; the rest go back to rest. */
+  /** Turn the parts about their pivots: `o` has the offsets of those that move (by part or group name); the rest go back to rest. */
   private posePartsOf(a: Actor, o: Map<string, Offset>) {
     a.partPose = o;
+    const rig = this.files.rigs[a.s.char];
+    const pivot = (name: string): [number, number] | null => {
+      const c = a.parts.get(name), pv = rig?.rig?.pivots?.[name];
+      if (c) return [c.pivot.x, c.pivot.y];
+      return pv ? [pv[0] - (rig!.width ?? 0) / 2, pv[1] - (rig!.height ?? 0)] : null; // a group's own pivot
+    };
+    const spread = o.size && rig ? spreadPartOffsets(o, partGroups(rig), pivot, FX()) : o;
     for (const [name, c] of a.parts) {
-      const p = o.get(name) ?? NO_OFFSET;
+      const p = spread.get(name) ?? NO_OFFSET;
       c.position.set(c.pivot.x + p.dx * FX(), c.pivot.y + p.dy * FX());
       c.scale.set(1 + p.sx, 1 + p.sy);
       c.angle = p.rot;

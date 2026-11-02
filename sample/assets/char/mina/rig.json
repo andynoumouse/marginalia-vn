@@ -1,7 +1,8 @@
 {
   "order": ["bottom", "top"],
   "groups": {
-    "outfit": ["top", "bottom"]
+    "outfit": ["top", "bottom"],
+    "head": ["face", "bangs", "eyes", "mouth"]
   },
   "poses": {
     "shy": { "pose": "smile", "mouth": "neutral" },
@@ -9,7 +10,7 @@
     "casual": { "pose": "happy", "outfit": "casual" }
   },
   "pivots": {
-    "hair_back": [270, 380], "face": [270, 380], "bangs": [270, 380], "eyes": [270, 380], "mouth": [270, 380]
+    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380], "bangs": [270, 380], "eyes": [270, 380], "mouth": [270, 380]
   },
   "idle": "breathe",
   "speak": { "variants": ["open", "neutral"], "rate": 7 },
@@ -26,15 +27,9 @@
     "head_tilt": {
       "dur": 1,
       "keys": [
-        { "part": "face", "t": 0.35, "rot": 6, "ease": "out" },
-        { "part": "bangs", "t": 0.35, "rot": 6, "ease": "out" },
-        { "part": "eyes", "t": 0.35, "rot": 6, "ease": "out" },
-        { "part": "mouth", "t": 0.35, "rot": 6, "ease": "out" },
+        { "part": "head", "t": 0.35, "rot": 6, "ease": "out" },
         { "part": "hair_back", "t": 0.5, "rot": 9, "ease": "out" },
-        { "part": "face", "t": 0.75, "rot": -2 },
-        { "part": "bangs", "t": 0.75, "rot": -2 },
-        { "part": "eyes", "t": 0.75, "rot": -2 },
-        { "part": "mouth", "t": 0.75, "rot": -2 },
+        { "part": "head", "t": 0.75, "rot": -2 },
         { "part": "hair_back", "t": 0.85, "rot": -4 }
       ]
     },
