@@ -20,6 +20,8 @@ repos and use the engine as a package (see "Making a game").
 
 ## Run it (engine repo)
 
+Needs Node.js 22 or newer.
+
 ```
 npm install
 npm run dev          # builds, watches, serves http://localhost:5173 (editor: /editor/) for sample/
@@ -48,7 +50,7 @@ The game folder holds only content: `game.json`, `script/`, `locale/`, `assets/`
 `build/` (ignored). Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which
 runs the engine's tools on the current folder. Because the dependency is a link, not a copy, engine changes
 apply to the game right away; restart `npm run dev` after pulling engine changes. To freeze the engine for a
-release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.2.0"`) and update it on
+release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.2.1"`) and update it on
 purpose. game.json `"engine": "0.1"` makes the tools warn when the engine is older than the game expects.
 
 ## Layout

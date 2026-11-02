@@ -8,9 +8,11 @@ generated folder installs its own copy.
 npm run export -- --desktop      # or: vn export --desktop [--out build/desktop]
 cd build/desktop
 npm install
-npm start                        # run it
-npm run dist                     # installer for the platform you are on, in build/desktop/dist
+npm start                        # run it (the first run downloads Electron itself, about 115 MB)
+npm run dist                     # installer for the platform you are on, in build/desktop/release
 ```
+
+The folder's own `dist/` holds the game's engine code; the installer goes to `release/` so it does not mix with it.
 
 `npm run dist` uses electron-builder with a Windows (NSIS), Linux (AppImage) and macOS (dmg) target; an installer is
 built on the platform it is for (a macOS dmg needs a Mac). Build options (icon, app id, signing) go in the `build`

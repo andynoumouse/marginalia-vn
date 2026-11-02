@@ -22,7 +22,10 @@ import { assetIndex, listFiles } from './project-data.mjs';
 import { runBuildChecks } from './build-checks.mjs';
 import { checkVoiceFiles } from './voice-check.mjs';
 
-const ELECTRON_VERSION = '^33.0.0'; // the desktop app folder installs its own copy: the engine repo does not depend on Electron
+// The desktop app folder installs its own copy: the engine repo does not depend on Electron. 33's installer unzips only one file
+// under Node 24; 45 fetches the binary on first run with a working unzip.
+const ELECTRON_VERSION = '^45.2.1';
+const ELECTRON_BUILDER_VERSION = '^26.0.0';
 const projectDir = projectRoot();
 checkEngineVersion(projectDir);
 const args = process.argv.slice(2);
@@ -90,8 +93,10 @@ if (!desktop) {
   fs.writeFileSync(path.join(out, 'package.json'), JSON.stringify({
     name: slug, version: '1.0.0', private: true, type: 'module', main: 'main.cjs', description: String(project.game.title ?? 'Untitled'),
     scripts: { start: 'electron .', dist: 'electron-builder' },
-    devDependencies: { electron: ELECTRON_VERSION,'electron-builder': '^25.0.0' },
-    build: { appId: `game.${slug}`, productName: String(project.game.title ?? 'Untitled'), files: ['**/*'], win: { target: 'nsis' }, linux: { target: 'AppImage' }, mac: { target: 'dmg' } },
+    devDependencies: { electron: ELECTRON_VERSION, 'electron-builder': ELECTRON_BUILDER_VERSION },
+    // The installer goes to release/: electron-builder's default output, dist/, holds the game's engine code and would be left
+    // out of the packaged app.
+    build: { appId: `game.${slug}`, productName: String(project.game.title ?? 'Untitled'), directories: { output: 'release' }, files: ['**/*'], win: { target: 'nsis' }, linux: { target: 'AppImage' }, mac: { target: 'dmg' } },
   }, null, 2));
 }
 
@@ -147,7 +152,7 @@ console.log(`Exported "${project.game.title ?? 'Untitled'}" to ${out}: ${files.l
 if (desktop) {
   const rel = path.relative(projectDir, out);
   console.log(`Desktop app folder. Try it: cd ${rel} && npm install && npm start`);
-  console.log('Installer (for the platform you are on): npm run dist   (results in dist/ inside that folder)');
+  console.log('Installer (for the platform you are on): npm run dist   (results in release/ inside that folder)');
 } else {
   console.log(`Open it through a web server (browsers block modules from file://): upload it, or run "npx serve ${path.relative(projectDir, out)}" in the project.`);
 }

@@ -90,8 +90,15 @@ Phasing (a rough order, not a schedule; sections below are by topic, so use the 
 ## Shipping
 
 - [~] Desktop app (Electron, `vn export --desktop`).
-  - [-] **DEFERRED (much later)** Run the installer build (`npm run dist`) on Linux and macOS; only Windows `npm start` is verified.
+  - [-] **DEFERRED (much later)** Run the installer build (`npm run dist`) on Linux and macOS; only Windows is verified (`npm start` and the NSIS installer, Electron 45 on Node 24).
   - [ ] Maybe let users drop modifier scripts in the folder that override some variables (needs a definition first).
+- [ ] Editor as an Electron app ("Marginalia Studio"), so authors need no Node.js or npm. The main process starts the dev
+  server and opens `/editor/` in its own window. Child scripts already run through `process.execPath`, so they would need
+  `ELECTRON_RUN_AS_NODE=1` in their env. Ship a prebuilt `dist/` (no tsc or watcher) and move Monaco, PixiJS and ag-psd
+  to `dependencies`. Projects then find the engine from the app instead of the `file:` npm link. The desktop export
+  reuses the Studio's own Electron (copy, rename, pack the game) instead of `npm install`; an installer still needs
+  electron-builder/NSIS, so it starts with a portable folder or zip. Git features must cope with no system `git`.
+  Unsigned exes get SmartScreen warnings (signing costs a yearly certificate).
 - [~] Configurable stage size (one size per project; a portrait version is a duplicated project). Left: the stock text box,
   title, pause and options screens and the editor's "Built-in screens" starters are laid out for 1920x1080 landscape.
 - [-] Precompiled script in exports: `src` stays in the ops, because the runtime keys seen options and saves on `file:line`
