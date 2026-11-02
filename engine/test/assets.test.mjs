@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachPreloads, compile, opAssets, Runtime, NullRenderer, assetContext, bgKey, rigLayers, spriteKeys, stateAssets, successors } from '../../dist/engine/src/index.js';
+import { attachPreloads, compile, opAssets, Runtime, NullRenderer, assetContext, bgKey, rigLayers, spriteKeys, checkAssets, stateAssets, successors } from '../../dist/engine/src/index.js';
 
 const rig = {
   width: 500, height: 700,
@@ -233,4 +233,15 @@ label open:
   const op = p.ops.find(o => o.op === 'hud');
   assert.deepEqual(opAssets(op, ctx, p).sort(), ['bg/park', 'bg/park_night', 'music/theme']);
   assert.deepEqual(opAssets({ ...op, mode: 'off' }, ctx, p), []);
+});
+
+test('a flat character with a rig.json keeps its image per pose and gets its own animations', () => {
+  const flat = { parts: [], flat: true, rig: { animations: { nod: { dur: 1, keys: [{ t: 0, dy: 0 }, { t: 1, dy: 5 }] } } } };
+  const flatFiles = ['char/bo/default.png', 'char/bo/grin.png'];
+  const c = assetContext({ files: flatFiles, rigs: { bo: flat } });
+  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'grin', overrides: {} }, c), ['char/bo/grin']);
+  const p = compile([{ file: 'a.vn', text: 'label start:\n  show bo grin\n  animate bo nod\n  animate bo wobble\n  end' }]);
+  const msgs = checkAssets(p, { files: flatFiles, rigs: { bo: flat } }).map(d => d.message);
+  assert.equal(msgs.length, 1);
+  assert.match(msgs[0], /no animation "wobble"/);
 });

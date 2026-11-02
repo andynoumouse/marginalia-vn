@@ -6,6 +6,10 @@ In the editor open it from the Files panel (Characters) or Ctrl+P then `#`: a ch
 a generated skeleton that stays unsaved until you save. The tab completes part, slot and variant names, marks
 mistakes as warnings, and **Character: Update Rig from Reconverted Art** (Ctrl+P, then `>`) adds new parts to `order`.
 
+A flat character (one image per pose, no PSD) can have a `rig.json` too, without a `sprite.json`: only `animations`,
+`idle` and `speak.anim` apply, and keys move the whole body (no `part`). Characters with a rig.json appear in
+Characters and open in the animation studio.
+
 ```json
 {
   "order": ["bottom", "top"],

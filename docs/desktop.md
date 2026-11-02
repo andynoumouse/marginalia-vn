@@ -23,8 +23,9 @@ section of the generated `package.json`, which is rewritten by every export, so 
   fullscreen).
 - **Hidden assets.** Everything under `assets/` goes into one `assets.pak`, scrambled with a key made for each export
   and stored in `config.json` (format and code: `engine/src/pak.ts`). The game asks for `assets/...` as usual and the
-  main process answers from the pak, including `Range` requests, so music can seek. `assets.pak`, `config.json` and
-  the main process files are not reachable from the game.
+  main process answers from the pak, including `Range` requests, so music can seek. The compiled story
+  (`project.json`) and the translation tables (`locale/<lang>.json`) are packed too, so the story text is not
+  readable on disk. `assets.pak`, `config.json` and the main process files are not reachable from the game.
   This is obfuscation: it keeps players from browsing or replacing files, not from someone who unpacks the app and
   reads the key.
 - **Saves as files.** Saves, settings and read-text tracking use the same keys as the browser build, stored as one

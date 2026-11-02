@@ -263,6 +263,6 @@ test('the sample game: park.vn plays to its endings and town.vn has its known de
   const all = playtest(program, { allLabels: true });
   assert.equal(all.complete, true);
   assert.deepEqual(all.unreachableLabels, []);
-  assert.deepEqual(all.unreachableLines.map(l => `${l.file}:${l.from}`), ['screens.vn:61', 'town.vn:138']);
+  assert.deepEqual(all.unreachableLines.map(l => `${l.file}:${l.from}`), ['screens.vn:61', 'town.vn:139']);
   assert.ok(playtestDiagnostics(all).every(d => d.severity === 'warning'));
 });

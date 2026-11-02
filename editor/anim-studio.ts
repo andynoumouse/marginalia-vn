@@ -839,7 +839,7 @@ export class AnimStudio {
     const active = document.activeElement instanceof HTMLElement && this.treeEl.contains(document.activeElement) ? JSON.stringify(document.activeElement.dataset) : null;
     this.treeEl.replaceChildren();
     if (!o?.parts.length) {
-      this.treeEl.append(el('p', { className: 'as-tree-hint', textContent: `No parts: ${this.char} has no converted PSD (sprite.json) yet.` }));
+      this.treeEl.append(el('p', { className: 'as-tree-hint', textContent: `No parts: ${this.char} is a flat character (or has no converted PSD yet), so its keys move the whole body.` }));
       return;
     }
     const thumb = (file: string | null) => (file && this.host.image ? el('img', { src: this.host.image(file), alt: '', loading: 'lazy' }) : el('span', { className: 'as-thumb' }));

@@ -5,8 +5,8 @@
 // project data from project.json instead of the dev server, no live reload.
 
 import { initDebug } from './debug.js';
-import { attachPreloads, captionTable, checkAssets, checkGame, chapterItems, chapterProblems, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeChapters, normalizeMusicRoom, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest } from '../engine/src/index.js';
-import { Menus, type GalleryItem, type TitleConfig } from './menus.js';
+import { attachPreloads, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeChapters, normalizeMusicRoom, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest } from '../engine/src/index.js';
+import { Menus, type AchievementRow, type GalleryItem, type TitleConfig } from './menus.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { playSplash } from './splash.js';
 import { isOutdatedSave, newestSave, normalizeSaveVersion, PersistentSet, PersistentValues, readSave, SeenLines, setChoiceSlots, writeChoiceSave, writeSave, type Moment, type SaveData } from './saves.js';
@@ -30,10 +30,14 @@ interface QuickConfig {
 interface GameConfig {
   id?: string;
   title?: string;
+  /** The language the scripts are written in (default "en"): the text language that needs no locale/<lang>.json. */
+  language?: string;
   /** How many rotating choice autosaves to keep (1-20, default 5). */
   choiceSaves?: number;
   /** Raise it when a release breaks old saves: loading an older save then asks first. */
   saveVersion?: number;
+  /** Memory budget for loaded images and audio in MB (default 512, 256 on low-memory devices); the debug console's `memory` reports against it. */
+  memoryBudgetMB?: number;
   titleScreen?: TitleConfig;
   /** Logo cards shown once before the title screen: image names, or { image, text, duration, fade }. */
   splash?: unknown;
@@ -49,10 +53,18 @@ interface GameConfig {
   musicRoom?: unknown;
   /** Chapter select entries (strings or { label, title, unlock }): unlocked once the story reaches the label. */
   chapters?: unknown;
+  /** Achievements and endings ({ unlock, title, description, icon, hidden, ending, toast }): unlocked by `unlock <flag>`. */
+  achievements?: unknown;
+  /** The notice an unlocked achievement pops up: { position, seconds, sound }. */
+  achievementToast?: unknown;
 }
 interface Project {
-  scripts: { file: string; text: string }[];
+  scripts?: { file: string; text: string }[];
+  /** An export ships the compiled program (engine/src/program-file.ts) instead of the scripts. */
+  program?: ProgramFile;
   locales: Record<string, Record<string, string>>;
+  /** An export ships each translation as `locale/<lang>.json`, fetched when that language is picked; the dev server inlines `locales`. */
+  localeFiles?: string[];
   assets: AssetFile[];
   rigs?: Record<string, RigManifest>;
   game: GameConfig;
@@ -67,6 +79,17 @@ const studioChar = devMode && embedded ? new URLSearchParams(location.search).ge
 if (studioChar !== null) document.documentElement.dataset.studio = '';
 let studio: Studio | null = null;
 const fetchProject = async (): Promise<Project> => (await fetch(devMode ? '/api/project' : 'project.json')).json();
+const fetchedLocales = new Map<string, Record<string, string>>();
+/** One exported translation table; a missing or damaged file leaves the language on the source text. */
+async function fetchLocale(lang: string): Promise<Record<string, string>> {
+  let table = fetchedLocales.get(lang);
+  if (!table) {
+    try { table = await (await fetch(`locale/${encodeURIComponent(lang)}.json`)).json() as Record<string, string>; }
+    catch { return {}; }
+    fetchedLocales.set(lang, table);
+  }
+  return table;
+}
 const statusEl = $('status'), langEl = $<HTMLSelectElement>('lang'), diagEl = $('diag'), diagBtn = $('diagBtn'), menuEl = $('menu');
 const quickEl = $('quick'), toastEl = $('toast'), errBanner = $('errBanner');
 
@@ -132,12 +155,15 @@ async function autosave(atChoice: boolean) {
   if (atChoice) writeChoiceSave(data);
 }
 
+/** The languages the project has voice recordings in (set on each load; the voice language option offers these). */
+let voiceAvailable: string[] = [];
+
 function applySettings() {
   renderer.audio.setVolume('master', settings.master);
   renderer.audio.setVolume('music', settings.music);
   renderer.audio.setVolume('sound', settings.sound);
   renderer.audio.setVolume('voice', settings.voice);
-  renderer.lang = settings.lang;
+  renderer.lang = resolveVoiceLanguage(settings.voiceLang, settings.lang, voiceAvailable);
   renderer.textSpeed = settings.textSpeed;
   renderer.autoDelay = settings.autoDelay;
   renderer.skipAll = settings.skipAll;
@@ -187,6 +213,62 @@ function galleryItems(): GalleryItem[] {
   });
 }
 
+/** An image in assets/ui by name. */
+function uiFile(name: string): AssetFile | undefined {
+  if (!name) return undefined;
+  return assetFiles.find(a => new RegExp(`^ui/${name.replace(/[^\w-]/g, '')}\.(png|webp|jpe?g|avif)$`, 'i').test(a.file));
+}
+const uiUrl = (file: AssetFile | undefined) => (file ? `assets/${file.file}?v=${file.v}` : null);
+
+const achievementRows = (): AchievementRow[] => achievementItems(game.achievements, f => unlocked.has(f)).map(a => {
+  const file = uiFile(a.icon);
+  return { ...a, iconUrl: uiUrl(file), iconFile: file?.file ?? '' };
+});
+
+/** Warnings for achievements no script unlocks and a bad "achievementToast", pointed at the line of game.json that names them. */
+function achievementDiagnostics(program: Program, text: string): Diagnostic[] {
+  const lines = text.split('\n');
+  const unlocks = new Set(program.ops.flatMap(op => (op.op === 'unlock' ? [op.name] : [])));
+  return achievementProblems(game.achievements, game.achievementToast, unlocks).map(message => {
+    const name = /unlock (\w+)/.exec(message)?.[1];
+    const at = lines.findIndex(l => (name ? l.includes(`"${name}"`) : l.includes('"achievementToast"')));
+    return { file: 'game.json', line: Math.max(1, at + 1), severity: 'warning', message } as Diagnostic;
+  });
+}
+
+// ---- achievement toasts: one at a time, each for achievementToast.seconds ----
+const achToastEl = $('achToast');
+const achQueue: AchievementEntry[] = [];
+let achShowing = false;
+function queueAchievement(entry: AchievementEntry) {
+  achQueue.push(entry);
+  if (!achShowing) void nextAchievement();
+}
+async function nextAchievement() {
+  const entry = achQueue.shift();
+  if (!entry) { achShowing = false; return; }
+  achShowing = true;
+  const cfg = achievementToastSettings(game.achievementToast);
+  if (cfg.sound && renderer.audio.has('sound', cfg.sound)) void renderer.audio.sound(cfg.sound);
+  const file = uiFile(entry.icon);
+  const view = runtime?.achievementToastView({ title: entry.title, description: entry.description, icon: file?.file ?? '', ending: entry.ending }) ?? null;
+  if (view) void renderer.achievementToast(view);
+  else {
+    const url = uiUrl(file);
+    (achToastEl.querySelector('.ach-icon') as HTMLElement).style.backgroundImage = url ? `url("${url}")` : '';
+    $('achToastHead').textContent = document.querySelector(`[data-ui="${entry.ending ? 'ending_reached' : 'achievement_unlocked'}"]`)?.textContent ?? '';
+    $('achToastTitle').textContent = entry.title;
+    $('achToastText').textContent = entry.description;
+    achToastEl.dataset.position = cfg.position;
+    achToastEl.dataset.show = 'true';
+  }
+  await sleep(cfg.seconds * 1000);
+  achToastEl.dataset.show = 'false';
+  void renderer.achievementToast(null);
+  await sleep(300); // the fade out
+  void nextAchievement();
+}
+
 const musicRoomItems = (): MusicItem[] => musicItems(game.musicRoom, t => tracksHeard.has(t), f => unlocked.has(f));
 const chapterList = (): ChapterItem[] => chapterItems(game.chapters, l => labelsReached.has(l), f => unlocked.has(f));
 
@@ -207,6 +289,7 @@ function applyGame(assets: AssetFile[]) {
     gallery: Array.isArray(game.gallery) && game.gallery.length > 0,
     music_room: normalizeMusicRoom(game.musicRoom).length > 0,
     chapters: normalizeChapters(game.chapters).length > 0,
+    achievements: normalizeAchievements(game.achievements).length > 0,
   });
   const q = game.quickMenu ?? {};
   // The replay button joins any listed bar; it stays hidden except on voiced lines.
@@ -333,6 +416,7 @@ const menus = new Menus(settings, {
   musicItems: musicRoomItems,
   playTrack: name => { void renderer.audio.music(name ?? game.titleScreen?.music ?? null, true, 0.5); },
   chapterItems: chapterList,
+  achievementItems: achievementRows,
   startChapter: label => void enterGame(rt => rt.startAt(label).then(() => {})),
   screens: open => { renderer.paused = open || !playing; },
   changed: lang => {
@@ -406,7 +490,7 @@ quickEl.addEventListener('click', e => {
 /** The project's `screen title` replaces the stock title screen: drawn while the stock one is up (hidden behind the saves or options opened over it). */
 const titleEl = $('title');
 function syncTitle() {
-  const view = runtime?.titleView(!!newestSave(), galleryItems().length > 0, musicRoomItems().length > 0, chapterList().length > 0) ?? null;
+  const view = runtime?.titleView(!!newestSave(), galleryItems().length > 0, musicRoomItems().length > 0, chapterList().length > 0, achievementRows().length > 0) ?? null;
   titleEl.dataset.custom = String(!!view);
   void renderer.title(view && !titleEl.hidden ? view : null);
 }
@@ -419,6 +503,7 @@ const titleActions: Record<string, () => void> = {
   gallery: () => menus.showGallery(),
   music: () => menus.showMusic(),
   chapters: () => menus.showChapters(),
+  achievements: () => menus.showAchievements(),
   quit: () => window.close(),
 };
 /** The project's `screen pause` replaces the stock pause menu, the same way. */
@@ -531,6 +616,18 @@ renderer.onChaptersAction = item => {
   if (act === 'close') menus.closeChapters();
   else if (act === 'chapter') menus.pickChapter(item!.id);
 };
+/** The project's `screen achievements` replaces the stock achievements list. */
+const achievementsEl = $('achievements');
+function syncAchievements() {
+  const { vars, entries } = menus.achievementsValues();
+  const view = runtime?.achievementsView(vars, entries) ?? null;
+  achievementsEl.dataset.custom = String(!!view);
+  void renderer.achievements(view && !achievementsEl.hidden ? view : null);
+}
+new MutationObserver(syncAchievements).observe(achievementsEl, { attributes: true, attributeFilter: ['hidden'] });
+renderer.onAchievementsAction = item => {
+  if (item?.act === 'close') menus.closeAchievements();
+};
 renderer.optionsLayer.onSlider =(setting, value) => menus.setNumber(setting, value);
 renderer.onOptionsAction = item => {
   const act = item?.act;
@@ -553,13 +650,6 @@ renderer.onModeChange = () => {
   const pressed = { auto: renderer.autoOn, skip: renderer.skipping };
   for (const [act, on] of Object.entries(pressed)) for (const el of document.querySelectorAll(`#quickui [data-act="${act}"]`)) el.setAttribute('aria-pressed', String(on));
 };
-
-/** Short stable hash (FNV-1a) for telling script versions apart. */
-function hashText(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193);
-  return (h >>> 0).toString(36);
-}
 
 // ---- project loading / hot reload ----
 function fit() {
@@ -617,15 +707,27 @@ async function load() {
   }
   const size = stageSize(proj.game);
   if (size.width !== W || size.height !== H) { location.reload(); return; } // the canvas and the CSS box are sized once
-  const program = compile(proj.scripts, namedPositions(proj.game), namedAnchors(proj.game), size);
-  scriptVersion = hashText(proj.scripts.map(s => `${s.file}\n${s.text}`).join('\0'));
-  const langs = Object.keys(proj.locales);
-  if (!langs.includes('en')) langs.unshift('en');
-  if (!langs.includes(settings.lang)) settings.lang = 'en';
+  let program: Program, precompiled = false;
+  if (proj.program) {
+    try { const f = unpackProgram(proj.program); program = f.program; scriptVersion = f.version; precompiled = true; }
+    catch (e) { statusEl.textContent = (e as Error).message; return; }
+  } else {
+    program = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), size);
+    scriptVersion = scriptsVersion(proj.scripts ?? []);
+  }
+  const source = sourceLanguage(proj.game);
+  const tables = { ...proj.locales };
+  const langs = [...new Set([...Object.keys(tables), ...(proj.localeFiles ?? [])])];
+  if (!langs.includes(source)) langs.unshift(source);
+  if (!langs.includes(settings.lang)) settings.lang = source;
+  if (settings.lang !== source && !tables[settings.lang]) tables[settings.lang] = await fetchLocale(settings.lang);
+  voiceAvailable = voiceLanguages((proj.assets ?? []).map(a => a.file), source);
+  menus.setVoiceLanguages(voiceAvailable, settings.voiceLang);
+  applySettings();
   langEl.replaceChildren(...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
   langEl.value = settings.lang;
   menus.setLanguages(langs, settings.lang);
-  const locale = new Locale(proj.locales, settings.lang, 'en');
+  const locale = new Locale(tables, settings.lang, source);
   game = proj.game ?? {};
   renderer.captionTexts = captionTable(game);
   menus.translate(locale, game.labels);
@@ -639,12 +741,18 @@ async function load() {
     blips: Object.keys(game.blips ?? {}),
     skins: Object.keys(game.theme?.skins ?? {}),
   };
-  attachPreloads(program, index, { gallery: Array.isArray(game.gallery) ? game.gallery.map(g => g?.image).filter(n => typeof n === 'string') : [] });
-  showDiagnostics([...program.diagnostics, ...checkAssets(program, index), ...checkGame(game, index, proj.gameText ?? ''), ...chapterDiagnostics(program.labels, proj.gameText ?? '')]);
+  if (!precompiled) { // an export checked all this, and baked the preloads in
+    attachPreloads(program, index, { gallery: Array.isArray(game.gallery) ? game.gallery.map(g => g?.image).filter(n => typeof n === 'string') : [] });
+    showDiagnostics([...program.diagnostics, ...checkAssets(program, index), ...checkGame(game, index, proj.gameText ?? ''), ...chapterDiagnostics(program.labels, proj.gameText ?? ''), ...achievementDiagnostics(program, proj.gameText ?? '')]);
+  }
 
   if (!runtime) {
     runtime = new Runtime(program, renderer, locale);
-    runtime.onUnlock = name => unlocked.add(name);
+    runtime.onUnlock = name => {
+      const fresh = achievementToToast(game.achievements, name, unlocked.has(name));
+      unlocked.add(name);
+      if (fresh) queueAchievement(fresh);
+    };
     runtime.onSeen = key => optionsTaken.add(key);
     runtime.onPersist = (name, value) => persistent.set(name, value);
     runtime.onLabel = name => { if (playing) labelsReached.add(name); };
@@ -669,6 +777,7 @@ async function load() {
   syncGallery();
   syncMusic();
   syncChapters();
+  syncAchievements();
   if (playing) {
     timeline.clear(); // step numbers may have shifted with the edit
     const pos = runtime.current;
@@ -847,6 +956,7 @@ if (devMode) {
     jump: label => void enterGame(rt => rt.startAt(label).then(() => {})),
     sets: { gallery: imagesSeen, music: tracksHeard, chapters: labelsReached, flags: unlocked, options: optionsTaken },
     persistent, seen,
+    memory: () => residencyReport(renderer.resident(), memoryBudget(game, (navigator as { deviceMemory?: number }).deviceMemory), { lateLoads: renderer.lateLoads }),
   });
   $('debugBtn').addEventListener('click', () => { diagEl.dataset.visible = 'false'; });
 }
@@ -856,6 +966,11 @@ langEl.addEventListener('change', () => { settings.lang = langEl.value; saveSett
 async function previewScreen(name: string) {
   if (name === 'title') { await showTitle(); return; }
   if (name === 'quickmenu') { play(rt => rt.start()); return; }
+  if (name === 'achievement_toast') { // a sample notice: the first achievement, or a stand-in
+    const first = normalizeAchievements(game.achievements)[0];
+    queueAchievement(first ?? { unlock: 'example', title: 'Example', description: 'What it takes to unlock it.', icon: '', hidden: false, ending: false, toast: true });
+    return;
+  }
   if (!menus.open) await showTitle(); // a base to go back to; a screen already up is replaced
   switch (name) {
     case 'pause': menus.showPause(); break;
@@ -865,6 +980,7 @@ async function previewScreen(name: string) {
     case 'gallery': case 'viewer': menus.showGallery(); break;
     case 'music': menus.showMusic(); break;
     case 'chapters': menus.showChapters(); break;
+    case 'achievements': menus.showAchievements(); break;
   }
 }
 
@@ -898,7 +1014,7 @@ if (devMode) {
   events.onmessage = e => {
     const msg = JSON.parse(e.data) as { type: string };
     if (msg.type === 'engine') location.reload();
-    else void load();
+    else if (msg.type === 'content') void load();
   };
 }
 

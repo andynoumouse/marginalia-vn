@@ -17,13 +17,14 @@ export interface Settings {
   captions: boolean; // show a caption such as [door slams] when a sound effect plays
   timedChoices: 'normal' | 'extended' | 'off'; // the clock of a timed menu: as written, three times as long, or none (the story's "on timeout" never runs)
   lang: string;
+  voiceLang: string; // the language to hear voices in; '' follows the text language
 }
 
 export const TEXT_INSTANT = 100;
 const KEY = 'settings';
 /** The player's system-wide wish, used until they choose in the options. */
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const defaults = (): Settings => ({ master: 0.8, music: 0.7, sound: 0.8, voice: 0.9, textSpeed: 45, autoDelay: 1.5, skipAll: false, textSounds: true, textSize: 1, boxOpacity: 1, reduceMotion: prefersReducedMotion(), captions: false, timedChoices: 'normal', lang: 'en' });
+const defaults = (): Settings => ({ master: 0.8, music: 0.7, sound: 0.8, voice: 0.9, textSpeed: 45, autoDelay: 1.5, skipAll: false, textSounds: true, textSize: 1, boxOpacity: 1, reduceMotion: prefersReducedMotion(), captions: false, timedChoices: 'normal', lang: 'en', voiceLang: '' });
 
 export function loadSettings(): Settings {
   try {

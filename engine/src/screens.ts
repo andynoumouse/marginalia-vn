@@ -27,7 +27,7 @@ export type HudEvent = typeof HUD_EVENTS[number];
 /** The label each event of an element calls. */
 export type HudHandlers = Partial<Record<HudEvent, string>>;
 /** Built-in actions an element can trigger with `action <name>` (the quick menu's and the title screen's buttons); the shell runs them, the script does not see them. */
-export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'next', 'prev', 'voice'] as const;
+export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice'] as const;
 export type ShellAction = typeof SHELL_ACTIONS[number];
 /** Reserved screen name: when a project declares it, the shell draws it in place of the stock quick menu bar. */
 export const QUICKMENU_SCREEN = 'quickmenu';
@@ -49,7 +49,11 @@ export const VIEWER_SCREEN = 'viewer';
 export const MUSIC_SCREEN = 'music';
 /** Reserved screen name: when a project declares it, the shell draws it in place of the stock chapter select. */
 export const CHAPTERS_SCREEN = 'chapters';
-/** Variables the shell fills in on a reserved screen (not story variables): the options settings, the saves screen's mode, page, page and slot lists and delete toggle, the history's lines, the gallery's tiles, the viewer's picture, the music room's tracks or the chapter select's chapters. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the stock achievements and endings list. */
+export const ACHIEVEMENTS_SCREEN = 'achievements';
+/** Reserved screen name: when a project declares it, the shell draws it in place of the stock notice that pops up when an achievement unlocks. */
+export const ACHIEVEMENT_TOAST_SCREEN = 'achievement_toast';
+/** Variables the shell fills in on a reserved screen (not story variables): the options settings, the saves screen's mode, page, page and slot lists and delete toggle, the history's lines, the gallery's tiles, the viewer's picture, the music room's tracks, the chapter select's chapters, the achievements list or the achievement toast. */
 export function shellVars(screen: string): string[] {
   if (screen === OPTIONS_SCREEN) return ['tab', ...Object.keys(SLIDER_SETTINGS), ...CYCLE_SETTINGS];
   if (screen === SAVES_SCREEN) return ['mode', 'page', 'pages', 'slots', 'deleting'];
@@ -58,12 +62,15 @@ export function shellVars(screen: string): string[] {
   if (screen === VIEWER_SCREEN) return ['file', 'title', 'position', 'total'];
   if (screen === MUSIC_SCREEN) return ['tracks', 'count', 'total', 'now'];
   if (screen === CHAPTERS_SCREEN) return ['chapters', 'count', 'total'];
+  if (screen === ACHIEVEMENTS_SCREEN) return ['achievements', 'endings', 'count', 'total', 'endings_count', 'endings_total'];
+  if (screen === ACHIEVEMENT_TOAST_SCREEN) return ['title', 'description', 'icon', 'ending'];
   return [];
 }
 /** Extra fields the shell gives each entry of an `each` on a reserved screen (`slot.when`), next to `.name`, `.image` and `.index`. */
 export function shellEntryFields(screen: string): string[] {
   return screen === SAVES_SCREEN ? ['title', 'when', 'text', 'empty'] : screen === HISTORY_SCREEN ? ['text'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
-    : screen === MUSIC_SCREEN ? ['title', 'unlocked', 'playing'] : screen === CHAPTERS_SCREEN ? ['title', 'unlocked'] : [];
+    : screen === MUSIC_SCREEN ? ['title', 'unlocked', 'playing'] : screen === CHAPTERS_SCREEN ? ['title', 'unlocked']
+    : screen === ACHIEVEMENTS_SCREEN ? ['title', 'description', 'icon', 'unlocked', 'hidden', 'ending'] : [];
 }
 /** Player settings a `slider` can be bound to, with the range the shell allows. */
 export const SLIDER_SETTINGS = {
@@ -478,7 +485,7 @@ export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE)
   };
   walk(def.body, null);
   if (!hasEach) for (const h of hinted) if (!ids.has(h.to)) problem(h.src, 'error', `"${h.from}" moves focus to "${h.to}", which is not an element of screen ${def.name}`);
-  if (!interactive && !def.cancel) problem(def.src, 'warning', `Screen ${def.name} has nothing to choose (it would return at once)`);
+  if (!interactive && !def.cancel && def.name !== ACHIEVEMENT_TOAST_SCREEN) problem(def.src, 'warning', `Screen ${def.name} has nothing to choose (it would return at once)`);
   if (def.default !== null && !ids.has(def.default) && !hasEach) problem(def.src, 'error', `Default "${def.default}" is not an element of screen ${def.name}`);
   return out;
 }

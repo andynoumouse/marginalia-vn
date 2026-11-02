@@ -23,7 +23,7 @@ const RE_JUMP = /^(\s*(jump|call)\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\s*(\(.*\))?\s*(
 const RE_ON = new RegExp(`(?<![\\w])on\\s+(?:${HUD_EVENTS.join('|')})\\s+(?=[A-Za-z_])`, 'g');
 
 /** The line with the inside of every "string" blanked, so words in dialogue and menu text are never taken for syntax. */
-function maskStrings(line: string): string {
+export function maskStrings(line: string): string {
   let out = '', quote = false;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
@@ -56,39 +56,46 @@ function scriptRefs(file: string, text: string): LabelRef[] {
   return refs;
 }
 
-/** String tokens of a JSON text with their path (keys and array positions simplified to key names), no real parsing. */
-function jsonRefs(file: string, text: string): LabelRef[] {
-  const refs: LabelRef[] = [];
+/** A string value in a JSON text: 1-based line, 0-based column of its first character inside the quotes, and its path. */
+export interface JsonString { value: string; line: number; col: number; path: (string | number)[] }
+
+/**
+ * Every string value (not key) of a JSON text with its path of keys and array positions (`["chapters", 1, "label"]`),
+ * by tokens and without real parsing, so a half-typed file still gives what it can. `value` is the raw text between
+ * the quotes (escapes are left as written).
+ */
+export function jsonStrings(text: string): JsonString[] {
+  const out: JsonString[] = [];
   const lineStarts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStarts.push(i + 1);
   const lineOf = (pos: number) => { let lo = 0, hi = lineStarts.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= pos) lo = mid; else hi = mid - 1; } return lo; };
-  // Stack of containers: the key a container is the value of, and (for objects) the last key seen.
-  const stack: { type: '{' | '['; key: string; last: string }[] = [];
-  let pendingKey = '';
-  const re = /"((?:[^"\\\n]|\\.)*)"|[{}[\]:,]/g;
+  // Open containers: an object's current key, an array's current position.
+  const stack: { type: '{' | '['; key: string; index: number }[] = [];
+  const re = /"((?:[^"\\\n]|\\.)*)"|[{}[\]:,]/g, colon = /\s*:/y;
   for (let m = re.exec(text); m; m = re.exec(text)) {
-    const tok = m[0];
-    if (tok === '{' || tok === '[') { stack.push({ type: tok, key: pendingKey, last: '' }); pendingKey = ''; continue; }
-    if (tok === '}' || tok === ']') { stack.pop(); pendingKey = ''; continue; }
-    if (tok === ',') { pendingKey = ''; continue; }
+    const tok = m[0], top = stack[stack.length - 1];
+    if (tok === '{' || tok === '[') { stack.push({ type: tok, key: '', index: 0 }); continue; }
+    if (tok === '}' || tok === ']') { stack.pop(); continue; }
+    if (tok === ',') { if (top?.type === '[') top.index++; continue; }
     if (tok === ':') continue;
-    const top = stack[stack.length - 1];
     // A string followed by ':' is a key; otherwise it is a value.
-    const after = /^\s*(.)/.exec(text.slice(m.index + tok.length));
-    if (top?.type === '{' && after?.[1] === ':') { top.last = m[1]; pendingKey = m[1]; continue; }
-    const value = m[1];
-    if (!NAME.test(value)) { pendingKey = ''; continue; }
-    const key = top?.type === '{' ? top.last : '';
-    const depth = stack.length;
-    let kind: LabelRefKind | null = null;
-    if (depth === 1 && key === 'intro') kind = 'intro';
-    else if (depth === 2 && top.type === '[' && top.key === 'chapters') kind = 'chapter';
-    else if (depth === 3 && key === 'label' && stack[1].key === 'chapters') kind = 'chapter';
-    if (kind) {
-      const line = lineOf(m.index);
-      refs.push({ file, line: line + 1, col: m.index + 1 - lineStarts[line], length: value.length, name: value, kind });
-    }
-    pendingKey = '';
+    colon.lastIndex = m.index + tok.length;
+    if (top?.type === '{' && colon.test(text)) { top.key = m[1]; continue; }
+    const line = lineOf(m.index);
+    out.push({ value: m[1], line: line + 1, col: m.index + 1 - lineStarts[line], path: stack.map(s => s.type === '{' ? s.key : s.index) });
+  }
+  return out;
+}
+
+/** game.json's mentions of labels: `intro`, and `chapters` entries as names or `{ "label": ... }`. */
+function jsonRefs(file: string, text: string): LabelRef[] {
+  const refs: LabelRef[] = [];
+  for (const s of jsonStrings(text)) {
+    const p = s.path;
+    if (!NAME.test(s.value)) continue;
+    const kind: LabelRefKind | null = p.length === 1 && p[0] === 'intro' ? 'intro'
+      : p[0] === 'chapters' && typeof p[1] === 'number' && (p.length === 2 || (p.length === 3 && p[2] === 'label')) ? 'chapter' : null;
+    if (kind) refs.push({ file, line: s.line, col: s.col, length: s.value.length, name: s.value, kind });
   }
   return refs;
 }

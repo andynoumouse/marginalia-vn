@@ -2,10 +2,11 @@
 //   music play <name>   assets/music/<name>.(ogg|mp3|wav|m4a|flac|opus)
 //   sound play <name>   assets/sound/<name>.(same)
 //   sound loop <name>   a looping sound on its own channel (ambience), any number at once
-//   voice lines         assets/voice/[<lang>/]<line id>.(same), found from each line's localization id (engine/src/voice.ts)
+//   voice lines         assets/voice/<line id>[.<lang>].(same), found from each line's localization id (engine/src/voice.ts)
 //   music pause/resume  keeps the position; `duck` dips the music bus while a sound plays
 // Browsers keep the context suspended until a user gesture: call unlock() from one (click, key).
 
+import { audioBytes, type Resident } from '../engine/src/residency.js';
 import { voiceFile } from '../engine/src/voice.js';
 import type { AssetFile } from './stage-ui.js';
 
@@ -25,6 +26,7 @@ export class AudioSystem {
   private buses: Record<Bus, GainNode>;
   private files = new Map<string, string>();                         // "music/theme" -> url
   private buffers = new Map<string, Promise<AudioBuffer | null>>();  // url -> decoded audio
+  private sizes = new Map<string, number>();                         // url -> estimated bytes once decoded
   private prefetching = 0; // generation of the background sound prefetch
   private track: Track | null = null;
   private wanted: string | null = null; // last requested track; loads are async, so this decides who wins
@@ -70,7 +72,15 @@ export class AudioSystem {
       if (m) this.files.set(`${m[1].toLowerCase()}/${m[2]}`, `assets/${a.file}?v=${a.v}`);
     }
     const current = new Set(this.files.values());
-    for (const url of [...this.buffers.keys()]) if (!current.has(url)) this.buffers.delete(url); // edited or removed files
+    for (const url of [...this.buffers.keys()]) if (!current.has(url)) { this.buffers.delete(url); this.sizes.delete(url); } // edited or removed files
+  }
+
+  /** Estimated memory of the decoded music and sounds (the voice cache is small and not counted). */
+  resident(): Resident[] {
+    return [...this.files].flatMap(([key, url]) => {
+      const bytes = this.sizes.get(url);
+      return bytes === undefined || !this.buffers.has(url) ? [] : [{ key, kind: 'audio' as const, bytes }];
+    });
   }
 
   /** Start loading and decoding one file now, so a later play starts on time; resolves when it is ready (or failed). */
@@ -157,6 +167,7 @@ export class AudioSystem {
       p = fetch(url)
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
         .then(data => this.ctx.decodeAudioData(data))
+        .then(buf => { this.sizes.set(url, audioBytes(buf.duration, buf.sampleRate, buf.numberOfChannels)); return buf; })
         .catch(e => { console.warn(`Could not load audio ${url}:`, e); return null; });
       this.buffers.set(url, p);
     }

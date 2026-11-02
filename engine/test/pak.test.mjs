@@ -51,3 +51,26 @@ test('pak: streaming with pakHeader and scramble gives the same bytes as packAss
 test('pak: duplicate paths are refused', () => {
   assert.throws(() => packAssets([{ path: 'a', data: bytes(1, 1) }, { path: 'a', data: bytes(1, 1) }], 'k'), /Duplicate/);
 });
+
+test('desktop export: project.json and the translation tables are in the pak, not on disk', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const root = path.resolve(import.meta.dirname, '../..');
+  const out = path.join(root, 'sample', 'build', 'pak-test');
+  try {
+    const run = spawnSync(process.execPath, ['bin/vn.mjs', 'export', '--project', 'sample', '--desktop', '--no-build', '--out', 'build/pak-test'], { cwd: root, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(fs.existsSync(path.join(out, 'project.json')), false);
+    assert.equal(fs.existsSync(path.join(out, 'locale')), false);
+    const { key } = JSON.parse(fs.readFileSync(path.join(out, 'config.json'), 'utf8'));
+    const pak = fs.readFileSync(path.join(out, 'assets.pak'));
+    const opened = await openPak(reader(new Uint8Array(pak)), key);
+    const project = JSON.parse(new TextDecoder().decode(await opened.read('.vn/project.json')));
+    assert.ok(project.program, 'the compiled program is in the pak');
+    assert.ok(project.assets.length > 0);
+    assert.equal(opened.paths().filter(p => p.startsWith('.vn/')).every(p => /^\.vn\/(project|locale\/[^/]+)\.json$/.test(p)), true);
+  } finally {
+    fs.rmSync(out, { recursive: true, force: true });
+  }
+});

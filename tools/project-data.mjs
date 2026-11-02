@@ -53,6 +53,11 @@ export function projectData(root) {
     try { rigs[m[1]] = JSON.parse(fs.readFileSync(path.join(assetDir, a.file), 'utf8')); }
     catch (e) { console.warn(`Bad ${a.file}: ${e.message}`); }
   }
+  // A flat character (one image per pose) with a rig.json gets a manifest without parts, so its animations work.
+  for (const a of assets) {
+    const m = /^char\/([^/]+)\/rig\.json$/.exec(a.file);
+    if (m && !rigs[m[1]]) rigs[m[1]] = { parts: [], flat: true };
+  }
   // Hand-written additions (z-order, groups, shorthands) next to a generated sprite.json: engine/src/rig.ts.
   for (const [char, manifest] of Object.entries(rigs)) {
     const file = path.join(assetDir, 'char', char, 'rig.json');

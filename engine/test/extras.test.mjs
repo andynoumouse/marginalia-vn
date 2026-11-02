@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compile, Runtime, NullRenderer, normalizeMusicRoom, normalizeChapters, musicItems, chapterItems, chapterProblems, checkGame,
+  normalizeAchievements, achievementItems, achievementToToast, achievementToastSettings, achievementProblems,
 } from '../../dist/engine/src/index.js';
 
 test('musicRoom and chapters normalize: strings, titles, repeats and junk', () => {
@@ -49,4 +50,38 @@ test('onLabel reports labels as the story enters them; startAt begins at a label
   seen.length = 0;
   await rt.restore({ step: 1 }, []);
   assert.deepEqual(seen.filter(n => n === 'start'), []); // replayed entries are not new
+});
+
+test('achievements normalize: flags, defaults, repeats and junk', () => {
+  assert.deepEqual(normalizeAchievements(['a', { unlock: 'b', title: 'B', description: 'Do b.', icon: 'ic', hidden: true, ending: true, toast: false }, 'a', {}, 3, null, { title: 'no flag' }]), [
+    { unlock: 'a', title: 'a', description: '', icon: '', hidden: false, ending: false, toast: true },
+    { unlock: 'b', title: 'B', description: 'Do b.', icon: 'ic', hidden: true, ending: true, toast: false },
+  ]);
+  assert.deepEqual(normalizeAchievements({}), []);
+  const flags = new Set(['b']);
+  assert.deepEqual(achievementItems(['a', 'b'], f => flags.has(f)).map(i => i.unlocked), [false, true]);
+});
+
+test('achievementToToast: only a new, toasting achievement pops up', () => {
+  const list = ['a', { unlock: 'quiet', toast: false }];
+  assert.equal(achievementToToast(list, 'a', false).unlock, 'a');
+  assert.equal(achievementToToast(list, 'a', true), null); // held already
+  assert.equal(achievementToToast(list, 'quiet', false), null);
+  assert.equal(achievementToToast(list, 'other', false), null);
+});
+
+test('achievementToast settings fall back to defaults; problems name unknown flags and bad settings', () => {
+  assert.deepEqual(achievementToastSettings(undefined), { position: 'topright', seconds: 4, sound: '' });
+  assert.deepEqual(achievementToastSettings({ position: 'bottom', seconds: 2.5, sound: 'ding' }), { position: 'bottom', seconds: 2.5, sound: 'ding' });
+  assert.deepEqual(achievementToastSettings({ position: 'middle', seconds: -1 }), { position: 'topright', seconds: 4, sound: '' });
+  assert.deepEqual(achievementProblems(['a', 'b'], undefined, new Set(['a'])), ['achievements: no script runs "unlock b"']);
+  assert.equal(achievementProblems([], { position: 'middle', seconds: 0 }, new Set()).length, 2);
+  assert.equal(achievementProblems([], 'loud', new Set()).length, 1);
+});
+
+test('checkGame flags missing achievement icons and toast sound', () => {
+  const index = { files: ['ui/ic_key.png', 'sound/ding.ogg'] };
+  assert.deepEqual(checkGame({ achievements: [{ unlock: 'a', icon: 'ic_key' }], achievementToast: { sound: 'ding' } }, index), []);
+  const out = checkGame({ achievements: [{ unlock: 'a', icon: 'gone' }, 'b'], achievementToast: { sound: 'boom' } }, index).map(d => d.message);
+  assert.deepEqual(out, ['achievements: no icon "gone" in assets/ui', 'achievementToast.sound: no sound "boom" in assets/sound']);
 });

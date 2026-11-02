@@ -1,5 +1,6 @@
 # rooms.vn - the library's rooms. A clickable map (screen) leads to one room per group of features;
-# each room says which commands it uses. Characters and variables come from start.vn.
+# each room says which commands it uses. Characters and variables come from start.vn; the card catalogue
+# is in catalogue.vn.
 
 define item key "Brass key" #vn1m
 define item novel "Rain novel" #wck9
@@ -16,6 +17,7 @@ screen library_map:
   hotspot desk ellipse at 800,640 size 460,220 "The front desk" #qlcp hover scale 1.06
   hotspot archive at 1300,280 size 420,360 "The archive" #rf5t hover tint rgba(120,200,255,.30)
   hotspot board at 1380,740 size 360,200 "The notice board" #swx9 hover tint rgba(255,220,120,.30)
+  hotspot catalogue poly 680,220 1180,200 1220,480 660,500 "The card catalogue" #qe79 hover tint rgba(200,255,160,.30)
   button leave at 80,940 "Find a seat" #g71l hover scale 1.08
   default stacks
 
@@ -52,6 +54,8 @@ label hub:
     jump archive
   elif screen == "board":
     jump board
+  elif screen == "catalogue":
+    jump catalogue
   jump reading_room
 
 # Text tags, camera, filters, flash, animations.

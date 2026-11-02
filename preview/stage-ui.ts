@@ -1,7 +1,7 @@
 // Shared by the preview renderers: the text box, choice menu, HUD and audio live here (DOM over the
 // stage: crisp text, real buttons, any language), so a renderer subclass only draws the world.
 
-import { assetContext, captionFor, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type Src, type VisualOp } from '../engine/src/index.js';
+import { assetContext, captionFor, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type Resident, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type Src, type VisualOp } from '../engine/src/index.js';
 import { AudioSystem } from './audio.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
 import { Blips } from './blips.js';
@@ -94,7 +94,7 @@ export abstract class StageRenderer implements Renderer {
   /** Called for every line and choice; `line` is the line shown (none for choices). */
   onPosition: (src: Src, line?: LineInfo) => void = () => {};
   onEnded: () => void = () => {};
-  /** The player's language, which picks the voice recordings (assets/voice/<lang>/). */
+  /** The language of the voice recordings played (assets/voice/<id>.<lang>.*): the player's voice setting, which defaults to the text language. */
   lang = 'en';
   /** The line on screen has a voice recording (or no longer does): the shell shows or hides its replay button. */
   onVoice: (voiced: boolean) => void = () => {};
@@ -154,6 +154,13 @@ export abstract class StageRenderer implements Renderer {
   readonly chaptersLayer = new HudLayer($('chaptersui'), (id, on) => { if (on === 'click') this.onChaptersAction(this.chaptersView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onChaptersAction: (item: ViewItem | undefined) => void = () => {};
   private chaptersView: ScreenView | null = null;
+  /** The project's `screen achievements`, drawn over the dimmed stage in place of the stock list; actions go to `onAchievementsAction`. */
+  readonly achievementsLayer = new HudLayer($('achievementsui'), (id, on) => { if (on === 'click') this.onAchievementsAction(this.achievementsView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  onAchievementsAction: (item: ViewItem | undefined) => void = () => {};
+  private achievementsView: ScreenView | null = null;
+  /** The project's `screen achievement_toast`: shows one unlock, takes no input. */
+  readonly achToastLayer = new HudLayer($('achtoastui'), () => {}, () => true);
+  private achToastView: ScreenView | null = null;
   private quickView: ScreenView | null = null;
   /** `hover sound "name"` on a screen or HUD element; a sound that is not there is silent. */
   private hoverSound(name: string) { if (this.audio.has('sound', name)) void this.audio.sound(name); }
@@ -188,6 +195,11 @@ export abstract class StageRenderer implements Renderer {
     this.imageUrls = new Map(assets.filter(a => IMAGE_FILE.test(a.file)).map(a => [assetKey(a.file), `assets/${a.file}?v=${a.v}`] as const));
     this.indexArt(assets);
   }
+  /** Files the story had to wait for when it reached them; the lookahead should keep this at 0 (debug console: memory). */
+  lateLoads = 0;
+  /** Estimated memory of what is loaded: images from the renderer, decoded audio from the audio system. */
+  resident(): Resident[] { return [...this.residentImages(), ...this.audio.resident()]; }
+  protected residentImages(): Resident[] { return []; }
   /** The renderer learns which image files exist (and which changed). */
   protected indexArt(_assets: AssetFile[]): void {}
   /** Load one image into the renderer; never rejects (a missing or broken file is drawn as a placeholder). */
@@ -335,7 +347,9 @@ export abstract class StageRenderer implements Renderer {
     const ep = this.epoch;
     // Wait for the files of what is about to appear or play: a short hold, never a placeholder.
     if (op.op === 'scene' || op.op === 'show' || (op.op === 'image' && op.action === 'show') || (op.op === 'music' && op.action === 'play') || (op.op === 'sound' && op.action === 'loop')) {
-      await this.ensure(stateAssets(state, this.files));
+      const keys = stateAssets(state, this.files);
+      this.lateLoads += new Set(keys.filter(k => !this.ready.has(k) && this.versions.has(k))).size;
+      await this.ensure(keys);
       if (ep !== this.epoch) return;
     }
     switch (op.op) {
@@ -753,6 +767,27 @@ export abstract class StageRenderer implements Renderer {
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.chaptersView !== view) return; }
     this.chaptersLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
     if (fresh) this.chaptersLayer.focusFirst(focusId);
+  }
+
+  /** Draw the project's achievements list (null: hide it). */
+  async achievements(view: ScreenView | null) {
+    const fresh = !this.achievementsView && !!view;
+    this.achievementsView = view;
+    const ep = this.epoch;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.achievementsView !== view) return; }
+    this.achievementsLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    if (fresh) this.achievementsLayer.focusFirst();
+  }
+
+  /** Draw the project's achievement toast for one unlock (null: hide it). */
+  async achievementToast(view: ScreenView | null) {
+    this.achToastView = view;
+    const key = (file: string) => file.replace(IMAGE_FILE, '');
+    const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
+    if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (this.achToastView !== view) return; }
+    this.achToastLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
   }
 
   /** Draw the project's title screen (null: hide it). */

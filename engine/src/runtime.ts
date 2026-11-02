@@ -1,6 +1,6 @@
 import { arith, evalExpr, type Value } from './expr.js';
 import { Locale } from './locale.js';
-import { blocks, pickables, replayAnswer, firstTab, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
+import { blocks, pickables, replayAnswer, firstTab, ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
 import { newSeed, randomStep, type Rng } from './random.js';
 import { interpolate, parseRich } from './text.js';
 import type { Answer, DisplayState, MenuOption, Op, Program, Renderer, SayEvent, Src, VisualOp, Vars } from './types.js';
@@ -486,10 +486,11 @@ export class Runtime {
   }
 
   /** The project's `screen title` as it looks now, or null when it declares none (the shell then keeps its stock title screen). Without `canContinue` the `action continue` elements are disabled. */
-  titleView(canContinue: boolean, hasGallery = true, hasMusic = true, hasChapters = true): ScreenView | null {
+  titleView(canContinue: boolean, hasGallery = true, hasMusic = true, hasChapters = true, hasAchievements = true): ScreenView | null {
     if (!(TITLE_SCREEN in this.program.screens)) return null;
     const view = this.viewOf(TITLE_SCREEN);
-    const off = (act: string | null) => (act === 'continue' && !canContinue) || (act === 'gallery' && !hasGallery) || (act === 'music' && !hasMusic) || (act === 'chapters' && !hasChapters);
+    const off = (act: string | null) => (act === 'continue' && !canContinue) || (act === 'gallery' && !hasGallery) || (act === 'music' && !hasMusic) || (act === 'chapters' && !hasChapters)
+      || (act === 'achievements' && !hasAchievements);
     return { ...view, parts: view.parts.map(p => ('act' in p && off(p.act) ? { ...p, enabled: false } : p)) };
   }
 
@@ -554,6 +555,23 @@ export class Runtime {
    */
   chaptersView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
     return CHAPTERS_SCREEN in this.program.screens ? this.viewOf(CHAPTERS_SCREEN, values, entries) : null;
+  }
+
+  /**
+   * The project's `screen achievements` as it looks now, or null when it declares none (the shell then keeps its stock list). `values` are `achievements`
+   * and `endings` (lists of ids), `count` / `total` (achievements unlocked / all) and `endings_count` / `endings_total`; `entries` carry each one under
+   * its list (`a.title`, `a.description`, `a.icon` the image's asset file or '', `a.unlocked`, `a.hidden`, `a.ending`).
+   */
+  achievementsView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
+    return ACHIEVEMENTS_SCREEN in this.program.screens ? this.viewOf(ACHIEVEMENTS_SCREEN, values, entries) : null;
+  }
+
+  /**
+   * The project's `screen achievement_toast` showing one unlock, or null when it declares none (the shell then keeps its stock notice). `values` are
+   * `title`, `description`, `icon` (the image's asset file or '') and `ending`.
+   */
+  achievementToastView(values: Vars): ScreenView | null {
+    return ACHIEVEMENT_TOAST_SCREEN in this.program.screens ? this.viewOf(ACHIEVEMENT_TOAST_SCREEN, values) : null;
   }
 
   /** The HUD screens as they look now. */

@@ -3,15 +3,20 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder,
+  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry,
   type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
 import { AnimStudio } from './anim-studio.js';
 import { HelpDialog } from './help-dialog.js';
 import { FindDialog } from './find-dialog.js';
+import { TranslationsDialog } from './translations-dialog.js';
+import { VoiceDialog } from './voice-dialog.js';
+import { BuildDialog, langQuery } from './build-dialog.js';
+import { GitPanel } from './git-dialog.js';
 import { OutlineView } from './outline-view.js';
 import { Palette, rank, type PaletteItem, type PaletteMode } from './palette.js';
+import { ContextMenu, type MenuEntry, type MenuItem } from './context-menu.js';
 
 declare const require: any;
 declare const monaco: any;
@@ -313,7 +318,8 @@ tabsEl.addEventListener('wheel', e => {
 
 const recentFiles: string[] = []; // most recently activated first (Ctrl+P ordering)
 
-function activate(name: string) {
+/** Shows `name` in the editor; `focus` false leaves the keyboard where it is (a click in the Files panel). */
+function activate(name: string, focus = true) {
   const f = files.get(name);
   if (!f) return;
   leaveStock();
@@ -325,7 +331,7 @@ function activate(name: string) {
   editor.setModel(f.model);
   renderTabs();
   showPreviewLine();
-  editor.focus();
+  if (focus) editor.focus();
 }
 
 function closeTab(name: string) {
@@ -488,8 +494,11 @@ interface Project {
   assets: { file: string }[];
   rigs?: Record<string, RigManifest>;
   rigTexts?: Record<string, string>;
+  masters?: string[]; // PSDs under masters/, from the dev server
+  assetDirs?: string[]; // top-level folders under assets/, empty ones included
 }
-let projectAssets: { files: string[]; rigs: Record<string, RigManifest>; rigTexts: Record<string, string> } = { files: [], rigs: {}, rigTexts: {} };
+let projectAssets: { files: string[]; rigs: Record<string, RigManifest>; rigTexts: Record<string, string>; masters: { master: string; output: string | null }[]; dirs: string[] } =
+  { files: [], rigs: {}, rigTexts: {}, masters: [], dirs: [] };
 
 // ---- files and assets panel (Ctrl+B) ----
 const sidebarEl = $('sidebar'), sbFilter = $<HTMLInputElement>('sbFilter');
@@ -500,10 +509,12 @@ const openDirs = new Set<string>(); // asset folders the user expanded (all open
 const collapsedDirs = new Set<string>(); // script folders the user collapsed (the tree starts open)
 let scriptDirs: string[] = []; // folders under script/, empty ones included
 
-function sbItem(label: string, o: { meta?: string; title?: string; current?: boolean; errors?: boolean; problems?: { errors: number; warns: number }; run(): void }) {
+/** `key` (the project path) lets a redraw put the focus back on the same row, so F2 and Delete keep working on it. */
+function sbItem(label: string, o: { key?: string; meta?: string; title?: string; current?: boolean; errors?: boolean; problems?: { errors: number; warns: number }; run(e: MouseEvent): void }) {
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'item';
+  if (o.key) b.dataset.key = o.key;
   b.title = o.title ?? label;
   if (o.current) b.setAttribute('aria-current', 'true');
   if (o.errors) b.dataset.errors = 'true';
@@ -525,7 +536,264 @@ function sbItem(label: string, o: { meta?: string; title?: string; current?: boo
   return b;
 }
 
-const sbHeading = (text: string) => Object.assign(document.createElement('h3'), { textContent: text });
+// Hover icons on section headings and folders: the same three everywhere.
+const ICONS = {
+  file: '<path d="M9.5 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5.1z"/><path d="M9.5 1.8v3.3h3.3M8 7.6v3.6M6.2 9.4h3.6"/>',
+  folder: '<path d="M1.8 4.2a1 1 0 0 1 1-1h3l1.4 1.6h5a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/><path d="M8 7.3v3.4M6.3 9h3.4"/>',
+  add: '<path d="M8 10.5V2.2M4.8 5.4 8 2.2l3.2 3.2"/><path d="M2.2 10v2.8a1 1 0 0 0 1 1h9.6a1 1 0 0 0 1-1V10"/>',
+};
+type SbAction = [icon: keyof typeof ICONS, title: string, run: () => void];
+function sbIcon([icon, title, run]: SbAction) {
+  const b = Object.assign(document.createElement('button'), { type: 'button', className: 'add', title });
+  b.setAttribute('aria-label', title);
+  b.innerHTML = `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${ICONS[icon]}</svg>`;
+  b.addEventListener('click', e => { e.preventDefault(); run(); }); // preventDefault: a folder's icons do not fold it
+  return b;
+}
+
+// Right-click menus: rows register a builder; one listener on the list finds the nearest one.
+const ctxMenu = new ContextMenu(document.body);
+const sbMenus = new WeakMap<Element, () => MenuEntry[]>();
+function withMenu<T extends HTMLElement>(el: T, menu: () => MenuEntry[]): T { sbMenus.set(el, menu); return el; }
+function menuAt(target: EventTarget | null): [HTMLElement, () => MenuEntry[]] | null {
+  for (let el = target as HTMLElement | null; el && el.id !== 'sbList'; el = el.parentElement) {
+    const menu = sbMenus.get(el);
+    if (menu) return [el, menu];
+  }
+  return null;
+}
+$('sbList').addEventListener('contextmenu', e => {
+  const hit = menuAt(e.target);
+  if (hit) { ctxMenu.open(e, hit[0], hit[1]()); return; }
+  // Empty space (or a row without a menu): what the section headings offer.
+  ctxMenu.open(e, $('sbList'), [
+    { label: 'New Script File…', run: () => void newFile() }, { label: 'New Folder under script/…', run: () => void newFolder() },
+    null,
+    { label: 'Add Files…', run: () => pickAssets('', `${ART},audio/*,.ogg,.mp3,.wav,.m4a,.flac,.opus,.woff2,.woff,.ttf,.otf`) },
+    { label: 'New Folder under assets/…', run: () => void newAssetFolder() },
+    null,
+    revealItem('', 'Open Project Folder'),
+  ]);
+});
+// A double-click on a script row goes on to the editor (a single click keeps the focus in the panel).
+$('sbList').addEventListener('dblclick', e => {
+  const key = (e.target as HTMLElement).closest<HTMLElement>('.item[data-key]')?.dataset.key;
+  if (key === GAME || key?.startsWith('script/')) editor.focus();
+});
+// F2 renames and Delete deletes the focused row, when its menu offers that.
+$('sbList').addEventListener('keydown', e => {
+  const label = e.key === 'F2' ? 'Rename…' : e.key === 'Delete' ? 'Delete' : '';
+  const hit = label && !e.ctrlKey && !e.altKey && !e.metaKey ? menuAt(e.target) : null;
+  const item = hit?.[1]().find((x): x is MenuItem => !!x && x.label === label && !x.disabled);
+  if (!item) return;
+  e.preventDefault();
+  item.run();
+});
+
+const sbHeading = (text: string, actions: SbAction[] = [], menu?: () => MenuEntry[]) => {
+  const h = document.createElement('h3');
+  h.append(Object.assign(document.createElement('span'), { textContent: text }), ...actions.map(sbIcon));
+  if (menu) withMenu(h, menu);
+  return h;
+};
+
+// File manager actions on project-relative paths (dev server: /api/reveal and /api/open).
+const REVEAL = /Win/.test(navigator.platform) ? 'Reveal in File Explorer' : /Mac/.test(navigator.platform) ? 'Reveal in Finder' : 'Open Containing Folder';
+async function showPath(how: 'reveal' | 'open', rel: string) {
+  try {
+    const r = await fetch(`/api/${how}?path=${encodeURIComponent(rel)}`, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
+    if (r.status === 404) { setStatus('the dev server is older than the editor: restart it to open files'); return; }
+    if (!r.ok) throw new Error(String(r.status));
+  } catch { setStatus(how === 'open' ? `could not open ${rel}` : `could not show ${rel}`); }
+}
+const revealItem = (rel: string, label = REVEAL): MenuItem => ({ label, title: rel || 'the project folder', run: () => void showPath('reveal', rel) });
+const copyItem = (label: string, text: string): MenuItem => ({
+  label, title: text, run: () => void navigator.clipboard.writeText(text).then(() => setStatus(`copied ${text}`), () => setStatus('copy failed')),
+});
+
+// Rename/Move, Delete and Replace on project-relative paths (dev server: /api/move, /api/delete, PUT /api/asset?replace=).
+// Rename asks for the new path in the palette, so a file moves to another folder by typing it.
+const RENAME = '#rename:'; // palette prefix of the Rename field (the text after it is the new path)
+let renaming: { from: string; isDir: boolean } | null = null;
+const inScript = (rel: string) => rel.startsWith('script/');
+const scriptName = (rel: string) => rel.slice('script/'.length);
+
+async function fileRequest(url: string, fail: string): Promise<Response | null> {
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
+    if (r.ok) return r;
+    const text = await r.text();
+    setStatus(text === 'Not found' ? 'the dev server is older than the editor: restart it to rename or delete files' : `${fail}: ${text}`);
+  } catch { setStatus(fail); }
+  return null;
+}
+
+// Delete and Replace move what they remove to the project's .trash/ folder (dev server: /api/trash...). The toast offers Undo
+// for a while; Restore from Trash (palette, or the Project heading's menu) lists everything still there.
+let toastTimer = 0;
+function toast(text: string, undo?: () => void) {
+  const el = $('toast'), button = el.querySelector('button')!;
+  el.querySelector('span')!.textContent = text;
+  button.hidden = !undo;
+  button.onclick = () => { el.hidden = true; undo?.(); };
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { el.hidden = true; }, 12_000);
+  setStatus(text);
+}
+
+let trashEntries: TrashEntry[] = [];
+const TRASH_PICK = '#trash:'; // palette prefix of the Restore from Trash list
+async function openTrash() {
+  try { trashEntries = await (await fetch('/api/trash')).json(); } catch { setStatus('could not read the trash'); return; }
+  palette.setText(TRASH_PICK);
+}
+
+async function restoreTrash(id: string) {
+  const r = await fileRequest(`/api/trash/restore?id=${encodeURIComponent(id)}`, 'could not restore');
+  if (!r) return;
+  const { paths, aside } = await r.json() as { paths: string[]; aside: string | null };
+  toast(`restored ${paths.join(', ')}${aside ? ' (what was there went to the trash)' : ''}`, aside ? () => void restoreTrash(aside) : undefined);
+  await syncFromDisk();
+  renderSidebarFiles();
+}
+
+async function emptyTrash() {
+  if (!window.confirm('Delete everything in the project trash for good? This cannot be undone.')) return;
+  const r = await fileRequest('/api/trash/empty', 'could not empty the trash');
+  if (r) toast(`emptied the trash (${(await r.json() as { removed: number }).removed} entries)`);
+}
+
+/** Saves the scripts under `rel` now, so a move or delete never races their autosave. */
+async function flushScripts(rel: string) {
+  if (!inScript(rel)) return;
+  await Promise.all(scripts().filter(f => isUnder(f.name, scriptName(rel))).map(f => { clearTimeout(f.timer); return save(f); }));
+}
+
+function startRename(from: string, isDir = false) {
+  renaming = { from, isDir };
+  palette.setText(RENAME + from);
+}
+
+async function movePath(from: string, to: string, isDir: boolean) {
+  const plan = planMove(from, to, isDir);
+  if ('error' in plan) { setStatus(plan.error); return; }
+  await flushScripts(from);
+  if (!await fileRequest(`/api/move?from=${encodeURIComponent(from)}&to=${encodeURIComponent(plan.to)}${isDir ? '&dir=1' : ''}`, `could not rename ${from}`)) return;
+  renaming = null;
+  setStatus(`renamed ${from} to ${plan.to}`);
+  if (from.startsWith('assets/')) {
+    // Scripts and game.json that name the file follow it (one undo step per file, saved like typing).
+    const { edits, stranded } = renameAssetRefs(projectFiles(), from, plan.to, isDir, projectAssets.files);
+    applyEdits(edits);
+    const changed = new Set(edits.map(e => e.file)).size;
+    const notes = [
+      edits.length ? `updated ${edits.length} mention${edits.length === 1 ? '' : 's'} in ${changed} file${changed === 1 ? '' : 's'}` : '',
+      stranded.length ? `${stranded.length} mention${stranded.length === 1 ? '' : 's'} cannot name the new place (${stranded.slice(0, 3).map(r => `${r.file}:${r.line}`).join(', ')}${stranded.length > 3 ? ', …' : ''})` : '',
+    ].filter(Boolean);
+    if (notes.length) toast(`renamed ${from} to ${plan.to}: ${notes.join('; ')}`); // a toast, so the autosave's status does not hide it
+  }
+  if (!inScript(from)) {
+    const [, top] = from.split('/'), [, newTop] = plan.to.split('/');
+    if (isDir && openDirs.delete(top)) openDirs.add(newTop);
+    void syncFromDisk();
+    return;
+  }
+  // Open scripts follow: their tabs, the recent list and the preview position keep pointing at them.
+  const a = scriptName(from), b = scriptName(plan.to), moved = new Map<string, string>();
+  for (const f of scripts()) {
+    const n = movedPath(f.name, a, b);
+    if (!n) continue;
+    moved.set(f.name, n);
+    files.delete(f.name);
+    f.name = n;
+    files.set(n, f);
+  }
+  const follow = (n: string) => moved.get(n) ?? n;
+  for (const list of [openTabs, recentFiles]) list.splice(0, list.length, ...list.map(follow));
+  active = follow(active);
+  if (previewPos) previewPos.file = follow(previewPos.file);
+  const dirs = new Set(scriptDirs.map(d => movedPath(d, a, b) ?? d));
+  for (let p = isDir ? b : b.slice(0, Math.max(b.lastIndexOf('/'), 0)); p; p = p.slice(0, Math.max(p.lastIndexOf('/'), 0))) dirs.add(p);
+  scriptDirs = [...dirs];
+  for (const d of [...collapsedDirs]) {
+    const n = movedPath(d, a, b);
+    if (n) { collapsedDirs.delete(d); collapsedDirs.add(n); }
+  }
+  recompile();
+  renderSidebarFiles();
+}
+
+async function deletePath(rel: string, isDir = false, question?: string) {
+  const count = !isDir ? 0 : inScript(rel) ? scripts().filter(f => isUnder(f.name, scriptName(rel))).length
+    : rel.startsWith('masters/') ? projectAssets.masters.filter(m => isUnder(`masters/${m.master}`, rel)).length
+    : projectAssets.files.filter(f => isUnder(`assets/${f}`, rel) && !f.endsWith('.gitkeep')).length;
+  const what = isDir ? `the folder ${rel}/${count ? ` and the ${count} file${count === 1 ? '' : 's'} in it` : ''}` : rel;
+  if (!window.confirm(question ?? `Delete ${what}?\n\nIt goes to the project trash (.trash/): Undo, or Restore from Trash, brings it back.`)) return;
+  const r = await fileRequest(`/api/delete?path=${encodeURIComponent(rel)}${isDir ? '&dir=1' : ''}`, `could not delete ${rel}`);
+  if (!r) return;
+  const { trash } = await r.json() as { trash?: string };
+  toast(`deleted ${rel}`, trash ? () => void restoreTrash(trash) : undefined);
+  if (!inScript(rel)) { void syncFromDisk(); return; }
+  const a = scriptName(rel);
+  for (const f of scripts()) {
+    if (!isUnder(f.name, a)) continue;
+    clearTimeout(f.timer);
+    f.saved = f.model.getValue(); // closing a tab saves it; this one is gone
+    closeTab(f.name);
+    files.delete(f.name);
+    const seen = recentFiles.indexOf(f.name);
+    if (seen >= 0) recentFiles.splice(seen, 1);
+    f.model.dispose();
+  }
+  scriptDirs = scriptDirs.filter(d => !isUnder(d, a));
+  recompile();
+  renderSidebarFiles();
+}
+
+/** Overwrites an asset or master with a file of the same type picked with the system picker. */
+function replaceFile(rel: string) {
+  const ext = rel.slice(rel.lastIndexOf('.'));
+  const input = Object.assign(document.createElement('input'), { type: 'file', accept: ext });
+  input.addEventListener('change', async () => {
+    const f = input.files?.[0];
+    if (!f) return;
+    setStatus(`replacing ${rel}...`);
+    try {
+      const r = await fetch(`/api/asset?replace=${encodeURIComponent(rel)}&name=${encodeURIComponent(f.name)}`, { method: 'PUT', headers: { 'X-VN-Editor': '1' }, body: f });
+      if (!r.ok) { setStatus(`could not replace ${rel}: ${await r.text()}`); return; }
+      const { trash } = await r.json() as { trash?: string };
+      toast(`replaced ${rel}`, trash ? () => void restoreTrash(trash) : undefined);
+    } catch { setStatus(`could not replace ${rel}`); }
+  });
+  input.click();
+}
+
+/** Rename and Delete for a row's menu; `blocked` disables both and says why. F2 and Delete on the row run them too. */
+const changeItems = (rel: string, isDir = false, blocked?: string): MenuEntry[] => [
+  { label: 'Rename…', run: () => startRename(rel, isDir), disabled: !!blocked, title: blocked ?? `Rename or move ${rel} (type a new path)` },
+  { label: 'Delete', run: () => void deletePath(rel, isDir), disabled: !!blocked, title: blocked ?? `Delete ${rel}${isDir ? '/ and everything in it' : ''}` },
+];
+
+/** Asks for files with the system picker and adds them like a drop on `folder` (PSDs on bg, char and ui go to masters/). */
+function pickAssets(folder: string, accept = '') {
+  const input = Object.assign(document.createElement('input'), { type: 'file', multiple: true, accept });
+  input.addEventListener('change', () => { if (input.files?.length) void addAssets([...input.files], folder); });
+  input.click();
+}
+const ART = 'image/*,.png,.webp,.jpg,.jpeg,.avif,.svg';
+const acceptFor = (dir: string) => ['bg', 'char', 'ui'].includes(dir) ? `${ART},.psd` : '';
+const masterOf = (asset: string) => projectAssets.masters.find(m => m.output === asset)?.master;
+
+/** The focused row's key in `section`, and after a redraw, puts the focus back on the row with that key. */
+const focusedKey = (section: HTMLElement) => (section.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.key : undefined);
+function refocus(section: HTMLElement, key: string | undefined) {
+  if (key) section.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus();
+}
+// A mouse click on a script row opens it and leaves the focus in the panel (so F2 and Delete work on the row);
+// Enter (a click with detail 0) and a double-click go on to the editor.
+const toEditor = (e: MouseEvent) => e.detail === 0;
+
 const sbNone = (text: string) => Object.assign(document.createElement('div'), { className: 'none', textContent: text });
 const sbMatch = (text: string) => text.toLowerCase().includes(sbFilter.value.trim().toLowerCase());
 
@@ -534,11 +802,22 @@ function renderSidebarFiles() {
   if (sidebarEl.hidden) return;
   const over = overriddenScreens([...files.values()].filter(f => f.kind === 'script').map(f => ({ file: f.name, text: f.model.getValue() })));
   const overrideFiles = new Set(UI_SCREENS.filter(u => over[u.name] === u.file).map(u => u.file));
-  const fileRow = (f: FileState, label: string) => sbItem(label, {
+  const focused = focusedKey(sbFilesEl);
+  const fileRow = (f: FileState, label: string) => withMenu(sbItem(label, {
+    key: f.kind === 'game' ? GAME : `script/${f.name}`,
     title: f.name, current: f.name === active, errors: errorCount(f) > 0, problems: problemCounts(f),
     meta: [isDirty(f) ? '•' : '', overrideFiles.has(f.name) ? 'screen' : ''].filter(Boolean).join(' '),
-    run: () => activate(f.name),
-  });
+    run: e => activate(f.name, toEditor(e)),
+  }), () => f.kind === 'game' ? [{ label: 'Open', run: () => activate(f.name) }, null, copyItem('Copy Path', GAME), revealItem(GAME)] : [
+    { label: 'Open', run: () => activate(f.name) },
+    { label: 'Preview from Start of File', run: () => void previewFile(f.name) },
+    null,
+    { label: 'New Script File Here', run: () => void newFile(undefined, undefined, f.name.includes('/') ? f.name.slice(0, f.name.lastIndexOf('/')) : undefined) },
+    null,
+    ...changeItems(`script/${f.name}`),
+    null,
+    copyItem('Copy Path', `script/${f.name}`), revealItem(`script/${f.name}`),
+  ]);
   const game = files.get(GAME);
   const scripts = [...files.values()].filter(f => f.kind === 'script');
   const tree = buildFileTree(scripts.map(f => f.name), scriptDirs, sbFilter.value);
@@ -546,33 +825,51 @@ function renderSidebarFiles() {
     const el = document.createElement('details');
     el.open = !collapsedDirs.has(d.path);
     el.addEventListener('toggle', () => { if (el.open) collapsedDirs.delete(d.path); else collapsedDirs.add(d.path); });
-    const sum = document.createElement('summary');
-    sum.append(Object.assign(document.createElement('span'), { textContent: d.name }));
-    for (const [text, title, run] of [
-      ['+', `New script file in ${d.path}/`, () => void newFile(undefined, undefined, d.path)],
-      ['▸', `New folder in ${d.path}/`, () => void newFolder(undefined, d.path)],
-    ] as const) {
-      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'add', textContent: text, title });
-      b.addEventListener('click', run);
-      sum.append(b);
-    }
-    sum.addEventListener('click', e => { if ((e.target as HTMLElement).closest('.add')) e.preventDefault(); }); // the buttons do not fold the folder
+    const newHere: SbAction = ['file', `New script file in ${d.path}/`, () => void newFile(undefined, undefined, d.path)];
+    const folderHere: SbAction = ['folder', `New folder in ${d.path}/`, () => void newFolder(undefined, d.path)];
+    const sum = withMenu(document.createElement('summary'), () => [
+      { label: 'New Script File…', run: newHere[2] }, { label: 'New Folder…', run: folderHere[2] },
+      null, ...changeItems(`script/${d.path}`, true),
+      null, copyItem('Copy Path', `script/${d.path}`), revealItem(`script/${d.path}`),
+    ]);
+    sum.dataset.key = `script/${d.path}/`;
+    sum.append(Object.assign(document.createElement('span'), { textContent: d.name }), sbIcon(newHere), sbIcon(folderHere));
     el.append(sum, ...d.folders.map(folderNode), ...d.files.map(n => fileRow(files.get(n)!, n.slice(n.lastIndexOf('/') + 1))));
     return el;
   };
   const scriptRows = tree.flat
     ? tree.files.map(n => fileRow(files.get(n)!, n))
     : [...tree.root.folders.map(folderNode), ...tree.root.files.map(n => fileRow(files.get(n)!, n))];
+  const newScript: SbAction = ['file', 'New script file', () => void newFile()];
+  const newScriptFolder: SbAction = ['folder', 'New folder under script/', () => void newFolder()];
   sbFilesEl.replaceChildren(
-    ...(game && sbMatch(GAME) ? [sbHeading('Project'), fileRow(game, GAME)] : []),
-    sbHeading('Scripts'), ...(scriptRows.length ? scriptRows : [sbNone(tree.flat ? 'No matching files' : 'No scripts yet')]));
+    ...(game && sbMatch(GAME) ? [sbHeading('Project', [], () => [
+      revealItem('', 'Open Project Folder'), null, { label: 'Restore from Trash…', run: () => void openTrash() }, { label: 'Empty Trash…', run: () => void emptyTrash() },
+    ]), fileRow(game, GAME)] : []),
+    sbHeading('Scripts', [newScript, newScriptFolder], () => [
+      { label: 'New Script File…', run: newScript[2] }, { label: 'New Folder…', run: newScriptFolder[2] }, null, revealItem('script'),
+    ]),
+    ...(scriptRows.length ? scriptRows : [sbNone(tree.flat ? 'No matching files' : 'No scripts yet')]));
   const screens = UI_SCREENS.filter(u => sbMatch(`${u.name} ${u.title}`));
   if (screens.length) sbFilesEl.append(sbHeading('Built-in screens'), ...screens.map(u => {
     const file = over[u.name] ? files.get(over[u.name]) : undefined;
-    const row = document.createElement('div');
+    const row = withMenu(document.createElement('div'), () => [
+      { label: 'Preview Screen', run: () => previewScreen(u.name) },
+      ...(file ? [
+        { label: `Open ${file.name}`, run: () => activate(file.name) },
+        {
+          label: 'Revert to Stock', title: `Delete script/${file.name} so the stock screen is used again`,
+          run: () => void deletePath(`script/${file.name}`, false, `Delete script/${file.name} and go back to the stock ${u.title} screen?\n\nThe file goes to the project trash (.trash/).`),
+        },
+        null, copyItem('Copy Path', `script/${file.name}`), revealItem(`script/${file.name}`),
+      ] : [
+        { label: 'Show Starter Code', run: () => showStock(u) },
+        { label: 'Customize', title: `Create script/${u.file} with the starter code`, run: () => void newFile(u.file, u.starter) },
+      ]),
+    ]);
     row.className = 'row';
     row.append(sbItem(u.title, {
-      title: file ? `Preview, and open ${file.name}, which overrides this screen (delete the screen to get the stock one back)` : 'Preview the stock screen and show its starter code read-only',
+      title: file ? `Preview, and open ${file.name}, which overrides this screen (right-click, Revert to Stock, to get the stock one back)` : 'Preview the stock screen and show its starter code read-only',
       current: file ? file.name === active : stock?.name === u.name, errors: !!file && errorCount(file) > 0, problems: file ? problemCounts(file) : undefined,
       meta: file ? [isDirty(file) ? '•' : '', file.name].filter(Boolean).join(' ') : 'stock',
       run: () => { previewScreen(u.name); if (file) activate(file.name); else showStock(u); },
@@ -586,55 +883,173 @@ function renderSidebarFiles() {
     }
     return row;
   }));
+  refocus(sbFilesEl, focused);
 }
 
 /** Characters (open their rig.json) and every other asset by folder (open in a browser tab). Redrawn when assets or the filter change. */
 function renderSidebarAssets() {
   if (sidebarEl.hidden) return;
+  const focused = focusedKey(sbAssetsEl);
   const filtering = sbFilter.value.trim() !== '';
-  const chars = Object.keys(projectAssets.rigs).sort().filter(c => sbMatch(`char/${c}`));
+  const chars =Object.keys(projectAssets.rigs).sort().filter(c => sbMatch(`char/${c}`));
   const byDir = new Map<string, string[]>();
   for (const file of projectAssets.files) {
-    if (file.endsWith('.gitkeep') || Object.keys(projectAssets.rigs).some(c => file.startsWith(`char/${c}/`)) || !sbMatch(file)) continue;
+    if (file.endsWith('.gitkeep') || Object.entries(projectAssets.rigs).some(([c, r]) => !r.flat && file.startsWith(`char/${c}/`)) || !sbMatch(file)) continue;
     const [dir, ...rest] = file.split('/');
     byDir.set(dir, [...(byDir.get(dir) ?? []), rest.join('/')]);
   }
+  if (!filtering) for (const dir of projectAssets.dirs) if (dir !== 'char' || byDir.has(dir)) byDir.set(dir, byDir.get(dir) ?? []); // empty folders too
   const groups = [...byDir.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([dir, names]) => {
     const d = document.createElement('details');
     d.open = filtering || openDirs.has(dir);
-    const s = document.createElement('summary');
-    s.textContent = `${dir} (${names.length})`;
+    d.dataset.dir = dir;
+    const add: SbAction = ['add', `Add files to assets/${dir}/${acceptFor(dir) ? ' (a PSD goes to masters/)' : ''}`, () => pickAssets(dir, acceptFor(dir))];
+    const s = withMenu(document.createElement('summary'), () => [
+      { label: 'Add Files…', run: add[2] },
+      null, ...changeItems(`assets/${dir}`, true, dir === 'char' ? 'char/ holds the characters; it keeps its name' : undefined),
+      null, copyItem('Copy Path', `assets/${dir}`), revealItem(`assets/${dir}`),
+    ]);
+    s.dataset.key = `assets/${dir}/`;
+    s.append(Object.assign(document.createElement('span'), { textContent: `${dir} (${names.length})` }), sbIcon(add));
     names.sort();
-    d.append(s, ...names.map(n => sbItem(n, {
-      title: `${dir}/${n}`,
-      run: () => openAsset(`${dir}/${n}`, names.map(x => `${dir}/${x}`)),
-    })));
+    d.append(s, ...names.map(n => {
+      const file = `${dir}/${n}`, master = masterOf(file);
+      // Converted art is rewritten from its master; a character's rig.json is edited from Characters.
+      const fixed = master ? `made from masters/${master}: change the master instead`
+        : /^char\/[^/]+\/rig\.json$/.test(file) ? 'the character\'s rig.json: edit it from Characters' : undefined;
+      return withMenu(sbItem(n, {
+        key: `assets/${file}`, title: master ? `${file} (converted from masters/${master})` : file, meta: master ? 'psd' : '',
+        run: () => openAsset(file, names.map(x => `${dir}/${x}`), true),
+      }), () => [
+        { label: 'View', run: () => openAsset(file, names.map(x => `${dir}/${x}`), true) },
+        ...(master ? [
+          { label: 'Open Master in Default App', title: `masters/${master}`, run: () => void showPath('open', `masters/${master}`) },
+          { label: 'Replace Master…', title: `Overwrite masters/${master} with another PSD (the converter remakes the art)`, run: () => replaceFile(`masters/${master}`) },
+        ] : []),
+        null,
+        ...changeItems(`assets/${file}`, false, fixed),
+        { label: 'Replace…', run: () => replaceFile(`assets/${file}`), disabled: !!fixed, title: fixed ?? `Overwrite ${file} with another ${file.slice(file.lastIndexOf('.'))} file` },
+        null,
+        copyItem('Copy Path', `assets/${file}`),
+        revealItem(`assets/${file}`),
+        ...(master ? [revealItem(`masters/${master}`, `${REVEAL} (Master)`)] : []),
+      ]);
+    }));
     d.addEventListener('toggle', () => { if (!filtering) { if (d.open) openDirs.add(dir); else openDirs.delete(dir); } });
     return d;
   });
+  // Masters the converter has not turned into art yet (it is off, still running, or the PSD failed): listed only while there are some.
+  const waiting = projectAssets.masters.filter(m => !m.output && sbMatch(`masters/${m.master}`));
+  const addChar: SbAction = ['add', 'Add a character PSD (masters/char/)', () => pickAssets('char', '.psd')];
+  const newAssetDir: SbAction = ['folder', 'New folder under assets/', () => void newAssetFolder()];
+  const addAny: SbAction = ['add', 'Add files (sorted by type: images to bg, sounds to music, fonts to fonts)', () => pickAssets('', `${ART},audio/*,.ogg,.mp3,.wav,.m4a,.flac,.opus,.woff2,.woff,.ttf,.otf`)];
   sbAssetsEl.replaceChildren(
-    sbHeading('Characters'),
+    sbHeading('Characters', [addChar], () => [{ label: 'Add Character PSD…', run: addChar[2] }, null, revealItem('masters/char', `${REVEAL} (Masters)`), revealItem('assets/char')]),
     ...(chars.length ? chars.map(c => {
-      const row = document.createElement('div');
+      const master = projectAssets.masters.find(m => m.output === `char/${c}/sprite.json`)?.master;
+      const flat = projectAssets.rigs[c]?.flat;
+      const row = withMenu(document.createElement('div'), () => [
+        { label: 'Edit rig.json', run: () => openRig(c) },
+        { label: 'Animate', run: () => openAnimStudio(c) },
+        null,
+        ...(master ? [
+          { label: 'Open Master in Default App', title: `masters/${master}`, run: () => void showPath('open', `masters/${master}`) },
+          { label: 'Replace Master…', title: `Overwrite masters/${master} with another PSD (the converter remakes the art)`, run: () => replaceFile(`masters/${master}`) },
+          { label: 'Reconvert All Art', run: () => void runTask('art', 'art') },
+        ] : flat ? [{ label: 'Add Pose Images…', run: () => pickAssets(`char/${c}`, ART) }] : []),
+        null,
+        copyItem('Copy Name', c),
+        ...(master ? [revealItem(`masters/${master}`, `${REVEAL} (Master)`)] : []),
+        revealItem(`assets/char/${c}`, master ? `${REVEAL} (Art)` : REVEAL),
+      ]);
       row.className = 'row';
       const anim = Object.assign(document.createElement('button'), { type: 'button', className: 'anim', textContent: 'Animate', title: `Open the animation studio for ${c}` });
       anim.addEventListener('click', () => openAnimStudio(c));
       row.append(sbItem(c, {
-        title: `Edit char/${c}/rig.json`, current: active === rigName(c),
-        meta: files.has(rigName(c)) ? 'rig.json (open)' : c in projectAssets.rigTexts ? 'rig.json' : 'rig.json (new)',
+        title: `Edit char/${c}/rig.json${master ? ` (art from masters/${master})` : ''}`, current: active === rigName(c),
+        meta: [master ? 'psd' : '', files.has(rigName(c)) ? 'rig.json (open)' : c in projectAssets.rigTexts ? 'rig.json' : 'rig.json (new)'].filter(Boolean).join(' · '),
         run: () => openRig(c),
       }), anim);
       return row;
     }) : [sbNone(filtering ? 'No matching characters' : 'No converted characters yet')]),
-    sbHeading('Assets'),
+    sbHeading('Assets', [addAny, newAssetDir], () => [{ label: 'Add Files…', run: addAny[2] }, { label: 'New Folder…', run: newAssetDir[2] }, null, revealItem('assets')]),
     ...(groups.length ? groups : [sbNone(filtering ? 'No matching assets' : 'No assets yet')]),
   );
+  if (waiting.length) sbAssetsEl.append(
+    sbHeading('Masters not converted', [], () => [{ label: 'Reconvert All Art', run: () => void runTask('art', 'art') }, null, revealItem('masters')]),
+    ...waiting.map(m => withMenu(sbItem(m.master, {
+      key: `masters/${m.master}`, title: `masters/${m.master}: no converted art yet (the converter is off, still working, or failed; see the dev server log). Click to open it.`, meta: 'psd',
+      run: () => void showPath('open', `masters/${m.master}`),
+    }), () => [
+      { label: 'Open in Default App', run: () => void showPath('open', `masters/${m.master}`) },
+      { label: 'Reconvert All Art', run: () => void runTask('art', 'art') },
+      null, ...changeItems(`masters/${m.master}`), { label: 'Replace…', run: () => replaceFile(`masters/${m.master}`) },
+      null, copyItem('Copy Path', `masters/${m.master}`), revealItem(`masters/${m.master}`),
+    ])));
+  refocus(sbAssetsEl, focused);
+}
+
+/** A new top-level folder under assets/ (asked for in the palette without a name). */
+async function newAssetFolder(given?: string) {
+  if (given === undefined) { palette.setText(NEW_ASSET_FOLDER); return; }
+  const dir = given.trim().replace(/\/+$/, '');
+  if (!/^[\w\-]+$/.test(dir)) { setStatus('invalid folder name'); return; }
+  const r = await fetch(`/api/folder?in=assets&dir=${encodeURIComponent(dir)}`, { method: 'PUT', headers: { 'X-VN-Editor': '1' } });
+  if (!r.ok) { setStatus('could not create folder'); return; }
+  if (!projectAssets.dirs.includes(dir)) projectAssets.dirs.push(dir);
+  openDirs.add(dir);
+  renderSidebarAssets();
+}
+
+async function previewFile(name: string) {
+  activate(name);
+  editor.setPosition({ lineNumber: 1, column: 1 });
+  await previewFromCursor();
+}
+
+// Files dragged from the desktop onto the Assets list are copied into the project; dropped on a folder they go in that folder,
+// else the server routes them by type (engine/src/asset-drop.ts). The sidebar refreshes through the assets watcher.
+const dropFolder = (e: DragEvent) => (e.target as HTMLElement).closest<HTMLElement>('details[data-dir]')?.dataset.dir ?? '';
+const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+function markDropTarget(e: DragEvent | null) {
+  sbAssetsEl.querySelectorAll('.drop').forEach(el => el.classList.remove('drop'));
+  if (e) (e.target as HTMLElement).closest('details[data-dir]')?.classList.add('drop');
+  sbAssetsEl.classList.toggle('dropping', !!e);
+}
+sbAssetsEl.addEventListener('dragover', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = 'copy';
+  markDropTarget(e);
+});
+sbAssetsEl.addEventListener('dragleave', e => { if (!sbAssetsEl.contains(e.relatedTarget as Node | null)) markDropTarget(null); });
+sbAssetsEl.addEventListener('drop', e => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const folder = dropFolder(e), dropped = [...e.dataTransfer!.files];
+  markDropTarget(null);
+  void addAssets(dropped, folder);
+});
+
+async function addAssets(dropped: File[], folder: string) {
+  const done: string[] = [], skipped: string[] = [];
+  for (const f of dropped) {
+    setStatus(`adding ${f.name}...`);
+    try {
+      const r = await fetch(`/api/asset?name=${encodeURIComponent(f.name)}&folder=${encodeURIComponent(folder)}`, { method: 'PUT', headers: { 'X-VN-Editor': '1' }, body: f });
+      if (r.ok) done.push(((await r.json()) as { dest: string }).dest);
+      else if (r.status === 409) skipped.push(`${((await r.json()) as { dest: string }).dest} exists`);
+      else skipped.push(await r.text());
+    } catch { skipped.push(`${f.name}: upload failed`); }
+  }
+  setStatus([done.length ? `added ${done.join(', ')}` : '', ...skipped].filter(Boolean).join('; '));
 }
 
 let assetViewer: AssetViewer;
-/** Images, sounds and fonts open in the viewer dialog; anything else in a browser tab. */
-function openAsset(file: string, siblings: string[] = [file]) {
-  if (canView(file)) assetViewer.open(file, siblings, () => editor.focus());
+/** Images, sounds and fonts open in the viewer dialog; anything else in a browser tab. Closing the viewer goes back to the
+ * Files panel row when it was opened from there (`fromPanel`), else to the editor. */
+function openAsset(file: string, siblings: string[] = [file], fromPanel = false) {
+  if (canView(file)) assetViewer.open(file, siblings, () => (fromPanel ? refocus(sbAssetsEl, `assets/${file}`) : editor.focus()));
   else window.open(`/assets/${encodeURI(file)}`, '_blank', 'noopener');
 }
 
@@ -648,7 +1063,8 @@ function setSidebar(show: boolean) {
 function setAssets(proj: Project) {
   scriptDirs = proj.scriptDirs ?? [];
   renderSidebarFiles();
-  projectAssets = { files: proj.assets.map(a => a.file), rigs: proj.rigs ?? {}, rigTexts: proj.rigTexts ?? {} };
+  const assetFiles = proj.assets.map(a => a.file);
+  projectAssets = { files: assetFiles, rigs: proj.rigs ?? {}, rigTexts: proj.rigTexts ?? {}, masters: matchMasters(proj.masters ?? [], assetFiles), dirs: proj.assetDirs ?? [] };
   renderSidebarAssets();
   const assets = proj.assets;
   const pick = (dir: string) => assets.flatMap(a => {
@@ -665,7 +1081,7 @@ const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
   'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title',
   'confirm_qload', 'history', 'history_empty', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
-  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'now_playing',
+  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'now_playing', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
 
 function updateGameSchema() {
@@ -755,7 +1171,7 @@ function updateGameSchema() {
           buttons: {
             type: 'array', uniqueItems: true,
             description: 'Buttons in order. Leave one out to hide it.',
-            items: { enum: ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'options'] },
+            items: { enum: ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'achievements', 'options'] },
           },
           fade: { type: 'number', minimum: 0, maximum: 5, default: 0.4, description: 'Seconds of black between the title screen and the game, both ways (0 = cut).' },
         },
@@ -810,6 +1226,9 @@ function updateGameSchema() {
       },
       saveVersion: { type: 'integer', minimum: 0, default: 0, description: 'Raise this when a release breaks old saves: loading a save made under a lower number asks the player first.' },
       choiceSaves: { type: 'integer', minimum: 1, maximum: 20, default: 5, description: 'How many rotating choice autosaves to keep (the "C" page of the Load screen).' },
+      voiceLanguages: { type: 'array', items: { type: 'string' }, description: 'Languages to record voice in (e.g. ["ja", "fi"]), listed in the Voice dialog and held to having a recording for every spoken line by the build checks, even before the first recording. Separate from the text translations in locale/<lang>.json. The source language is the default take and needs no entry.' },
+      language: { type: 'string', default: 'en', description: 'The language the scripts are written in (default "en"). Other languages are translations in locale/<lang>.json. Players pick the text language, and separately the voice language, in the options.' },
+      memoryBudgetMB: { type: 'number', exclusiveMinimum: 0, description: 'Memory budget for loaded images and audio, in MB (default 512, 256 on low-memory devices). The debug console command memory reports against it.' },
       quickMenu: {
         type: 'object',
         additionalProperties: false,
@@ -868,6 +1287,36 @@ function updateGameSchema() {
               },
             },
           ],
+        },
+      },
+      achievements: {
+        type: 'array',
+        description: 'Achievements and endings (an Achievements button appears on the title screen). Each unlocks when the script runs "unlock <flag>", and pops up a toast.',
+        items: {
+          anyOf: [
+            { type: 'string', description: 'A flag (script: unlock <flag>), also the title.', examples: names(used('unlock', 'name')) },
+            {
+              type: 'object', additionalProperties: false, required: ['unlock'],
+              properties: {
+                unlock: { type: 'string', description: 'The flag that unlocks it (script: unlock <flag>).', examples: names(used('unlock', 'name')) },
+                title: { type: 'string' },
+                description: { type: 'string', description: 'What it is for; hidden ones show it only once unlocked.' },
+                icon: { type: 'string', description: 'Image: assets/ui/<icon>.png, on the list and the toast.', examples: assetNames.ui },
+                hidden: { type: 'boolean', description: 'Shown as "???" until unlocked.' },
+                ending: { type: 'boolean', description: 'An ending: listed and counted apart from the achievements.' },
+                toast: { type: 'boolean', description: 'false: unlock it quietly, with no toast.' },
+              },
+            },
+          ],
+        },
+      },
+      achievementToast: {
+        type: 'object', additionalProperties: false,
+        description: 'The stock toast an unlocked achievement pops up. Declare "screen achievement_toast" to draw your own (seconds and sound still apply).',
+        properties: {
+          position: { enum: ['topright', 'topleft', 'bottomright', 'bottomleft', 'top', 'bottom'], description: 'Where it shows (default topright).' },
+          seconds: { type: 'number', exclusiveMinimum: 0, description: 'How long each one stays (default 4).' },
+          sound: { type: 'string', description: 'Played as it appears: assets/sound/<sound>.', examples: assetNames.sound },
         },
       },
       blips: {
@@ -1242,6 +1691,10 @@ interface Command {
 let palette: Palette;
 let help: HelpDialog;
 let outlineView: OutlineView;
+let translations: TranslationsDialog;
+let voiceDialog: VoiceDialog;
+let buildDialog: BuildDialog;
+let gitPanel: GitPanel;
 const toggleOutline = () => outlineView.toggle(buildOutline(program), () => editor.focus());
 
 /** F1 / Help button: the command reference at the statement under the cursor; a game.json tab shows docs/game-json.md,
@@ -1266,7 +1719,8 @@ function saveFile(f: FileState | undefined) {
   if (f) { clearTimeout(f.timer); void save(f); }
 }
 
-function addIdsEverywhere() {
+/** Give every string line of every script an id; returns how many were added. */
+function addIdsEverywhere(): number {
   let total = 0;
   for (const f of scripts()) {
     const taken = existingIds(scripts().map(x => x.model.getValue()));
@@ -1276,6 +1730,15 @@ function addIdsEverywhere() {
     total += added;
   }
   setStatus(total ? `added ${total} ids` : 'every line already has an id');
+  return total;
+}
+
+/** How many string lines in the scripts have no id yet (what addIdsEverywhere would add). */
+function missingIdCount(): number {
+  const taken = existingIds(scripts().map(x => x.model.getValue()));
+  let n = 0;
+  for (const f of scripts()) n += assignIds(f.model.getValue(), new Set(taken)).added;
+  return n;
 }
 
 /** Open `name` at `line` (clamped to the file), at column `col` if given, else at the line's first non-blank character. */
@@ -1338,6 +1801,7 @@ let animStudio: AnimStudio;
 const RIG_PICK = '#rig:', ANIM_PICK = '#anim:'; // palette prefixes of the character pickers (setupPalette)
 const NEW_PICK = '#new:'; // palette prefix of the New Script File name field
 const NEW_FOLDER = '#folder:'; // palette prefix of the New Folder name field
+const NEW_ASSET_FOLDER = '#assetfolder:'; // the same for a folder under assets/
 /** game.json as the tab holds it (unsaved edits count); null while it does not parse. */
 function openGame(): unknown {
   try { return JSON.parse(files.get(GAME)?.model.getValue() ?? '{}'); } catch { return null; }
@@ -1494,12 +1958,12 @@ function showOutput(text: string) {
 }
 
 /** Run a dev-server task; its output streams in as NDJSON (`{"out"}` chunks, then `{"ok"}`), see runTask in preview/dev-server.mjs. */
-async function runTask(name: string, label: string) {
+async function runTask(name: string, label: string, params = ''): Promise<{ ok: boolean; output: string }> {
   setStatus(`${label}...`);
   let output = '', ok = false, frame = 0;
   const show = () => { frame = 0; showOutput(output.trim() || '(running...)'); };
   try {
-    const r = await fetch(`/api/task?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
+    const r = await fetch(`/api/task?name=${encodeURIComponent(name)}${params}`, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
     if (!r.body) throw new Error('no body');
     const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
     let pending = '';
@@ -1521,11 +1985,12 @@ async function runTask(name: string, label: string) {
     cancelAnimationFrame(frame);
     if (output) showOutput(output.trim());
     setStatus(`${label}: could not reach the dev server`);
-    return;
+    return { ok: false, output };
   }
   cancelAnimationFrame(frame);
   showOutput(output.trim() || '(no output)');
   setStatus(`${label}: ${ok ? 'done' : 'failed'} (see Output)`);
+  return { ok, output };
 }
 
 /** Move keyboard focus between the three panes (Alt+1/2/3), showing the pane first when it is hidden. */
@@ -1571,6 +2036,8 @@ function buildCommands(): Command[] {
     { title: 'Add Localization IDs to All Files', run: addIdsEverywhere },
     { title: 'New Script File', run: () => newFile() },
     { title: 'New Script Folder', run: () => newFolder() },
+    { title: 'Files: Restore from Trash (deleted and replaced files)', run: () => void openTrash() },
+    { title: 'Files: Empty Trash', run: () => void emptyTrash() },
     { title: 'View: Show or Hide Files Panel', key: { code: K.CtrlCmd | C.KeyB, label: 'Ctrl+B' }, run: () => setSidebar(sidebarEl.hidden) },
     { title: 'Focus: Editor', key: { code: K.Alt | C.Digit1, label: 'Alt+1' }, run: () => focusPane('editor') },
     { title: 'Focus: Preview (play with the keyboard)', key: { code: K.Alt | C.Digit2, label: 'Alt+2' }, run: () => focusPane('preview') },
@@ -1591,9 +2058,13 @@ function buildCommands(): Command[] {
       editor.updateOptions({ wordWrap: editor.getOption(monaco.editor.EditorOption.wordWrap) === 'on' ? 'off' : 'on' });
     } },
     { title: 'Toggle Minimap', run: () => editor.updateOptions({ minimap: { enabled: !editor.getOption(monaco.editor.EditorOption.minimap).enabled } }) },
+    { title: 'Build: Checks and Export (web or desktop)', run: () => void buildDialog.open(() => editor.focus()) },
+    { title: 'Git: Commit All Changes (review, then stage and commit the project folder)', run: () => void gitPanel.open(() => editor.focus()) },
     { title: 'Export Web Build (build/web)', run: () => runTask('export', 'export') },
     { title: 'Open Exported Game', run: () => { window.open('/build/web/', '_blank', 'noopener'); } },
-    { title: 'Export Strings (locale/en.json, report untranslated)', run: () => runTask('strings', 'strings') },
+    { title: 'Export Strings (locale/<source language>.json, report untranslated)', run: () => runTask('strings', 'strings') },
+    { title: 'Translations: Edit Side by Side (and export CSV for translators)', run: () => void translations.open(() => editor.focus()) },
+    { title: 'Voice: Recordings per Line (drop audio files, find outdated takes)', run: () => void voiceDialog.open(() => editor.focus()) },
     { title: 'Reconvert All Art (masters/ to assets/)', run: () => runTask('art', 'art') },
   ];
 }
@@ -1720,7 +2191,37 @@ function setupPalette() {
       return [{ label: `Create folder ${dir}/`, className: 'create', run: () => void newFolder(dir) }];
     },
   };
-  pickers.push(newMode, newFolderMode);
+  const newAssetFolderMode: PaletteMode = {
+    prefix: NEW_ASSET_FOLDER, title: 'New asset folder', placeholder: 'New folder name under assets/ (e.g. sfx), Enter creates it',
+    items: q => {
+      const dir = q.trim().replace(/\/+$/, '');
+      if (!dir) return [{ label: 'Type a name for the new folder', detail: 'one level: assets/<name>/', className: 'empty', run: () => {} }];
+      if (!/^[\w\-]+$/.test(dir)) return [{ label: 'Not a valid folder name', detail: 'letters, digits, _ and -', className: 'empty', run: () => {} }];
+      if (projectAssets.dirs.includes(dir)) return [{ label: `assets/${dir}/`, detail: 'exists', className: 'empty', run: () => {} }];
+      return [{ label: `Create folder assets/${dir}/`, className: 'create', run: () => void newAssetFolder(dir) }];
+    },
+  };
+  const renameMode: PaletteMode = {
+    prefix: RENAME, title: 'Rename or move', placeholder: 'New path (another folder moves it), Enter renames',
+    items: q => {
+      if (!renaming) return [{ label: 'Pick a file or folder in the Files panel first', detail: 'right-click, Rename, or F2', className: 'empty', run: () => {} }];
+      const { from, isDir } = renaming;
+      const plan = planMove(from, q, isDir);
+      if ('error' in plan) return [{ label: plan.error === 'same name' ? `Type a new name for ${from}` : plan.error, className: 'empty', run: () => {} }];
+      return [{ label: `Rename to ${plan.to}`, detail: `from ${from}`, className: 'create', run: () => void movePath(from, plan.to, isDir) }];
+    },
+  };
+  const trashMode: PaletteMode = {
+    prefix: TRASH_PICK, title: 'Restore from trash', placeholder: 'Pick what to put back (filter by path)',
+    items: q => {
+      if (!trashEntries.length) return [{ label: 'The project trash is empty', className: 'empty', run: () => {} }];
+      const now = Date.now();
+      return rank(trashEntries, q, e => e.paths.join(' ')).map(({ entry: e, hits }) => ({
+        ...describeTrashEntry(e, now), hits, run: () => void restoreTrash(e.id),
+      }));
+    },
+  };
+  pickers.push(newMode, newFolderMode, newAssetFolderMode, renameMode, trashMode);
 
   const modes = [fileMode, commandMode, labelMode, lineMode, assetMode];
   const helpMode: PaletteMode = {
@@ -1732,6 +2233,29 @@ function setupPalette() {
   assetViewer = new AssetViewer(document.body);
   animStudio = new AnimStudio(document.body);
   outlineView = new OutlineView(document.body, goToLine);
+  voiceDialog = new VoiceDialog(document.body, {
+    rows: () => { recompile(); return stringRows(program); },
+    reveal: goToLine,
+    source: () => sourceLanguage(openGame() as { language?: unknown } | null),
+    declared: () => declaredVoiceLanguages(openGame() as { voiceLanguages?: unknown } | null, sourceLanguage(openGame() as { language?: unknown } | null)),
+  });
+  const saveAll = async () => { await Promise.all([...files.values()].map(f => { clearTimeout(f.timer); return save(f); })); };
+  buildDialog = new BuildDialog(document.body, {
+    reveal: goToLine,
+    openTranslations: () => void translations.open(() => editor.focus()),
+    openVoice: () => void voiceDialog.open(() => editor.focus()),
+    saveAll,
+    build: (target, out, langs) => runTask('build', 'build', `&target=${target}&out=${encodeURIComponent(out)}${langQuery(langs)}`),
+  });
+  gitPanel = new GitPanel($('sbGit'), document.body, { saveAll, done: setStatus });
+  void gitPanel.refresh();
+  translations = new TranslationsDialog(document.body, {
+    rows: () => { recompile(); return stringRows(program); },
+    reveal: goToLine,
+    missingIds: missingIdCount,
+    addIds: addIdsEverywhere,
+    source: () => sourceLanguage(openGame() as { language?: unknown } | null),
+  });
 
   // Ctrl+P, F1 and Alt+1/2/3 work wherever focus is (capture phase beats Monaco and the browser's print shortcut),
   // including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); F1 is help;
@@ -1739,7 +2263,7 @@ function setupPalette() {
   const panes = { Digit1: 'editor', Digit2: 'preview', Digit3: 'files' } as const;
   const onKey = (e: KeyboardEvent) => {
     const pane = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? panes[e.code as keyof typeof panes] : undefined;
-    if (pane && !(palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen)) {
+    if (pane && !(palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || gitPanel.isOpen)) {
       e.preventDefault();
       e.stopPropagation();
       focusPane(pane);
@@ -1749,7 +2273,7 @@ function setupPalette() {
     const f1 = e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.metaKey;
     if (!(ctrlP || f1)) return;
     if (f1) { e.preventDefault(); e.stopPropagation(); if (!palette.isOpen) toggleHelp(); return; }
-    if (palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen) return;
+    if (palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || gitPanel.isOpen) return;
     e.preventDefault();
     e.stopPropagation();
     palette.open('');
@@ -1902,12 +2426,13 @@ async function boot() {
   setSidebar(sidebarShown);
   sbFilter.addEventListener('input', () => { renderSidebarFiles(); renderSidebarAssets(); });
   $('filesBtn').addEventListener('click', () => setSidebar(sidebarEl.hidden));
-  $('sbNewFile').addEventListener('click', () => void newFile());
-  $('sbNewFolder').addEventListener('click', () => void newFolder());
   $('playHere').addEventListener('click', () => void previewFromCursor());
     $('commands').addEventListener('click', () => palette.open('>'));
   $('helpBtn').addEventListener('click', toggleHelp);
   $('outlineBtn').addEventListener('click', toggleOutline);
+  $('translateBtn').addEventListener('click', () => void translations.open(() => editor.focus()));
+  $('buildBtn').addEventListener('click', () => void buildDialog.open(() => editor.focus()));
+  $('voiceBtn').addEventListener('click', () => void voiceDialog.open(() => editor.focus()));
   $('varsBtn').addEventListener('click', () => { varsEl.hidden = !varsEl.hidden; if (!varsEl.hidden) showVars(lastVars); });
   $('varsClose').addEventListener('click', () => { varsEl.hidden = true; });
   $('taskOutputClose').addEventListener('click', () => { outputEl.hidden = true; });
@@ -1916,7 +2441,11 @@ async function boot() {
   setupSplitter();
 
   const events = new EventSource('/__events');
-  events.onmessage = e => { if ((JSON.parse(e.data) as { type: string }).type === 'content') void syncFromDisk(); };
+  events.onmessage = e => {
+    if (!['content', 'masters'].includes((JSON.parse(e.data) as { type: string }).type)) return;
+    void syncFromDisk();
+    gitPanel.refreshSoon();
+  };
 }
 
 void boot();

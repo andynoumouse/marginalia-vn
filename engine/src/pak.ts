@@ -8,6 +8,8 @@
 
 const MAGIC = 'VNPAK1\0\0';
 export const PAK_PREAMBLE = 16;
+/** Where the desktop build keeps `project.json` and `locale/<lang>.json` in the pak, apart from the files under assets/. */
+export const PAK_TEXT_DIR = '.vn';
 
 /** Hash a key string to the keystream seed. */
 export function pakSeed(key: string): number {

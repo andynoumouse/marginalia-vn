@@ -19,7 +19,10 @@ const MIME = {
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
 };
 // Only these parts of the app folder are reachable through the protocol (not main.cjs, config.json or the pak).
-const PUBLIC = /^(index\.html|project\.json|dist\/.+|vendor\/.+)$/;
+const PUBLIC = /^(index\.html|dist\/.+|vendor\/.+)$/;
+// The program and the translations live in the pak, under TEXT_DIR (engine/src/pak.ts: PAK_TEXT_DIR).
+const TEXT = /^(project\.json|locale\/[^/]+\.json)$/;
+const TEXT_DIR = '.vn';
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'vn',
@@ -62,7 +65,11 @@ async function handle(request) {
   const url = new URL(request.url);
   const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
   if (rel.split('/').includes('..')) return plain(400, 'Bad path');
-  if (rel.startsWith('assets/')) return serveAsset(rel.slice('assets/'.length), request);
+  if (rel.startsWith('assets/')) {
+    const inner = rel.slice('assets/'.length);
+    return inner.startsWith(`${TEXT_DIR}/`) ? plain(404, 'Not found') : serveAsset(inner, request);
+  }
+  if (TEXT.test(rel)) return serveAsset(`${TEXT_DIR}/${rel}`, request);
   if (!PUBLIC.test(rel)) return plain(404, 'Not found');
   return net.fetch(pathToFileURL(path.join(appDir, rel)).href);
 }

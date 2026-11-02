@@ -5,14 +5,14 @@ Every snippet comes from its scripts, so you can open the file, run it and chang
 
 | Page | You learn |
 |---|---|
-| [The editor](00-the-editor.md) | a tour of the editor: live preview, Ctrl+P palette, variables, story outline, files and refactoring |
+| [The editor](00-the-editor.md) | a tour of the editor: live preview, Ctrl+P palette, variables, story outline, files, trash and git, refactoring |
 | [1. Your first scene](01-first-scene.md) | project layout, running the editor, `scene`, `show`, narration and dialogue, `music` |
-| [2. Choices and variables](02-choices-and-variables.md) | `menu`, `set`, `if`, `jump`, `input`, `[variables]` in text, lists |
-| [3. Staging and effects](03-staging-and-effects.md) | `move`, `hop`, `shake`, `animate`, `tint`, `filter`, `camera`, `flash`, weather, text tags |
-| [4. Screens and memory](04-screens-and-memory.md) | clickable map, HUD, `call` with parameters, timed menus, `unlock`, `persistent`, gallery and chapters |
+| [2. Choices and variables](02-choices-and-variables.md) | `menu`, `set`, `if`, `jump`, `input`, `[variables]` in text, lists, random |
+| [3. Staging and effects](03-staging-and-effects.md) | `move`, `hop`, `shake`, `animate`, named positions, `tint`, `filter`, `camera`, `flash`, weather, sound, text tags |
+| [4. Screens and memory](04-screens-and-memory.md) | clickable map, scrolling grid, HUD, `call` with parameters, timed menus, `unlock`, `persistent`, gallery and chapters, endings and achievements, a custom pause menu |
 
-Planned: the PSD art pipeline, localization, and exporting for the web. Screenshots will be added when the demo has its
-final art. The full command list is in [../commands.md](../commands.md), `game.json` is in [../game-json.md](../game-json.md).
+Planned: the PSD art pipeline, localization, and exporting for the web. The demo's art is placeholder shapes for now,
+so the screenshots show those. The full command list is in [../commands.md](../commands.md), `game.json` is in [../game-json.md](../game-json.md).
 
 ## Set up
 

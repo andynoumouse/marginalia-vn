@@ -335,9 +335,29 @@ music stop fade 1
 
 ### voice lines
 There is no command for them: a line plays `assets/voice/<id>.*` when it appears, where `<id>` is the line's localization id (the `#ab12` that
-`npm run ids` adds), or `assets/voice/<lang>/<id>.*` when the player's language has its own recording. Lines without a file stay silent.
+`npm run ids` adds), or `assets/voice/<id>.<lang>.*` (for example `ab12.fi.mp3`) when the player's voice language has its own recording. The default take
+carries no language in its name, so game.json `language` never affects file names. Lines without a file stay silent.
 Auto-advance waits for the recording to end; moving on, skipping, rollback and loading cut it. The Voice slider in Options (`slider voice`) sets its
 volume, the quick bar shows a Voice button on voiced lines (`action voice` in a `screen quickmenu`), and `V` plays the line again.
+
+A recording keeps its id when the line is reworded, so `npm run voice` (also run by `npm run export`) looks for recordings made for older
+wording. It keeps `voice.lock.json` in the project folder (commit it): the checksum of each recording and the text of the line when the file was
+first seen or last replaced. A file that is unchanged while its line's text differs is listed with the old and the new wording until you record it
+again (a new file is adopted with the line's current text) or confirm it with `npm run voice -- accept <name>` / `accept all`, for a typo fix that
+needs no new take. Nothing is judged while you type: only the check, or the editor's **Voice: Recordings per Line** command
+(Ctrl+P), builds the list. Export only lists them as a warning (`build.checks` in game.json can make it an error). A recording `<id>.<lang>.*` is judged against that language's text. The game still
+plays outdated recordings. A file added together with a rewording, or before the first run, is taken as matching, since the text it was made for
+is unknown.
+
+The **Voice** dialog lists every line that has an id, one language at a time (the picker offers the default take, labelled with game.json `language`,
+and each language with a translation or a recording), with its state: no recording, recorded or outdated. Filter by text, "Missing only" or
+"Outdated only"; the summary counts the lines voiced. Drop an audio file on a row to save it as that line's take
+(`assets/voice/<id>[.<lang>].<ext>`, whatever the file was called), or use the row's **Add file…** button; an existing take is replaced only after you
+confirm, and any older file of the same recording under another extension is removed. Files already named `<id>.<ext>` (or `<id>.<lang>.<ext>`
+for a language) can be dropped on the list together and are matched by name; the others are listed to drag onto a row. **Play** hears a take. An
+outdated row shows the recorded and the current wording with the changed words marked, and **Still fine** (or **Still fine: all**) keeps the
+take. **Recording script (CSV)** downloads the lines shown (id, file, line, speaker, text, and the file name to deliver the take as, without
+extension) for the voice actor; tick "Missing only" first to get just what is left to record.
 
 ### sound
 `sound play <name> [duck]` plays `assets/sound/<name>.*` once. A cue without a file is shown as text in the corner.
@@ -532,7 +552,7 @@ hotspot door mask "ui/door_mask.png" at 800,300 size 200,300 "Door" hover tint r
 `on click <label>` is for a HUD (below); a blocking screen ignores it.
 
 `action <name>` on a button or hotspot runs a built-in of the game shell instead of a label: `back`, `history`, `auto`, `skip`,
-`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `tab` and `cycle` (below). It is how the quick menu is drawn by a screen: declaring a screen named
+`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters`, `achievements` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `tab` and `cycle` (below). It is how the quick menu is drawn by a screen: declaring a screen named
 `quickmenu` replaces the stock bar (game.json `quickMenu` is then ignored) and shows it while a game is being played. Nothing is
 recorded in saves; Auto and Skip show `aria-pressed` while they are on, so a theme can style them. The screen is redrawn before
 every line like a HUD, so `[variables]`, `if` and `enabled` work.
@@ -576,7 +596,8 @@ The settings are the screen's variables, so labels and conditions can show them:
   (400x48 without `size`). It shows its own position; `readout` adds the live value (`65%`, or the plain number for `text_speed`)
   16px to its right. `[master]` in a text is the value when the screen was last drawn.
 - `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion` and `captions` (`on`/`off`), `timed_choices` (`normal`/`extended`/`off`),
-  `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`) and `language`. The button id names the setting, and `[text_sounds]` in the label is its current word.
+  `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do).
+  The button id names the setting, and `[text_sounds]` in the label is its current word.
 - `button <name> ... action tab` selects a tab: the variable `tab` becomes the button id (the first `action tab` button until one is picked), so
   `if tab == "audio"` shows an element on that tab only.
 - `action close` goes back (the same as Esc) and `action fullscreen` toggles fullscreen.
@@ -671,6 +692,24 @@ title screen with `action music` and `action chapters` (disabled when `game.json
   `action close` leaves (the title music returns too). A locked track does nothing, so add `enabled t.unlocked`.
 - `chapters`: `chapters` (one id per entry), `count` and `total`. In `each chapters as c`: `[c.title]` and `c.unlocked`. `action chapter` starts a new playthrough at
   that chapter's label, `action close` goes back.
+
+A screen named `achievements` replaces the stock achievements list (open it from a project title screen with `action achievements`, disabled when
+`game.json` has no `achievements`), and one named `achievement_toast` replaces the notice that pops up on an unlock. The shell fills in:
+
+- `achievements`: `achievements` and `endings` (one id per entry of each kind), `count` / `total` (achievements unlocked / all) and `endings_count` /
+  `endings_total`. In `each achievements as a` (or `each endings as e`): `[a.title]` (the hidden word, "???", for a hidden one still locked),
+  `[a.description]` (empty while hidden), `a.icon` (the icon's file, for `image "[a.icon]"`; empty without one), `a.unlocked`, `a.hidden` and `a.ending`.
+  `action close` goes back.
+- `achievement_toast`: `title`, `description`, `icon` and `ending` for the one being shown. It takes no input and needs no buttons; place it with
+  `at` (game.json's `achievementToast.position` only moves the stock toast). It stays for `achievementToast.seconds`.
+
+```
+screen achievement_toast:
+  image "[icon]" at 1380,40 size 96,96 if icon != ""
+  text at 1500,40 "Ending reached" if ending
+  text at 1500,40 "Achievement unlocked" if not ending
+  text at 1500,90 "[title]"
+```
 
 ```
 screen music:
@@ -808,7 +847,8 @@ set persistent.playerName = name
 
 ### unlock
 `unlock <flag>` stores a flag across all playthroughs (endings, extras). Read it as `unlocked.<flag>`; flags can
-also unlock gallery images (see the README).
+also unlock gallery images (see the README), and a flag listed in game.json's `achievements` unlocks that achievement
+and pops up its toast.
 
 ```
 unlock good_ending
@@ -827,7 +867,7 @@ Keys of the editor at `/editor/` (Ctrl+P, then `>`, lists every command with its
 | Ctrl+Enter | preview from the cursor line |
 | Alt+1 / Alt+2 / Alt+3 | focus the editor / the preview (play the game with the keyboard) / the Files panel filter (work from anywhere) |
 | Ctrl+M | Tab moves focus out of the script instead of indenting; Ctrl+M again makes Tab indent again |
-| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the icons beside the filter, or `+` on a folder, make a script or a folder) |
+| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the hover icons on headings and folders make a script or folder or add files, drop files on the assets list too; right-click or Shift+F10 on a row for its menu, see the README; F2 renames or moves the row, Delete deletes it) |
 | Ctrl+S | save (edits are also saved by themselves) |
 | Alt+W | close the tab |
 | F2 | rename the label or variable under the cursor everywhere |

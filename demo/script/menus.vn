@@ -1,0 +1,11 @@
+# menus.vn - the game's own pause menu. A screen named `pause` replaces the stock one (Esc still opens and
+# closes it); each button runs a built-in action of the game instead of answering the screen.
+
+screen pause:
+  column anchor center gap 16 align center:
+    text "{b}Bookmark{/b}" #lugm
+    button resume size 440,90 "Back to reading" #bm9t action resume hover scale 1.06
+    button save size 440,90 "Save" #stxg action save hover scale 1.06
+    button load size 440,90 "Load" #vvha action load hover scale 1.06
+    button options size 440,90 "Options" #b0mr action options hover scale 1.06
+    button leave size 440,90 "Leave the library" #x00w action title hover scale 1.06

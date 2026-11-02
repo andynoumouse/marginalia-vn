@@ -1,6 +1,6 @@
 {
   "name": "marginalia-vn",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -16,7 +16,8 @@
     "test:all": "tsc -p . && node scripts/test.mjs all",
     "ids": "node bin/vn.mjs ids",
     "strings": "node bin/vn.mjs strings",
-    "art": "node bin/vn.mjs art",
+    "voice": "node bin/vn.mjs voice",
+    "art":"node bin/vn.mjs art",
     "playtest": "node bin/vn.mjs playtest",
     "export": "node bin/vn.mjs export"
   },

@@ -17,6 +17,8 @@ import { stageProblem } from './stage.js';
 import { hudLabels, type ScreenNode } from './screens.js';
 import { expandShow, liveOverrides, orderedParts, partName, rigPartNames, rigPoseNames, type RigData } from './rig.js';
 import { withFix } from './suggest.js';
+import { splitVoiceName } from './voice.js';
+import { buildCheckSettings } from './build-checks.js';
 
 /** One image of a layered character, or a slot with its variants (bottom to top in `parts`). */
 export interface RigPart {
@@ -32,6 +34,8 @@ export interface RigManifest {
   width?: number;
   height?: number;
   parts: RigPart[];
+  /** A flat character (one image per pose) that has a rig.json but no sprite.json: only its animations, idle and speak apply. */
+  flat?: boolean;
   /** assets/char/<char>/rig.json, attached by tools/project-data.mjs (see rig.ts). */
   rig?: RigData;
 }
@@ -76,6 +80,7 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   // Layered characters: which poses and slot variants exist.
   const rigs = new Map<string, { poses: Set<string>; slots: Map<string, Set<string>> }>();
   for (const [char, rig] of Object.entries(index.rigs ?? {})) {
+    if (rig.flat) continue;
     const poses = new Set<string>(), slots = new Map<string, Set<string>>();
     for (const p of rig.parts ?? []) {
       if (!p.slot || !p.variants) continue;
@@ -204,6 +209,7 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
       warn(title.music, `titleScreen.music: no track "${title.music}" in assets/music`);
     }
   }
+  for (const problem of buildCheckSettings(g).problems) warn('build', problem);
   const stage = stageProblem(g.stage);
   if (stage) out.push({ file: 'game.json', line: lineOf('stage'), severity: 'error', message: stage });
   if (g.positions && typeof g.positions === 'object' && !Array.isArray(g.positions)) {
@@ -239,6 +245,22 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
     }
   }
   if (Array.isArray(g.gallery)) for (const e of g.gallery) image(e?.image, 'gallery');
+  const uiImages = new Set(index.files.flatMap(f => {
+    const parts = f.split('/');
+    return IMAGE.test(f) && parts.length === 2 && parts[0] === 'ui' ? [stem(parts[1])] : [];
+  }));
+  const sounds = new Set(index.files.flatMap(f => {
+    const parts = f.split('/');
+    return AUDIO.test(f) && parts.length === 2 && parts[0] === 'sound' ? [stem(parts[1])] : [];
+  }));
+  if (Array.isArray(g.achievements)) {
+    for (const e of g.achievements) {
+      const icon = e && typeof e === 'object' ? e.icon : undefined;
+      if (typeof icon === 'string' && icon && !uiImages.has(icon)) warn(icon, `achievements: no icon "${icon}" in assets/ui`);
+    }
+  }
+  const toastSound = g.achievementToast && typeof g.achievementToast === 'object' ? g.achievementToast.sound : undefined;
+  if (typeof toastSound === 'string' && toastSound && !sounds.has(toastSound)) warn(toastSound, `achievementToast.sound: no sound "${toastSound}" in assets/sound`);
   if (Array.isArray(g.splash)) for (const e of g.splash) image(typeof e === 'string' ? e : e?.image, 'splash');
   return out;
 }
@@ -248,7 +270,7 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
 /** The project's files by asset key, plus the character rigs. */
 export interface AssetContext {
   has: (key: string) => boolean;
-  /** Whether line `id` has a recording in any language folder (assets/voice/<id> or assets/voice/<lang>/<id>). */
+  /** Whether line `id` has a recording in any language (assets/voice/<id>.* or assets/voice/<id>.<lang>.*). */
   hasVoice: (id: string) => boolean;
   rigs: Record<string, RigManifest>;
 }
@@ -264,10 +286,10 @@ export function assetContext(index: AssetIndex): AssetContext {
   return { has: k => keys.has(k), hasVoice: id => voices.has(id), rigs: index.rigs ?? {} };
 }
 
-/** The line id of a voice recording path under assets/ (`voice/ab12.ogg`, `voice/fi/ab12.ogg`); null for any other file. */
+/** The line id of a voice recording path under assets/ (`voice/ab12.ogg`, `voice/ab12.fi.ogg`); null for any other file. */
 const voiceId = (file: string): string | null => {
   const parts = file.split('/');
-  return (parts.length === 2 || parts.length === 3) && parts[0] === 'voice' && AUDIO.test(file) ? parts[parts.length - 1].replace(AUDIO, '') : null;
+  return parts.length === 2 && parts[0] === 'voice' && AUDIO.test(file) ? splitVoiceName(parts[1].replace(AUDIO, '')).id : null;
 };
 
 /** The asset key under which a line's recording is preloaded (the language is picked by the shell when it loads it). */
@@ -319,7 +341,7 @@ export function rigLayers(rig: RigManifest, pose: string | null, overrides: Reco
 
 /** The image keys a sprite is drawn with (only files that exist: the rest is a placeholder). */
 export function spriteKeys(s: Pick<SpriteState, 'char' | 'pose' | 'overrides'>, ctx: AssetContext): string[] {
-  const rig = ctx.rigs[s.char];
+  const rig = ctx.rigs[s.char]?.flat ? undefined : ctx.rigs[s.char];
   const layerKeys = (overrides: Record<string, string>) => rigLayers(rig!, s.pose, overrides).map(p => `char/${s.char}/${p.file.replace(IMAGE, '')}`);
   // A character that blinks or talks by itself also needs those variants loaded, or the swap would flash.
   const keys = rig

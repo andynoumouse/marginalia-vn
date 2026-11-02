@@ -7,6 +7,7 @@ set clue = 0
 set bread = false
 
 label town_square:
+  unlock town_visit
   scene bg_park_evening fade 0.5
   show alice neutral at center fade 0.4
   alice: Pick a direction. We have until dark. #jklz

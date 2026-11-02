@@ -104,34 +104,34 @@
     border: 2px solid rgba(255,255,255,.2); border-radius: 6px; white-space: nowrap; pointer-events: none; }
   #screenui .sc-tip[data-show="true"] { display: block; }
   /* HUD (hud on): the same elements as a screen, but the layers let clicks through except on the elements themselves. */
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) { position: absolute; inset: 0; pointer-events: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) > div { position: absolute; inset: 0; pointer-events: none; }
-  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll { position: absolute; overflow: hidden auto; overscroll-behavior: contain; pointer-events: auto; scrollbar-color: var(--bar-thumb, rgba(255,255,255,.4)) var(--bar-track, transparent); scrollbar-width: thin; }
-  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll[data-bar="off"] { scrollbar-width: none; }
-  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll[data-bar="off"]::-webkit-scrollbar { display: none; }
-  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-scroll-in { position: relative; width: 100%; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-img { position: absolute; max-width: none; pointer-events: none; user-select: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-text { position: absolute; font: 40px var(--vn-font); color: #fff; white-space: pre-wrap; text-shadow: 0 2px 8px #000; pointer-events: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot { position: absolute; padding: 0; background: transparent; border: var(--hot-border-width, 2px) solid transparent; border-radius: 0; cursor: var(--cursor, pointer); pointer-events: auto; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-ellipse { border-radius: 50%; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-mask { border: 0; pointer-events: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-mask[data-masked="true"] { -webkit-mask: var(--mask) center / 100% 100% no-repeat; mask: var(--mask) center / 100% 100% no-repeat; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly { fill: transparent; stroke: transparent; stroke-width: var(--hot-border-width, 3px); pointer-events: all; cursor: pointer; outline: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hot:focus-visible { background: var(--hot-fill, rgba(255,255,255,.18)); border-color: var(--hot-border, var(--accent)); outline: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly:focus-visible { fill: var(--hot-fill, rgba(255,255,255,.18)); stroke: var(--hot-border, var(--accent)); }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn { position: absolute; padding: 0 24px; font-size: 40px; background: rgba(14,17,23,.92); border: 2px solid rgba(255,255,255,.25);
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) { position: absolute; inset: 0; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) > div { position: absolute; inset: 0; pointer-events: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-scroll { position: absolute; overflow: hidden auto; overscroll-behavior: contain; pointer-events: auto; scrollbar-color: var(--bar-thumb, rgba(255,255,255,.4)) var(--bar-track, transparent); scrollbar-width: thin; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-scroll[data-bar="off"] { scrollbar-width: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-scroll[data-bar="off"]::-webkit-scrollbar { display: none; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :is(#screenui, #hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-scroll-in { position: relative; width: 100%; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-img { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-text { position: absolute; font: 40px var(--vn-font); color: #fff; white-space: pre-wrap; text-shadow: 0 2px 8px #000; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot { position: absolute; padding: 0; background: transparent; border: var(--hot-border-width, 2px) solid transparent; border-radius: 0; cursor: var(--cursor, pointer); pointer-events: auto; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-ellipse { border-radius: 50%; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-mask { border: 0; pointer-events: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-mask[data-masked="true"] { -webkit-mask: var(--mask) center / 100% 100% no-repeat; mask: var(--mask) center / 100% 100% no-repeat; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly { fill: transparent; stroke: transparent; stroke-width: var(--hot-border-width, 3px); pointer-events: all; cursor: pointer; outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot:focus-visible { background: var(--hot-fill, rgba(255,255,255,.18)); border-color: var(--hot-border, var(--accent)); outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly:focus-visible { fill: var(--hot-fill, rgba(255,255,255,.18)); stroke: var(--hot-border, var(--accent)); }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn { position: absolute; padding: 0 24px; font-size: 40px; background: rgba(14,17,23,.92); border: 2px solid rgba(255,255,255,.25);
     border-radius: 8px; color: inherit; font-family: var(--vn-font); cursor: pointer; pointer-events: auto; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn:hover, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn:focus-visible { border-color: var(--accent); outline: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-slider { position: absolute; margin: 0; accent-color: var(--accent); pointer-events: auto; cursor: pointer; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-hover[hidden] { display: none; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-hover]:focus-visible, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-hover]:focus-visible { fill: transparent; stroke: transparent; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) [data-tint]:focus-visible { background: var(--tint); border-color: transparent; }
-  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #viewerui) .sc-poly[data-tint]:focus-visible { fill: var(--tint); stroke: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn:hover, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn:focus-visible { border-color: var(--accent); outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-slider { position: absolute; margin: 0; accent-color: var(--accent); pointer-events: auto; cursor: pointer; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hover[hidden] { display: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-hover]:focus-visible, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-hover]:focus-visible { fill: transparent; stroke: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-tint]:focus-visible { background: var(--tint); border-color: transparent; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-tint][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-tint]:focus-visible { fill: var(--tint); stroke: transparent; }
   :is(#hudui, #quickui, #titleui) [data-scale] { transform-origin: center; transform-box: fill-box; transition: transform .12s; }
   :is(#hudui, #quickui, #titleui) [data-scale][data-active="true"], :is(#hudui, #quickui, #titleui) [data-scale]:focus-visible { transform: scale(var(--scale)); }
   :is(#hudui, #quickui, #titleui) .sc-tip { position: absolute; display: none; padding: 8px 20px; font: 34px var(--tip-font, var(--vn-font)); color: var(--tip-color, inherit); background: var(--tip-bg, rgba(10,13,19,.92));
@@ -189,7 +189,7 @@
   #title[data-align="right"] { align-items: flex-end; }
   #title[data-align="left"] #gameTitle { text-align: left; padding: 0; }
   #title[data-align="right"] #gameTitle { text-align: right; padding: 0; }
-  :is(#pause, #options, #saves, #history, #gallery, #viewer, #musicRoom, #chapters)[data-custom="true"] > * { display: none; }
+  :is(#pause, #options, #saves, #history, #gallery, #viewer, #musicRoom, #chapters, #achievements)[data-custom="true"] > * { display: none; }
   #title[data-custom="true"] { background: none; }
   #title[data-custom="true"] > * { display: none; }
   .menu-col { display: flex; flex-direction: column; gap: 18px; width: 600px; }
@@ -236,6 +236,32 @@
     background: rgba(14,17,23,.9); border: 2px solid rgba(255,255,255,.18); font: 28px system-ui, sans-serif;
     opacity: 0; transition: opacity .2s; pointer-events: none; }
   #toast[data-show="true"] { opacity: 1; }
+  #achToast { position: absolute; display: flex; gap: 20px; align-items: center; width: 640px; padding: 18px 24px; border-radius: 10px;
+    background: rgba(14,17,23,.94); border: 2px solid var(--accent); font: 28px system-ui, sans-serif; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    opacity: 0; translate: 0 -16px; transition: opacity .25s, translate .25s; pointer-events: none; z-index: 5; }
+  #achToast[data-show="true"] { opacity: 1; translate: 0 0; }
+  #achToast[data-position="topright"] { top: 40px; right: 40px; }
+  #achToast[data-position="topleft"] { top: 40px; left: 40px; }
+  #achToast[data-position="bottomright"] { bottom: 40px; right: 40px; }
+  #achToast[data-position="bottomleft"] { bottom: 40px; left: 40px; }
+  #achToast[data-position="top"] { top: 40px; left: calc(50% - 320px); }
+  #achToast[data-position="bottom"] { bottom: 40px; left: calc(50% - 320px); }
+  #achToast .ach-icon { flex: none; width: 96px; height: 96px; border-radius: 8px; background: center / cover no-repeat rgba(255,255,255,.08); }
+  #achToast .ach-icon:not([style*="url"]) { display: none; }
+  #achToastHead { color: var(--accent); font-size: 22px; text-transform: uppercase; letter-spacing: .06em; }
+  #achToastTitle { font-weight: 600; }
+  #achToastText { color: #c9ced8; font-size: 24px; }
+  #achToastText:empty { display: none; }
+  #achtoastui { z-index: 5; }
+  html[data-studio] #achToast, html[data-studio] #achtoastui { display: none; }
+  .ach-list { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow-y: auto; }
+  .ach-list h3 { margin: 12px 0 0; font: 600 26px system-ui, sans-serif; color: var(--muted); }
+  .ach-row { display: flex; gap: 20px; align-items: center; padding: 14px 24px; border: 2px solid rgba(255,255,255,.12); border-radius: 8px; }
+  .ach-row[data-locked="true"] { opacity: .45; }
+  .ach-row .ach-icon { flex: none; width: 72px; height: 72px; border-radius: 6px; background: center / cover no-repeat rgba(255,255,255,.08); }
+  .ach-list:not(:has(.ach-icon[style*="url"])) .ach-icon { display: none; }
+  .ach-row b { display: block; font: 600 30px system-ui, sans-serif; }
+  .ach-row span { color: #c9ced8; font: 24px system-ui, sans-serif; }
   #caption { position: absolute; left: 50%; top: 110px; translate: -50% 0; max-width: 80%; padding: 6px 18px; border-radius: 6px;
     background: rgba(0,0,0,.78); color: #fff; font: italic 26px system-ui, sans-serif; text-align: center;
     opacity: 0; transition: opacity .15s; pointer-events: none; }
@@ -274,7 +300,7 @@
   .pages { display: flex; gap: 10px; }
   .screen .pages button { font: 30px system-ui, sans-serif; padding: 8px 0; width: 72px; }
   .pages button[aria-current="page"] { border-color: var(--accent); color: var(--accent); }
-  #galleryCount, #musicCount, #chapterCount { color: var(--muted); font-size: 30px; }
+  #galleryCount, #musicCount, #chapterCount, #achievementCount { color: var(--muted); font-size: 30px; }
   .row-list { display: flex; flex-direction: column; gap: 12px; max-height: 760px; overflow-y: auto; }
   .screen .row-list .row { font: 30px system-ui, sans-serif; padding: 14px 24px; text-align: left; }
   .row-list .row[aria-current] { border-color: var(--accent); color: var(--accent); }
@@ -359,6 +385,8 @@
         <button type="button" data-q="hide" data-ui="q_hide" title="H / middle click">Hide</button>
       </nav>
       <div id="toast" role="status"></div>
+      <div id="achToast" role="status" data-position="topright"><div class="ach-icon"></div><div><div id="achToastHead"></div><div id="achToastTitle"></div><div id="achToastText"></div></div></div>
+      <div id="achtoastui" data-visible="false"></div>
       <div id="menuLive" class="sr-only" role="status"></div>
       <div id="caption" role="status" aria-live="polite"></div>
       <div id="loading" role="progressbar" aria-label="Loading"><i></i></div>
@@ -374,6 +402,7 @@
           <button id="titleGallery" type="button" data-ui="gallery">Gallery</button>
           <button id="titleMusic" type="button" data-ui="music_room">Music</button>
           <button id="titleChapters" type="button" data-ui="chapters">Chapters</button>
+          <button id="titleAchievements" type="button" data-ui="achievements">Achievements</button>
           <button id="titleOptions" type="button" data-ui="options">Options</button>
         </nav>
       </div>
@@ -425,6 +454,8 @@
               </select><span></span>
               <label for="optLang" data-ui="language">Language</label>
               <select id="optLang"></select><span></span>
+              <label for="optVoiceLang" data-ui="voice_language" id="optVoiceLangLabel">Voice language</label>
+              <select id="optVoiceLang"></select><span></span>
             </div>
             <div id="pageAccess" class="opt-page" role="tabpanel" aria-labelledby="tabAccess" data-page="access">
               <label for="optSize" data-ui="text_size">Text size</label>
@@ -495,6 +526,14 @@
         </div>
       </div>
       <div id="chaptersui" data-visible="false"></div>
+      <div id="achievements" class="screen dim" hidden>
+        <div class="saves-panel" role="dialog" aria-labelledby="achievementsTitle">
+          <header><h2 id="achievementsTitle" data-ui="achievements">Achievements</h2><span id="achievementCount"></span></header>
+          <div id="achievementList" class="ach-list"></div>
+          <footer><span></span><button id="achievementsBack" type="button" data-ui="back">Back</button></footer>
+        </div>
+      </div>
+      <div id="achievementsui" data-visible="false"></div>
       <div id="viewer" class="screen" hidden tabindex="-1" aria-label="Image viewer">
         <div id="viewerImg"></div>
         <div id="viewerTitle"></div>
@@ -518,6 +557,10 @@
         <span data-ui="quick">Quick save</span>
         <span data-ui="locked">Locked</span>
         <span data-ui="now_playing">Now playing</span>
+        <span data-ui="endings">Endings</span>
+        <span data-ui="achievement_unlocked">Achievement unlocked</span>
+        <span data-ui="ending_reached">Ending reached</span>
+        <span data-ui="hidden_achievement">???</span>
         <span data-ui="timed_announce">{n} seconds to choose</span>
         <span data-ui="quick_short">Q</span>
         <span data-ui="choice_short">C</span>

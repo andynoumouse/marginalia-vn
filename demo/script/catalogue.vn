@@ -1,0 +1,86 @@
+# catalogue.vn - the card catalogue: a scrolling grid of cards built from a list (scroll, grid, column, row),
+# random draws (random, chance, item), named stage positions from game.json, and a listening corner for the
+# audio commands (ducking, pausing the music). Characters and the bag come from start.vn and rooms.vn.
+
+define item poems "Poems for Rain" #shcs
+define item tides "Tide Tables" #ksqy
+define item lamps "The Lamplighter" #c2tl
+define item moss "Moss, Slowly" #qndk
+define item umbrellas "Umbrellas" #yoh5
+define item clouds "Cloud Names" #l1tx
+define item tea "Tea for One" #fiix
+define item letters "Unsent Letters" #y7r8
+define item storms "A Book of Storms" #qmqu
+define item puddles "Puddle Physics" #i5le
+
+set shelf = ["novel", "atlas", "poems", "tides", "lamps", "moss", "umbrellas", "clouds", "tea", "letters", "storms", "puddles"]
+set cards_read = 0
+
+# A scroll box clips what is inside it; the grid lays out one button per list entry, two to a row.
+screen catalogue:
+  text at 80,48 "{b}Card catalogue{/b}   Scroll, or use the arrow keys.   Cards read: [cards_read]" #rmrm
+  scroll at 80,150 size 1140,620:
+    grid 2 cell 540,100 gap 20:
+      each shelf as entry:
+        button entry size 540,100 "[entry.name]" #mtgc
+  column at 1320,170 gap 24:
+    text "Can't decide?" #tl8w
+    button surprise size 480,100 "Surprise me" #m2xz hover scale 1.06
+    button corner size 480,100 "The listening corner" #muf3 hover scale 1.06
+  row anchor bottomright margin 40 gap 20:
+    button back "Back to the map" #ujgk
+  default surprise
+  cancel
+
+label catalogue:
+  set visits += 1
+  scene bg_library fade 0.5
+  # farright is not built in: game.json "positions" names it.
+  show iris smile at farright fade 0.3
+  iris: The card catalogue. Every card is one entry of a list, and the screen lays them out by itself. #yq5h
+  hide iris fade 0.2
+
+label catalogue_loop:
+  show screen catalogue as card
+  if card == "back" or card == "":
+    jump hub
+  elif card == "corner":
+    jump listening_corner
+  elif card == "surprise":
+    # random() draws from the save's seed: replaying this save draws the same card.
+    set roll = random(1, count(shelf))
+    set card = item(shelf, roll)
+  set cards_read += 1
+  # A list shows its entries' item names in text, so a one-entry list prints the title.
+  set chosen = []
+  set chosen += card
+  show iris neutral at farleft fade 0.2
+  if contains(bag, card):
+    iris: {i}[chosen]{/i}? You already have that one in your bag. #bc9s
+  elif chance(30):
+    iris: {i}[chosen]{/i} is out on loan, I'm afraid. Somebody else is waiting out the rain with it. #y7ih
+  else:
+    animate iris nod
+    iris: {i}[chosen]{/i}, a good choice. I'll stamp the card. #izjr
+    sound play page_flip3
+  hide iris fade 0.2
+  jump catalogue_loop
+
+# Audio: a sound effect that ducks the music, pausing and resuming the music, and the rain loop stopping and starting.
+label listening_corner:
+  scene bg_reading_room fade 0.5
+  show iris smile at center fade 0.3
+  iris: The listening corner. Headphones on: the engine has a music channel and any number of sound loops. #vibq
+  sound play page_flip1 duck
+  iris: That page flip ducked the music under it, then let it back up. #qiag
+  music pause
+  iris: Music paused. The rain carries on, on its own channel. #ubc3
+  sound stop rain fade 1.5
+  iris: And now the rain fades out too. {pause=0.6}Quiet, isn't it? #tfat
+  animate iris sway 2 loop
+  iris: {ruby=shizuka}静か{/ruby}: that is "quiet" in Japanese. The small reading above is a ruby tag. #gosf
+  animate iris stop
+  sound loop rain fade 2
+  music resume
+  iris: Back to normal. A save made here brings back exactly this mix of sounds. #b094
+  jump catalogue_loop

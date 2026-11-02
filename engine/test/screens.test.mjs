@@ -273,6 +273,37 @@ label start:
   assert.deepEqual(rt.titleView(true, true, true, false).parts.map(x => [x.act, x.enabled]), [['music', true], ['chapters', false]]);
 });
 
+test('achievementsView and achievementToastView are the reserved achievement screens; a title button follows the entries', () => {
+  const p = build(`screen achievements:
+  each endings as e step 0,100:
+    text at 0,0 "[e.title]" if e.unlocked
+  each achievements as a step 0,100:
+    text at 600,0 "[a.title] [a.description]" if a.unlocked or not a.hidden
+  text at 0,900 "[count]/[total] [endings_count]/[endings_total]"
+  button done at 0,1000 "Back" action close
+screen achievement_toast:
+  image "[icon]" at 0,0 size 96,96 if icon != ""
+  text at 100,0 "[title]" if not ending
+screen title:
+  button a at 0,0 "Achievements" action achievements
+label start:
+  end
+`);
+  assert.deepEqual(p.diagnostics, []);
+  const rt = new Runtime(p, new NullRenderer());
+  const v = rt.achievementsView({ achievements: ['1', '2'], endings: ['1'], count: 1, total: 2, endings_count: 0, endings_total: 1 }, {
+    achievements: { 1: { name: 'Key', title: 'Key', description: 'Found it', icon: '', unlocked: true, hidden: false, ending: false }, 2: { name: 'Secret', title: '???', description: '', icon: '', unlocked: false, hidden: true, ending: false } },
+    endings: { 1: { name: 'Good', title: 'Good', description: '', icon: '', unlocked: false, hidden: false, ending: true } },
+  });
+  assert.deepEqual(v.parts.filter(x => x.kind === 'text').map(x => x.text), ['Key Found it', '1/2 0/1']);
+  const t = rt.achievementToastView({ title: 'Key', description: 'Found it', icon: '', ending: false });
+  assert.deepEqual(t.parts.map(x => x.kind === 'text' ? x.text : x.kind), ['Key']);
+  const bare = new Runtime(build('label start:\n  end\n'), new NullRenderer());
+  assert.equal(bare.achievementsView({}, {}), null);
+  assert.equal(bare.achievementToastView({}), null);
+  assert.deepEqual(rt.titleView(true, true, true, true, false).parts.map(x => [x.act, x.enabled]), [['achievements', false]]);
+});
+
 test('galleryView is the reserved gallery screen: tiles carry title, lock state and picture file; a title gallery button follows the entries', () => {
   const p = build(`screen gallery:
   each tiles as t step 0,100:

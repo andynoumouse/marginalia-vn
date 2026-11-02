@@ -12,7 +12,7 @@ const RESET_GROUPS: Record<string, readonly ResetTarget[]> = {
 };
 
 export type DebugCommand =
-  | { cmd: 'help' | 'clear' | 'vars' | 'labels' | 'flags' | 'persistent' }
+  | { cmd: 'help' | 'clear' | 'vars' | 'labels' | 'flags' | 'persistent' | 'memory' }
   | { cmd: 'set'; name: string; expr: string }
   | { cmd: 'jump'; label: string }
   | { cmd: 'unlock' | 'lock'; flag: string }
@@ -29,13 +29,14 @@ export const DEBUG_HELP = [
   'flags                   unlock flags',
   'unlock <flag> / lock <flag>',
   'persistent              persistent values',
+  'memory                  loaded images and audio against the memory budget',
   `reset <${RESET_TARGETS.join('|')}|progress|all>   clear what persists (progress = all but saves)`,
   'clear                   empty this log',
 ];
 
 const NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$/;
 const FLAG = /^[A-Za-z_][\w.-]*$/;
-const NO_ARGS = new Set(['help', 'clear', 'vars', 'labels', 'flags', 'persistent']);
+const NO_ARGS = new Set(['help', 'clear', 'vars', 'labels', 'flags', 'persistent', 'memory']);
 
 function checkExpr(src: string): string | null {
   try { parseExpr(src); return null; } catch (e) { return e instanceof ExprError ? e.message : String(e); }

@@ -2,6 +2,10 @@
   "id": "rainy-day-library",
   "title": "Rainy Day Library",
   "engine": "0.1",
+  "positions": {
+    "farleft": 0.12,
+    "farright": 0.88
+  },
   "titleScreen": {
     "background": "bg_library",
     "music": "evening_theme",
@@ -11,8 +15,10 @@
       "new_game",
       "continue",
       "load",
+      "chapters",
       "gallery",
       "music_room",
+      "achievements",
       "options"
     ]
   },
@@ -51,12 +57,41 @@
       "title": "The library"
     },
     {
+      "label": "catalogue",
+      "title": "The card catalogue"
+    },
+    {
       "label": "archive",
       "title": "The archive"
     },
     {
       "label": "reading_room",
       "title": "The lamp room"
+    }
+  ],
+  "achievements": [
+    {
+      "unlock": "ending_rain",
+      "title": "Waiting out the rain",
+      "description": "Sit by the window until the rain stops.",
+      "ending": true
+    },
+    {
+      "unlock": "ending_book",
+      "title": "Closing time",
+      "description": "Lose track of time in a borrowed book.",
+      "ending": true
+    },
+    {
+      "unlock": "explorer",
+      "title": "Explorer",
+      "description": "Visit three rooms in one afternoon."
+    },
+    {
+      "unlock": "lamp_room",
+      "title": "Postcards",
+      "description": "Open the box in the archive.",
+      "hidden": true
     }
   ]
 }

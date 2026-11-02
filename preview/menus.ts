@@ -2,7 +2,7 @@
 // stack so Esc / Back return to the screen underneath. Labels can be translated with `ui.<key>` entries in
 // locale/<lang>.json (keys are the data-ui attributes in index.html).
 
-import type { Locale, MusicItem, ChapterItem } from '../engine/src/index.js';
+import type { Locale, MusicItem, ChapterItem, AchievementItem } from '../engine/src/index.js';
 import type { LineInfo } from './stage-ui.js';
 import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SLOTS_PER_PAGE, type SaveData } from './saves.js';
 import { saveSettings, TEXT_INSTANT, type Settings } from './settings.js';
@@ -24,9 +24,12 @@ export interface TitleConfig {
 const TIMED_MODES: Settings['timedChoices'][] = ['normal', 'extended', 'off'];
 const AUTO_SPEEDS = ['slow', 'normal', 'fast'], AUTO_DELAYS = [3, 1.5, 0.6];
 const nearest = (list: number[], v: number) => list.reduce((best, x, i) => (Math.abs(x - v) < Math.abs(list[best] - v) ? i : best), 0);
-const DEFAULT_BUTTONS = ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'options'];
+const DEFAULT_BUTTONS = ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'achievements', 'options'];
 
 /** A gallery entry as the gallery screen shows it. */
+/** An achievement as the achievements screen shows it, with its icon's URL and file under assets/ (null and '' without one). */
+export interface AchievementRow extends AchievementItem { iconUrl: string | null; iconFile: string }
+
 export interface GalleryItem { name: string; title: string; url: string | null; /** the picture's file under assets/ ('' when there is none) */ file: string; unlocked: boolean }
 
 export interface MenuActions {
@@ -40,6 +43,7 @@ export interface MenuActions {
   playTrack(name: string | null): void;
   chapterItems(): ChapterItem[];
   startChapter(label: string): void;
+  achievementItems(): AchievementRow[];
   /** Save the current moment into `slot`; false when it could not be stored. */
   save(slot: string): Promise<boolean>;
   load(slot: string): void;
@@ -54,12 +58,13 @@ const historyEl = $('history'), historyList = $('historyList');
 const galleryEl = $('gallery'), galleryGrid = $('galleryGrid'), galleryCount = $('galleryCount');
 const musicEl = $('musicRoom'), musicList = $('musicList'), musicCount = $('musicCount'), musicNow = $('musicNow');
 const chaptersEl = $('chapters'), chapterList = $('chapterList'), chapterCount = $('chapterCount');
+const achievementsEl = $('achievements'), achievementList = $('achievementList'), achievementCount = $('achievementCount');
 const viewerEl = $('viewer'), viewerImg = $('viewerImg'), viewerTitle = $('viewerTitle');
-const SCREENS = [titleEl, pauseEl, optionsEl, savesEl, confirmEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl];
+const SCREENS = [titleEl, pauseEl, optionsEl, savesEl, confirmEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl, achievementsEl];
 const gameTitle = $('gameTitle'), continueBtn = $<HTMLButtonElement>('continue'), continueInfo = $('continueInfo');
 const titleNav = $('titleNav');
 const titleButtons: Record<string, HTMLElement> = {
-  new_game: $('newGame'), continue: continueBtn, load: $('titleLoad'), gallery: $('titleGallery'), music_room: $('titleMusic'), chapters: $('titleChapters'), options: $('titleOptions'),
+  new_game: $('newGame'), continue: continueBtn, load: $('titleLoad'), gallery: $('titleGallery'), music_room: $('titleMusic'), chapters: $('titleChapters'), achievements: $('titleAchievements'), options: $('titleOptions'),
 };
 const sliders = {
   master: $<HTMLInputElement>('optMaster'),
@@ -70,7 +75,7 @@ const sliders = {
   textSize: $<HTMLInputElement>('optSize'),
   boxOpacity: $<HTMLInputElement>('optBox'),
 };
-const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), fullBtn = $<HTMLButtonElement>('optFull');
+const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
 const optTabs = [...document.querySelectorAll<HTMLButtonElement>('.opt-tabs [data-tab]')];
 const optPages = [...document.querySelectorAll<HTMLElement>('.opt-page')];
 const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesTitle'), savesNote = $('savesNote');
@@ -97,6 +102,7 @@ export class Menus {
   private viewIndex = 0;
   private tab = 0;
   private langs: string[] = [];
+  private voiceLangs: string[] = [];
   /** The tab of the project's `screen options` ('' = its first). */
   private customTab = '';
   private deleting = false; // the project's saves screen: the next slot picked is deleted
@@ -129,6 +135,8 @@ export class Menus {
     on('musicStop', () => this.playTrack(null));
     on('titleChapters', () => this.openChapters());
     on('chaptersBack', () => this.back());
+    on('titleAchievements', () => this.openAchievements());
+    on('achievementsBack', () => this.back());
     viewerEl.addEventListener('click', () => { if (viewerEl.dataset.custom !== 'true') this.back(); });
     viewerEl.addEventListener('keydown', e => {
       if (viewerEl.dataset.custom === 'true') return; // the project's screen takes the arrows as focus moves
@@ -155,6 +163,7 @@ export class Menus {
     skipEl.addEventListener('change', () => { settings.skipAll = skipEl.value === 'all'; this.commit(false); });
     autoEl.addEventListener('change', () => { settings.autoDelay = Number(autoEl.value); this.commit(false); });
     langEl.addEventListener('change', () => { settings.lang = langEl.value; this.commit(true); });
+    voiceLangEl.addEventListener('change', () => { settings.voiceLang = voiceLangEl.value; this.commit(false); });
     fullBtn.hidden = !document.fullscreenEnabled;
     fullBtn.addEventListener('click', () => this.toggleFullscreen());
     optTabs.forEach((b, n) => b.addEventListener('click', () => this.showTab(n)));
@@ -185,7 +194,7 @@ export class Menus {
     return {
       master: s.master, music: s.music, sound: s.sound, voice: s.voice, text_speed: s.textSpeed, text_size: s.textSize, box_opacity: s.boxOpacity,
       text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[nearest(AUTO_DELAYS, s.autoDelay)], skip: s.skipAll ? 'all' : 'read',
-      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), timed_choices: s.timedChoices, language: s.lang, tab: this.customTab,
+      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', tab: this.customTab,
     };
   }
 
@@ -215,6 +224,12 @@ export class Menus {
         s.lang = this.langs[(Math.max(0, this.langs.indexOf(s.lang)) + 1) % this.langs.length];
         this.commit(true);
         return;
+      }
+      case 'voice_language': {
+        if (!this.voiceLangs.length) return;
+        const all = ['', ...this.voiceLangs];
+        s.voiceLang = all[(Math.max(0, all.indexOf(s.voiceLang)) + 1) % all.length];
+        break;
       }
       default: return;
     }
@@ -266,6 +281,16 @@ export class Menus {
     this.langs = langs;
     langEl.replaceChildren(...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
     langEl.value = current;
+  }
+
+  /** The languages the game has voice recordings in; the option to pick one is shown only when there are some. */
+  setVoiceLanguages(langs: string[], current: string) {
+    this.voiceLangs = langs;
+    const same = document.createElement('option');
+    same.value = ''; same.textContent = 'Same as text'; same.dataset.ui = 'voice_same'; // translated by the translate() that follows
+    voiceLangEl.replaceChildren(same, ...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
+    voiceLangEl.value = langs.includes(current) ? current : '';
+    voiceLangEl.hidden = voiceLangLabel.hidden = !langs.length;
   }
 
   // ---- screen stack ----
@@ -551,6 +576,59 @@ export class Menus {
       return b;
     }));
     this.push(chaptersEl);
+  }
+
+  // ---- achievements and endings ----
+  /**
+   * The achievements list as the variables and per-entry data of a project's `screen achievements`: endings and achievements in two lists. A hidden
+   * one that is still locked shows the hidden word as its title, with no description or icon.
+   */
+  achievementsValues(): { vars: Record<string, string | number | string[]>; entries: Record<string, Record<string, Record<string, string | boolean>>> } {
+    const items = this.act.achievementItems();
+    const endings = items.filter(i => i.ending), others = items.filter(i => !i.ending);
+    const entry = (item: AchievementRow) => {
+      const masked = item.hidden && !item.unlocked;
+      const title = masked ? this.label('hidden_achievement') : item.title;
+      return { name: title, title, description: masked ? '' : item.description, icon: masked ? '' : item.iconFile, unlocked: item.unlocked, hidden: item.hidden, ending: item.ending };
+    };
+    const ids = (list: AchievementRow[]) => list.map((_, i) => String(i + 1));
+    return {
+      vars: {
+        achievements: ids(others), endings: ids(endings),
+        count: others.filter(i => i.unlocked).length, total: others.length,
+        endings_count: endings.filter(i => i.unlocked).length, endings_total: endings.length,
+      },
+      entries: {
+        achievements: Object.fromEntries(others.map((item, i) => [String(i + 1), entry(item)])),
+        endings: Object.fromEntries(endings.map((item, i) => [String(i + 1), entry(item)])),
+      },
+    };
+  }
+  /** `action close` on the project's achievements screen: the same as Back. */
+  closeAchievements() { if (this.stack.at(-1) === achievementsEl) this.back(); }
+  /** `action achievements` on a project's title screen. */
+  showAchievements() { this.openAchievements(); }
+
+  private openAchievements() {
+    const items = this.act.achievementItems();
+    const endings = items.filter(i => i.ending), others = items.filter(i => !i.ending);
+    const count = (list: AchievementRow[]) => `${list.filter(i => i.unlocked).length} / ${list.length}`;
+    achievementCount.textContent = [endings.length ? `${this.label('endings')} ${count(endings)}` : '', others.length ? `${this.label('achievements')} ${count(others)}` : ''].filter(Boolean).join(' · ');
+    const row = (item: AchievementRow) => {
+      const masked = item.hidden && !item.unlocked;
+      const r = el('div', 'ach-row');
+      r.dataset.locked = String(!item.unlocked);
+      const icon = el('div', 'ach-icon');
+      if (item.iconUrl && !masked) icon.style.backgroundImage = `url("${item.iconUrl}")`;
+      const text = el('div');
+      text.append(el('b', '', masked ? this.label('hidden_achievement') : item.title));
+      if (item.description && !masked) text.append(el('span', '', item.description));
+      r.append(icon, text);
+      return r;
+    };
+    const section = (key: string, list: AchievementRow[]) => (list.length && endings.length && others.length ? [el('h3', '', this.label(key))] : []).concat(list.map(row));
+    achievementList.replaceChildren(...section('endings', endings), ...section('achievements', others));
+    this.push(achievementsEl);
   }
 
   // ---- save / load ----

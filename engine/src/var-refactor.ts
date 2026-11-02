@@ -6,7 +6,7 @@
  */
 
 import { FUNCTIONS } from './expr.js';
-import { CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, VIEWER_SCREEN, shellVars } from './screens.js';
+import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, VIEWER_SCREEN, shellVars } from './screens.js';
 import type { ProjectFile, RenameResult, TextEdit } from './refactor.js';
 
 /** A place a variable name appears: 1-based line, 0-based column of the name and its length. `scope` is null for a global, else the label or loop that declares it. */
@@ -16,7 +16,7 @@ const ID = '[A-Za-z_][A-Za-z0-9_]*';
 const NAME = new RegExp(`^${ID}$`);
 const KEYWORDS = new Set(['and', 'or', 'not', 'true', 'false']);
 const RESERVED = new Set([...KEYWORDS, ...Object.keys(FUNCTIONS), 'persistent', 'unlocked', 'screen']);
-const SHELL_VARS = new Set([OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN].flatMap(shellVars));
+const SHELL_VARS = new Set([OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
 const ELEMENT = /^\s*(?:image|hotspot|button|text|slider|each|scroll|row|column|grid)\b/;
 
 /** The line with the inside of every "string" blanked (same length), so words in text are never taken for syntax. */
@@ -204,8 +204,8 @@ export function renameVariable(files: ProjectFile[], target: VarRef, to: string)
   return { ok: true, edits: [...edits, ...localeEdits(files, mine, target, to)] };
 }
 
-/** True for `locale/<lang>.json`. */
-export const isLocaleFile = (name: string) => /(^|\/)locale\/[^/]+\.json$/.test(name);
+/** True for `locale/<lang>.json` and the `locale/<lang>.src` source snapshots (translation.ts), which quote the same text. */
+export const isLocaleFile = (name: string) => /(^|\/)locale\/[^/]+\.(json|src)$/.test(name);
 
 /**
  * `[name]` inside the translations of the lines that mention the variable in text. A translation is found through the

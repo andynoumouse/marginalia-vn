@@ -55,3 +55,81 @@ export function chapterItems(raw: unknown, reached: (label: string) => boolean, 
 export function chapterProblems(raw: unknown, labels: Record<string, number>): string[] {
   return normalizeChapters(raw).filter(c => !(c.label in labels)).map(c => `chapters: no label "${c.label}" in the scripts`);
 }
+
+// game.json "achievements" (unlocked by `unlock <flag>`, with endings marked `ending`) and "achievementToast" (how the
+// notice that pops up on an unlock looks and lasts).
+
+export interface AchievementEntry {
+  /** The flag that unlocks it (script: `unlock <flag>`); also its id. */
+  unlock: string;
+  title: string;
+  description: string;
+  /** Image name (assets/ui/<icon>.*), '' for none. */
+  icon: string;
+  /** Shown as "???" with no description until unlocked. */
+  hidden: boolean;
+  /** An ending rather than an achievement (listed and counted apart). */
+  ending: boolean;
+  /** Whether unlocking it pops up the toast. */
+  toast: boolean;
+}
+export interface AchievementItem extends AchievementEntry { unlocked: boolean }
+
+/** An object needs `unlock`; a string is a flag with itself as the title. Entries without a flag and repeats are dropped. */
+export function normalizeAchievements(raw: unknown): AchievementEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: AchievementEntry[] = [];
+  for (const r of raw) {
+    const o: Record<string, unknown> = typeof r === 'string' ? { unlock: r } : r && typeof r === 'object' ? r as Record<string, unknown> : {};
+    const flag = str(o.unlock);
+    if (!flag || seen.has(flag)) continue;
+    seen.add(flag);
+    out.push({ unlock: flag, title: str(o.title) ?? flag, description: str(o.description) ?? '', icon: str(o.icon) ?? '', hidden: o.hidden === true, ending: o.ending === true, toast: o.toast !== false });
+  }
+  return out;
+}
+
+/** Achievements with their lock state. */
+export function achievementItems(raw: unknown, flag: (name: string) => boolean): AchievementItem[] {
+  return normalizeAchievements(raw).map(e => ({ ...e, unlocked: flag(e.unlock) }));
+}
+
+/** The achievement a newly set flag unlocks and that should pop up a toast, or null (not an achievement, already held, or `toast: false`). */
+export function achievementToToast(raw: unknown, flag: string, had: boolean): AchievementEntry | null {
+  if (had) return null;
+  const e = normalizeAchievements(raw).find(a => a.unlock === flag);
+  return e && e.toast ? e : null;
+}
+
+export const TOAST_POSITIONS = ['topright', 'topleft', 'bottomright', 'bottomleft', 'top', 'bottom'] as const;
+export type ToastPosition = typeof TOAST_POSITIONS[number];
+export interface AchievementToastSettings {
+  position: ToastPosition;
+  /** How long one toast stays, in seconds. */
+  seconds: number;
+  /** Sound name (assets/sound/<sound>.*) played as it appears, '' for none. */
+  sound: string;
+}
+
+/** game.json "achievementToast" with defaults for missing or bad values (top right, 4 seconds, no sound). */
+export function achievementToastSettings(raw: unknown): AchievementToastSettings {
+  const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const position = (TOAST_POSITIONS as readonly string[]).includes(o.position as string) ? o.position as ToastPosition : 'topright';
+  const seconds = typeof o.seconds === 'number' && Number.isFinite(o.seconds) && o.seconds > 0 ? Math.min(o.seconds, 30) : 4;
+  return { position, seconds, sound: str(o.sound) ?? '' };
+}
+
+/** Warnings for achievements whose flag no script unlocks, and for a bad "achievementToast". */
+export function achievementProblems(raw: unknown, toast: unknown, unlocks: ReadonlySet<string>): string[] {
+  const out = normalizeAchievements(raw).filter(a => !unlocks.has(a.unlock)).map(a => `achievements: no script runs "unlock ${a.unlock}"`);
+  if (toast !== undefined) {
+    const o = toast && typeof toast === 'object' && !Array.isArray(toast) ? toast as Record<string, unknown> : null;
+    if (!o) out.push('achievementToast needs an object like { "position": "topright", "seconds": 4 }');
+    else {
+      if (o.position !== undefined && !(TOAST_POSITIONS as readonly string[]).includes(o.position as string)) out.push(`achievementToast.position must be one of ${TOAST_POSITIONS.join(', ')}`);
+      if (o.seconds !== undefined && !(typeof o.seconds === 'number' && o.seconds > 0)) out.push('achievementToast.seconds needs a number of seconds above 0');
+    }
+  }
+  return out;
+}

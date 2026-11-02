@@ -5,7 +5,8 @@
 //   vn export --desktop [--out <dir>] Electron app folder with packed assets (default build/desktop)
 //   vn art [--force] [--watch]       convert changed PSDs in masters/ to assets/
 //   vn ids                           add localization ids to lines that lack one
-//   vn strings                       write locale/en.json, report untranslated lines
+//   vn strings                       write locale/<source language>.json, report untranslated lines
+//   vn voice [accept <name>...|all]  report voice recordings made for lines that were reworded since
 //   vn playtest [--strict] [--json]  play every route; report unreachable lines, endings, unused assets and variables
 //   vn init <folder> [--title "My Game"]   start a new game project that uses this engine
 //   vn version
@@ -22,6 +23,7 @@ const TOOLS = {
   art: ['tools/psd-convert.mjs'],
   ids: ['tools/vn-tool.mjs', 'ids'],
   strings: ['tools/vn-tool.mjs', 'strings'],
+  voice: ['tools/vn-tool.mjs', 'voice'],
   playtest: ['tools/playtest.mjs'],
 };
 
@@ -131,7 +133,7 @@ function init(dir, title) {
       'npm run export     # web build in build/web',
       'npm run art        # convert masters/*.psd to assets/ (npm run dev does this on save)',
       'npm run ids        # add localization ids to new lines',
-      'npm run strings    # write locale/en.json',
+      'npm run strings    # write locale/<source language>.json (en.json by default)',
       '```',
       '',
       'Content: script/ (scenes), game.json (title screen, menus, theme, gallery), locale/ (translations),',

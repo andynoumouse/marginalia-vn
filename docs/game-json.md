@@ -48,14 +48,18 @@ What follows the size and what does not:
 |---|---|
 | `title` | Game name, shown on the title screen. |
 | `id` | Key for saves, settings and read-text tracking. Defaults to a slug of `title`. Changing it starts with fresh saves. |
+| `language` | The language the scripts are written in (default `"en"`, e.g. `"fi"` or `"pt-BR"`). It is the text language that needs no `locale/<lang>.json`; the Translations dialog and the language option treat it as the source. It only labels the default: unmarked files such as `assets/voice/<id>.*` are the default take, and file names never contain it. |
+| `voiceLanguages` | Languages to record voice in, e.g. `["ja", "fi"]`. Separate from the text translations: the Voice dialog lists these, the languages that already have recordings and the source language's default take, not every `locale/<lang>.json`. Build checks hold a listed language to a recording for every spoken line even before it has one. The player's voice option still offers only languages with recordings. |
 | `engine` | Minimum engine version, e.g. `"0.1"`. The tools warn when the engine is older. |
 | `stage` | The stage size in pixels, `{ "width": 1080, "height": 1920 }` (default 1920x1080), below. |
 | `positions` | Extra named stage positions for scripts, below. |
 | `anchors` | Extra named anchors for `anchor=`, below. |
 | `captions` | Text shown for sound effects when the player turns on Sound captions, below. |
 | `choiceSaves` | How many rotating choice autosaves to keep, 1 to 20 (default 5). |
+| `memoryBudgetMB` | Memory budget for loaded images and audio, in MB (default 512, or 256 when the browser reports 2 GB of device memory or less). Nothing is unloaded yet; the debug console's `memory` command compares what is resident against it. |
 | `saveVersion` | A whole number (default 0). Raise it when a release breaks old saves: Continue, Load and quick load then ask "made with an older version, load anyway?" for saves made under a lower number (saves from before the field count as 0). The engine itself loads any save it finds. |
 | `psdPrefix` | Character PSDs: a top-level group whose name starts with this is a folder, not a slot (default `"+"`; `""` turns it off). Used by `npm run art`. |
+| `build` | `{ "checks": { "<check>": "error" \| "warning" \| "info" \| "off" } }`: how serious each pre-build check is, below. |
 | `intro` | A script label played once at start, below. |
 | `splash` | Logo cards shown once at start, below. |
 | `titleScreen` | The title screen, below. |
@@ -63,9 +67,33 @@ What follows the size and what does not:
 | `gallery` | Gallery entries, below. |
 | `musicRoom` | Music room tracks, below. |
 | `chapters` | Chapter select entries, below. |
+| `achievements` | Achievements and endings, below. |
+| `achievementToast` | The notice an unlocked achievement pops up, below. |
 | `blips` | Text sound voices, below. |
 | `labels` | Menu text overrides, below. |
 | `theme` | Look of the text box, text and choices, below. |
+
+## build
+
+Before an export, `npm run export` runs the pre-build checks and prints a report (`npm run export -- --check` prints it and stops).
+Each check has a level: an `error` refuses the export, a `warning` is listed (and refuses it with `--strict`), an `info` is a note,
+and `off` hides it. `build.checks` changes the defaults:
+
+```json
+{ "build": { "checks": { "untranslated": "error", "voice-missing": "off" } } }
+```
+
+| Check | Default | Finds |
+|---|---|---|
+| `script` | error | Script, asset and game.json errors. |
+| `script-warnings` | warning | Their warnings. |
+| `ids` | warning | Dialogue, choice and prompt lines with no `#id` (`npm run ids` adds them). |
+| `untranslated` | warning | Strings with no entry in a `locale/<lang>.json` table, per language. |
+| `translation-outdated` | warning | Translations made against older source text (the Translations dialog's "source changed"). |
+| `voice-outdated` | warning | Recordings of lines that were reworded since (see the Voice section of commands.md). |
+| `voice-missing` | info | Spoken lines with no recording, in each language that has any recordings. |
+| `unused-locale` | info | Locale entries that match no line. |
+| `unmatched-voice` | info | Files in `assets/voice` whose id matches no line. |
 
 ## positions
 
@@ -142,7 +170,7 @@ art and music load while the cards play. The editor's **Preview: Splash** comman
 | `music` | Looping track (`assets/music/<name>.*`). |
 | `showTitle` | Show the game name (default true; turn off when the background has a logo). |
 | `align` | `left`, `center` (default) or `right`: where the title and buttons sit. |
-| `buttons` | Buttons in order, from `new_game`, `continue`, `load`, `gallery`, `music_room`, `chapters`, `options`. Leave one out to hide it. |
+| `buttons` | Buttons in order, from `new_game`, `continue`, `load`, `gallery`, `music_room`, `chapters`, `achievements`, `options`. Leave one out to hide it. |
 | `fade` | Seconds of black between the title screen and the game, in both directions (default 0.4; 0 cuts). Reduced motion also cuts. Menu screens always fade in briefly. |
 
 To design the title screen yourself, declare `screen title:` in a script with buttons that use `action start`, `continue`, `load`,
@@ -182,6 +210,47 @@ label while playing (by `jump`, `call` or falling through; rebuilding state from
 `unlock`, by a flag. The Chapters button (`"chapters"` in `titleScreen.buttons`) lists them, and picking one starts a new
 playthrough at that label: variables begin empty, the top-level setup runs first, and persistent flags are as they are
 now. Use it for chapter select and scene replay. A label no script defines is reported as a warning.
+
+## achievements
+
+A list of achievements and endings, each a flag name or an object:
+
+```json
+"achievements": [
+  { "unlock": "good_ending", "title": "Sunshine", "description": "Reach the good ending.", "ending": true },
+  { "unlock": "found_key", "title": "Locksmith", "description": "Find the key.", "icon": "ach_key", "hidden": true },
+  { "unlock": "all_routes", "title": "Completionist", "toast": false }
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `unlock` | The flag that unlocks it: the script runs `unlock <flag>`. Required; also its id. |
+| `title` | The name shown (default: the flag). |
+| `description` | What it is for. |
+| `icon` | An image in `assets/ui/<icon>.*`, shown on the list and the toast. |
+| `hidden` | Shown as "???" with no description or icon until unlocked. |
+| `ending` | An ending: listed and counted apart from the achievements. |
+| `toast` | `false` unlocks it quietly, with no toast. |
+
+Unlocks are stored for good, apart from saves, like every `unlock` flag. The Achievements button (`"achievements"` in
+`titleScreen.buttons`) shows when the list has entries; it lists endings and achievements in two parts, each with a count.
+An entry whose flag no script unlocks, and an icon with no file, are reported as warnings.
+
+## achievementToast
+
+How the notice that pops up when an achievement unlocks looks and lasts. Unlocks that happen together queue up and show
+one after another. Every key is optional.
+
+| Key | Meaning |
+|---|---|
+| `position` | `topright` (default), `topleft`, `bottomright`, `bottomleft`, `top` or `bottom`. |
+| `seconds` | How long each one stays (default 4). |
+| `sound` | A sound (`assets/sound/<sound>.*`) played as it appears. |
+
+The stock toast says "Achievement unlocked" or "Ending reached" (`ui.achievement_unlocked`, `ui.ending_reached` in the
+locale files) over the title, description and icon. To draw your own, declare `screen achievement_toast` (see the screens
+section of docs/commands.md); `seconds` and `sound` still apply, `position` is up to the screen.
 
 ## blips
 

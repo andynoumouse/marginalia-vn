@@ -69,7 +69,14 @@ label reading_room:
 label window_seat:
   scene cg_window_seat fade 0.8
   weather rain 0.8 2
-  "The rain kept falling. For once, nobody was in a hurry." #nnh9
+  # Two endings. Each unlock is listed in game.json "achievements" with "ending": true, so it pops up a toast
+  # and shows on the Achievements screen.
+  if contains(bag, "novel"):
+    "You opened the rain novel and did not look up again until Iris turned the lamps off." #xjgi
+    unlock ending_book
+  else:
+    "The rain kept falling. For once, nobody was in a hurry." #nnh9
+    unlock ending_rain
   sound stop rain fade 3
   music stop fade 3
   hud off status

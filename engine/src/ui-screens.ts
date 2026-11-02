@@ -1,4 +1,4 @@
-import { CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN } from './screens.js';
+import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN } from './screens.js';
 
 /** One of the shell's built-in menus that a project can replace by declaring a `screen` of the same name. */
 export interface UiScreen {
@@ -21,6 +21,7 @@ const STARTERS: Record<string, string> = {
     button gallery "Gallery" action gallery
     button music "Music" action music
     button chapters "Chapters" action chapters
+    button achievements "Achievements" action achievements
     button opt "Options" action options
 `,
   [PAUSE_SCREEN]: `screen pause:
@@ -105,12 +106,31 @@ ${BACK}`,
       each chapters as c:
         button c size 1000,72 "[c.title]" action chapter enabled c.unlocked
 ${BACK}`,
+  [ACHIEVEMENTS_SCREEN]: `screen achievements:
+  text at 160,60 "Endings [endings_count] / [endings_total]    Achievements [count] / [total]"
+  scroll at 160,160 size 1600,700:
+    column gap 12:
+      each endings as e:
+        text "[e.title]: [e.description]" if e.unlocked
+        text "???" if not e.unlocked
+      each achievements as a:
+        text "[a.title]: [a.description]" if a.unlocked or not a.hidden
+        text "???" if a.hidden and not a.unlocked
+${BACK}`,
+  [ACHIEVEMENT_TOAST_SCREEN]: `screen achievement_toast:
+  image "[icon]" at 1380,40 size 96,96 if icon != ""
+  text at 1500,40 "Achievement unlocked" if not ending
+  text at 1500,40 "Ending reached" if ending
+  text at 1500,90 "[title]"
+  text at 1500,140 "[description]"
+`,
 };
 
 const TITLES: Record<string, string> = {
   [TITLE_SCREEN]: 'Title screen', [PAUSE_SCREEN]: 'Pause menu', [QUICKMENU_SCREEN]: 'Quick menu', [OPTIONS_SCREEN]: 'Options',
   [SAVES_SCREEN]: 'Save and load', [HISTORY_SCREEN]: 'History', [GALLERY_SCREEN]: 'Gallery', [VIEWER_SCREEN]: 'Gallery viewer',
   [MUSIC_SCREEN]: 'Music room', [CHAPTERS_SCREEN]: 'Chapter select',
+  [ACHIEVEMENTS_SCREEN]: 'Achievements', [ACHIEVEMENT_TOAST_SCREEN]: 'Achievement toast',
 };
 
 /** Every replaceable built-in menu, in the order the Files panel lists them. */

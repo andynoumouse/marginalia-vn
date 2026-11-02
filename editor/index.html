@@ -43,13 +43,40 @@
   #editor { flex: 1; min-width: 0; min-height: 0; }
   #sidebar { width: 240px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); min-height: 0; }
   #sidebar[hidden] { display: none; }
-  #sbHead { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
+  #sbHead { display: flex; align-items: center; }
   #sbHead input { flex: 1; min-width: 0; }
-  #sbHead .icon { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: none; color: var(--muted); }
-  #sbHead .icon:hover { background: rgba(255,255,255,.08); color: var(--text); }
   #sidebar input { margin: 6px; font: inherit; color: var(--text); background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; }
   #sbList { flex: 1; overflow-y: auto; padding: 0 4px 8px; }
-  #sbList h3 { margin: 10px 6px 2px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  /* Git: branch, changed-file count and Commit (editor/git-dialog.ts). */
+  #sbGit { display: flex; align-items: center; gap: 8px; margin: 0 6px 4px; font-size: 12px; color: var(--muted); }
+  #sbGit[hidden] { display: none; }
+  #sbGit .gb-branch { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #sbGit .gb-count { flex: none; }
+  #sbGit .gb-commit { flex: none; margin-left: auto; padding: 1px 8px; font-size: 12px; }
+  #gitCommit { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #gitCommit[hidden] { display: none; }
+  #gitCommit .gd-card { width: min(720px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  #gitCommit header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #gitCommit header .gd-branch { color: var(--muted); }
+  #gitCommit header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #gitCommit .gd-note { margin: 8px 12px 0; padding: 6px 10px; border-left: 3px solid var(--warn); background: rgba(255,255,255,.03); }
+  #gitCommit .gd-note[data-kind="blocker"] { border-color: var(--bad); }
+  #gitCommit .gd-summary { padding: 8px 12px 6px; color: var(--muted); }
+  #gitCommit .gd-rows { flex: 1; min-height: 40px; max-height: 320px; overflow-y: auto; border-top: 1px solid var(--line); }
+  #gitCommit .gd-row { display: flex; align-items: baseline; gap: 10px; padding: 3px 12px; border-bottom: 1px solid var(--line); }
+  #gitCommit .gd-kind { flex: none; width: 64px; font-size: 11px; text-transform: uppercase; color: var(--muted); }
+  #gitCommit .gd-kind[data-kind="added"] { color: var(--accent); }
+  #gitCommit .gd-kind[data-kind="deleted"], #gitCommit .gd-kind[data-kind="conflict"] { color: var(--bad); }
+  #gitCommit .gd-path { min-width: 0; overflow-wrap: anywhere; }
+  #gitCommit .gd-from { color: var(--muted); font-size: 12px; }
+  #gitCommit .gd-label { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px 0; color: var(--muted); }
+  #gitCommit .gd-message { font: inherit; color: var(--text); background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; resize: vertical; }
+  #gitCommit .gd-foot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 8px 12px; }
+  #gitCommit .gd-result { padding: 8px 12px; border-top: 1px solid var(--line); white-space: pre-wrap; }
+  #gitCommit .gd-result[hidden], #gitCommit .gd-foot [hidden] { display: none; }
+  #gitCommit .gd-result[data-state="failed"] { color: var(--bad); }
+  #sbList h3 { display: flex; align-items: center; gap: 2px; min-height: 22px; margin: 8px 0 0; padding: 0 2px 0 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  #sbList h3 > span { flex: 1; min-width: 0; }
   #sbList details > summary { cursor: pointer; padding: 2px 6px; color: var(--muted); }
   #sbList .item { display: flex; justify-content: space-between; gap: 8px; width: 100%; padding: 2px 8px; border: 0; background: none; text-align: left; overflow: hidden; text-overflow: ellipsis; }
   #sbList .row { display: flex; align-items: center; }
@@ -63,9 +90,16 @@
   #sbList summary::before { content: "▸"; flex: none; width: 14px; font-size: 11px; transition: transform .1s; }
   #sbList details[open] > summary::before { transform: rotate(90deg); }
   #sbList summary > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  #sbList summary .add { flex: none; width: 20px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 3px; visibility: hidden; }
-  #sbList summary:hover .add, #sbList summary:focus-within .add { visibility: visible; }
-  #sbList summary .add:hover { background: rgba(255,255,255,.1); color: var(--text); }
+  /* Hover icons on headings and folders (new file, new folder, add files): hidden until the row is hovered or focused. */
+  #sbList .add { flex: none; display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 3px; visibility: hidden; }
+  #sbList :is(summary, h3):is(:hover, :focus-within) .add { visibility: visible; }
+  #sbList .add:hover { background: rgba(255,255,255,.1); color: var(--text); }
+  .ctxmenu { position: fixed; z-index: 50; min-width: 180px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+  .ctxmenu[hidden] { display: none; }
+  .ctxmenu button { display: block; width: 100%; padding: 4px 10px; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; white-space: nowrap; }
+  .ctxmenu button:is(:hover, :focus) { background: rgba(95, 209, 195, .16); outline: none; }
+  .ctxmenu button:disabled { color: var(--muted); }
+  .ctxmenu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
   #sbList .item:hover { background: rgba(255,255,255,.06); }
   #sbList .item[aria-current="true"] { background: rgba(95, 209, 195, .16); }
   #sbList .item[data-errors="true"] { color: var(--bad); }
@@ -74,11 +108,19 @@
   #sbList .badge.errors { background: var(--bad); }
   #sbList .badge.warns { background: var(--warn); }
   #sbList .none { padding: 4px 8px; color: var(--muted); }
+  #sbList .dropping { outline: 1px dashed var(--accent, #5fd1c3); outline-offset: -2px; }
+  #sbList details.drop { background: rgba(95, 209, 195, .16); }
   #split { background: var(--line); cursor: col-resize; }
   #split:hover, #split.drag { background: var(--accent); }
   #preview { width: 100%; height: 100%; border: 0; background: #06080b; }
   #fatal { padding: 24px; color: var(--bad); }
   #left { position: relative; }
+  /* What a file action did, with its Undo (delete and replace go to the project trash). */
+  #toast { position: absolute; bottom: 14px; left: 50%; translate: -50% 0; z-index: 25; display: flex; align-items: center; gap: 10px;
+    max-width: calc(100% - 24px); padding: 6px 8px 6px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+  #toast[hidden] { display: none; }
+  #toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast button { flex: none; border-color: var(--accent); color: var(--accent); }
   #palette { position: absolute; top: 40px; left: 50%; translate: -50% 0; width: min(620px, calc(100% - 24px)); z-index: 20;
     background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 6px; }
   #palette[hidden] { display: none; }
@@ -141,6 +183,90 @@
   #help table { border-collapse: collapse; margin: 8px 0; }
   #help th, #help td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
   @media (max-width: 700px) { #help .help-main { grid-template-columns: 1fr; } #help nav { display: none; } }
+  #translations { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #translations[hidden] { display: none; }
+  #translations .tr-card { width: min(1200px, 100%); height: min(820px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  #translations header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #translations header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #translations .tr-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; }
+  #translations .tr-bar label { color: var(--muted); white-space: nowrap; }
+  #translations .tr-filter { flex: 1 1 200px; min-width: 0; }
+  #translations .tr-ids { display: flex; align-items: center; gap: 10px; margin: 0 12px 6px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: 4px; }
+  #translations .tr-ids[hidden] { display: none; }
+  #translations .tr-summary { padding: 0 12px 6px; color: var(--muted); }
+  #translations .tr-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); position: relative; }
+  #translations .tr-spacer { position: relative; }
+  #translations .tr-row { position: absolute; left: 0; right: 0; height: 88px; box-sizing: border-box; display: grid; grid-template-columns: 170px 1fr 1fr; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  #translations .tr-ctx { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: var(--muted); }
+  #translations .tr-where { all: unset; cursor: pointer; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #translations .tr-where:hover { text-decoration: underline; }
+  #translations .tr-row[data-outdated="true"] { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  #translations .tr-was { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  #translations .tr-ok { align-self: flex-start; font-size: 11px; padding: 1px 6px; }
+  #translations .tr-src { overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+  #translations .tr-edit { resize: none; font: inherit; line-height: 1.4; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+  #translations .tr-edit[data-empty="true"] { border-color: var(--warn); }
+  #voice { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #voice[hidden] { display: none; }
+  #voice .vo-card { width: min(1200px, 100%); height: min(820px, 100%); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  #voice header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #voice header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #voice .vo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; }
+  #voice .vo-bar label { color: var(--muted); white-space: nowrap; }
+  #voice .vo-filter { flex: 1 1 200px; min-width: 0; }
+  #voice .vo-summary, #voice .vo-note { padding: 0 12px 6px; color: var(--muted); }
+  #voice .vo-note[hidden], #voice .vo-ask[hidden], #voice .vo-unmatched[hidden] { display: none; }
+  #voice .vo-ask, #voice .vo-unmatched { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 12px 6px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: 4px; }
+  #voice .vo-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  #voice .vo-chip { cursor: grab; padding: 1px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--ink); }
+  #voice .vo-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); position: relative; }
+  #voice .vo-scroll[data-drop="true"] { outline: 2px dashed var(--accent); outline-offset: -4px; }
+  #voice .vo-spacer { position: relative; }
+  #voice .vo-row { position: absolute; left: 0; right: 0; height: 96px; box-sizing: border-box; display: grid; grid-template-columns: 170px 1fr 150px; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  #voice .vo-row[data-status="outdated"] { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  #voice .vo-row[data-status="missing"] .vo-status { color: var(--warn); }
+  #voice .vo-row[data-drop="true"] { outline: 2px dashed var(--accent); outline-offset: -3px; }
+  #voice .vo-ctx { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; color: var(--muted); }
+  #voice .vo-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #voice .vo-where { all: unset; cursor: pointer; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #voice .vo-where:hover { text-decoration: underline; }
+  #voice .vo-text { overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+  #voice .vo-tag { display: block; color: var(--muted); font-size: 11px; }
+  #voice .vo-act { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+  #voice .vo-act button { font-size: 12px; padding: 1px 6px; }
+  #build { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  #build[hidden] { display: none; }
+  #build .bd-card { width: min(860px, 100%); max-height: 100%; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+  #build header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  #build header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #build .bd-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 8px 12px; }
+  #build .bd-bar label { color: var(--muted); white-space: nowrap; }
+  #build .bd-folder { width: 220px; }
+  #build .bd-langs { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 0 12px 8px; }
+  #build .bd-langs[hidden], #build .bd-langs .bd-group-langs[hidden] { display: none; }
+  #build .bd-langs .bd-group-langs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+  #build .bd-langs b { color: var(--muted); font-weight: normal; }
+  #build .bd-note { margin: 0 12px 6px; padding: 4px 10px; border: 1px solid var(--bad); border-radius: 4px; color: var(--bad); }
+  #build .bd-note[hidden], #build .bd-ack[hidden], #build .bd-result[hidden] { display: none; }
+  #build .bd-summary { padding: 0 12px 6px; color: var(--muted); }
+  #build .bd-rows { flex: 1; min-height: 60px; overflow-y: auto; border-top: 1px solid var(--line); }
+  #build .bd-group > summary { cursor: pointer; padding: 6px 12px; font-weight: 600; }
+  #build .bd-count { color: var(--muted); font-weight: normal; }
+  #build .bd-row { display: flex; align-items: baseline; gap: 10px; padding: 4px 12px 4px 24px; border-top: 1px solid var(--line); }
+  #build .bd-msg { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  #build .bd-title { font-weight: 600; }
+  #build .bd-lang { color: var(--muted); }
+  #build .bd-badge { font-size: 11px; text-transform: uppercase; padding: 0 6px; border-radius: 8px; border: 1px solid var(--muted); color: var(--muted); }
+  #build .bd-badge[data-severity="error"] { border-color: var(--bad); color: var(--bad); }
+  #build .bd-badge[data-severity="warning"] { border-color: var(--warn); color: var(--warn); }
+  #build .bd-goto { all: unset; cursor: pointer; color: var(--accent); white-space: nowrap; }
+  #build .bd-goto:hover { text-decoration: underline; }
+  #build .bd-foot { display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 8px 12px; border-top: 1px solid var(--line); }
+  #build button:disabled { opacity: .45; cursor: default; }
+  #build button.primary:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  #build .bd-result { padding: 8px 12px; border-top: 1px solid var(--line); }
+  #build .bd-result[data-state="failed"] { color: var(--bad); }
+  #voice mark { background: color-mix(in srgb, var(--warn) 35%, transparent); color: inherit; border-radius: 2px; }
   #assetView { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #assetView[hidden] { display: none; }
   #assetView .av-card { width: min(1100px, 100%); max-height: 100%; display: flex; flex-direction: column; outline: none;
@@ -321,6 +447,9 @@
     <div class="group">
       <button id="varsBtn" type="button" title="Live story variables">Variables</button>
       <button id="outlineBtn" type="button" title="Flowchart of labels, jumps and calls">Outline</button>
+      <button id="translateBtn" type="button" title="Translate the story side by side, add missing string ids, export a CSV for translators">Translate</button>
+      <button id="voiceBtn" type="button" title="Voice recordings per line: drop audio files, find outdated takes, export a recording script">Voice</button>
+      <button id="buildBtn" type="button" title="Run the pre-build checks and export the game for the web or the desktop">Build</button>
     </div>
     <div class="group right">
       <button id="commands" type="button" title="All commands (Ctrl+P then &gt;)">Commands</button>
@@ -333,16 +462,12 @@
     <aside id="sidebar" hidden aria-label="Project files">
       <div id="sbHead">
         <input id="sbFilter" type="search" placeholder="Filter files and assets" aria-label="Filter files and assets">
-        <button id="sbNewFile" type="button" class="icon" title="New script file" aria-label="New script file">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5.1z"/><path d="M9.5 1.8v3.3h3.3M8 7.6v3.6M6.2 9.4h3.6"/></svg>
-        </button>
-        <button id="sbNewFolder" type="button" class="icon" title="New folder" aria-label="New folder">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1.8 4.2a1 1 0 0 1 1-1h3l1.4 1.6h5a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/><path d="M8 7.3v3.4M6.3 9h3.4"/></svg>
-        </button>
       </div>
+      <div id="sbGit" hidden></div>
       <div id="sbList"></div>
     </aside>
     <div id="left">
+      <div id="toast" role="status" hidden><span></span><button type="button">Undo</button></div>
       <div id="tabs" role="tablist"></div>
       <div id="work">
         <div id="editor"></div>

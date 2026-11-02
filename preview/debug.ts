@@ -11,6 +11,8 @@ export interface DebugContext {
   sets: Record<'gallery' | 'music' | 'chapters' | 'flags' | 'options', PersistentSet>;
   persistent: PersistentValues;
   seen: SeenLines;
+  /** The lines of the `memory` report. */
+  memory(): string[];
 }
 
 type Line = { text: string; kind: 'in' | 'out' | 'err' };
@@ -44,6 +46,7 @@ export function runDebugCommand(cmd: DebugCommand, ctx: DebugContext): Line[] | 
     case 'labels':
       return rt ? [out(Object.keys(rt.program.labels).join('  ') || 'No labels.')] : [err('No story is loaded.')];
     case 'flags': return [out(ctx.sets.flags.values().join('  ') || 'No flags unlocked.')];
+    case 'memory': return ctx.memory().map(out);
     case 'persistent': return table(Object.entries(ctx.persistent.values()), 'No persistent values.');
     case 'eval':
       try { return [out(formatDebugValue(evalExpr(parseExpr(cmd.expr), scope())))]; } catch (e) { return [err(String((e as Error).message ?? e))]; }

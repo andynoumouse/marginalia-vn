@@ -1,4 +1,4 @@
-# Marginalia VN Engine (v0.1)
+# Marginalia VN Engine (v0.2)
 
 - These couple of paragraphs are the only content I type manually in to this project:
 - This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
@@ -26,7 +26,7 @@ npm run dev          # builds, watches, serves http://localhost:5173 (editor: /e
 npm test             # engine and shell tests (node:test, no browser needed)
 npm run test:browser # the browser tests (system Edge/Chrome); test:all runs both
 npm run ids          # add localization ids (#abcd) to new dialogue/menu lines
-npm run strings      # export locale/en.json, report gaps in other languages
+npm run strings      # export locale/<source language>.json (en by default), report gaps in other languages
 npm run playtest     # play every route: unreachable lines, endings, unused assets and variables
 npm run art          # convert changed PSDs in masters/ to assets/ (--force: all; npm run dev also watches)
 npm run export       # static web build in sample/build/web (upload it, or zip it for itch.io)
@@ -48,7 +48,7 @@ The game folder holds only content: `game.json`, `script/`, `locale/`, `assets/`
 `build/` (ignored). Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which
 runs the engine's tools on the current folder. Because the dependency is a link, not a copy, engine changes
 apply to the game right away; restart `npm run dev` after pulling engine changes. To freeze the engine for a
-release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.1.0"`) and update it on
+release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.2.0"`) and update it on
 purpose. game.json `"engine": "0.1"` makes the tools warn when the engine is older than the game expects.
 
 ## Layout
@@ -124,6 +124,9 @@ label start:                            # entry point is "start" (or the first l
 
 Lines get a trailing id like `#a3f9` (menu options: `"text" #a3f9:`). `npm run ids` adds them.
 The script is the source language; other languages live in `locale/<lang>.json` as `{ "a3f9": "..." }`.
+In the editor, **Translations** (Ctrl+P, then `>`) lists every string with its speaker, file and line beside the chosen
+language, saves what you type to `locale/<lang>.json`, starts a new language, filters to what is untranslated and exports a
+CSV with that context for translators. The list is virtual, so it stays fast with tens of thousands of strings.
 
 ## Design notes
 
@@ -145,7 +148,7 @@ The script is the source language; other languages live in `locale/<lang>.json` 
   a quarter of a second) instead of drawing a placeholder; skipping cannot outrun this. Restoring a save, rolling back
   and hot reload load the final state's files before drawing it. Not seen by the walk and loaded anyway: `blip=`
   samples and the default layers of a `show` without a pose; gallery backgrounds are fetched by the gallery.
-  Nothing is unloaded yet. Details and measurements: docs/asset-loading.md.
+  Nothing is unloaded yet; the debug console's `memory` shows what is resident against a budget. Details and measurements: docs/asset-loading.md.
 
 ## Game shell: title screen, options, audio
 
@@ -200,9 +203,11 @@ Main menu); Esc and Back always return to the previous screen.
   run ambience beside it, and `sound play ... duck` dips the music under a sound. Cues without a file show as text in
   the corner.
 - Voice lines: a recording named after a line's localization id, `assets/voice/<id>.ogg|mp3|wav|m4a|flac|opus` (or
-  `assets/voice/<lang>/<id>.*` for the player's language, which wins), plays when the line appears; no script command is
+  `assets/voice/<id>.<lang>.*` for the player's language, which wins; the default take has no language in its name), plays when the line appears; no script command is
   needed. Auto-advance waits for it to finish, advancing or skipping cuts it. Players get a Voice volume slider, a
-  Voice button on the quick bar (only on voiced lines) and key `V` to hear the line again.
+  Voice button on the quick bar (only on voiced lines) and key `V` to hear the line again. `npm run voice` (and export) warns about
+  recordings whose line was reworded after they were made. The editor's Voice dialog (Ctrl+P) shows each line's
+  recording state per language, takes audio files dropped on a row or on the list, plays them, and exports a recording script CSV.
 - Menu labels translate through `ui.<key>` entries in `locale/<lang>.json` (keys: the `data-ui` attributes
   in preview/index.html, e.g. `"ui.new_game": "Uusi peli"`). `npm run strings` leaves them alone.
 
@@ -220,7 +225,8 @@ the compiler warns about a value that is read but never written. "Reset player d
 The dev preview's **Debug** button opens a console (not in exported games). `vars` lists the running story's variables,
 `set <name> = <expr>` changes one now, a bare expression such as `trust + 1` prints its value, `jump <label>` starts a new
 playthrough there, `unlock <flag>` / `lock <flag>` edit the flags, and `reset <gallery|music|chapters|flags|options|persistent|seen|saves|progress|all>`
-clears what persists (`progress` is everything but saves). `help` lists them; Up/Down recall earlier commands.
+clears what persists (`progress` is everything but saves). `memory` reports the estimated size of the loaded images and audio
+against the budget (game.json `"memoryBudgetMB"`) and counts the files the story had to wait for. `help` lists them; Up/Down recall earlier commands.
 
 ## Randomness
 
@@ -241,8 +247,10 @@ game.json `"gallery"` lists images; a Gallery button appears on the title screen
 The viewer shows one image at a time (arrow keys to browse, click or Esc to close).
 
 Extras work the same way: `"musicRoom"` lists tracks (unlocked once they have played) and `"chapters"` lists script
-labels (unlocked once reached; picking one starts a new playthrough there). Each gets a title-screen button
-(`"music_room"` and `"chapters"` in `titleScreen.buttons`); see docs/game-json.md.
+labels (unlocked once reached; picking one starts a new playthrough there). `"achievements"` lists achievements and
+endings unlocked by `unlock <flag>`, each popping up a toast (`"achievementToast"` sets its corner, time and sound; a
+`screen achievement_toast` or `screen achievements` replaces the stock look). Each gets a title-screen button
+(`"music_room"`, `"chapters"` and `"achievements"` in `titleScreen.buttons`); see docs/game-json.md.
 
 ## Playtest bot
 
@@ -293,7 +301,30 @@ reported, as are blip voices and text box skins.
 http://localhost:5173/editor/ edits the scripts and game.json next to the live preview. **Ctrl+P** opens
 the palette (it works with focus anywhere, including in the preview); what you type picks the mode.
 The **Files** panel (button or Ctrl+B) lists the scripts, game.json, characters (click to open the rig.json) and
-the assets by folder (click to view an image, play a sound or preview a font in a dialog; Left/Right step through the folder), with a filter box. Tabs close with their × (or middle-click,
+the assets by folder (click to view an image, play a sound or preview a font in a dialog; Left/Right step through the folder), with a filter box. Drop image, sound or font files from the desktop onto the
+assets list to copy them into the project: onto a folder to put them there, else by type (images to `bg`, sounds to `music`,
+fonts to `fonts`); a PSD must go on the `bg`, `char` or `ui` folder and lands in `masters/`. Existing files are never overwritten.
+The icons on each heading and folder (shown on hover) do the same without dragging: new script file or folder, add files
+through the file picker, add a character PSD, new asset folder. Art converted from a PSD is marked `psd`, and PSDs that have
+no converted art yet are listed under **Masters not converted**. Right-click a row (or Shift+F10) for more: preview a script
+from its start, open a master in its default app (Photoshop), copy a path, reveal the file in Explorer or Finder. A click
+on a script opens it and leaves the focus on the row; Enter or a double-click goes on to the editor. **Rename** (F2 on the
+row) takes a new path in the palette, so typing another folder moves the file or folder; **Delete** (the Delete key) asks
+first; **Replace** overwrites an asset or master with a file of the same type; an overridden built-in screen
+has **Revert to Stock**. Nothing these remove is lost: deleted files and the old version of a replaced one go to `.trash/` in
+the project folder, the message that follows has **Undo**, and **Restore from Trash** (the palette, or right-click the Project
+heading) lists everything still there. Entries older than 30 days, then the oldest past 2 GB, are emptied for good (Empty
+Trash does it at once). Converted art is changed through its master, not renamed. Renaming or moving an asset file or
+folder rewrites the scripts and game.json that name it (`scene`, `image show`, `music`, `sound`, `define ... image=` and
+`blip=`, screen `image`/`mask`/`hover` files, and game.json's title, gallery, splash, music room, blips and theme images),
+as one undo step per file; a mention that cannot reach the new place (`music play` only finds files right in
+`assets/music/`) is listed in the message. Character poses (`show alice smile`) are not followed.
+When the project is in a git repository, the top of the Files panel shows the branch and the number of changed files.
+**Commit…** saves every tab, lists the changes, suggests a message and commits everything under the project folder
+(never files outside it, never the trash). A merge in progress or a conflict blocks it; it warns about PSDs and big files that
+Git LFS does not track (the repository keeps every version of them), a detached HEAD, and `build/` or `.trash/` not being
+ignored (**Add to .gitignore** fixes that). It never pushes, pulls, switches branches or throws changes away: use your git tool
+for those. Tabs close with their × (or middle-click,
 or Alt+W); closing only hides the tab, the script still compiles with the rest. **Alt+1**, **Alt+2** and **Alt+3**
 move focus to the editor, the preview (to play it with the keyboard) and the Files panel's filter, from anywhere; Monaco's
 **Ctrl+M** makes Tab leave the script instead of indenting. F1 lists all the editor's keys under "Editor keys".
@@ -341,7 +372,10 @@ Keys: Ctrl+Enter preview from cursor, Ctrl+S save, F8 / Shift+F8 next /
 previous problem, Alt+Z word wrap. Commands are one list in `buildCommands()` (editor/editor.ts): a title,
 an optional key (bound automatically and shown in the palette), an optional `when`, and `run`. Project tasks
 (export, strings, art) run in the dev server (`/api/task`, a fixed whitelist) and stream to the Output panel, where
-`file:line` references open that line.
+`file:line` references open that line. The **Build** button (or "Build: Checks and Export" in the palette) opens the Build dialog: it saves
+your tabs, lists the pre-build checks grouped by severity (each with a link to the line, the Translations or the Voice dialog), blocks the
+build on errors, asks you to tick "I've seen these warnings" before building with warnings, and exports the web or desktop build into a
+folder inside `build/`, showing its size and, for the web build, a link to play it.
 
 ## Look and feel
 
@@ -396,11 +430,21 @@ be used by file name in `font` and in `define ... font=`.
 
 ## Exporting the game
 
-`npm run export` builds the code, converts changed art, refuses to continue on script errors, and writes
+`npm run export` builds the code, converts changed art, runs the pre-build checks (script errors refuse the export; untranslated
+or reworded lines, missing ids and recordings are listed; `--strict` refuses on warnings, `--check` only prints the report, and
+`build.checks` in game.json sets each check's level, see [docs/game-json.md](docs/game-json.md); `--locales fi,ja` and
+`--voice en,ja` ship only those translations and voice languages, and the Build dialog has a tick for each; the languages left out
+are not checked, and `--voice` names the source language for the default takes), and writes
 `build/web/`: index.html, the engine and game shell, PixiJS, assets and a project.json. There is no dev bar,
 editor or live reload. All URLs are relative, so it runs from any folder: upload it to a static host, or zip
 the folder's contents for itch.io (HTML project, index.html at the root). Browsers do not run it from
 file://; serve it, e.g. `npx serve build/web`.
+
+The scripts are compiled at export: project.json holds the compiled program (as JSON, with the preloads worked out)
+instead of the `.vn` text, so the game starts without parsing and your script files are not shipped. Each translation
+is its own `locale/<lang>.json`, fetched only when the player picks that language (the source language needs no file). It is not
+encryption, the dialogue is still readable in project.json. A game exported by another engine version refuses to
+start and asks for a new export.
 
 `npm run export -- --desktop` instead writes an Electron app folder with packed, scrambled assets and saves
 stored as files (see [docs/desktop.md](docs/desktop.md)).

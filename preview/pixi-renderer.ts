@@ -5,7 +5,7 @@
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
 import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
-import { addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
+import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
 import { $, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
@@ -93,6 +93,10 @@ export class PixiRenderer extends StageRenderer {
       this.art.delete(key); this.artUrl.delete(key);
       this.stale.push(url);
     }
+  }
+
+  protected residentImages(): Resident[] {
+    return [...this.art].map(([key, tex]) => ({ key, kind: 'image' as const, bytes: imageBytes(tex.source.pixelWidth, tex.source.pixelHeight) }));
   }
 
   protected async loadImage(key: string) {
@@ -312,7 +316,7 @@ export class PixiRenderer extends StageRenderer {
   /** The images a sprite state is drawn with, bottom to top, positioned relative to its bottom-center. */
   private look(s: SpriteState): { key: string; build: () => Container[] } {
     const rig = this.files.rigs[s.char];
-    if (rig) {
+    if (rig && !rig.flat) {
       const picks = rigLayers(rig, s.pose, s.overrides, msg => this.warnOnce(`${s.char}: ${msg}`));
       const dir = `char/${s.char}/`;
       return {
@@ -379,7 +383,7 @@ export class PixiRenderer extends StageRenderer {
   private dress(a: Actor, s: SpriteState) {
     a.s = s;
     const rig = this.files.rigs[s.char];
-    const size = rig ? (rig.width && rig.height ? { w: rig.width, h: rig.height } : null) : (t => ({ w: t.width, h: t.height }))(this.spriteTexture(s).tex);
+    const size = rig && !rig.flat ? (rig.width && rig.height ? { w: rig.width, h: rig.height } : null) : (t => ({ w: t.width, h: t.height }))(this.spriteTexture(s).tex);
     if (size?.w !== a.size?.w || size?.h !== a.size?.h) { a.size = size; this.turnAbout(a, s); }
     const { key, build } = this.look(Object.keys(a.live).length ? { ...s, overrides: { ...s.overrides, ...a.live } } : s);
     if (key === a.key) return;

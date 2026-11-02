@@ -113,7 +113,7 @@ async function toChoice(page) {
 
 play('title screen offers the configured buttons and New game starts the story', async page => {
   const buttons = await page.locator('#titleNav button:visible').allInnerTexts();
-  assert.deepEqual(buttons, ['New game', 'Continue', 'Load', 'Gallery', 'Music', 'Chapters', 'Options']);
+  assert.deepEqual(buttons, ['New game', 'Continue', 'Load', 'Gallery', 'Music', 'Chapters', 'Achievements', 'Options']);
   await newGame(page);
   assert.match(await status(page), /^park\.vn:\d+$/);
   await textDone(page);
@@ -417,6 +417,27 @@ play('extras: music room and chapters start locked, unlock as the story plays, a
 });
 
 
+play('achievements: the list shows endings and achievements apart with counts, and an unlock pops up the toast', async page => {
+  await page.evaluate(() => localStorage.setItem('vn.evening-in-the-park.unlocked', JSON.stringify(['town_visit'])));
+  await page.reload();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  await page.locator('#titleAchievements').click();
+  await page.locator('#achievements').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#achievementCount').innerText(), 'Endings 0 / 1 · Achievements 1 / 1');
+  assert.deepEqual(await page.locator('#achievementList h3').allInnerTexts(), ['Endings', 'Achievements']);
+  // Locked but not `hidden`: the title and description show (only hidden entries read "???").
+  assert.match(await page.locator('#achievementList .ach-row[data-locked="true"]').innerText(), /^A thank-you note\s+Find what was left in town\.$/);
+  assert.match(await page.locator('#achievementList .ach-row[data-locked="false"]').innerText(), /Into town\s+Leave the park behind\./);
+  await page.keyboard.press('Escape');
+  await page.locator('#achievements').waitFor({ state: 'hidden' });
+
+  await page.evaluate(() => window.postMessage({ type: 'screen', name: 'achievement_toast' }, location.origin));
+  await until(page, () => document.getElementById('achToast').dataset.show === 'true');
+  assert.equal(await page.locator('#achToastHead').innerText(), 'ENDING REACHED'); // the sample's first entry is an ending
+  assert.equal(await page.locator('#achToastTitle').innerText(), 'A thank-you note');
+  assert.equal(await page.locator('#achToast').getAttribute('data-position'), 'topright');
+});
+
 // localStorage key of a per-game value (the sample's game id is the slug of its title).
 const gameKey = key => `vn.evening-in-the-park.${key}`;
 
@@ -505,6 +526,39 @@ play('language: the Options list offers the locales, switching translates the ti
   await page.reload(); // the choice survives a reload
   await page.getByRole('button', { name: 'Uusi peli' }).waitFor();
 }, withFinnish);
+
+// An export lists its languages in `localeFiles` and ships each table as locale/<lang>.json; the page fetches it once, when picked.
+const fetchedFinnish = [];
+const withFinnishFile = async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.localeFiles = ['fi'];
+    await route.fulfill({ response: res, json: proj });
+  });
+  await context.route('**/locale/fi.json', route => {
+    fetchedFinnish.push(route.request().url());
+    return route.fulfill({ json: { 'ui.new_game': 'Uusi peli', joce: 'Puisto oli melkein tyhjä.' } });
+  });
+};
+
+play('language: an exported translation is fetched when picked, and only once', async page => {
+  fetchedFinnish.length = 0;
+  await page.locator('#titleOptions').click();
+  await page.locator('#options').waitFor({ state: 'visible' });
+  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
+  assert.deepEqual(await page.locator('#optLang option').allInnerTexts(), ['en', 'fi']);
+  assert.equal(fetchedFinnish.length, 0, 'listed, not fetched, until picked');
+  await page.locator('#optLang').selectOption('fi');
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: 'Uusi peli' }).waitFor();
+  await page.locator('#titleNav button:visible', { hasText: 'Uusi peli' }).click();
+  await until(page, () => document.getElementById('box').dataset.visible === 'true');
+  await textDone(page);
+  assert.equal(await text(page), 'Puisto oli melkein tyhjä.');
+  assert.equal(fetchedFinnish.length, 1, 'one fetch serves the title and the story');
+}, withFinnishFile);
 
 // A pad the page can read: navigator.getGamepads() returns this object, and the test presses its buttons.
 const withPad = async context => {
@@ -638,6 +692,267 @@ test('editor: the preview error banner jumps to the line of the error', async t 
       if (!rows.some(r => /jump\s+nowhere/.test(r))) await page.waitForTimeout(200);
     }
     assert.ok(rows.some(r => /jump\s+nowhere/.test(r)), `the cursor is on the failing line, saw ${JSON.stringify(rows)}`);
+  } finally {
+    await context.close();
+  }
+});
+
+test('files panel: headings carry their add icons, right-click and Shift+F10 open a menu, Reveal posts the path', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  const revealed = [];
+  await context.route('**/api/reveal?*', route => { revealed.push(new URL(route.request().url()).searchParams.get('path')); return route.fulfill({ json: { ok: true } }); });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${base}editor/`);
+    const heading = name => page.locator('#sbList h3', { hasText: name });
+    await heading('Scripts').waitFor();
+    assert.equal(await heading('Scripts').locator('.add').count(), 2, 'new file and new folder');
+    assert.equal(await heading('Assets').locator('.add').count(), 2, 'add files and new folder');
+    assert.equal(await heading('Characters').locator('.add').count(), 1, 'add a character PSD');
+    assert.match(await page.locator('#sbList .row', { hasText: 'mina' }).first().innerText(), /psd/, 'mina is marked as converted from a master');
+
+    const menu = page.locator('.ctxmenu');
+    await page.locator('#sbList .item', { hasText: 'park.vn' }).click({ button: 'right' });
+    await menu.waitFor();
+    assert.ok((await menu.innerText()).includes('Preview from Start of File'));
+    await page.keyboard.press('Escape');
+    await menu.waitFor({ state: 'hidden' });
+
+    await page.locator('#sbList .item', { hasText: 'park.vn' }).focus();
+    await page.keyboard.press('Shift+F10');
+    await menu.waitFor();
+    await page.keyboard.press('End'); // Reveal is the last item
+    await page.keyboard.press('Enter');
+    await menu.waitFor({ state: 'hidden' });
+    for (let i = 0; i < 20 && !revealed.length; i++) await page.waitForTimeout(100);
+    assert.deepEqual(revealed, ['script/park.vn']);
+  } finally {
+    await context.close();
+  }
+});
+
+test('files panel: F2 renames a script through the palette, Delete removes it after a confirm', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  const calls = [];
+  for (const route of ['move', 'delete']) {
+    await context.route(`**/api/${route}?*`, r => {
+      const q = Object.fromEntries(new URL(r.request().url()).searchParams);
+      calls.push({ route, ...q });
+      return r.fulfill({ json: { ok: true, to: q.to } });
+    });
+  }
+  await context.route('**/api/script?*', r => r.fulfill({ json: { ok: true } })); // closing a tab saves it
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    const row = name => page.locator('#sbList .item', { hasText: name });
+    await row('demo.vn').waitFor();
+    // A click opens the file but keeps the focus on the row (the code editor would take F2 for its own rename).
+    await row('demo.vn').click();
+    await until(page, () => document.activeElement?.dataset.key === 'script/demo.vn');
+    await page.keyboard.press('F2');
+    const input = page.locator('[aria-controls="paletteList"]');
+    await input.waitFor();
+    assert.equal(await input.inputValue(), '#rename:script/demo.vn');
+    await input.fill('#rename:script/side/demo_b');
+    await page.locator('.create', { hasText: 'Rename to script/side/demo_b.vn' }).waitFor();
+    await page.keyboard.press('Enter');
+    await row('demo_b.vn').waitFor();
+    assert.deepEqual(calls, [{ route: 'move', from: 'script/demo.vn', to: 'script/side/demo_b.vn' }]);
+    assert.equal(await row('demo.vn').count(), 0, 'the old name is gone');
+    assert.equal(await page.locator('#sbList summary', { hasText: 'side' }).count(), 1, 'the new folder shows');
+
+    page.once('dialog', d => d.accept());
+    await row('demo_b.vn').click();
+    await until(page, () => document.activeElement?.dataset.key === 'script/side/demo_b.vn');
+    await page.keyboard.press('Delete');
+    await row('demo_b.vn').waitFor({ state: 'detached' });
+    assert.deepEqual(calls.at(-1), { route: 'delete', path: 'script/side/demo_b.vn' });
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('files panel: a delete toast offers Undo, and Restore from Trash lists the entries and puts one back', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  const calls = [];
+  const query = r => Object.fromEntries(new URL(r.request().url()).searchParams);
+  await context.route('**/api/delete?*', r => { calls.push({ route: 'delete', ...query(r) }); return r.fulfill({ json: { ok: true, trash: 'entry-new' } }); });
+  await context.route('**/api/trash/restore?*', r => {
+    const { id } = query(r);
+    calls.push({ route: 'restore', id });
+    return r.fulfill({ json: { paths: [id === 'entry-new' ? 'script/demo.vn' : 'assets/bg/old.png'], aside: null } });
+  });
+  const now = Date.now();
+  await context.route('**/api/trash', r => r.fulfill({ json: [
+    { id: 'entry-new', action: 'delete', paths: ['script/demo.vn'], time: new Date(now - 60_000).toISOString(), bytes: 2048 },
+    { id: 'entry-old', action: 'replace', paths: ['assets/bg/old.png', 'assets/bg/old2.png'], time: new Date(now - 3 * 3_600_000).toISOString(), bytes: 3 * 1024 * 1024 },
+  ] }));
+  await context.route('**/api/script?*', r => r.fulfill({ json: { ok: true } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    const row = page.locator('#sbList .item', { hasText: 'demo.vn' });
+    await row.waitFor();
+    page.once('dialog', d => d.accept());
+    await row.click();
+    await until(page, () => document.activeElement?.dataset.key === 'script/demo.vn');
+    await page.keyboard.press('Delete');
+    const toastEl = page.locator('#toast');
+    await toastEl.waitFor();
+    assert.equal(await toastEl.locator('span').innerText(), 'deleted script/demo.vn');
+    // Undo restores the entry the delete made (the delete was mocked, so the file is still on disk and stays listed).
+    await toastEl.getByRole('button', { name: 'Undo' }).click();
+    await until(page, () => document.querySelector('#toast span')?.textContent === 'restored script/demo.vn');
+    assert.equal(await toastEl.getByRole('button', { name: 'Undo' }).isVisible(), false, 'a restore with nothing pushed aside has no Undo');
+    assert.deepEqual(calls, [{ route: 'delete', path: 'script/demo.vn' }, { route: 'restore', id: 'entry-new' }]);
+
+    await page.keyboard.press('Control+p');
+    await page.keyboard.type('>Files: Restore from Trash');
+    await page.keyboard.press('Enter');
+    const items = page.locator('#paletteList li');
+    await until(page, () => document.querySelectorAll('#paletteList li .detail').length === 2);
+    // The detail is drawn inside the label's .main span.
+    assert.deepEqual(await items.locator('.detail').allInnerTexts(), ['deleted 1 min ago, 2.0 KB', 'replaced 3 h ago, 3.0 MB']);
+    const labels = await items.locator('.main').allInnerTexts();
+    assert.ok(labels[0].startsWith('script/demo.vn') && labels[1].startsWith('assets/bg/old.png and 1 more'), JSON.stringify(labels));
+    await page.keyboard.type('old');
+    await until(page, () => document.querySelectorAll('#paletteList li').length === 1);
+    await page.keyboard.press('Enter');
+    await until(page, () => document.querySelector('#toast span')?.textContent === 'restored assets/bg/old.png');
+    assert.deepEqual(calls.at(-1), { route: 'restore', id: 'entry-old' });
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('files panel: renaming an asset rewrites the scripts that name it and says so in a toast', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  const moves = [], saved = {};
+  await context.route('**/api/move?*', r => {
+    const q = Object.fromEntries(new URL(r.request().url()).searchParams);
+    moves.push(q);
+    return r.fulfill({ json: { ok: true, to: q.to } });
+  });
+  // The rewritten scripts autosave: keep what they send, the sample stays as it is.
+  await context.route('**/api/script?*', r => {
+    if (r.request().method() === 'PUT') saved[new URL(r.request().url()).searchParams.get('file')] = r.request().postData();
+    return r.fulfill({ json: { ok: true } });
+  });
+  await context.route('**/api/game', r => r.request().method() === 'PUT' ? r.fulfill({ json: { ok: true } }) : r.fallback());
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('#sbList summary', { hasText: /^bg/ }).click(); // asset folders start closed
+    const row = page.locator('#sbList .item[data-key="assets/bg/bg_park_night.png"]');
+    await row.click({ button: 'right' });
+    await page.locator('.ctxmenu').getByRole('menuitem', { name: 'Rename…' }).click();
+    const input = page.locator('[aria-controls="paletteList"]');
+    assert.equal(await input.inputValue(), '#rename:assets/bg/bg_park_night.png');
+    await input.fill('#rename:assets/bg/night_park.png');
+    await page.locator('.create', { hasText: 'Rename to assets/bg/night_park.png' }).waitFor();
+    await page.keyboard.press('Enter');
+    await until(page, () => /^renamed assets\/bg\/bg_park_night\.png to assets\/bg\/night_park\.png: updated \d+ mentions in \d+ files$/.test(document.querySelector('#toast span')?.textContent ?? ''));
+    assert.deepEqual(moves, [{ from: 'assets/bg/bg_park_night.png', to: 'assets/bg/night_park.png' }]);
+    assert.equal(await page.locator('#toast button').isVisible(), false, 'no Undo for a rename yet');
+    for (let i = 0; i < 50 && !(saved['park.vn'] && saved['screens.vn'] && saved['demo.vn']); i++) await page.waitForTimeout(100);
+    assert.match(saved['park.vn'] ?? '', /^ {2}scene night_park dissolve 1\.2$/m, 'a scene name follows');
+    assert.doesNotMatch(saved['park.vn'], /bg_park_night/);
+    assert.match(saved['park.vn'], /scene bg_park_evening fade/, 'the other background is left alone');
+    assert.match(saved['screens.vn'] ?? '', /image "bg\/night_park\.png" size/, 'a quoted path follows');
+    assert.match(saved['demo.vn'] ?? '', /image show photo bg\/night_park at/, 'a path without the extension keeps none');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('git commit dialog: the bar counts changes, the dialog lists them, ignores, and commits with the message', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  // git itself is mocked: the test must not commit to the checkout it runs in.
+  let status = {
+    repo: true, git: true, branch: 'dev', suggest: 'Update park.vn, add bg_new.png',
+    changes: [{ path: 'script/park.vn', x: ' ', y: 'M' }, { path: 'assets/bg/bg_new.png', x: '?', y: '?' }, { path: 'assets/bg/b.png', x: 'R', y: ' ', from: 'assets/bg/a.png' }],
+    blockers: [], warnings: ['masters/big.psd is 40 MB: put PSDs in Git LFS.'], unignored: ['/.trash/'],
+  };
+  const posts = [];
+  await context.route('**/api/git', r => r.fulfill({ json: status }));
+  await context.route('**/api/git/ignore', r => {
+    posts.push({ route: 'ignore' });
+    status = { ...status, unignored: [] };
+    return r.fulfill({ json: { added: ['/.trash/'] } });
+  });
+  await context.route('**/api/git/commit', r => {
+    posts.push({ route: 'commit', body: r.request().postData() });
+    status = { ...status, changes: [], warnings: [], blockers: ['Nothing to commit.'] };
+    return r.fulfill({ json: { hash: 'abc1234', files: 3 } });
+  });
+  await context.route('**/api/script?*', r => r.fulfill({ json: { ok: true } }));
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    const bar = page.locator('#sbGit');
+    await bar.locator('.gb-count').waitFor();
+    assert.equal(await bar.locator('.gb-branch').innerText(), '⎇ dev');
+    assert.equal(await bar.locator('.gb-count').innerText(), '3 changes');
+    await bar.getByRole('button', { name: 'Commit…' }).click();
+
+    const dialog = page.locator('#gitCommit');
+    await until(page, () => document.querySelectorAll('#gitCommit .gd-row').length === 3);
+    assert.equal(await dialog.locator('.gd-branch').innerText(), 'on dev');
+    assert.equal(await dialog.locator('.gd-summary').innerText(), '3 changed files:');
+    assert.deepEqual(await dialog.locator('.gd-kind').allInnerTexts(), ['MODIFIED', 'ADDED', 'RENAMED']);
+    assert.match(await dialog.locator('.gd-row').nth(2).innerText(), /assets\/bg\/b\.png\s+from assets\/bg\/a\.png/);
+    assert.deepEqual(await dialog.locator('.gd-note[data-kind="warning"]').allInnerTexts(), ['masters/big.psd is 40 MB: put PSDs in Git LFS.']);
+    const message = dialog.getByRole('textbox', { name: 'Commit message' });
+    assert.equal(await message.inputValue(), 'Update park.vn, add bg_new.png', 'the suggested message');
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('gd-message')), true, 'focus starts in the message');
+
+    const ignore = dialog.getByRole('button', { name: 'Add to .gitignore' });
+    await ignore.click();
+    await ignore.waitFor({ state: 'hidden' });
+    assert.match(await page.locator('#status').innerText(), /added \/\.trash\/ to \.gitignore/);
+
+    const go = dialog.getByRole('button', { name: 'Commit all' });
+    await message.fill('');
+    assert.equal(await go.isDisabled(), true, 'no message, no commit');
+    await message.fill('Park: the night scene');
+    assert.equal(await go.isDisabled(), false);
+    await page.keyboard.press('Control+Enter');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.deepEqual(posts, [{ route: 'ignore' }, { route: 'commit', body: 'Park: the night scene' }]);
+    assert.match(await page.locator('#status').innerText(), /committed 3 files \(abc1234\)/);
+    assert.equal(await bar.locator('.gb-count').innerText(), 'no changes');
+    assert.equal(await bar.getByRole('button', { name: 'Commit…' }).isDisabled(), true);
+
+    // A blocker (here a merge conflict) keeps Commit off and is shown first; Esc closes.
+    status = { ...status, changes: [{ path: 'script/park.vn', x: 'U', y: 'U' }], blockers: ['Resolve the merge conflict in script/park.vn first.'] };
+    await page.keyboard.press('Control+p');
+    await page.keyboard.type('>Git: Commit All Changes');
+    await page.keyboard.press('Enter');
+    await until(page, () => document.querySelector('#gitCommit .gd-kind')?.textContent === 'conflict');
+    assert.deepEqual(await dialog.locator('.gd-note[data-kind="blocker"]').allInnerTexts(), ['Resolve the merge conflict in script/park.vn first.']);
+    await message.fill('anything');
+    assert.equal(await go.isDisabled(), true, 'blocked');
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(posts.length, 2, 'nothing more was posted');
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }
@@ -1415,6 +1730,208 @@ play('timed menu: with Timed choices off there is no clock and the player can wa
   await page.waitForTimeout(2800);
   assert.equal(await page.locator('#menu[data-visible="true"]').count(), 1);
 }, withTimedStart(2));
+
+test('voice dialog: add a take to a row, replace it after asking, flag and confirm an outdated one, match files dropped on the list', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  // Everything the dialog writes goes to these mocks: the sample project must not get recordings.
+  const disk = {}; // name -> { file, sum }
+  let lock = {};
+  const uploads = [];
+  await page.route('**/api/locales', route => route.fulfill({ contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/voice', route => {
+    if (route.request().method() === 'PUT') { lock = JSON.parse(route.request().postData()); return route.fulfill({ body: '{"ok":true}' }); }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ recordings: Object.fromEntries(Object.entries(disk).map(([n, d]) => [n, d.sum])), files: Object.fromEntries(Object.entries(disk).map(([n, d]) => [n, d.file])), lock }),
+    });
+  });
+  await page.route('**/api/asset?*', route => {
+    const u = new URL(route.request().url());
+    const name = u.searchParams.get('voice'), replace = u.searchParams.get('replace') === '1';
+    uploads.push({ name, replace });
+    if (disk[name] && !replace) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ dest: `assets/voice/${disk[name].file}` }) });
+    const sum = `sum${uploads.length}`;
+    disk[name] = { file: `${name}.wav`, sum };
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: true, dest: `assets/voice/${name}.wav`, sum }) });
+  });
+  await page.route('**/assets/voice/*', route => route.fulfill({ contentType: 'audio/wav', body: Buffer.from('RIFF') }));
+  const wav = { name: 'take.wav', mimeType: 'audio/wav', buffer: Buffer.from('RIFF') };
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('.monaco-editor .view-line').first().waitFor(); // the sample's scripts are loaded
+    const open = async () => {
+      await page.keyboard.press('Control+p');
+      await page.keyboard.type('>Voice: Recordings');
+      await page.keyboard.press('Enter');
+      await page.locator('#voice .vo-row').first().waitFor();
+    };
+    const dialog = page.locator('#voice');
+    const row = n => dialog.locator('.vo-row').nth(n);
+    await open();
+    const first = await row(0).getAttribute('data-name'), second = await row(1).getAttribute('data-name');
+    assert.equal(await row(0).getAttribute('data-status'), 'missing');
+    assert.match(await dialog.locator('.vo-summary').innerText(), /^0 of \d+ lines voiced/);
+    assert.equal(await row(0).locator('.vo-play').isDisabled(), true, 'nothing to play yet');
+
+    await row(0).locator('input[type=file]').setInputFiles(wav);
+    await page.waitForFunction(n => document.querySelector(`#voice .vo-row[data-name="${n}"]`)?.dataset.status === 'recorded', first);
+    assert.deepEqual(uploads, [{ name: first, replace: false }]);
+    assert.equal(lock[first].sum, 'sum1', 'the lock entry is written at once');
+    assert.ok(lock[first].text, 'with the line text');
+    assert.match(await dialog.locator('.vo-summary').innerText(), /^1 of \d+ lines voiced/);
+
+    // Play asks for the take's file by name (a mock serves it: the take is not on disk).
+    const played = page.waitForRequest(r => r.url().includes(`/assets/voice/${first}.wav`));
+    await row(0).locator('.vo-play').click();
+    await played;
+
+    // "Replace…" opens the file picker (which the input behind it answers).
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), row(0).locator('.vo-choose').click()]);
+    assert.equal(chooser.isMultiple(), false);
+    await chooser.setFiles(wav);
+    await dialog.locator('.vo-ask:not([hidden])').waitFor();
+    assert.match(await dialog.locator('.vo-ask-msg').innerText(), /already has a take/);
+    await dialog.locator('.vo-ask-no').click();
+    assert.equal(uploads.length, 2, 'declining sends nothing more');
+    await row(0).locator('input[type=file]').setInputFiles(wav);
+    await dialog.locator('.vo-ask-yes').click();
+    for (let i = 0; lock[first].sum !== 'sum4' && i < 50; i++) await page.waitForTimeout(100);
+    assert.deepEqual(uploads.at(-1), { name: first, replace: true });
+    assert.equal(lock[first].sum, 'sum4', 'the replaced take is the one in the lock');
+
+    // Dropped on the list: a file named after the second line is taken, the other is left over.
+    await page.evaluate(([name]) => {
+      const dt = new DataTransfer();
+      dt.items.add(new File(['RIFF'], `${name}.wav`, { type: 'audio/wav' }));
+      dt.items.add(new File(['RIFF'], 'unlabelled.wav', { type: 'audio/wav' }));
+      document.querySelector('#voice .vo-scroll').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    }, [second]);
+    await page.waitForFunction(n => document.querySelector(`#voice .vo-row[data-name="${n}"]`)?.dataset.status === 'recorded', second);
+    assert.deepEqual(await dialog.locator('.vo-chip').allTextContents(), ['unlabelled.wav']);
+
+    // A reworded line: the file is unchanged but the lock remembers other wording.
+    lock = { ...lock, [first]: { sum: lock[first].sum, text: 'An older wording.' } };
+    await dialog.locator('.close').click();
+    await open();
+    assert.equal(await row(0).getAttribute('data-status'), 'outdated');
+    assert.equal(await row(0).locator('.vo-tag').count(), 2, 'old and new wording are shown');
+    await dialog.locator('.vo-outdated').check();
+    await page.waitForFunction(() => document.querySelectorAll('#voice .vo-row').length === 1);
+    await row(0).locator('.vo-ok').click();
+    await page.waitForFunction(() => document.querySelectorAll('#voice .vo-row').length === 0);
+    assert.notEqual(lock[first].text, 'An older wording.', 'Still fine takes the current wording');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('build dialog: errors block, warnings need a tick, go-to links, build with target and folder, result', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  // The checks and the export are mocked: nothing is built into the sample project.
+  let report = { findings: [{ check: 'script', severity: 'error', message: 'Unknown label "nowhere".', file: 'park.vn', line: 3 }], errors: 1, warnings: 0 };
+  const languages = { source: 'en', text: ['de', 'fi'], voice: ['en', 'ja'] };
+  const tasks = [], checks = [];
+  await page.route('**/api/build-check*', route => {
+    checks.push(new URL(route.request().url()).searchParams);
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ...report, languages }) });
+  });
+  await page.route('**/api/task?*', route => {
+    tasks.push(new URL(route.request().url()).searchParams);
+    return route.fulfill({ contentType: 'application/x-ndjson', body: '{"out":"Exported \\"Mock\\" to X: 12 files, 3.4 MB\\n"}\n{"ok":true}\n' });
+  });
+  await page.route('**/api/locales', route => route.fulfill({ contentType: 'application/json', body: '{}' }));
+  await page.route('**/api/voice', route => route.fulfill({ contentType: 'application/json', body: '{"recordings":{},"files":{},"lock":{}}' }));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('.monaco-editor .view-line').first().waitFor();
+    const dialog = page.locator('#build');
+    const go = dialog.locator('.bd-go');
+    const open = async () => {
+      await page.keyboard.press('Control+p');
+      await page.keyboard.type('>Build: Checks');
+      await page.keyboard.press('Enter');
+      await dialog.locator('.bd-summary').filter({ hasText: /error|passed/ }).waitFor();
+    };
+    await open();
+    assert.equal(await dialog.locator('.bd-folder').inputValue(), 'build/web');
+    assert.equal(await go.isDisabled(), true, 'an error blocks the build');
+    assert.equal(await dialog.locator('.bd-badge[data-severity=error]').count(), 1);
+    assert.match(await dialog.locator('.bd-title').first().innerText(), /errors/i);
+
+    // The go-to link closes the dialog and gives the line back to the editor.
+    await dialog.locator('.bd-goto').click();
+    await dialog.waitFor({ state: 'hidden' });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('.monaco-editor') !== null), true, 'focus is back in the editor');
+
+    // Warnings and a note: the tick enables Build; the note group is collapsed.
+    report = { findings: [
+      { check: 'ids', severity: 'warning', message: '2 lines have no id.', file: 'park.vn', line: 5, count: 2 },
+      { check: 'untranslated', severity: 'warning', message: '4 strings are untranslated.', lang: 'fi', count: 4 },
+      { check: 'unused-locale', severity: 'info', message: '1 entry matches no line.', lang: 'fi', count: 1 },
+    ], errors: 0, warnings: 2 };
+    await open();
+    assert.equal(await go.isDisabled(), true, 'warnings wait for the tick');
+    assert.equal(await dialog.locator('.bd-group[data-severity=info]').evaluate(el => el.open), false);
+    await dialog.locator('.bd-ack-box').check();
+    assert.equal(await go.isDisabled(), false);
+
+    // A folder outside build/ is refused.
+    await dialog.locator('.bd-folder').fill('assets');
+    assert.equal(await go.isDisabled(), true);
+    assert.equal(await dialog.locator('.bd-note').isVisible(), true);
+    await dialog.locator('.bd-target').selectOption('desktop');
+    await dialog.locator('.bd-folder').fill('build/desktop-test');
+    await go.click();
+    await dialog.locator('.bd-result[data-state=ok]').waitFor();
+    assert.equal(tasks.length, 1);
+    assert.deepEqual([tasks[0].get('name'), tasks[0].get('target'), tasks[0].get('out')], ['build', 'desktop', 'build/desktop-test']);
+    const result = await dialog.locator('.bd-result').innerText();
+    assert.match(result, /build\/desktop-test/);
+    assert.match(result, /12 files, 3\.4 MB/);
+
+    // Languages: a tick each, the source's voice is the default take; unticking one re-runs the checks and narrows the build.
+    assert.deepEqual((await dialog.locator('.bd-langs label').allInnerTexts()).map(x => x.trim()), ['de', 'fi', 'en (default take)', 'ja']);
+    assert.equal(tasks[0].has('locales') || tasks[0].has('voice'), false, 'all ticked: the build is unrestricted');
+    await dialog.locator('.bd-langs [data-kind=text] label', { hasText: 'fi' }).locator('input').uncheck();
+    await dialog.locator('.bd-summary').filter({ hasText: /error|passed/ }).waitFor();
+    assert.equal(checks.at(-1).get('locales'), 'de');
+    assert.equal(checks.at(-1).has('voice'), false);
+    await dialog.locator('.bd-langs [data-kind=voice] label', { hasText: 'ja' }).locator('input').uncheck();
+    await dialog.locator('.bd-summary').filter({ hasText: /error|passed/ }).waitFor();
+    assert.equal(checks.at(-1).get('voice'), 'en');
+    await dialog.locator('.bd-ack-box').check();
+    await go.click();
+    await dialog.locator('.bd-result[data-state=ok]').waitFor();
+    assert.deepEqual([tasks[1].get('locales'), tasks[1].get('voice')], ['de', 'en']);
+
+    // A translation finding opens the Translations dialog.
+    await dialog.locator('.bd-goto', { hasText: 'Translations' }).first().click();
+    await page.locator('#translations').waitFor();
+    assert.equal(await dialog.isHidden(), true);
+    await page.keyboard.press('Escape');
+
+    // Re-run checks sees a fixed project; Esc closes.
+    await open();
+    report = { findings: [], errors: 0, warnings: 0 };
+    await dialog.locator('.bd-rerun').click();
+    await dialog.locator('.bd-summary', { hasText: 'All checks passed' }).waitFor();
+    assert.equal(await go.isDisabled(), false);
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden' });
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
 
 describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
   for (const args of queued) nodeTest(...args);
