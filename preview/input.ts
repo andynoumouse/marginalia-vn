@@ -217,3 +217,36 @@ export function oskPress(s: OskState, key: string, max: number): OskState {
   const ch = key === 'space' ? ' ' : oskCaps(s) ? key.toLocaleUpperCase() : key;
   return { value: base + ch, shift: false, fresh: false };
 }
+
+/** The on-screen keyboard for a text field: always built, shown by CSS while the last input came from a pad. */
+export function oskBoard(field: HTMLInputElement, max: number): HTMLElement {
+  let osk: OskState = { value: field.value, shift: false, fresh: true };
+  const board = document.createElement('div');
+  board.className = 'osk';
+  const key = (label: string, id: string, cls = '') => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.tabIndex = -1;
+    b.textContent = label;
+    b.dataset.osk = id;
+    if (cls) b.className = cls;
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      osk = oskPress(osk, id, max);
+      field.value = osk.value;
+      board.dataset.caps = String(oskCaps(osk));
+    });
+    return b;
+  };
+  for (const row of OSK_ROWS) {
+    const r = document.createElement('div');
+    for (const ch of row) r.append(key(ch, ch));
+    board.append(r);
+  }
+  const bottom = document.createElement('div');
+  bottom.append(key('⇧', 'shift', 'wide'), key('space', 'space', 'space'), key('⌫', 'back', 'wide'));
+  board.append(bottom);
+  board.dataset.caps = String(oskCaps(osk));
+  field.addEventListener('input', () => { osk = { value: field.value, shift: false, fresh: false }; });
+  return board;
+}

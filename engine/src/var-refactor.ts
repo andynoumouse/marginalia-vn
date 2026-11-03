@@ -17,7 +17,7 @@ const NAME = new RegExp(`^${ID}$`);
 const KEYWORDS = new Set(['and', 'or', 'not', 'true', 'false']);
 const RESERVED = new Set([...KEYWORDS, ...Object.keys(FUNCTIONS), 'persistent', 'unlocked', 'screen']);
 const SHELL_VARS = new Set([OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
-const ELEMENT = /^\s*(?:image|hotspot|button|text|slider|each|scroll|row|column|grid)\b/;
+const ELEMENT = /^\s*(?:image|hotspot|button|text|slider|bar|panel|each|scroll|row|column|grid)\b/;
 
 /** The line with the inside of every "string" blanked (same length), so words in text are never taken for syntax. */
 function mask(line: string): string {
@@ -145,6 +145,11 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
       if ((r = new RegExp(`^(\\s*each\\s+)(${ID})(\\s+as\\s+)(${ID})`).exec(m))) {
         add(r[1].length, r[2], false, 'outer');
         add(r[1].length + r[2].length + r[3].length, r[4], false, 'each');
+      }
+      // a bar's value, `max` and `min` are expressions of one word each (no spaces)
+      if (/^\s*bar\b/.test(m)) {
+        const head = cuts[0]?.index ?? end;
+        for (const w of m.slice(0, head).matchAll(/(?:^\s*bar\s+|\s(?:max|min)\s+)(\S+)/g)) exprRefs(raw, w.index! + w[0].length - w[1].length, w.index! + w[0].length, add);
       }
       return;
     }

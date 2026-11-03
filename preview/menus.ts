@@ -4,10 +4,10 @@
 
 import type { Locale, MusicItem, ChapterItem, AchievementItem } from '../engine/src/index.js';
 import type { LineInfo } from './stage-ui.js';
-import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SLOTS_PER_PAGE, type SaveData } from './saves.js';
+import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SAVE_NAME_MAX, SLOTS_PER_PAGE, writeSave, type SaveData } from './saves.js';
 import { saveSettings, TEXT_INSTANT, type Settings } from './settings.js';
 import { getItem, setItem } from './storage.js';
-import { autoFocus } from './input.js';
+import { autoFocus, oskBoard } from './input.js';
 import { $, hue } from './stage-ui.js';
 
 /** The title-screen part of game.json. */
@@ -44,9 +44,11 @@ export interface MenuActions {
   chapterItems(): ChapterItem[];
   startChapter(label: string): void;
   achievementItems(): AchievementRow[];
-  /** Save the current moment into `slot`; false when it could not be stored. */
-  save(slot: string): Promise<boolean>;
+  /** Save the current moment into `slot` under the player's `label` (game.json "saveNames"); false when it could not be stored. */
+  save(slot: string, label?: string): Promise<boolean>;
   load(slot: string): void;
+  /** Roll back to the `n`th line of the history (0-based); the history screen is already closed. */
+  rollbackTo(n: number): void;
   /** A setting changed; `lang` is true when the language did. */
   changed(lang: boolean): void;
   /** A screen opened or the last one closed. */
@@ -60,7 +62,8 @@ const musicEl = $('musicRoom'), musicList = $('musicList'), musicCount = $('musi
 const chaptersEl = $('chapters'), chapterList = $('chapterList'), chapterCount = $('chapterCount');
 const achievementsEl = $('achievements'), achievementList = $('achievementList'), achievementCount = $('achievementCount');
 const viewerEl = $('viewer'), viewerImg = $('viewerImg'), viewerTitle = $('viewerTitle');
-const SCREENS = [titleEl, pauseEl, optionsEl, savesEl, confirmEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl, achievementsEl];
+const saveNameEl = $('saveName'), saveNameInput = $<HTMLInputElement>('saveNameInput');
+const SCREENS = [titleEl, pauseEl, optionsEl, savesEl, confirmEl, saveNameEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl, achievementsEl];
 const gameTitle = $('gameTitle'), continueBtn = $<HTMLButtonElement>('continue'), continueInfo = $('continueInfo');
 const titleNav = $('titleNav');
 const titleButtons: Record<string, HTMLElement> = {
@@ -75,7 +78,7 @@ const sliders = {
   textSize: $<HTMLInputElement>('optSize'),
   boxOpacity: $<HTMLInputElement>('optBox'),
 };
-const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
+const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), themeEl = $<HTMLSelectElement>('optTheme'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
 const optTabs = [...document.querySelectorAll<HTMLButtonElement>('.opt-tabs [data-tab]')];
 const optPages = [...document.querySelectorAll<HTMLElement>('.opt-page')];
 const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesTitle'), savesNote = $('savesNote');
@@ -84,6 +87,13 @@ const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesT
 const placeholder = (name: string) => {
   const h = hue(name);
   return `linear-gradient(165deg, hsl(${h} 32% 24%), hsl(${(h + 45) % 360} 38% 11%))`;
+};
+
+/** A screen under a dialog, with the layer a project's own version of it is drawn in (`#savesui` for `#saves`). */
+const setInert = (screen: HTMLElement, on: boolean) => {
+  screen.inert = on;
+  const layer = document.getElementById(`${screen.id}ui`);
+  if (layer) layer.inert = on;
 };
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
@@ -104,6 +114,7 @@ export class Menus {
   private langs: string[] = [];
   private hasFocus = false;
   private voiceLangs: string[] = [];
+  private themes: string[] = [];
   /** The tab of the project's `screen options` ('' = its first). */
   private customTab = '';
   private deleting = false; // the project's saves screen: the next slot picked is deleted
@@ -145,6 +156,13 @@ export class Menus {
     });
     on('confirmYes', () => { const fn = this.onConfirm; this.back(); fn?.(); });
     on('confirmNo', () => this.back());
+    on('saveNameCancel', () => this.back());
+    saveNameEl.querySelector('form')!.addEventListener('submit', e => {
+      e.preventDefault();
+      const fn = this.onName, label = saveNameInput.value.trim();
+      this.back();
+      fn?.(label);
+    });
 
     for (const [key, input] of Object.entries(sliders) as [keyof typeof sliders, HTMLInputElement][]) {
       input.value = String(settings[key]);
@@ -167,6 +185,7 @@ export class Menus {
     autoEl.addEventListener('change', () => { settings.autoDelay = Number(autoEl.value); this.commit(false); });
     langEl.addEventListener('change', () => { settings.lang = langEl.value; this.commit(true); });
     voiceLangEl.addEventListener('change', () => { settings.voiceLang = voiceLangEl.value; this.commit(false); });
+    themeEl.addEventListener('change', () => { settings.theme = themeEl.value; this.commit(false); });
     fullBtn.hidden = !document.fullscreenEnabled;
     fullBtn.addEventListener('click', () => this.toggleFullscreen());
     optTabs.forEach((b, n) => b.addEventListener('click', () => this.showTab(n)));
@@ -197,7 +216,7 @@ export class Menus {
     return {
       master: s.master, music: s.music, sound: s.sound, voice: s.voice, text_speed: s.textSpeed, text_size: s.textSize, box_opacity: s.boxOpacity,
       text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[nearest(AUTO_DELAYS, s.autoDelay)], skip: s.skipAll ? 'all' : 'read',
-      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', tab: this.customTab,
+      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', theme: s.theme || this.themes[0] || '', tab: this.customTab,
     };
   }
 
@@ -228,6 +247,11 @@ export class Menus {
         s.lang = this.langs[(Math.max(0, this.langs.indexOf(s.lang)) + 1) % this.langs.length];
         this.commit(true);
         return;
+      }
+      case 'theme': {
+        if (this.themes.length < 2) return;
+        s.theme = this.themes[(Math.max(0, this.themes.indexOf(s.theme || this.themes[0])) + 1) % this.themes.length];
+        break;
       }
       case 'voice_language': {
         if (!this.voiceLangs.length) return;
@@ -287,6 +311,14 @@ export class Menus {
     langEl.value = current;
   }
 
+  /** The themes the player may pick (game.json "themes"); the row shows only when there are two or more. */
+  setThemes(names: string[], current: string) {
+    this.themes = names;
+    themeEl.replaceChildren(...names.map(n => { const o = document.createElement('option'); o.value = o.textContent = n; return o; }));
+    themeEl.value = names.includes(current) ? current : names[0] ?? '';
+    for (const id of ['optThemeLabel', 'optTheme', 'optThemeEnd']) $(id).hidden = names.length < 2;
+  }
+
   /** The game dims who is not speaking (game.json "speakerFocus"): only then do the options offer to turn it off. */
   setFocusOption(has: boolean) {
     this.hasFocus = has;
@@ -309,7 +341,11 @@ export class Menus {
   }
   private push(screen: HTMLElement) {
     const top = this.stack.at(-1);
-    if (top) top.hidden = true;
+    // A dialog (yes/no, a save's name) leaves the screen it was asked from in sight, just out of reach.
+    const dialog = screen === confirmEl || screen === saveNameEl;
+    screen.dataset.over = String(dialog && !!top);
+    if (top && dialog) setInert(top, true);
+    else if (top) top.hidden = true;
     this.stack.push(screen);
     screen.hidden = false;
     this.focusIn(screen);
@@ -321,6 +357,7 @@ export class Menus {
     if (top === musicEl) this.act.playTrack(null); // back to the title music
     const prev = this.stack.at(-1);
     if (prev) {
+      setInert(prev, false);
       prev.hidden = false;
       if (prev === titleEl) this.refreshContinue();
       if (prev === savesEl) this.renderSaves();
@@ -329,7 +366,7 @@ export class Menus {
     this.act.screens(this.open);
   }
   hideAll() {
-    for (const s of SCREENS) s.hidden = true;
+    for (const s of SCREENS) { s.hidden = true; setInert(s, false); }
     this.stack = [];
     this.act.screens(false);
   }
@@ -359,12 +396,32 @@ export class Menus {
     else if (!top && this.act.isPlaying()) this.showPause();
   }
 
-  /** Ask a yes/no question (text from the hidden [data-ui=key] label); runs `yes` on Yes. */
-  confirm(key: string, yes: () => void) {
+  /** Ask a yes/no question (text from the hidden [data-ui=key] label); runs `yes` on Yes. `danger`: Yes deletes something. */
+  confirm(key: string, yes: () => void, danger = false) {
     this.onConfirm = yes;
     $('confirmText').textContent = this.label(key);
+    $('confirmYes').dataset.variant = danger ? 'danger' : 'primary';
     this.push(confirmEl);
   }
+
+  private onName: ((label: string) => void) | null = null;
+  /** Ask the player for a save's name (empty: none), starting from `current`; runs `done` on Save, nothing on Cancel or Esc. */
+  private askName(current: string, placeholder: string, done: (label: string) => void) {
+    this.onName = done;
+    saveNameInput.value = current;
+    saveNameInput.placeholder = placeholder;
+    saveNameInput.maxLength = SAVE_NAME_MAX;
+    saveNameEl.querySelector('.osk')?.remove();
+    saveNameInput.after(oskBoard(saveNameInput, SAVE_NAME_MAX)); // built anew: its first key replaces the old name
+    this.push(saveNameEl);
+    if (autoFocus(saveNameInput)) saveNameInput.select();
+  }
+
+  /** game.json "saveNames": the player names a save when making it, and can rename it on the save screen. */
+  private saveNames = false;
+  setSaveNames(on: boolean) { this.saveNames = on; }
+  /** Only the numbered slots take names (auto, quick and choice saves are made without asking). */
+  private nameable(slot: string) { return this.saveNames && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot); }
 
   // ---- opened from the quick menu (over the game; Back returns to it) ----
   openOptions() { this.showTab(0); this.customTab = ''; this.push(optionsEl); }
@@ -384,33 +441,55 @@ export class Menus {
   openSaves(mode: 'save' | 'load') { this.showSaves(mode); }
 
   private historyLines: LineInfo[] = [];
+  /** The newest line is the one on screen (no choice after it): going back to it does nothing. */
+  private historyAtLine = false;
+  private isCurrentLine(i: number) { return this.historyAtLine && i === this.historyLines.length - 1; }
 
   /** The history as the variables and per-line data of a project's `screen history`. */
-  historyValues(): { vars: Record<string, string | number | string[]>; entries: Record<string, Record<string, Record<string, string>>> } {
+  historyValues(): { vars: Record<string, string | number | string[]>; entries: Record<string, Record<string, Record<string, string | boolean>>> } {
     const ids = this.historyLines.map((_, i) => String(i + 1));
     return {
       vars: { lines: ids, total: ids.length },
-      entries: { lines: Object.fromEntries(ids.map(id => { const l = this.historyLines[Number(id) - 1]; return [id, { name: l.name ?? '', text: l.text }]; })) },
+      entries: { lines: Object.fromEntries(ids.map((id, i) => { const l = this.historyLines[i]; return [id, { name: l.name ?? '', text: l.text, current: this.isCurrentLine(i) }]; })) },
     };
   }
   /** `action close` on the project's history screen: the same as Back. */
   closeHistory() { if (this.stack.at(-1) === historyEl) this.back(); }
+  /** `action line` on the project's history screen, or a click on a stock row: roll back to that line (id is 1-based). */
+  pickLine(id: string) {
+    const i = Number(id) - 1;
+    if (!Number.isInteger(i) || i < 0 || i >= this.historyLines.length || this.isCurrentLine(i)) return;
+    this.hideAll();
+    this.act.rollbackTo(i);
+  }
 
-  openHistory(lines: LineInfo[]) {
+  /** `atLine`: the newest line is still on screen (no choice or prompt after it). */
+  openHistory(lines: LineInfo[], atLine: boolean) {
     this.historyLines = lines;
-    historyList.replaceChildren(...lines.map(l => {
+    this.historyAtLine = atLine;
+    const hint = this.label('history_return');
+    historyList.replaceChildren(...lines.map((l, i) => {
       const li = el('li');
+      const row = el('button', 'hist-line');
+      row.type = 'button';
       if (l.name) {
         const who = el('span', 'who', l.name);
         who.style.color = l.color ?? '';
-        li.append(who);
+        row.append(who);
       }
-      li.append(el('span', 'said', l.text));
+      row.append(el('span', 'said', l.text));
+      if (this.isCurrentLine(i)) row.setAttribute('aria-current', 'true');
+      else row.title = hint;
+      row.addEventListener('click', () => this.pickLine(String(i + 1)));
+      li.append(row);
       return li;
     }));
     if (!lines.length) historyList.append(el('li', 'empty', this.label('history_empty')));
     this.push(historyEl);
     historyList.scrollTop = historyList.scrollHeight;
+    // Focus starts on the newest row (Up walks back through the story), not on the oldest.
+    const rows = historyList.querySelectorAll<HTMLElement>('.hist-line');
+    if (rows.length) autoFocus(rows[rows.length - 1]);
   }
 
   // ---- gallery ----
@@ -677,6 +756,7 @@ export class Menus {
           const data = readSave(slot);
           return [slot, {
             title: this.slotTitle(slot),
+            label: data?.label ?? '',
             when: data ? new Date(data.time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '',
             text: data ? (data.name ? `${data.name}: ${data.text}` : data.text) : this.label('empty_slot'),
             empty: !data,
@@ -699,7 +779,7 @@ export class Menus {
   /** `action slot`: the same as clicking that slot on the stock screen (or deleting it, in delete mode). */
   pickSlot(slot: string) {
     if (this.deleting) {
-      if (readSave(slot) && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot)) this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); });
+      if (readSave(slot) && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot)) this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }, true);
       return;
     }
     this.activateSlot(slot, readSave(slot));
@@ -731,13 +811,15 @@ export class Menus {
   /** Save into the slot (asking before overwriting) or load it (asking first while a game is running). */
   private activateSlot(slot: string, data: SaveData | null) {
     if (this.mode === 'save') {
-      const write = async () => {
-        const ok = await this.act.save(slot);
+      const write = async (label?: string) => {
+        const ok = await this.act.save(slot, label || undefined);
         savesNote.textContent = ok ? '' : this.label('save_failed');
         this.renderSaves();
       };
-      if (data) this.confirm('confirm_overwrite', () => void write());
-      else void write();
+      // Overwriting offers the old name again.
+      const go = () => this.nameable(slot) ? this.askName(data?.label ?? '', this.slotTitle(slot), label => void write(label)) : void write();
+      if (data) this.confirm('confirm_overwrite', go);
+      else go();
     } else if (data) {
       if (this.act.isPlaying()) this.confirm('confirm_load', () => this.act.load(slot));
       else this.act.load(slot);
@@ -752,19 +834,32 @@ export class Menus {
     const thumb = el('div', 'thumb');
     if (data?.thumb) thumb.style.backgroundImage = `url("${data.thumb}")`;
     else thumb.textContent = data ? '' : this.label('empty_slot');
-    const head = el('div', 'slot-head', this.slotTitle(slot));
-    if (data) head.append(el('span', 'when', new Date(data.time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })));
+    const head = el('div', 'slot-head');
+    head.append(el('span', 'label', data?.label || this.slotTitle(slot)));
+    const when = data ? new Date(data.time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '';
+    if (data) head.append(el('span', 'when', when));
     const line = el('div', 'line', data ? (data.name ? `${data.name}: ${data.text}` : data.text) : '');
     main.append(thumb, head, line);
     main.disabled = this.mode === 'load' && !data;
-    main.setAttribute('aria-label', `${head.textContent}. ${data ? line.textContent : this.label('empty_slot')}`);
+    const title = data?.label ? `${data.label}, ${this.slotTitle(slot)}` : this.slotTitle(slot);
+    main.setAttribute('aria-label', `${title} ${when}. ${data ? line.textContent : this.label('empty_slot')}`);
     main.addEventListener('click', () => this.activateSlot(slot, data));
     card.append(main);
+    if (data && this.nameable(slot)) {
+      const ren = el('button', 'ren', '✎');
+      ren.type = 'button';
+      ren.title = ren.ariaLabel = this.label('rename');
+      ren.addEventListener('click', () => this.askName(data.label ?? '', this.slotTitle(slot), label => {
+        savesNote.textContent = writeSave(slot, { ...data, label: label || undefined }) ? '' : this.label('save_failed');
+        this.renderSaves();
+      }));
+      card.append(ren);
+    }
     if (data && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot)) {
       const del = el('button', 'del', '×');
       del.type = 'button';
       del.title = del.ariaLabel = this.label('delete');
-      del.addEventListener('click', () => this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }));
+      del.addEventListener('click', () => this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }, true));
       card.append(del);
     }
     return card;

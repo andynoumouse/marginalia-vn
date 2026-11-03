@@ -214,7 +214,7 @@ test('writeRigText leaves an unchanged rig exactly as written', () => {
   assert.equal(writeRigText(rigText, [{ key: 'animations', value: shuffled }]), rigText);
   assert.equal(textChange(rigText, rigText), null);
   // and so does the sample's mina, whatever its line endings in this working copy
-  const mina = readFileSync(new URL('../../sample/assets/char/mina/rig.json', import.meta.url), 'utf8');
+  const mina = readFileSync(new URL('../../games/sample/assets/char/mina/rig.json', import.meta.url), 'utf8');
   const data = JSON.parse(mina);
   assert.equal(writeRigText(mina, [{ key: 'animations', value: data.animations }, { key: 'pivots', value: data.pivots }, { key: 'idle', value: data.idle }]), mina);
 });

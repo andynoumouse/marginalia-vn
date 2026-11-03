@@ -15,28 +15,37 @@ Items tagged **NEEDS PLANNING** get a short design (in `docs/design/`) before an
 
 Small, concrete, and each finishes something already started.
 
-- [ ] Studio: the by-hand checks on a clean Windows (Windows Sandbox): the Studio zip, including the SmartScreen prompt, and a
-  zip exported from it.
-- [~] Demo audio (CC0, in `demo/assets/`, credits in `demo/CREDITS.md`; `sample/` stays silent). Left: a `thunder` file
-  (candidate: OpenGameArt "Rain + Long Thunder", CC0).
+Nothing open right now; pick from the topic sections below.
 
 ## Documentation
 
 - [ ] Write tutorial and introduction. Do this last, after all the essential features are done, so refactors don't invalidate it.
-  - It walks through the demo project `demo/` ("Rainy Day Library", `vn dev --project demo`, or `vn-demo` on port 5174), not `sample/`.
+  - It walks through the demo project `games/demo/` ("Rainy Day Library", `vn dev --project games/demo`, or `vn-demo` on port 5174), not `games/sample/`.
   - Demo has: map/inventory/HUD screens, a scrolling catalogue (scroll, grid, row, column, poly hotspot), a custom pause
     menu, named positions, random/chance, audio ducking and pausing, two endings with achievements, chapters, gallery,
     two characters on stage with draw order (the archive).
-    Demo left: a layered PSD character (and more `animate`), real art, a thunder sound, a browser/playtest check in `npm test`.
+    Demo left: a layered PSD character (and more `animate`), real art, a browser/playtest check in `npm test`.
   - Tutorial left: a layered-character chapter (PSD layout, `npm run art`, rig.json, the Animate studio, `show` / `animate`),
     localization and web export, a Marginalia Studio chapter (projects screen, New project, Build dialog's desktop
     target), and more screenshots (`docs/tutorial/img/`). Retake the screenshots and re-check quoted snippets against
-    `demo/` whenever the editor or the demo changes.
+    `games/demo/` whenever the editor or the demo changes.
 - [ ] A "coming from Ren'Py" page: the common Ren'Py statements side by side with their Marginalia form, and what has no
   equivalent yet (Python blocks, ATL, layered images by attribute). Lowers the cost of trying the engine.
 
 ## Presentation
 
+- [~] Screen UI elements missing from `screen` blocks. `panel` (a 9-slice framed container) and `bar` (a stat bar) are in
+  (docs/commands.md); left of them: `style=` from the theme on both, a vertical or right-to-left bar, an eased fill, and no
+  browser test yet (checked by hand in the preview). Still missing, roughly by payoff; when one is picked up, move it to "Next up":
+  - [ ] Tabs / tab bar for custom screens (a journal with Items / Notes / Map pages); only the options tabs exist, as a theme
+    component.
+  - [ ] Toggle / checkbox and radio group (today a boolean needs a jump per click through the answer loop).
+  - [ ] Text input field inside a screen (documented out of scope; use `input`), and a dropdown / select (the theme has
+    `select`, screens can't declare one).
+  - [ ] Modal / popup dialog over a screen, without leaving it.
+  - [ ] Tooltip on buttons and `each` items (only hotspots have one); badges and counters ("×3", "NEW") on items and buttons.
+  - [ ] Image-based slider and bar (track and thumb from art, 9-slice or sprite).
+  - [ ] Animated screen elements (fade in, slide in, a pulsing "new" glow); `animate` targets characters only.
 - [~] Sprite/character positioning. Left: anchors from `rig.json` (e.g. `head` at the real neck pixel); no browser test of
   rendered anchor bounds (`window.vnStage()` now gives each character's bounds).
 - [~] Several characters on stage. Draw order (`show ... order=front|back`, `behind=<char>`) and a two-character scene in
@@ -78,11 +87,12 @@ Small, concrete, and each finishes something already started.
 
 ## Player experience
 
-- [ ] History: click a line in the history panel to roll back to it (rollback already reaches 150 steps), and a button
-  to replay its voice line.
+- [~] History: a click on a line rolls back to it (`action line` on a project screen). Left: a button to replay its voice
+  line.
 - [ ] Skip to the next choice (a quick-menu item and a key), stopping at unread text unless Options says otherwise.
-- [ ] Saves: let the player name a save slot; export and import saves in the web build (a file download/upload), so a
-  player can move between browsers or keep a backup before clearing site data.
+- [~] Saves: named saves exist (game.json `saveNames`). Left: no rename action for a project's `screen saves` (only the stock
+  ✎ button); export and import saves in the web build (a file download/upload), so a player can move between browsers or
+  keep a backup before clearing site data.
 
 ## Accessibility
 
@@ -134,6 +144,8 @@ Small, concrete, and each finishes something already started.
 - [~] Editor as an Electron app ("Marginalia Studio"), so authors need no Node.js or npm. Steps 1-5 of
   [docs/design/studio.md](docs/design/studio.md) are done (engine preparation, shell, projects screen, portable
   packaging, desktop export from the Studio's runtime). Left (besides the two items in "Next up"):
+  - [-] **DEFERRED (later)** The by-hand checks on a clean Windows: the Studio zip, including the SmartScreen prompt, and a
+    zip exported from it. Windows Sandbox is not on Windows 10 Home; needs a VM or a second PC.
   - [ ] An installer for the Studio (electron-builder/NSIS), with a Start menu entry and file association for `game.json`.
   - [ ] The downloads handler is untested (it needs a native save dialog).
   - [ ] `ENGINE_CHANGES` (`engine/src/studio-projects.ts`) needs an entry with every minor release.
@@ -183,8 +195,7 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
 - [~] As a writer, I want rich choice menus. Left: custom `screen` data for the choice menu (menus are not screens yet), a
   seen marker in the editor preview; timers for `input`/`screen`, a `timeleft` variable, per-menu extended time, saving the clock.
 - [~] As a writer, I want my game in any language (variable formatting exists). Left: right-to-left text; line breaking
-  for Chinese and Japanese (no line may start with 。、」 and the like); a font per language in `theme` (a Latin theme font
-  has no CJK glyphs); no hover for the format.
+  for Chinese and Japanese (no line may start with 。、」 and the like); no hover for the format.
 - [ ] As a player on a phone or tablet, I want touch gestures (swipe back, tap zones), safe-area insets and orientation
   handling; and a wrapper that ships the game to iOS/Android.
 - [ ] As a player, I want a map of the routes I have seen (the Outline's flowchart, limited to labels reached in any

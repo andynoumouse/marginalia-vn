@@ -351,7 +351,7 @@ async function newProject({ parent, name, title, stage, git }) {
 /** The bundled demo, copied to the documents folder once (the install folder is read-only), then that copy. */
 async function demoCopy() {
   const { withEngineVersion, engineVersion } = await loadEngine();
-  const source = path.join(engineRoot, 'demo');
+  const source = path.join(engineRoot, 'games', 'demo');
   const game = readJson(path.join(source, 'game.json'), {});
   const folder = path.join(studioDocuments(), game.title || 'Demo');
   if (fs.existsSync(path.join(folder, 'game.json'))) return { folder };

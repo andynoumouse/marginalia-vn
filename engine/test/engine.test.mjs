@@ -6,7 +6,7 @@ import {
   checkAssets, checkGame, parseVarValue, parseHelp, helpTopicAt, rigHelpTopicAt, buildOutline, outlineCrossings, backEdgeLanes, fitView, zoomAt, centerOn, searchOutline, MIN_SCALE, MAX_SCALE, normalizeSplash, titleFade,
 } from '../../dist/engine/src/index.js';
 
-const raw = readFileSync(new URL('../../sample/script/park.vn', import.meta.url), 'utf8');
+const raw = readFileSync(new URL('../../games/sample/script/park.vn', import.meta.url), 'utf8');
 // park.vn jumps into town.vn, so single-file tests get a stand-in for that label
 const townStub = '\nlabel town_square:\n  end\n';
 // the sample ships with ids; strip them so the tests control id assignment
@@ -168,7 +168,7 @@ test('asset checks: missing art, poses, slots, audio, voices, skins', () => {
   // A prototype with no files at all: art stays quiet (placeholders), but audio, the typo'd voice and the unknown skin are reported.
   const bare = msgs({ files: [] });
   assert.deepEqual(bare.filter(m => !m.startsWith('1:')), ['9: No track "theme" in assets/music', '10: No sound "door" in assets/sound']);
-  assert.ok(bare.some(m => m.startsWith('1: No blip voice "hihg"')) && bare.some(m => m.startsWith('1: No text box skin "al"')));
+  assert.ok(bare.some(m => m.startsWith('1: No blip voice "hihg"')) && bare.some(m => m.startsWith('1: No style "al"')));
   assert.equal(bare.length, 4);
 
   const full = msgs({
@@ -508,7 +508,7 @@ test('rich text tags: colour, size, effects, ruby, wait and next; unknown tags s
 });
 
 test('demo.vn compiles with park.vn and plays through', async () => {
-  const demo = readFileSync(new URL('../../sample/script/demo.vn', import.meta.url), 'utf8');
+  const demo = readFileSync(new URL('../../games/sample/script/demo.vn', import.meta.url), 'utf8');
   assert.deepEqual(errors(compile([{ file: 'park.vn', text: raw + townStub }, { file: 'demo.vn', text: demo }])), []);
   // park.vn owns "start"; enter demo.vn through a stand-in entry that borrows its characters
   const entry = 'define alice "Alice"\nlabel start:\n  jump demo\n';
@@ -753,7 +753,7 @@ test('outline: edges carry the if conditions and choice conditions that guard th
 });
 
 test('town.vn compiles with park.vn, which jumps into town_square from its last menu', () => {
-  const town = readFileSync(new URL('../../sample/script/town.vn', import.meta.url), 'utf8');
+  const town = readFileSync(new URL('../../games/sample/script/town.vn', import.meta.url), 'utf8');
   const p = compile([{ file: 'park.vn', text: raw }, { file: 'town.vn', text: town }]);
   assert.deepEqual(errors(p), []);
   const o = buildOutline(p);

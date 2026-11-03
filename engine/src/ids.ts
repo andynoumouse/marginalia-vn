@@ -27,7 +27,7 @@ export function existingIds(texts: string[]): Set<string> {
       if (!t || t.startsWith('#')) continue;
       const o = RE_OPT.exec(t);
       if (o?.[5]) ids.add(o[5]);
-      const m = o?.[2] ?? RE_MENU.exec(t)?.[2] ?? RE_NARR.exec(t)?.[2] ?? RE_SAY.exec(t)?.[3]
+      const m = o?.[2] ?? RE_MENU.exec(t)?.[2] ?? RE_NARR.exec(t)?.[3] ?? RE_SAY.exec(t)?.[4]
         ?? (RE_INPUT.test(t) ? RE_INPUT_ID.exec(t)?.[1] : undefined) ?? stringOf(t)?.id ?? undefined;
       if (m) ids.add(m);
     }
@@ -59,7 +59,7 @@ export function assignIds(text: string, taken: Set<string>, rng: () => number = 
     if ((m = RE_MENU.exec(t))) {
       if (m[1] === undefined || m[2]) return line;
       added++;
-      return `${indent}menu "${m[1]}" #${newId()}${m[3] !== undefined ? ` timeout ${m[3]}` : ''}:`;
+      return `${indent}menu "${m[1]}" #${newId()}${m[3] !== undefined ? ` style=${m[3]}` : ''}${m[4] !== undefined ? ` timeout ${m[4]}` : ''}:`;
     }
     if ((m = RE_OPT.exec(t))) {
       const needOpt = !m[2], needReason = m[4] !== undefined && !m[5];
@@ -69,14 +69,14 @@ export function assignIds(text: string, taken: Set<string>, rng: () => number = 
       return `${indent}"${m[1]}" #${m[2] ?? newId()}${m[3] ? ` if ${m[3]}${reason}` : ''}:`;
     }
     if ((m = RE_NARR.exec(t))) {
-      if (m[2]) return line;
-      added++;
-      return `${indent}"${m[1]}" #${newId()}`;
-    }
-    if ((m = RE_SAY.exec(t))) {
       if (m[3]) return line;
       added++;
-      return `${indent}${m[1]}: ${m[2]} #${newId()}`;
+      return `${indent}"${m[1]}"${m[2] ? ` style=${m[2]}` : ''} #${newId()}`;
+    }
+    if ((m = RE_SAY.exec(t))) {
+      if (m[4]) return line;
+      added++;
+      return `${indent}${m[1]}: ${m[2]}${m[3] ? ` style=${m[3]}` : ''} #${newId()}`;
     }
     if (RE_INPUT.test(t) && !RE_INPUT_ID.test(t)) {
       added++;

@@ -30,6 +30,18 @@ export function titleFromFolder(folder: string): string {
   return folder.replace(/[-_]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
 }
 
+/**
+ * The folders every project has, empty or not: a new project holds a `.gitkeep` in each so Git keeps them, and the
+ * sample and the demo are tested to have all of them (a folder with art in it needs no `.gitkeep`).
+ */
+export const PROJECT_FOLDERS = [
+  'script', 'locale', 'themes',
+  'assets/bg', 'assets/char', 'assets/music', 'assets/sound', 'assets/fonts', 'assets/ui',
+  'masters/bg', 'masters/char', 'masters/ui',
+];
+/** The ones a new project leaves empty (script/ and themes/ get a first file). */
+const EMPTY_FOLDERS = PROJECT_FOLDERS.filter(d => d !== 'script' && d !== 'themes');
+
 /** Relative path → file text for a new project. Throws on an unusable stage size (the message says why). */
 export function newProjectFiles(opts: NewProjectOptions): Record<string, string> {
   const { title, kind, engineVersion } = opts;
@@ -60,8 +72,9 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
     titleScreen: { background: 'bg_title', music: '', buttons: ['new_game', 'continue', 'load', 'gallery', 'options'] },
     gallery: [],
     labels: {},
-    theme: { accent: '#5fd1c3' },
+    theme: 'default',
   });
+  files['themes/default.json'] = json({ extends: 'base', tokens: { accent: '#5fd1c3' } });
   files['script/start.vn'] = [
     '# start.vn - the story starts at "label start". Lines starting with # are comments.',
     kind === 'npm'
@@ -78,11 +91,7 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
     '  end',
     '',
   ].join('\n');
-  files['locale/.gitkeep'] = '';
-  files['assets/.gitkeep'] = '';
-  files['masters/bg/.gitkeep'] = '';
-  files['masters/char/.gitkeep'] = '';
-  files['masters/ui/.gitkeep'] = '';
+  for (const dir of EMPTY_FOLDERS) files[`${dir}/.gitkeep`] = '';
   files['.gitignore'] = kind === 'npm' ? 'node_modules/\nbuild/\n' : 'build/\n';
   files['.gitattributes'] = [
     '# Keep LF everywhere (scripts, sources) regardless of core.autocrlf',
@@ -92,7 +101,7 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
     '',
   ].join('\n');
   const content = [
-    'Content: script/ (scenes), game.json (title screen, menus, theme, gallery), locale/ (translations),',
+    'Content: script/ (scenes), game.json (title screen, menus, gallery), themes/ (look of the game), locale/ (translations),',
     'masters/ (layered PSDs: bg/, char/, ui/), assets/ (game-ready art and audio: bg/, char/, music/, sound/, fonts/).',
   ];
   files['README.md'] = (kind === 'npm' ? [

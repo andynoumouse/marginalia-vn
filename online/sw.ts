@@ -96,6 +96,7 @@ async function serveProject(id: string, rest: string): Promise<Response> {
     return html(page.replaceAll('"../vendor/', `"${scope.href}vendor/`).replaceAll('"../dist/', `"${scope.href}dist/`));
   }
   if (/^(dist|vendor|docs)\//.test(rest)) return fetch(new URL(rest, scope));
+  if (rest === 'editor/help.html' || rest === 'editor/help.css') return fetch(new URL(rest, scope)); // F1 help's own window
   if (rest === 'project.zip') return zip(id);
   if (/^(assets|locale|masters|script)\//.test(rest)) {
     const bytes = await projectStore(id).read(rest);

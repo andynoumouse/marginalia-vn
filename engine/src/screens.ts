@@ -27,7 +27,7 @@ export type HudEvent = typeof HUD_EVENTS[number];
 /** The label each event of an element calls. */
 export type HudHandlers = Partial<Record<HudEvent, string>>;
 /** Built-in actions an element can trigger with `action <name>` (the quick menu's and the title screen's buttons); the shell runs them, the script does not see them. */
-export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice'] as const;
+export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice', 'line'] as const;
 export type ShellAction = typeof SHELL_ACTIONS[number];
 /** Reserved screen name: when a project declares it, the shell draws it in place of the stock quick menu bar. */
 export const QUICKMENU_SCREEN = 'quickmenu';
@@ -68,7 +68,7 @@ export function shellVars(screen: string): string[] {
 }
 /** Extra fields the shell gives each entry of an `each` on a reserved screen (`slot.when`), next to `.name`, `.image` and `.index`. */
 export function shellEntryFields(screen: string): string[] {
-  return screen === SAVES_SCREEN ? ['title', 'when', 'text', 'empty'] : screen === HISTORY_SCREEN ? ['text'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
+  return screen === SAVES_SCREEN ? ['title', 'label', 'when', 'text', 'empty'] : screen === HISTORY_SCREEN ? ['text', 'current'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
     : screen === MUSIC_SCREEN ? ['title', 'unlocked', 'playing'] : screen === CHAPTERS_SCREEN ? ['title', 'unlocked']
     : screen === ACHIEVEMENTS_SCREEN ? ['title', 'description', 'icon', 'unlocked', 'hidden', 'ending'] : [];
 }
@@ -93,25 +93,37 @@ export const LAYOUT_ANCHORS = ['topleft', 'top', 'topright', 'left', 'center', '
 export type LayoutAnchor = typeof LAYOUT_ANCHORS[number];
 export type LayoutKind = 'row' | 'column' | 'grid';
 export type LayoutAlign = 'start' | 'center' | 'end';
+/** How the edges of a 9-slice frame fill their strip (CSS `border-image-repeat`). */
+export const FRAME_EDGES = ['stretch', 'repeat', 'round'] as const;
+export type FrameEdge = typeof FRAME_EDGES[number];
+/** The slice a frame image gets when the script gives none (the same 32px the theme's `slice` defaults to). */
+export const DEFAULT_SLICE: Sides = [32, 32, 32, 32];
 
 interface Common { src: Src; cond: Expr | null }
 export type ScreenNode = Common & (
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; id: string | null }
+  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string }
   /** A range input bound to a player setting (options screen). */
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
   | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; enabled: Expr | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null }
-  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null }
+  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string }
   /** One copy of the body per entry of the list variable; offsets are `at` plus the entry's number times `step`. */
   | { kind: 'each'; list: string; as: string; x: number; y: number; dx: number; dy: number; /** at most this many entries are drawn */ limit: number | null; body: ScreenNode[] }
   /** A clipped box that scrolls its children, placed relative to its top left (so they need no stage coordinates). */
   | { kind: 'scroll'; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; body: ScreenNode[] }
   /** A row, column or grid: places its children one after another (an `each` inside spreads its entries), so they need no `at`. */
   | { kind: 'layout'; type: LayoutKind; columns: number; at: Point | null; anchor: LayoutAnchor | null; margin: Sides; padding: Sides; gap: number; align: LayoutAlign; cell: Point | null; body: ScreenNode[] }
+  /**
+   * A box framed by a 9-slice image (`file`: the corners keep their size, the edges stretch, repeat or round). Its children are placed
+   * from its top left plus `padding`; without a size it fits them. With no image it is the stock panel look.
+   */
+  | { kind: 'panel'; x: number; y: number; w: number | null; h: number | null; file: string | null; slice: Sides; edge: FrameEdge; padding: Sides; body: ScreenNode[] }
+  /** A filled bar showing `value` between `min` and `max`; `back` is the frame, `fill` the part that grows (cropped, or 9-sliced when `slice` is set). */
+  | { kind: 'bar'; x: number; y: number; w: number; h: number; value: Expr; min: Expr; max: Expr; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; readout: boolean }
 );
 
-/** The nodes inside an `each` or a layout. */
-export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' ? n.body : []);
+/** The nodes inside an `each`, a layout, a scroll area or a panel. */
+export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel' ? n.body : []);
 export interface ScreenDef {
   name: string;
   src: Src;
@@ -127,9 +139,11 @@ export interface ScreenDef {
 export type ViewPart = (
   | { kind: 'scroll'; /** the number its children carry in `area` */ index: number; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; contentH: number }
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string }
+  | { kind: 'text'; x: number; y: number; text: string; style?: string }
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number }
-  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null }
+  | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge }
+  | { kind: 'bar'; x: number; y: number; w: number; h: number; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; value: number; min: number; max: number; /** 0..1 */ fraction: number; /** "37 / 100" with `readout` */ readout: string | null }
+  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null }
 ) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number };
 export type ViewItem = Extract<ViewPart, { id: string }>;
 export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean }
@@ -249,7 +263,7 @@ export function hudLabels(def: ScreenDef | undefined): string[] {
   const out = new Set<string>();
   const walk = (nodes: ScreenNode[]) => {
     for (const n of nodes) {
-      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') walk(n.body);
+      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
       else if (n.kind === 'hotspot' || n.kind === 'button') for (const l of Object.values(n.on)) out.add(l);
     }
   };
@@ -261,7 +275,7 @@ export function hudLabels(def: ScreenDef | undefined): string[] {
 
 export function shiftPart(p: ViewPart, dx: number, dy: number): ViewPart {
   if (dx === 0 && dy === 0) return p;
-  if (p.kind === 'image' || p.kind === 'text' || p.kind === 'slider' || p.kind === 'scroll') return { ...p, x: p.x + dx, y: p.y + dy };
+  if (p.kind === 'image' || p.kind === 'text' || p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { ...p, x: p.x + dx, y: p.y + dy };
   const shape = translate(p.shape, dx, dy);
   return { ...p, shape, bounds: shapeBounds(shape), center: shapeCenter(shape) };
 }
@@ -270,7 +284,7 @@ export function shiftPart(p: ViewPart, dx: number, dy: number): ViewPart {
 function partBox(p: ViewPart): StageRect {
   if (p.kind === 'image') return { x: p.x, y: p.y, w: p.w ?? 0, h: p.h ?? 0 };
   if (p.kind === 'text') return { x: p.x, y: p.y, ...textSize(p.text) };
-  if (p.kind === 'slider' || p.kind === 'scroll') return { x: p.x, y: p.y, w: p.w, h: p.h };
+  if (p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { x: p.x, y: p.y, w: p.w, h: p.h };
   return p.bounds;
 }
 
@@ -384,7 +398,7 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           parts.push({ kind: 'image', file: env.text(null, n.file, vars), x: n.x + ox, y: n.y + oy, w: n.w, h: n.h });
           break;
         case 'text':
-          parts.push({ kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars) });
+          parts.push({ kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars), ...(n.style ? { style: n.style } : {}) });
           break;
         case 'slider': {
           const r = SLIDER_SETTINGS[n.setting as keyof typeof SLIDER_SETTINGS] ?? SLIDER_SETTINGS.master;
@@ -406,7 +420,7 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           const shape: Shape = { k: 'rect', x: n.x + ox, y: n.y + oy, w: n.w ?? size.w, h: n.h ?? size.h };
           parts.push({
             kind: 'button', id: elementId(n.id), shape, label,
-            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act,
+            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, ...(n.style ? { style: n.style } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act,
           });
           break;
         }
@@ -422,6 +436,29 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           const content = Math.max(0, ...inner.map(p => partBox(p).y + partBox(p).h));
           parts.push({ kind: 'scroll', index, x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, start: n.start, bar: n.bar, contentH: Math.max(content, n.h) });
           for (const p of inner) parts.push({ ...shiftPart(p, n.x + ox, n.y + oy), area: index });
+          break;
+        }
+        case 'panel': {
+          const inner: ViewPart[] = [];
+          walk(n.body, vars, 0, 0, loop, inner);
+          const [pt, pr, pb, pl] = n.padding;
+          const boxes = inner.map(partBox);
+          // without a size the panel fits its children, and never gets smaller than its frame's corners
+          const w = n.w ?? Math.max(n.file ? n.slice[1] + n.slice[3] : 0, pl + pr + Math.max(0, ...boxes.map(b => b.x + b.w)));
+          const h = n.h ?? Math.max(n.file ? n.slice[0] + n.slice[2] : 0, pt + pb + Math.max(0, ...boxes.map(b => b.y + b.h)));
+          parts.push({ kind: 'panel', x: n.x + ox, y: n.y + oy, w, h, file: n.file ? env.text(null, n.file, vars) : null, slice: n.slice, edge: n.edge });
+          for (const p of inner) parts.push(shiftPart(p, n.x + ox + pl, n.y + oy + pt));
+          break;
+        }
+        case 'bar': {
+          const num = (e: Expr) => { const v = Number(evalExpr(e, vars)); return Number.isFinite(v) ? v : 0; };
+          const min = num(n.min), max = num(n.max), value = Math.min(Math.max(num(n.value), min), Math.max(min, max));
+          const fraction = max > min ? (value - min) / (max - min) : 0;
+          const shown = (v: number) => String(Math.round(v * 10) / 10);
+          parts.push({
+            kind: 'bar', x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, back: n.back ? env.text(null, n.back, vars) : null, fill: n.fill ? env.text(null, n.fill, vars) : null,
+            slice: n.slice, edge: n.edge, padding: n.padding, color: n.color, value, min, max, fraction, readout: n.readout ? `${shown(value)} / ${shown(max)}` : null,
+          });
           break;
         }
         case 'layout':
@@ -455,6 +492,17 @@ export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE)
         continue;
       }
       if (n.kind === 'each') { hasEach = true; walk(n.body, n.as, area, true); continue; }
+      if (n.kind === 'panel') {
+        if ((n.w !== null && n.w <= 0) || (n.h !== null && n.h <= 0)) problem(n.src, 'error', 'A panel needs a size above zero');
+        else if (n.w === null && n.h === null && !n.body.length && !n.file) problem(n.src, 'warning', 'An empty panel without a size or an image draws nothing useful (give it size w,h)');
+        if (n.slice.some(s => s < 0)) problem(n.src, 'error', 'A panel slice cannot be negative');
+        walk(n.body, loop, area, nested);
+        continue;
+      }
+      if (n.kind === 'bar') {
+        if (n.w <= 0 || n.h <= 0) problem(n.src, 'error', 'A bar needs a size above zero');
+        continue;
+      }
       if (n.kind === 'layout') {
         if (n.type === 'grid' && n.cell && (n.cell[0] <= 0 || n.cell[1] <= 0)) problem(n.src, 'error', 'A grid cell needs a size above zero');
         walk(n.body, loop, area, true);

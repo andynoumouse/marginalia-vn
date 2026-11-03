@@ -96,6 +96,7 @@ export async function handleApi(ctx: RouteContext, method: string, url: URL, bod
       case 'GET /api/voice': return json(await r.readVoice());
       case 'PUT /api/voice': return await r.saveVoice(body);
       case 'PUT /api/rig': return await r.saveRig(q('char') ?? '', body);
+      case 'PUT /api/theme': return await r.saveTheme(q('name') ?? '', body, q('ext') === 'css');
       case 'PUT /api/asset': return await r.saveAsset(url.searchParams, body);
       case 'POST /api/task': return q('name') === 'art' ? await r.convertAll() : forbidden();
     }
@@ -152,6 +153,12 @@ class Routes {
   async saveRig(char: string, body: () => Promise<Uint8Array>) {
     if (!/^[\w\-]+$/.test(char) || !(await this.isKind(`assets/char/${char}`, true))) return forbidden();
     return this.saveJson(`assets/char/${char}/rig.json`, body);
+  }
+
+  async saveTheme(name: string, body: () => Promise<Uint8Array>, css = false) {
+    if (!/^[\w\-]+$/.test(name)) return forbidden();
+    if (css) { await this.write(`themes/${name}.css`, await body()); return OK(); }
+    return this.saveJson(`themes/${name}.json`, body);
   }
 
   async move(from: string, to: string, dir: boolean) {

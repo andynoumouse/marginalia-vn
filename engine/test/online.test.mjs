@@ -61,7 +61,7 @@ test('the online demo says what it cannot do; a missing or odd answer means the 
 });
 
 test('the project from a listing is what the disk version builds, and the dev server serves', () => {
-  assert.deepEqual(projectFromListing(projectListing('sample')), projectData('sample'));
+  assert.deepEqual(projectFromListing(projectListing('games/sample')), projectData('games/sample'));
   assert.deepEqual(projectTextFiles(['game.json', 'script/a.vn', 'assets/bg/x.png', 'assets/char/m/sprite.json', 'locale/fi.json', 'locale/x/y.json']),
     ['game.json', 'script/a.vn', 'assets/char/m/sprite.json', 'locale/fi.json']);
   assert.deepEqual(editorExtras(['masters/char/m.psd', 'masters/x/y.psd', 'masters/bg/a.PSD'], ['assets/bg', 'assets/bg/sub', 'script/x']),
@@ -94,7 +94,11 @@ test('saving scripts, game.json and locales checks names and JSON, and reports t
   assert.deepEqual(Object.keys((await call('GET', '/api/locales')).json), ['locale/fi.json', 'locale/ja.json']);
   assert.equal((await call('PUT', '/api/rig?char=nobody', '{}')).status, 403);
   assert.equal((await call('PUT', '/api/rig?char=mina', '{"z":[1]}')).status, 200);
-  assert.deepEqual(events, ['content:script/new/c.vn', 'content:game.json', 'content:locale/ja.json', 'content:assets/char/mina/rig.json']);
+  assert.equal((await call('PUT', '/api/theme?name=../x', '{}')).status, 403);
+  assert.equal((await call('PUT', '/api/theme?name=night', '{}')).status, 200);
+  assert.equal((await call('PUT', '/api/theme?name=night&ext=css', '#box { color: red')).status, 200, 'a stylesheet is free-form CSS, not JSON');
+  assert.equal((await call('PUT', '/api/theme?name=..%2Fx&ext=css', 'a{}')).status, 403);
+  assert.deepEqual(events, ['content:script/new/c.vn', 'content:game.json', 'content:locale/ja.json', 'content:assets/char/mina/rig.json', 'content:themes/night.json', 'content:themes/night.css']);
 });
 
 test('folders, moves and deletes keep the disk rules: no overwrite, the trash, empty folders kept', async () => {
@@ -161,7 +165,7 @@ test('a dropped PSD is converted in place, and a reconvert replaces the old part
   const { call, store, events } = api({ 'game.json': '{}', 'assets/char/mina/old.png': 'stale', 'assets/char/mina/sprite.json': '{"files":["old.png"]}' });
   const ctxPsd = b => readPsd(b, { useImageData: true, skipThumbnail: true, skipLinkedFilesData: true });
   const res = await handleApi({ store, changed: (t, f) => events.push(`${t}:${f}`), readPsd: ctxPsd, deflate: async b => zlib.deflateSync(b), sha1: async () => '' },
-    'PUT', new URL('http://x/api/asset?name=mina.psd&folder=char'), async () => new Uint8Array(fs.readFileSync('sample/masters/char/mina.psd')));
+    'PUT', new URL('http://x/api/asset?name=mina.psd&folder=char'), async () => new Uint8Array(fs.readFileSync('games/sample/masters/char/mina.psd')));
   const out = await res.json();
   assert.equal(out.dest, 'masters/char/mina.psd');
   assert.match(out.art, /-> assets\/char\/mina \(540x1080, 15 images/);

@@ -807,6 +807,7 @@ export class Runtime {
             name: op.who ? def?.name ?? op.who : null,
             color: def?.color ?? null,
             style: def?.style ?? {},
+            ...(op.look ? { look: op.look } : {}),
             text,
             segments: parseRich(text),
             src: op.src,
@@ -859,6 +860,7 @@ export class Runtime {
               op.src,
               op.prompt !== null ? this.fmt(this.locale.t(op.promptId, op.prompt)) : undefined,
               seconds > 0 ? { seconds } : undefined,
+              op.look,
             );
             this.pending = null;
             if (gen !== this.gen) return;

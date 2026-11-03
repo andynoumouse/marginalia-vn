@@ -36,6 +36,8 @@ copy('online/index.html', 'index.html');
 fs.writeFileSync(path.join(out, 'sw.js'), "import './vendor/ag-psd/bundle.js';\nimport './dist/online/sw.js';\n");
 for (const dir of ['engine', 'editor', 'preview', 'online']) copy(`dist/${dir}`, `dist/${dir}`, noBuildInfo);
 copy('editor/index.html');
+copy('editor/help.html');
+copy('editor/help.css');
 copy('preview/index.html');
 for (const f of fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md'))) copy(`docs/${f}`);
 copy('node_modules/monaco-editor/min', 'vendor/monaco');
@@ -44,12 +46,12 @@ copy('node_modules/ag-psd/dist/bundle.js', 'vendor/ag-psd/bundle.js');
 copy('node_modules/ag-psd/LICENSE', 'vendor/ag-psd/LICENSE');
 
 // The sample as git has it (no build/ output, no trash), with its file list for the project list page.
-const tracked = execFileSync('git', ['ls-files', '-z', '--', 'sample'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
-  .map(f => f.slice('sample/'.length)).filter(f => !/^(build|\.trash)\//.test(f) && fs.existsSync(path.join(root, 'sample', f)));
-for (const f of tracked) copy(`sample/${f}`, `seed/${f}`);
+const tracked = execFileSync('git', ['ls-files', '-z', '--', 'games/sample'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean)
+  .map(f => f.slice('games/sample/'.length)).filter(f => !/^(build|\.trash)\//.test(f) && fs.existsSync(path.join(root, 'games', 'sample', f)));
+for (const f of tracked) copy(`games/sample/${f}`, `seed/${f}`);
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 let title = 'Sample game';
-try { title = JSON.parse(fs.readFileSync(path.join(root, 'sample', 'game.json'), 'utf8')).title || title; } catch { /* default */ }
+try { title = JSON.parse(fs.readFileSync(path.join(root, 'games', 'sample', 'game.json'), 'utf8')).title || title; } catch { /* default */ }
 fs.writeFileSync(path.join(out, 'seed', 'index.json'), JSON.stringify({ engine: pkg.version, title, files: tracked }, null, 2) + '\n');
 fs.writeFileSync(path.join(out, '.nojekyll'), ''); // GitHub Pages: serve the folder as it is
 

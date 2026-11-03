@@ -57,9 +57,9 @@ test('desktop export: project.json and the translation tables are in the pak, no
   const fs = await import('node:fs');
   const path = await import('node:path');
   const root = path.resolve(import.meta.dirname, '../..');
-  const out = path.join(root, 'sample', 'build', 'pak-test');
+  const out = path.join(root, 'games', 'sample', 'build', 'pak-test');
   try {
-    const run = spawnSync(process.execPath, ['bin/vn.mjs', 'export', '--project', 'sample', '--desktop', '--no-build', '--out', 'build/pak-test'], { cwd: root, encoding: 'utf8' });
+    const run = spawnSync(process.execPath, ['bin/vn.mjs', 'export', '--project', 'games/sample', '--desktop', '--no-build', '--out', 'build/pak-test'], { cwd: root, encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr);
     assert.equal(fs.existsSync(path.join(out, 'project.json')), false);
     assert.equal(fs.existsSync(path.join(out, 'locale')), false);

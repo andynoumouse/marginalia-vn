@@ -3,7 +3,7 @@
 Every statement of the `.vn` script language, with examples. Scripts live in `script/*.vn`; all files are
 compiled together, labels are global, and top-level lines (`define`, `set`, ...) of every file run once before
 the story starts. The story begins at `label start:` (or the first label). Indent with spaces, never tabs.
-Lines starting with `#` are comments. The sample `sample/script/demo.vn` uses most of what is below.
+Lines starting with `#` are comments. The sample `games/sample/script/demo.vn` uses most of what is below.
 
 Durations are in seconds. Positions are `left` (0.2), `center` (0.5), `right` (0.8), a name from game.json `positions` (e.g. `farleft`) or a number from 0 (left edge) to 1 (right edge).
 Visual commands (everything under "Stage") accept `nowait` to run in the background while the script goes on.
@@ -16,11 +16,11 @@ Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) ·
 
 ### define
 `define <id> "<Name>" [options]` declares a character. Options: `color=` (name tag), `text=` (text color),
-`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `box=` (text box skin), `focus=off` (always
+`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `style=` (a [theme style](game-json.md#theme) used while they speak; `box=` is the old name), `focus=off` (always
 lit under [speaker focus](#focus)), `side=` (a portrait in the text box, below).
 
 ```
-define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi box=alice
+define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi style=alice
 define narrator "" text=#d8d2c0 italic      # style of "quoted narration" lines
 define thought "" italic                    # `thought: ...` lines show no name tag
 ```
@@ -65,11 +65,19 @@ Write each translation's own forms in the locale file. An unknown format leaves 
 ```
 alice: Hello, [name]. #a3f9
 "The park was nearly empty." #joce
+alice: Shh. style=whisper #b7d1          # a theme style for this line alone
 ```
+
+`style=<name>` at the end of a line (before the `#id`) shows that line with the theme's `styles.<name>` instead of the
+speaker's own style (`define ... style=`). It changes appearance only (colors, borders, text color and size); a style
+that is not in the theme is a warning and the stock look is used.
 
 ### menu / on
 A choice. Each option is a quoted string ending in `:` with an indented body. Add `if <condition>` to show an
 option only when the condition holds. Bodies usually end with a `jump`.
+
+`menu "Prompt" style=urgent timeout 5:` shows the choices with the theme's `styles.urgent.choice` (and its `hover`,
+`focus` and `disabled` states). `style=` comes after the prompt and its id, before `timeout`.
 
 ```
 menu "What do you say?" #pr01:
@@ -545,6 +553,7 @@ screen map:
   hotspot closed at 700,150 size 260,120 "Library" enabled false                 # shown, not selectable
   hotspot region mask "ui/region.png" at 0,0 size 1920,1080 "Region" cursor help # opaque pixels of the PNG are the region
   button leave at 80,940 "Leave"                 # size is optional (fits the label)
+  button flee at 400,940 "Flee" style=urgent     # a theme style: styles.urgent.button (a text takes style=, too: its text color and size)
   each bag as item at 120,200 step 0,130         # one copy of the body per list entry, moved by `step` each time (`limit n` draws at most n)
     button item at 200,0 size 640,100 "[item.name]"   # inside each, the id `item` stands for the entry
   default cafe                                   # answer when a replay has none (else the first enabled element)
@@ -631,7 +640,7 @@ The settings are the screen's variables, so labels and conditions can show them:
   (400x48 without `size`). It shows its own position; `readout` adds the live value (`65%`, or the plain number for `text_speed`)
   16px to its right. `[master]` in a text is the value when the screen was last drawn.
 - `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion` and `captions` (`on`/`off`), `speaker_focus` (`on`/`off`, `none` when game.json has no `speakerFocus`; cycling it then does nothing), `timed_choices` (`normal`/`extended`/`off`),
-  `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do).
+  `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do) and `theme` (the next of game.json `themes`; does nothing with fewer than two).
   The button id names the setting, and `[text_sounds]` in the label is its current word.
 - `button <name> ... action tab` selects a tab: the variable `tab` becomes the button id (the first `action tab` button until one is picked), so
   `if tab == "audio"` shows an element on that tab only.
@@ -654,9 +663,10 @@ The shell fills in these variables, and two lists to draw with `each`:
 
 - `mode` (`"save"` or `"load"`), `page` (the current page id) and `deleting` (true in delete mode).
 - `pages`: the page ids, `page1`..`page9`, plus `pageauto`, `pagequick` and `pagechoice` in load mode. In `each pages as pg`, `[pg.name]` is the page's label.
-- `slots`: the slot ids of the current page. In `each slots as slot`, `[slot.title]` ("Slot 3", "Quick"), `[slot.when]` (date and time, empty for an empty slot),
+- `slots`: the slot ids of the current page. In `each slots as slot`, `[slot.title]` ("Slot 3", "Quick"), `[slot.label]` (the name the player gave the save with
+  game.json `"saveNames"` on, else empty), `[slot.when]` (date and time, empty for an empty slot),
   `[slot.text]` (the saved line, or "Empty") and `slot.empty` (true/false) are filled from the save.
-- `button <id> ... action slot` saves into that slot (asking before overwriting) or loads it (asking first while a game runs), as the mode says. In load mode an empty
+- `button <id> ... action slot` saves into that slot (asking before overwriting, then for a name with `"saveNames"` on) or loads it (asking first while a game runs), as the mode says. In load mode an empty
   slot does nothing, so use `enabled mode == "save" or not slot.empty` to grey it out. In delete mode it asks to delete the slot instead (auto, quick and choice saves cannot be deleted).
 - `button <id> ... action page` opens that page. `action delete` turns delete mode on and off, and `action close` goes back.
 
@@ -673,16 +683,19 @@ screen saves:
 A screen named `history` replaces the stock history panel (opened from the quick menu, `L` or the pad's Select; Esc still closes it).
 The shell fills in these variables:
 
-- `lines`: the ids of every line passed, oldest first (up to about 500). In `each lines as ln`, `[ln.name]` is the speaker (empty for narration) and `[ln.text]` the line.
+- `lines`: the ids of every line passed, oldest first (up to about 500). In `each lines as ln`, `[ln.name]` is the speaker (empty for narration), `[ln.text]` the line
+  and `ln.current` is true for the line still on screen.
 - `total`: how many lines there are.
+- `button ln ... action line` closes the screen and rolls the story back to that line, however far back it is (the stock panel does the same when a row is clicked).
+  On the line still on screen it does nothing, so `enabled not ln.current` can grey it out.
 - `action close` goes back. Put the list in a `scroll` (below); `start bottom` opens it at the newest line.
 
 ```
 screen history:
   scroll at 160,140 size 1500,760 start bottom:
-    each lines as ln step 0,120:
+    each lines as ln step 0,140:
       text at 0,0 "[ln.name]" if ln.name != ""
-      text at 0,44 "[ln.text]"
+      button ln at 0,44 size 1500,84 "[ln.text]" action line
   button done at 1500,960 "Back" action close
 ```
 
@@ -792,6 +805,52 @@ A scroll goes directly in the screen (not inside `each`, `row`, `column`, `grid`
 `text`, `button`, `rect` and `ellipse` hotspots, layouts and `each`; `poly` and `mask` hotspots and sliders cannot be inside one.
 `each <list> as <name> limit n` draws at most n entries when you want a hard cap.
 
+### panel
+`panel [at x,y] [size w,h] [image "file.png" [slice s] [edge stretch|repeat|round]] [padding p] [if <expr>]:` is a box with
+a frame, and the elements indented under it sit inside it. With `image` the frame is a **9-slice** picture: the four corners
+keep their size and the edges fill the rest, so one small PNG frames a box of any size without stretching its corners.
+`slice` is how many pixels of the picture are corner and edge (`slice 32`; `slice 20,40` for top and bottom 20, left and
+right 40; `slice 10,20,30,40` for top, right, bottom and left; default 32). `edge` says how the strips between the corners
+fill: `stretch` (default), `repeat` (tile, may cut a tile) or `round` (tile, scaled to fit whole). The frame's middle is
+drawn too, so the picture can carry the fill. Without `image` the panel is a plain box in the theme's colors.
+
+Children are placed from the panel's top left plus `padding` (one number, `v,h` or `top,right,bottom,left`), so `at 0,0`
+is just inside it. Leave `size` out and the panel grows to fit its children and padding (never smaller than its corners);
+give `size` and it stays that big. A panel with no children and no colon is a bare frame (`panel at 100,100 size 400,300 image "ui/frame.png"`).
+It can hold `image`, `text`, `button`, `hotspot`, `bar`, a `scroll` (put it directly in the panel, not in an `each` or a layout),
+layouts, `each` and other panels. A panel sits in a `row`, `column` or `grid` like any other child (leave `at` out there). Its
+image goes in `assets/ui/` like other screen art and is checked and preloaded with the screen.
+
+```
+screen shop:
+  panel at 560,200 size 800,600 image "ui/frame.png" slice 40 padding 48:
+    text at 0,0 "Your bag"
+    column at 0,70 gap 12:
+      each bag as item:
+        button item "[item.name]"
+```
+
+### bar
+`bar <value> [max n] [min n] at x,y [size w,h] [back "file.png"] [fill "file.png"] [slice s] [edge e] [padding p] [color c] [readout] [if <expr>]`
+draws a bar that is full when `<value>` reaches `max` (default 100) and empty at `min` (default 0): health, affection, quest
+progress. `value`, `max` and `min` are variables, numbers or expressions without spaces (`hp`, `max total`, `love*2`); a value
+outside the range is clamped, and an unset variable counts as 0. The bar is redrawn with the screen (before every line for a
+HUD), so it follows the variable. The size is 400x40 when left out.
+
+Without art it is a track in the theme's colors with an accent fill (`color #ff6688` changes the fill). `back` is the frame
+behind the fill and `fill` the part that grows: a plain `fill` picture is **cropped**, revealed from the left as the value
+rises, which suits textured art; with `slice` both pictures are 9-slice frames (as for `panel`), the fill stretching to the
+fraction, which suits rounded ends. `padding` keeps the fill that far inside the back (inside its corners when it has a slice).
+`readout` writes `37 / 100` over the bar; screen readers get the value either way. Put a `text` beside it for a label.
+
+```
+set hp = 60
+screen status:
+  text at 80,40 "Health"
+  bar hp max 100 at 80,90 size 480,44 back "ui/bar_back.png" fill "ui/bar_fill.png" padding 6 readout
+  bar love max 10 at 80,160 color #ff6688
+```
+
 ### row / column / grid
 `row`, `column` and `grid <columns>` inside a screen place their children one after another, so buttons and text need no
 `at`. The container goes at `at x,y` or pinned to the stage with `anchor <place> [margin m]` (`topleft top topright left center
@@ -898,11 +957,11 @@ Keys of the editor at `/editor/` (Ctrl+P, then `>`, lists every command with its
 | Key | Does |
 |---|---|
 | Ctrl+P | palette: files; `@` labels, `:` lines, `#` assets, `>` commands (works with focus anywhere, also in the preview) |
-| F1 | this reference, at the statement under the cursor |
+| F1 | this reference, at the statement under the cursor (Ctrl+F searches it; "Open in window" gives it a window of its own) |
 | Ctrl+Enter | preview from the cursor line |
 | Alt+1 / Alt+2 / Alt+3 | focus the editor / the preview (play the game with the keyboard) / the Files panel filter (work from anywhere) |
 | Ctrl+M | Tab moves focus out of the script instead of indenting; Ctrl+M again makes Tab indent again |
-| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the hover icons on headings and folders make a script or folder or add files, drop files on the assets list too; right-click or Shift+F10 on a row for its menu, see the README; F2 renames or moves the row, Delete deletes it) |
+| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the hover icons on headings and folders make a script or folder or add files, drop files on the assets list too; a **Themes** section lists the theme files (click to edit, the sliders icon opens the theme panel, + makes one); click a section title to fold it (remembered); right-click or Shift+F10 on a row for its menu, see the README; F2 renames or moves the row, Delete deletes it) |
 | Ctrl+S | save (edits are also saved by themselves) |
 | Alt+W | close the tab |
 | F2 | rename the label or variable under the cursor everywhere |

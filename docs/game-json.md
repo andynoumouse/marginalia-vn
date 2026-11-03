@@ -56,6 +56,7 @@ What follows the size and what does not:
 | `anchors` | Extra named anchors for `anchor=`, below. |
 | `captions` | Text shown for sound effects when the player turns on Sound captions, below. |
 | `choiceSaves` | How many rotating choice autosaves to keep, 1 to 20 (default 5). |
+| `saveNames` | `true` lets the player name a save: saving into a numbered slot asks for a name (empty for none; overwriting offers the old one), the slot shows it in place of "Slot 3", and a ✎ button renames it. Auto, quick and choice saves are never asked. Off by default. A project `screen saves` gets it as `[slot.label]`. |
 | `memoryBudgetMB` | Memory budget for loaded images and audio, in MB (default 512, or 256 when the browser reports 2 GB of device memory or less). Nothing is unloaded yet; the debug console's `memory` command compares what is resident against it. |
 | `icon` | The game's icon: `assets/ui/<icon>.png`, square, 256x256 or larger. The desktop app's exe and window icon and the web build's favicon (see docs/desktop.md). |
 | `version` | The game's version, one to four whole numbers like `"1.0"` or `"1.2.3"`: the desktop app's version info and its package version. Unrelated to `saveVersion`. |
@@ -318,6 +319,61 @@ Menu text in the source language, e.g. `"new_game": "Begin"`. Other languages us
 
 ## theme
 
+`theme` is either an object (the keys below) or the name of a theme file: `"theme": "night"` uses `themes/night.json`.
+`"themes": ["default", "night", "high-contrast"]` lets the player pick the look in Options (a Theme row, shown when there are two or more;
+a name is a theme file or a built-in theme). The choice is a player setting, not part of a save, and the stylesheet changes at once.
+Without a pick, `theme` is used.
+A theme can also have a stylesheet, `themes/<name>.css`, added after everything the JSON makes (and after those of the themes it
+extends), for what the keys cannot say: the stage is `#stage`, and the stage's `--vn-*` variables and the component selectors are
+the ones `themeCss` writes. Use paths like `url("assets/ui/frame.png")`; `@import` and `url()` of a web address are removed. Edit it in the editor from a theme's sidebar menu (Open Stylesheet) or the command `Theme: Open or Create a Theme Stylesheet`.
+Edit the file in any text editor; the preview reloads when it changes (the editor has no tab for it yet).
+A theme file holds the same keys, or the layered form: `tokens` (`accent`, `font`), `components` (`textbox`, `namebox`,
+`text`, `choice`, `hotspot` with `background`/`border`/`borderWidth`, `tooltip` with `background`/`color`/`font`) and
+`styles` (the old `skins`). `"extends": "other"` starts from another theme file or a built-in one (`base`, the light warm `paper`, or the black-and-white `high-contrast`); the child's
+values win. A missing file is a warning and the game uses the plain look.
+
+In the editor, `Theme: Panel` edits a theme file as form fields (palette, then every component with its states; each field
+says whether its value is set in this file, inherited from an `extends` theme or the default, and has a reset button).
+Next to the fields it shows a gallery of small live renderings of the text box, choices, title, pause, options, saves,
+confirm dialog, history, chapters and a toast, drawn from fixed sample data and updated on every edit; clicking a part
+of one opens the component (and state) that styles it. A color that would be hard to read (WCAG contrast under 4.5:1 for
+text, 3:1 for accent colors; only hex and `rgb()` colors are judged) is marked with its ratio. An inline `theme` object
+in game.json gets a hint on its line, and Ctrl+. (or `Theme: Move the Inline Theme of game.json to a Theme File`) moves
+it to `themes/default.json` (or the first free name), mapping the old keys onto the layered ones, and sets `"theme": "default"`.
+
+In a theme file, `tokens` also takes `radius` (corner radius of menu buttons, panels, fields and toasts, in pixels), `borderWidth` (border width of menu buttons, panels and fields, default 2), `gap` (spacing in menu columns and the options grid, default 18), `uiSize` (menu text size, default 40), `uiFont` (menu font, default `font`), `fonts` (a font per language code, e.g. `{"ja": "Noto Sans JP"}`: in that language, the picked one replaces `font` and `uiFont`; `ja` also covers `ja-JP`; put a font file in `assets/fonts/` for a font the player may not have) and the colors `text`, `muted`, `surface`, `line`, `danger` and `warn`, and `components` A color may be a token reference: `"$accent"`, or `"$accent/15"` for the token at 15% opacity (only `accent` and the colors above can be named; a token that is not set drops the value).
+takes these menu building blocks. A key is the component, or `component.variant`; each has the look keys below, and
+the states `hover`, `focus`, `disabled` and `selected` (only the ones that make sense for it apply) list what changes.
+
+| Component | Styles |
+|---|---|
+| `button` | Buttons and selects in menus and dialogs. Variants `button.primary` (Yes, Save) and `button.danger` (Delete). |
+| `panel` | Options, saves, history and dialog panels. |
+| `tab` | Options tabs; `selected` is the open one. |
+| `row` | Chapter, achievement and music rows; `selected` is the current one. |
+| `pager` | Page number buttons; `selected` is the current page. |
+| `toast` | The toast and the achievement toast. |
+| `field` | Text fields (the `input` prompt, the save name). |
+| `quickmenu` | Quick menu buttons; `selected` is a toggled one. |
+| `slider` | Volume and text sliders. `color` is the accent, `size` the height, `width` the width. |
+| `title` | The game title on the title screen (`color`, `size`, ...). |
+
+The `choice` component (choice buttons) also takes the states `hover`, `focus` and `disabled` (a choice whose `if` fails).
+
+In the editor, open a theme file with the command palette (`Theme: Open or Create a Theme File`, or type `#theme:`); it is a JSON tab with completions and saves like `game.json`.
+
+Look keys: `background`, `color`, `border` (color), `borderWidth`, `radius`, `padding` (a number or a list), `size` (font
+size), `opacity` (0 to 1), `shadow` (a CSS `box-shadow`) and `width`. Colors that are not CSS colors are left out.
+
+`screens` repeats these components inside one built-in screen (`title`, `pause`, `options`, `saves`, `history`, `gallery`,
+`music`, `chapters`, `achievements`, `confirm`, `saveName`): `"screens": { "options": { "panel": { "width": 1300 } } }`.
+Unknown screen names are ignored.
+
+```json
+{ "tokens": { "surface": "#201810" },
+  "components": { "button": { "radius": 2, "hover": { "border": "#fff" } }, "button.primary": { "background": "#e0a050", "color": "#111" } } }
+```
+
 | Key | Meaning |
 |---|---|
 | `accent` | Highlight color for menus and sliders, e.g. `"#5fd1c3"`. |
@@ -326,9 +382,9 @@ Menu text in the source language, e.g. `"new_game": "Begin"`. Other languages us
 | `font` | Font for story text and menus: a file name in `assets/fonts/` (woff2, woff, ttf, otf) or an installed font. |
 | `textbox` | The dialogue box. |
 | `namebox` | The name tag; `x` and `y` are relative to the text box. Also takes `size` (font size). |
-| `text` | `size` (44), `color`, `lineHeight` (1.45). |
+| `text` | `size` (44), `color`, `lineHeight` (1.45), `lines` (3): how many lines the text box shows at once. A longer line is split into pages at line breaks; the player clicks to see the next page. |
 | `choices` | Choice buttons. Like a box but without `x`/`y`; also `size` and `gap` (space between buttons). |
-| `skins` | Per-character overrides: `{ "alice": { "textbox": {...}, "namebox": {...}, "text": {...} } }`. A character with `define alice ... box=alice` uses `skins.alice` while speaking. |
+| `skins` | Named styles (`styles` in a theme file): `{ "alice": { "textbox": {...}, "namebox": {...}, "text": {...}, "choice": {...}, "button": {...} } }`. A character with `define alice ... style=alice` uses `alice` while speaking; `alice: "..." style=whisper` uses `whisper` for one line, `menu ... style=urgent` styles that menu's `choice` buttons (with `hover`, `focus`, `disabled`), and `button ... style=x` / `text ... style=x` in a screen use `button` and `text`. Appearance only: `x`, `y`, `width`, `height` are ignored. |
 
 A box (`textbox`, `namebox`, `choices`) takes:
 

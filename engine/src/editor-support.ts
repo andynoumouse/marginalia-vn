@@ -18,7 +18,7 @@ export interface Suggestion {
 const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]) => ({ label: name, kind: 'keyword', detail: f.help, insertText: `${name}($0)` }));
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
 const COMMANDS: [string, string][] = [
-  ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
+  ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
   ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [pose] [at pos] [order=front|back | behind=<char>] [fade s]'],
   ['hide', 'hide <character> [fade s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <seconds>'],
   ['shake', 'shake <character|screen> [seconds]'], ['hop', 'hop <character> [seconds]'],
@@ -32,7 +32,7 @@ const COMMANDS: [string, string][] = [
    ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  (a page of hotspots and buttons; show it with show screen name)'],
-  ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= box= focus=off side=]'],
+  ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ];
 // Text tags, offered right after a "{" (which is not part of the typed word, so labels leave it out).
 // `$0` marks where the cursor goes; the editor inserts these as snippets.
@@ -57,6 +57,8 @@ const SCREEN_ELEMENTS: [string, string][] = [
   ['row', 'row [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end]:  (children need no "at")'], ['column', 'column [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end]:'],
   ['grid', 'grid <columns> [at x,y | anchor <place>] [gap n] [cell w,h] [align a]:'],
   ['scroll', 'scroll at x,y size w,h [start top|bottom] [bar off]:  (a box that scrolls its children; they are placed from its top left)'],
+  ['panel', 'panel [at x,y] [size w,h] [image "frame.png" slice 32] [padding p]:  (a framed box; its children are placed from its top left plus the padding)'],
+  ['bar', 'bar <variable> [max n] at x,y [size w,h] [back "file.png"] [fill "file.png"] [slice s] [color c] [readout]'],
   ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel  (the cancel key answers "")'],
 ];
 const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (n.kind === 'hotspot' || n.kind === 'button' ? [n.id] : childNodes(n).length ? elementIds(childNodes(n)) : []));
@@ -182,7 +184,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (prev[1] === 'item') return arg >= 3 ? kw(['image=']) : [];
       if (arg < 2) return [];
       if (word.startsWith('blip=')) return kw(BLIP_PRESETS); // "=" ends a word in the editor: complete the value only
-      return kw(['color=', 'text=', 'font=""', 'size=1.1', 'italic', 'speed=0.8', 'blip=', 'box=', 'focus=off', 'side=']);
+      return kw(['color=', 'text=', 'font=""', 'size=1.1', 'italic', 'speed=0.8', 'blip=', 'style=', 'focus=off', 'side=']);
     case 'hud':
       if (arg === 0) return kw(['on', 'off']);
       if (arg === 1) return Object.keys(program.screens ?? {}).map(label => ({ label, kind: 'keyword' as const, detail: 'screen' }));
@@ -191,15 +193,17 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (arg === 0) return [];
       if (last === 'on') return kw(['click', 'focus', 'blur']);
       if (prev[prev.length - 2] === 'on') return labels;
-      return kw(cmd === 'button' ? ['at', 'size', 'hover', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled']);
+      return kw(cmd === 'button' ? ['at', 'size', 'style=', 'hover', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled']);
     case 'image': return kw(['at', 'size']);
     case 'slider': return arg === 0 ? kw(Object.keys(SLIDER_SETTINGS)) : kw(['at', 'size', 'readout', 'if']);
-    case 'text': return kw(['at', 'if']);
+    case 'text': return kw(['at', 'style=', 'if']);
     case 'scroll': return kw(['at', 'size', 'start', 'bar', 'if']);
+    case 'panel': return last === 'edge' ? kw(['stretch', 'repeat', 'round']) : kw(['at', 'size', 'image', 'slice', 'edge', 'padding', 'if']);
+    case 'bar': return arg === 0 ? variables : last === 'edge' ? kw(['stretch', 'repeat', 'round']) : kw(['max', 'min', 'at', 'size', 'back', 'fill', 'slice', 'edge', 'padding', 'color', 'readout', 'if']);
     case 'row': case 'column': case 'grid': return kw(['at', 'anchor', 'margin', 'padding', 'gap', 'align', 'if', ...(cmd === 'grid' ? ['cell'] : [])]);
     case 'each': return arg === 1 ? kw(['as']) : arg >= 3 ? kw(['at', 'step', 'limit', 'if']) : [];
     case 'default': return arg === 0 ? [...new Set(Object.values(program.screens ?? {}).flatMap(sc => elementIds(sc.body)))].map(label => ({ label, kind: 'keyword' as const })) : [];
-    case 'menu': return prev.includes('timeout') ? [] : kw(['timeout']);
+    case 'menu': return prev.includes('timeout') ? [] : kw(prev.some(p => p.startsWith('style=')) ? ['timeout'] : ['style=', 'timeout']);
     case 'on': return arg === 0 ? kw(['timeout']) : [];
     case 'jump': case 'call': return arg === 0 ? labels : [];
     case 'set': return arg === 0 ? [...variables, ...persistent, { label: 'persistent.', kind: 'keyword', detail: 'kept across playthroughs' }]

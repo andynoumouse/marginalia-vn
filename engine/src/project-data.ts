@@ -3,6 +3,7 @@
 // IndexedDB. Served by the dev server as /api/project and written as project.json by the web export.
 
 import type { RigManifest } from './assets.js';
+import { resolveTheme, themeStylesheet } from './theme.js';
 
 export interface ListedFile {
   /** Project-relative, '/'-separated ("script/park.vn", "assets/bg/park.png"). */
@@ -12,7 +13,7 @@ export interface ListedFile {
 }
 
 export interface ProjectListing {
-  /** Every file under script/, locale/ and assets/, plus game.json (other paths are ignored). */
+  /** Every file under script/, locale/, themes/ and assets/, plus game.json (other paths are ignored). */
   files: readonly ListedFile[];
   /** Every folder under script/ and assets/ (project-relative), empty ones included. */
   dirs: readonly string[];
@@ -28,6 +29,10 @@ export interface ProjectData {
   assets: { file: string; v: number }[];
   rigs: Record<string, RigManifest>;
   rigTexts: Record<string, string>;
+  /** Raw text of every themes/<name>.json, for the editor's theme tabs. */
+  themeTexts: Record<string, string>;
+  /** Raw text of every themes/<name>.css, for the editor's CSS tabs. */
+  themeSheets: Record<string, string>;
   game: Record<string, unknown>;
   gameText: string | null;
 }
@@ -38,7 +43,7 @@ const KEEP = /(^|\/)\.gitkeep$/;
 
 /** The files projectFromListing reads the text of: scripts, locale tables, sprite and rig manifests, game.json. */
 export function projectTextFiles(paths: Iterable<string>): string[] {
-  return [...paths].filter(p => p === 'game.json' || /^script\/.+\.vn$/.test(p) || /^locale\/[^/]+\.json$/.test(p)
+  return [...paths].filter(p => p === 'game.json' || /^script\/.+\.vn$/.test(p) || /^locale\/[^/]+\.json$/.test(p) || /^themes\/[^/]+\.(json|css)$/.test(p)
     || /^assets\/char\/[^/]+\/(sprite|rig)\.json$/.test(p));
 }
 
@@ -87,7 +92,34 @@ export function projectFromListing(listing: ProjectListing): ProjectData {
     gameText = listing.text('game.json');
     try { game = JSON.parse(gameText ?? ''); } catch (e) { warn(`Bad game.json: ${(e as Error).message}`); }
   }
-  return { scripts, scriptDirs, locales, assets, rigs, rigTexts, game, gameText };
+  // game.json "theme": "<name>" picks themes/<name>.json; the game gets the resolved theme object (game.theme.skins etc. work as before).
+  const themeTexts: Record<string, string> = {}, themeSheets: Record<string, string> = {};
+  for (const f of files) {
+    const m = /^themes\/([^/]+)\.(json|css)$/.exec(f.path);
+    if (m) (m[2] === 'json' ? themeTexts : themeSheets)[m[1]] = listing.text(f.path) ?? '';
+  }
+  const picks = Array.isArray(game.themes) ? game.themes.filter((n): n is string => typeof n === 'string') : [];
+  if (typeof game.theme === 'string' || picks.length) {
+    const themes: Record<string, unknown> = {};
+    const sheets: Record<string, string> = {};
+    for (const f of files) {
+      const m = /^themes\/([^/]+)\.json$/.exec(f.path);
+      if (m) {
+        try { themes[m[1]] = JSON.parse(listing.text(f.path) ?? ''); } catch (e) { warn(`Bad ${f.path}: ${(e as Error).message}`); }
+      } else {
+        const c = /^themes\/([^/]+)\.css$/.exec(f.path);
+        if (c) sheets[c[1]] = listing.text(f.path) ?? '';
+      }
+    }
+    const look = (n: string) => {
+      const css = themeStylesheet(n, themes, sheets);
+      return { ...resolveTheme(n, themes, warn), ...(css ? { css } : {}) };
+    };
+    // game.json "themes": the ones the player may pick in Options, resolved by name (`themeLooks`).
+    const themeLooks = Object.fromEntries(picks.map(n => [n, look(n)]));
+    game = { ...game, ...(typeof game.theme === 'string' ? { theme: look(game.theme) } : {}), ...(picks.length ? { themes: picks, themeLooks } : {}) };
+  }
+  return { scripts, scriptDirs, locales, assets, rigs, rigTexts, themeTexts, themeSheets, game, gameText };
 }
 
 /** What the editor's files panel adds: the PSD masters (bg/, char/, ui/ only) and the top-level asset folders, empty ones included. */

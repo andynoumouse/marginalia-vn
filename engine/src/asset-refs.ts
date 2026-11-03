@@ -1,5 +1,5 @@
 /**
- * Where the scripts and game.json name asset files, so renaming or moving one in the Files panel can rewrite them.
+ * Where the scripts, game.json and theme files name asset files, so renaming or moving one in the Files panel can rewrite them.
  * Pure text in, edits out, like the label rename (refactor.ts). Each mention is resolved to an asset key (the path under
  * assets/ without extension, as in assets.ts); a move maps the keys it touches and writes each mention back in the form
  * its command takes. Character poses (`show alice smile`) are not followed: a pose names a layer as well as a file.
@@ -91,9 +91,23 @@ function gameKind(path: (string | number)[]): AssetRefKind | null {
   return null;
 }
 
+/** The kind of file a value in a theme file (`themes/<name>.json`) names: the `image` of a frame, in the layered or the legacy keys. */
+function themeFileKind(path: (string | number)[]): AssetRefKind | null {
+  const last = path[path.length - 1], n = path.length;
+  if (last !== 'image') return null;
+  const box = (k: unknown) => k === 'textbox' || k === 'namebox' || k === 'choices' || k === 'choice';
+  // textbox.image, components.textbox.image, skins.<s>.textbox.image, styles.<s>.textbox.image
+  if (n === 2 && box(path[0])) return 'ui';
+  if (n === 3 && path[0] === 'components' && box(path[1])) return 'ui';
+  if (n === 4 && (path[0] === 'skins' || path[0] === 'styles') && box(path[2])) return 'ui';
+  return null;
+}
+
+const isThemeFile = (name: string) => /(^|\/)themes\/[^/]+\.json$/.test(name);
+
 function gameRefs(file: string, text: string, assetFiles?: Set<string>): AssetRef[] {
   return jsonStrings(text).flatMap(s => {
-    const kind = gameKind(s.path);
+    const kind = isThemeFile(file) ? themeFileKind(s.path) : gameKind(s.path);
     if (!kind || !s.value || /[\\[]/.test(s.value)) return [];
     return [{ file, line: s.line, col: s.col, length: s.value.length, text: s.value, kind, key: keyOf(kind, s.value, assetFiles) }];
   });
@@ -106,7 +120,7 @@ function gameRefs(file: string, text: string, assetFiles?: Set<string>): AssetRe
 export function assetRefs(files: ProjectFile[], assetFiles?: string[]): AssetRef[] {
   const keys = assetFiles && new Set(assetFiles.map(f => stemOf(stemOf(f, IMAGE), AUDIO)));
   return files.flatMap(f => f.name.endsWith('.vn') ? scriptRefs(f.name, f.text, keys)
-    : f.name === 'game.json' || f.name.endsWith('/game.json') ? gameRefs(f.name, f.text, keys) : []);
+    : f.name === 'game.json' || f.name.endsWith('/game.json') || isThemeFile(f.name) ? gameRefs(f.name, f.text, keys) : []);
 }
 
 /** How a mention of `kind` names the key `key`, or null when that kind cannot reach it (a track outside music/). */

@@ -166,7 +166,7 @@ Each step is usable on its own and keeps the CLI working.
   window, `window.open` and downloads going through the handlers, `localStorage` surviving a restart, a project without
   git. Native dialogs are behind the preload and replaced in tests (`VN_STUDIO_TEST_PICK=<folder>`), and `VN_STUDIO_DOCUMENTS` /
   `VN_STUDIO_USER_DATA` keep the demo copy, settings and recent list in a temp folder. Projects are temp
-  copies of the demo; nothing writes to `sample/` or `demo/`.
+  copies of the demo; nothing writes to `games/sample/` or `games/demo/`.
 - It runs as `npm run test:studio`, not in `npm test`, and before a release that changes the Studio. Before a release
   it also runs against the package, once as is and once with only System32 on `PATH` (no node, no git; the git test
   then skips and the no-git test sees New Project's git option greyed out):

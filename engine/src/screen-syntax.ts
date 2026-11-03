@@ -5,6 +5,8 @@
 //   button <id> at x,y [size w,h] "Label" [#id] [hover "file"|none] [up|down|left|right <id>]... [on click <label>] [action <name>] [if <expr>] [enabled <expr>]
 //   slider <setting> at x,y [size w,h] [readout]      (options screen: a range bound to a player setting)
 //   text at x,y "Text with [variables]" [#id] [if <expr>]
+//   bar <value> [max <n>] [min <n>] [at x,y] [size w,h] [back "file"] [fill "file"] [slice s] [edge e] [padding p] [color c] [readout] [if <expr>]
+//   panel [at x,y] [size w,h] [image "file" [slice s] [edge stretch|repeat|round]] [padding p] [if <expr>]:      (a framed box; its children are placed from its top left plus the padding)
 //   each <list> as <name> [at x,y] [step dx,dy] [limit n] [if <expr>]:      (the body repeats for every entry, at most n)
 //   scroll at x,y size w,h [start top|bottom] [bar off] [if <expr>]:      (a clipped box that scrolls its children, placed relative to its top left)
 //   row|column|grid <columns> [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end] [cell w,h] [if <expr>]:
@@ -12,7 +14,7 @@
 //   default <id>   cancel
 
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
-import { CYCLE_SETTINGS, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
+import { CYCLE_SETTINGS, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
 
 export class ElementSyntaxError extends Error {}
 
@@ -69,10 +71,12 @@ function pair(tok: string | undefined, what: string): [number, number] {
 
 export type ElementSyntax =
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; id: string | null }
+  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string }
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
+  /** `value`, `min` and `max` are expression text (no spaces); the parser turns them into expressions. */
+  | { kind: 'bar'; x: number; y: number; w: number; h: number; value: string; min: string; max: string; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; readout: boolean }
   | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null }
-  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null };
+  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string };
 
 export interface ParsedElement { el: ElementSyntax; cond: string | null; enabled: string | null }
 
@@ -80,6 +84,10 @@ export interface ParsedElement { el: ElementSyntax; cond: string | null; enabled
 export function parseElementLine(t: string, inLayout = false, stage: StageSize = DEFAULT_STAGE): ParsedElement {
   const { head, cond, enabled } = splitElementLine(t);
   const kind = /^\S+/.exec(head)?.[0] ?? '';
+  if (kind === 'bar') {
+    if (enabled !== null) throw new ElementSyntaxError('A bar cannot be disabled: remove "enabled"');
+    return { el: parseBar(head, inLayout), cond, enabled };
+  }
   const str = kind === 'image' ? null : elementString(head);
   // the label (and its id) is cut out whole, wherever it stands among the other words
   let rest = str ? head.slice(kind.length, str.start) + ' ' + head.slice(str.end) : head.slice(kind.length);
@@ -145,6 +153,7 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
   let shape: 'rect' | 'ellipse' | 'poly' | 'mask' = 'rect';
   let id = '';
   let readout = false;
+  let style: string | undefined;
   const focus: FocusHints = {};
   const on: HudHandlers = {};
   let act: ShellAction | null = null;
@@ -174,6 +183,11 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
     else if (kind === 'hotspot' && w === 'poly') shape = 'poly';
     else if (kind === 'hotspot' && w === 'mask') shape = 'mask';
     else if (shape === 'poly' && /^-?[\d.]+,-?[\d.]+$/.test(w)) points.push(pair(w, 'poly point'));
+    else if (/^style=/.test(w)) {
+      if (kind !== 'button' && kind !== 'text') throw new ElementSyntaxError(`style= goes on a button or a text, not on ${kind}`);
+      if (!/^style=\w+$/.test(w)) throw new ElementSyntaxError('style= needs a style name from the theme: style=urgent');
+      style = w.slice(6);
+    }
     else if (kind !== 'text' && kind !== 'image' && !id && NAME.test(w)) id = w;
     else if (RE_ID.test(w)) continue;
     else throw new ElementSyntaxError(`Unexpected "${w}" in ${kind}`);
@@ -191,7 +205,7 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
     case 'text':
       if (!str) throw new ElementSyntaxError('Use: text at x,y "Text"');
       if (!at) throw new ElementSyntaxError('text needs a position: text at x,y "Text"');
-      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id }, cond, enabled };
+      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}) }, cond, enabled };
     case 'slider':
       if (!(id in SLIDER_SETTINGS)) throw new ElementSyntaxError(`slider needs a setting (${Object.keys(SLIDER_SETTINGS).join(', ')}): slider <setting> at x,y [size w,h]`);
       if (!at) throw new ElementSyntaxError(`slider ${id} needs a position: at x,y`);
@@ -200,7 +214,7 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
       if (!id) throw new ElementSyntaxError('Use: button <id> at x,y [size w,h] "Label"');
       if (act === 'cycle' && !(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`action cycle steps a player setting, so the id must be one of: ${CYCLE_SETTINGS.join(', ')}`);
       if (!at) throw new ElementSyntaxError(`button ${id} needs a position: at x,y`);
-      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act }, cond, enabled };
+      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act, ...(style ? { style } : {}) }, cond, enabled };
     case 'hotspot': {
       if (!id) throw new ElementSyntaxError('Use: hotspot <id> at x,y size w,h "Label"');
       let s: Shape;
@@ -216,7 +230,85 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
       return { el: { kind, id, shape: s, label: str?.text ?? '', labelId: str?.id ?? null, cursor, hover, plain, fx, tip, focus, on, act }, cond, enabled };
     }
   }
-  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, slider, text, scroll, row, column, grid, each, default, cancel)`);
+  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, slider, text, bar, panel, scroll, row, column, grid, each, default, cancel)`);
+}
+
+/** `n` (all sides), `v,h` or `t,r,b,l` slice or padding, in pixels with no spaces; what a frame's `slice` and `padding` take. */
+function frameSides(tok: string | undefined, what: string): Sides {
+  const s = sides(tok, what);
+  if (s.some(n => n < 0)) throw new ElementSyntaxError(`${what} cannot be negative`);
+  return s;
+}
+
+const frameEdge = (tok: string | undefined): FrameEdge => {
+  if (!(FRAME_EDGES as readonly string[]).includes(tok ?? '')) throw new ElementSyntaxError(`edge needs one of: ${FRAME_EDGES.join(', ')}`);
+  return tok as FrameEdge;
+};
+
+/** Cuts `key "file"` out of `s`, returning the file and what is left. */
+function takeFile(s: string, key: string): { file: string | null; rest: string } {
+  const m = new RegExp(`\\b${key}[ \\t]+"((?:[^"\\\\]|\\\\.)*)"`).exec(s);
+  return m ? { file: unescapeText(m[1]), rest: s.replace(m[0], ' ') } : { file: null, rest: s };
+}
+
+const BAR_WORDS = ['max', 'min', 'at', 'size', 'slice', 'edge', 'padding', 'color', 'readout'];
+const BAR_USAGE ='Use: bar <variable> [max <n>] [min <n>] at x,y [size w,h] [back "file"] [fill "file"] [slice s] [edge stretch|repeat|round] [padding p] [color c] [readout]';
+
+function parseBar(head: string, inLayout: boolean): Extract<ElementSyntax, { kind: 'bar' }> {
+  const b = takeFile(head.slice(3), 'back'), f = takeFile(b.rest, 'fill');
+  const toks = f.rest.split(/\s+/).filter(Boolean);
+  const expr = (tok: string | undefined, what: string) => {
+    if (tok === undefined || /["']/.test(tok)) throw new ElementSyntaxError(`${what} needs a number or variable without spaces, like ${what === 'bar' ? 'health' : `${what} 100`}`);
+    return tok;
+  };
+  const value = expr(BAR_WORDS.includes(toks[0]) ? undefined : toks[0], 'bar');
+  let max = '100', min = '0', at: [number, number] | null = null, size: [number, number] | null = null;
+  let slice: Sides | null = null, edge: FrameEdge = 'stretch', padding: Sides = [0, 0, 0, 0], color: string | null = null, readout = false;
+  for (let i = 1; i < toks.length; i++) {
+    const w = toks[i];
+    if (w === 'max') max = expr(toks[++i], 'max');
+    else if (w === 'min') min = expr(toks[++i], 'min');
+    else if (w === 'at') at = pair(toks[++i], '"at"');
+    else if (w === 'size') size = pair(toks[++i], '"size"');
+    else if (w === 'slice') slice = frameSides(toks[++i], 'slice');
+    else if (w === 'edge') edge = frameEdge(toks[++i]);
+    else if (w === 'padding') padding = frameSides(toks[++i], 'padding');
+    else if (w === 'color') {
+      color = toks[++i] ?? '';
+      if (!TINT.test(color)) throw new ElementSyntaxError('color needs a color without spaces, like #ff6688, gold or rgba(255,100,100,.9)');
+    }
+    else if (w === 'readout') readout = true;
+    else throw new ElementSyntaxError(`Unexpected "${w}" in bar. ${BAR_USAGE}`);
+  }
+  if (inLayout && at) throw new ElementSyntaxError('Inside a row, column or grid the container places the bar: remove "at"');
+  if (!inLayout && !at) throw new ElementSyntaxError(`bar ${value} needs a position: at x,y`);
+  if (slice && !b.file && !f.file) throw new ElementSyntaxError('slice needs a back or fill image to cut');
+  if (edge !== 'stretch' && !b.file && !f.file) throw new ElementSyntaxError('edge needs a back or fill image');
+  return { kind: 'bar', x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? 400, h: size?.[1] ?? 40, value, min, max, back: b.file, fill: f.file, slice, edge, padding, color, readout };
+}
+
+export interface PanelHeader { x: number; y: number; w: number | null; h: number | null; file: string | null; slice: Sides; edge: FrameEdge; padding: Sides; cond: string | null }
+
+/** `panel [at x,y] [size w,h] [image "file" [slice s] [edge e]] [padding p] [if <expr>]` (without the colon), or null when `t` is not a panel line. */
+export function parsePanelHeader(t: string, inLayout: boolean): PanelHeader | null {
+  if (!/^panel(?=[ \t]|$)/.test(t)) return null;
+  const { head, cond } = splitElementLine(t);
+  const im = takeFile(head.slice(5), 'image');
+  const toks = im.rest.split(/\s+/).filter(Boolean);
+  const usage = 'Use: panel [at x,y] [size w,h] [image "file.png" [slice s] [edge stretch|repeat|round]] [padding p]:';
+  let at: [number, number] | null = null, size: [number, number] | null = null, slice: Sides | null = null, edge: FrameEdge | null = null, padding: Sides = [0, 0, 0, 0];
+  for (let i = 0; i < toks.length; i++) {
+    const w = toks[i];
+    if (w === 'at') at = pair(toks[++i], '"at"');
+    else if (w === 'size') size = pair(toks[++i], '"size"');
+    else if (w === 'slice') slice = frameSides(toks[++i], 'slice');
+    else if (w === 'edge') edge = frameEdge(toks[++i]);
+    else if (w === 'padding') padding = frameSides(toks[++i], 'padding');
+    else throw new ElementSyntaxError(`Unexpected "${w}" in panel. ${usage}`);
+  }
+  if (inLayout && at) throw new ElementSyntaxError('Inside a row, column or grid the container places the panel: remove "at"');
+  if ((slice || edge) && !im.file) throw new ElementSyntaxError('slice and edge need the panel\'s image "file.png"');
+  return { x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? null, h: size?.[1] ?? null, file: im.file, slice: slice ?? DEFAULT_SLICE, edge: edge ?? 'stretch', padding, cond };
 }
 
 export interface EachHeader { list: string; as: string; x: number; y: number; dx: number; dy: number; limit: number | null; cond: string | null }

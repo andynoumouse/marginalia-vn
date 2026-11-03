@@ -36,9 +36,7 @@
     }
   ],
   "labels": {},
-  "theme": {
-    "accent": "#5fd1c3"
-  },
+  "theme": "default",
   "musicRoom": [
     {
       "track": "evening_theme",

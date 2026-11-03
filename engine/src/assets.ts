@@ -22,6 +22,8 @@ import { expandShow, liveOverrides, orderedParts, partName, rigPartNames, rigPos
 import { withFix } from './suggest.js';
 import { splitVoiceName } from './voice.js';
 import { buildCheckSettings } from './build-checks.js';
+import { isCssColor } from './colors.js';
+import { expandTokenRefs } from './theme.js';
 
 /** One image of a layered character, or a slot with its variants (bottom to top in `parts`). */
 export interface RigPart {
@@ -48,6 +50,8 @@ export interface AssetIndex {
   rigs?: Record<string, RigManifest>;  // by character id
   blips?: string[];                    // voice names from game.json "blips"
   skins?: string[];                    // game.json theme.skins names
+  /** Style names of each theme the player can pick (game.json `themes`), by theme name. */
+  themeSkins?: Record<string, string[]>;
 }
 
 /** Built-in text sound voices (preview/blips.ts). */
@@ -144,6 +148,13 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   }
 
   // Screens and items: images that do not exist (only reported once there are images at all, like backgrounds).
+  const skins = new Set(index.skins ?? []);
+  /** A style the script uses that the theme, or a theme the player can pick, does not define. */
+  const styleProblem = (src: Src, style: string) => {
+    if (!skins.has(style)) return warn(src, `No style "${style}" (add it to the theme's styles)`);
+    const lacking = Object.entries(index.themeSkins ?? {}).filter(([, names]) => !names.includes(style)).map(([n]) => n);
+    if (lacking.length) warn(src, `Style "${style}" is missing from the selectable theme${lacking.length > 1 ? 's' : ''} ${lacking.join(', ')}`);
+  };
   const imageKeys = new Set(index.files.filter(f => IMAGE.test(f)).map(f => f.replace(IMAGE, '')));
   const imageProblem = (src: Src, file: string, what: string) => {
     if (imageKeys.size && !file.includes('[') && !imageKeys.has(file.replace(IMAGE, ''))) warn(src, `No image "${file}" in assets (${what})`);
@@ -155,22 +166,30 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
       for (const n of nodes) {
         if (n.kind === 'image') imageProblem(n.src, n.file, `screen ${def.name}`);
         else if (n.kind === 'hotspot' && n.shape.k === 'mask') imageProblem(n.src, n.shape.file, `mask of hotspot ${n.id}`);
+        else if (n.kind === 'panel' && n.file) imageProblem(n.src, n.file, `frame of a panel in screen ${def.name}`);
+        else if (n.kind === 'bar') {
+          if (n.back) imageProblem(n.src, n.back, `back of a bar in screen ${def.name}`);
+          if (n.fill) imageProblem(n.src, n.fill, `fill of a bar in screen ${def.name}`);
+        }
         if ((n.kind === 'hotspot' || n.kind === 'button') && n.hover) imageProblem(n.src, n.hover, `hover image of ${n.id}`);
         if ((n.kind === 'hotspot' || n.kind === 'button') && n.fx.sound && !sounds.has(n.fx.sound)) warn(n.src, `No sound "${n.fx.sound}" in assets/sound (hover sound of ${n.id})`);
-        if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') walk(n.body);
+        if ((n.kind === 'button' || n.kind === 'text') && n.style) styleProblem(n.src, n.style);
+        if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
       }
     };
     walk(def.body);
   }
 
   const voices = new Set([...BLIP_PRESETS, ...(index.blips ?? []), ...sounds]);
-  const skins = new Set(index.skins ?? []);
   const sides = new Set(index.files.flatMap(f => (IMAGE.test(f) && /^side\/[^/]+$/.test(f) ? [f.slice(5).replace(IMAGE, '')] : [])));
+  for (const op of program.ops) {
+    if ((op.op === 'say' || op.op === 'menu') && op.look) styleProblem(op.src, op.look);
+  }
   for (const c of Object.values(program.characters) as CharacterDef[]) {
     if (c.style.blip && !voices.has(c.style.blip)) {
       warn(c.src, `No blip voice "${c.style.blip}" (built in: ${BLIP_PRESETS.join(', ')}; or game.json "blips", or assets/sound)`);
     }
-    if (c.style.box && !skins.has(c.style.box)) warn(c.src, `No text box skin "${c.style.box}" (add it to game.json theme.skins)`);
+    if (c.style.box) styleProblem(c.src, c.style.box);
     if (c.side && !sides.has(c.side)) warn(c.src, `No portrait "${c.side}" in assets/side (side=)`);
   }
   return out;
@@ -229,12 +248,13 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
       if (problem) warn(name, problem);
     }
   }
-  if (g.theme && typeof g.theme === 'object' && !Array.isArray(g.theme)) {
+  const theme: any = g.theme && typeof g.theme === 'object' && !Array.isArray(g.theme) ? expandTokenRefs(g.theme) : undefined; // $token references count as the color they name
+  if (theme) {
     for (const key of ['hotFill', 'hotBorder', 'tipBackground', 'tipColor', 'tipFont']) {
-      const v = g.theme[key];
+      const v = theme[key];
       if (v !== undefined && (typeof v !== 'string' || !v.trim() || /[;{}<>\\]|url\(/i.test(v))) warn(key, `theme.${key} needs a plain CSS ${key === 'tipFont' ? 'font name' : 'color'} like "rgba(255,255,255,.2)"`);
     }
-    const w = g.theme.hotBorderWidth;
+    const w = theme.hotBorderWidth;
     if (w !== undefined && (typeof w !== 'number' || !Number.isFinite(w) || w < 0)) warn('hotBorderWidth', 'theme.hotBorderWidth needs a number of stage pixels, 0 or more');
   }
   if (Array.isArray(g.musicRoom)) {
@@ -258,6 +278,23 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
     const parts = f.split('/');
     return AUDIO.test(f) && parts.length === 2 && parts[0] === 'sound' ? [stem(parts[1])] : [];
   }));
+  if (theme) {
+    // Boxes of the theme and of its skins (a theme file's problems land here too, as the game sees it resolved).
+    const boxes = [theme, ...Object.values(theme.skins ?? {}) as any[]].flatMap(t => t && typeof t === 'object'
+      ? (['textbox', 'namebox', 'choices'] as const).flatMap(k => (t[k] && typeof t[k] === 'object' ? [[k, t[k]] as const] : [])) : []);
+    for (const [k, b] of boxes) {
+      if (typeof b.image === 'string' && b.image && !uiImages.has(b.image)) warn(b.image, `theme.${k}.image: no image "${b.image}" in assets/ui`);
+      for (const c of ['background', 'border'] as const) {
+        if (b[c] !== undefined && (typeof b[c] !== 'string' || !isCssColor(b[c]))) warn(String(b[c]), `theme.${k}.${c} needs a CSS color like "#112233", not ${JSON.stringify(b[c])}`);
+      }
+    }
+    for (const key of ['accent', 'hotFill', 'hotBorder', 'tipBackground', 'tipColor'] as const) {
+      const v = theme[key];
+      if (key === 'accent' && v !== undefined && (typeof v !== 'string' || !isCssColor(v))) warn(String(v), `theme.accent needs a CSS color like "#5fd1c3", not ${JSON.stringify(v)}`);
+    }
+    const f = theme.font;
+    if (typeof f === 'string' && /\.(woff2?|ttf|otf)$/i.test(f) && !index.files.includes(`fonts/${f}`)) warn(f, `theme.font: no font file "${f}" in assets/fonts (use the name without the extension for an installed font)`);
+  }
   if (Array.isArray(g.achievements)) {
     for (const e of g.achievements) {
       const icon = e && typeof e === 'object' ? e.icon : undefined;
@@ -383,8 +420,10 @@ export function screenAssets(program: Pick<Program, 'screens' | 'items'>, name: 
     for (const n of nodes) {
       if (n.kind === 'image') add(n.file);
       else if (n.kind === 'hotspot' && n.shape.k === 'mask') add(n.shape.file);
+      else if (n.kind === 'panel') add(n.file);
+      else if (n.kind === 'bar') { add(n.back); add(n.fill); }
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.hover) add(n.hover);
-      else if (n.kind === 'layout' || n.kind === 'scroll') walk(n.body);
+      else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
       else if (n.kind === 'each') { lists = true; walk(n.body); }
     }
   };

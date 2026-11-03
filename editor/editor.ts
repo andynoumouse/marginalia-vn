@@ -4,7 +4,7 @@
 
 import {
   sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
-  type Program, type RigManifest, type LabelEdit, type ProjectFile,
+  UI_COMPONENTS, BUILTIN_THEMES, moveInlineTheme, themeCss, themeStylesheet, resolveTheme, type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
 import { AnimStudio } from './anim-studio.js';
@@ -13,6 +13,7 @@ import { FindDialog } from './find-dialog.js';
 import { TranslationsDialog } from './translations-dialog.js';
 import { VoiceDialog } from './voice-dialog.js';
 import { BuildDialog, langQuery } from './build-dialog.js';
+import { ThemeDialog } from './theme-dialog.js';
 import { GitPanel } from './git-dialog.js';
 import { OutlineView } from './outline-view.js';
 import { Palette, rank, type PaletteItem, type PaletteMode } from './palette.js';
@@ -35,12 +36,14 @@ let caps: Capabilities = FULL_CAPABILITIES;
 const NOT_IN_DEMO = 'needs the local dev server (not available in the online demo)';
 
 // kind 'rig' is a character's assets/char/<char>/rig.json (tab name char/<char>/rig.json)
-interface FileState { name: string; kind: 'script' | 'game' | 'rig'; char?: string; model: any; saved: string; timer: number }
+interface FileState { name: string; kind: 'script' | 'game' | 'rig' | 'theme' | 'themecss'; char?: string; model: any; saved: string; timer: number }
 const files = new Map<string, FileState>();
 /** The "did you mean" names of the current markers, by fixKey(). */
 const quickFixes = new Map<string, string[]>();
 const fixKey = (uri: { toString(): string }, line: number, message: string) => `${uri.toString()}|${line}|${message}`;
 const GAME = 'game.json';
+const themeFileName = (theme: string) => `themes/${theme}.json`;
+const themeSheetName = (theme: string) => `themes/${theme}.css`;
 const rigName = (char: string) => `char/${char}/rig.json`;
 const GAME_URI = 'file:///game.json';
 const GAME_TEMPLATE = `{
@@ -205,6 +208,15 @@ function registerLanguage() {
         }));
       });
       return { actions, dispose() {} };
+    },
+  });
+  monaco.editor.registerCommand('vn.moveThemeToFile', () => moveThemeToFile());
+  monaco.languages.registerCodeActionProvider('json', {
+    provideCodeActions(model: any, _range: any, context: any) {
+      const m = (context.markers as any[]).find(x => x.owner === 'vn-theme' || x.message?.startsWith('The theme is inline'));
+      const actions = m ? [{ title: 'Move the theme to a theme file (themes/default.json)', kind: 'quickfix', diagnostics: [m], isPreferred: true,
+        command: { id: 'vn.moveThemeToFile', title: 'Move the theme to a theme file' } }] : [];
+      return { actions: model.uri.toString() === GAME_URI ? actions : [], dispose() {} };
     },
   });
 }
@@ -408,6 +420,7 @@ function recompile() {
     program.diagnostics.push(...checkGame(game, assetIndex(), gameFile.model.getValue()));
   }
   updateGameSchema();
+  inlineThemeMarkers();
   for (const f of files.values()) if (f.kind === 'rig') monaco.editor.setModelMarkers(f.model, 'vn', rigMarkers(f));
   outlineView?.update(buildOutline(program));
   quickFixes.clear();
@@ -451,13 +464,15 @@ function updateProblemCount() {
 async function save(f: FileState) {
   const text: string = f.model.getValue();
   if (norm(text) === norm(f.saved)) return;
-  if (f.kind !== 'script') {
+  if (f.kind !== 'script' && f.kind !== 'themecss') {
     try { JSON.parse(text); } catch { setStatus(`${f.name} has errors; not saved`); return; }
   }
   setStatus('saving...');
   try {
     const url = f.kind === 'game' ? '/api/game'
       : f.kind === 'rig' ? `/api/rig?char=${encodeURIComponent(f.char ?? '')}`
+      : f.kind === 'theme' ? `/api/theme?name=${encodeURIComponent(f.char ?? '')}`
+      : f.kind === 'themecss' ? `/api/theme?name=${encodeURIComponent(f.char ?? '')}&ext=css`
       : `/api/script?file=${encodeURIComponent(f.name)}`;
     const r = await fetch(url, {
       method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: text,
@@ -474,9 +489,11 @@ async function save(f: FileState) {
 function addFile(name: string, text: string, kind: FileState['kind'] = 'script', char?: string) {
   const model = kind === 'game'
     ? monaco.editor.createModel(text, 'json', monaco.Uri.parse(GAME_URI))
-    : kind === 'rig'
+    : kind === 'rig' || kind === 'theme'
       ? monaco.editor.createModel(text, 'json', monaco.Uri.parse(`file:///${name}`))
-      : monaco.editor.createModel(text, 'vn');
+      : kind === 'themecss'
+        ? monaco.editor.createModel(text, 'css', monaco.Uri.parse(`file:///${name}`))
+        : monaco.editor.createModel(text, 'vn');
   const f: FileState = { name, kind, char, model, saved: text, timer: 0 };
   files.set(name, f);
   openTabs.push(name);
@@ -520,6 +537,8 @@ interface Project {
   assets: { file: string }[];
   rigs?: Record<string, RigManifest>;
   rigTexts?: Record<string, string>;
+  themeTexts?: Record<string, string>;
+  themeSheets?: Record<string, string>;
   masters?: string[]; // PSDs under masters/, from the dev server
   assetDirs?: string[]; // top-level folders under assets/, empty ones included
 }
@@ -566,6 +585,7 @@ function sbItem(label: string, o: { key?: string; meta?: string; title?: string;
 const ICONS = {
   file: '<path d="M9.5 1.8H4.2a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.6a1 1 0 0 0 1-1V5.1z"/><path d="M9.5 1.8v3.3h3.3M8 7.6v3.6M6.2 9.4h3.6"/>',
   folder: '<path d="M1.8 4.2a1 1 0 0 1 1-1h3l1.4 1.6h5a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1H2.8a1 1 0 0 1-1-1z"/><path d="M8 7.3v3.4M6.3 9h3.4"/>',
+  panel: '<path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.3"/><circle cx="10.5" cy="8" r="1.3"/><circle cx="5" cy="11.5" r="1.3"/>',
   add: '<path d="M8 10.5V2.2M4.8 5.4 8 2.2l3.2 3.2"/><path d="M2.2 10v2.8a1 1 0 0 0 1 1h9.6a1 1 0 0 0 1-1V10"/>',
 };
 type SbAction = [icon: keyof typeof ICONS, title: string, run: () => void];
@@ -616,12 +636,33 @@ $('sbList').addEventListener('keydown', e => {
   item.run();
 });
 
+const SECTIONS_KEY = 'vn.editor.sections';
+/** Sidebar sections the user folded, by heading text (they stay open while filtering). */
+const foldedSections = new Set<string>((() => { try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '[]') as string[]; } catch { return []; } })());
+const sectionFolded = (text: string) => foldedSections.has(text) && sbFilter.value.trim() === '';
+function toggleSection(text: string) {
+  if (foldedSections.has(text)) foldedSections.delete(text); else foldedSections.add(text);
+  try { localStorage.setItem(SECTIONS_KEY, JSON.stringify([...foldedSections])); } catch { /* ignore */ }
+  renderSidebarFiles();
+  renderSidebarAssets();
+}
+
+/** A section heading that folds and unfolds its rows (click, Enter or Space on the title). */
 const sbHeading = (text: string, actions: SbAction[] = [], menu?: () => MenuEntry[]) => {
   const h = document.createElement('h3');
-  h.append(Object.assign(document.createElement('span'), { textContent: text }), ...actions.map(sbIcon));
+  const title = Object.assign(document.createElement('span'), { textContent: text, tabIndex: 0, className: 'fold' });
+  title.setAttribute('role', 'button');
+  title.setAttribute('aria-expanded', String(!sectionFolded(text)));
+  title.title = sectionFolded(text) ? `Show ${text}` : `Hide ${text}`;
+  title.addEventListener('click', () => toggleSection(text));
+  title.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection(text); } });
+  h.append(title, ...actions.map(sbIcon));
   if (menu) withMenu(h, menu);
   return h;
 };
+/** A heading followed by its rows, unless the section is folded (`rows` is not even built then). */
+const sbSection = (text: string, actions: SbAction[], menu: (() => MenuEntry[]) | undefined, rows: () => HTMLElement[]) =>
+  [sbHeading(text, actions, menu), ...(sectionFolded(text) ? [] : rows())];
 
 // File manager actions on project-relative paths (dev server: /api/reveal and /api/open).
 const REVEAL = /Win/.test(navigator.platform) ? 'Reveal in File Explorer' : /Mac/.test(navigator.platform) ? 'Reveal in Finder' : 'Open Containing Folder';
@@ -870,16 +911,42 @@ function renderSidebarFiles() {
     : [...tree.root.folders.map(folderNode), ...tree.root.files.map(n => fileRow(files.get(n)!, n))];
   const newScript: SbAction = ['file', 'New script file', () => void newFile()];
   const newScriptFolder: SbAction = ['folder', 'New folder under script/', () => void newFolder()];
+  const themeNames = [...new Set([...Object.keys(themeTexts), ...[...files.values()].filter(f => f.kind === 'theme').map(f => f.char!)])].sort().filter(n => sbMatch(`theme ${n}`));
+  const newTheme: SbAction = ['file', 'New theme file (themes/<name>.json)', () => palette.setText(THEME_PICK)];
+  const openPanel: SbAction = ['panel', 'Theme panel: edit colors, fonts and components with a live preview', () => themeDialog.open(files.get(active)?.kind === 'theme' ? files.get(active)!.char! : null, () => editor.focus())];
+  const builtInNames = Object.keys(BUILTIN_THEMES).filter(n => !themeNames.includes(n) && sbMatch(`theme ${n} built-in`));
+  const builtInRows = builtInNames.map(n => withMenu(sbItem(n, {
+    key: `theme-builtin/${n}`, title: `Built-in theme "${n}": view it in the theme panel, or duplicate it into a theme file`, meta: 'built-in',
+    run: () => themeDialog.open(n, () => editor.focus()),
+  }), () => [
+    { label: 'View in Theme Panel', run: () => themeDialog.open(n, () => editor.focus()) },
+    { label: 'Duplicate…', run: () => { themeDialog.open(n, () => editor.focus()); themeDialog.duplicate(); } },
+  ]));
+  const themeRows = (): HTMLElement[] => (themeNames.length ? themeNames.map(n => {
+    const file = files.get(themeFileName(n));
+    return withMenu(sbItem(n, {
+      key: themeFileName(n), title: `Edit ${themeFileName(n)}`, current: !!file && file.name === active, errors: !!file && errorCount(file) > 0,
+      meta: file && isDirty(file) ? '•' : '', run: () => openTheme(n),
+    }), () => [
+      { label: 'Open', run: () => openTheme(n) },
+      { label: 'Open Stylesheet (CSS)', run: () => openThemeSheet(n) },
+      { label: 'Edit in Theme Panel', run: () => themeDialog.open(n, () => editor.focus()) },
+      { label: 'Duplicate…', run: () => { themeDialog.open(n, () => editor.focus()); themeDialog.duplicate(); } },
+      null, copyItem('Copy Path', themeFileName(n)), revealItem(themeFileName(n)),
+    ]);
+  }) : builtInRows.length ? [] : [sbNone(sbFilter.value.trim() ? 'No matching themes' : 'No themes yet: use + to make one')]).concat(builtInRows);
   sbFilesEl.replaceChildren(
-    ...(game && sbMatch(GAME) ? [sbHeading('Project', [], () => [
+    ...(game && sbMatch(GAME) ? sbSection('Project', [], () => [
       revealItem('', 'Open Project Folder'), null, { label: 'Restore from Trash…', run: () => void openTrash() }, { label: 'Empty Trash…', run: () => void emptyTrash() },
-    ]), fileRow(game, GAME)] : []),
-    sbHeading('Scripts', [newScript, newScriptFolder], () => [
+    ], () => [fileRow(game, GAME)]) : []),
+    ...sbSection('Scripts', [newScript, newScriptFolder], () => [
       { label: 'New Script File…', run: newScript[2] }, { label: 'New Folder…', run: newScriptFolder[2] }, null, revealItem('script'),
-    ]),
-    ...(scriptRows.length ? scriptRows : [sbNone(tree.flat ? 'No matching files' : 'No scripts yet')]));
+    ], () => scriptRows.length ? scriptRows : [sbNone(tree.flat ? 'No matching files' : 'No scripts yet')]),
+    ...sbSection('Themes', [openPanel, newTheme], () => [
+      { label: 'New Theme File…', run: newTheme[2] }, { label: 'Theme Panel…', run: () => themeDialog.open(null, () => editor.focus()) }, null, revealItem('themes'),
+    ], themeRows));
   const screens = UI_SCREENS.filter(u => sbMatch(`${u.name} ${u.title}`));
-  if (screens.length) sbFilesEl.append(sbHeading('Built-in screens'), ...screens.map(u => {
+  if (screens.length) sbFilesEl.append(...sbSection('Built-in screens', [], undefined, () => screens.map(u => {
     const file = over[u.name] ? files.get(over[u.name]) : undefined;
     const row = withMenu(document.createElement('div'), () => [
       { label: 'Preview Screen', run: () => previewScreen(u.name) },
@@ -910,7 +977,7 @@ function renderSidebarFiles() {
       row.append(custom);
     }
     return row;
-  }));
+  })));
   refocus(sbFilesEl, focused);
 }
 
@@ -972,8 +1039,7 @@ function renderSidebarAssets() {
   const newAssetDir: SbAction = ['folder', 'New folder under assets/', () => void newAssetFolder()];
   const addAny: SbAction = ['add', 'Add files (sorted by type: images to bg, sounds to music, fonts to fonts)', () => pickAssets('', `${ART},audio/*,.ogg,.mp3,.wav,.m4a,.flac,.opus,.woff2,.woff,.ttf,.otf`)];
   sbAssetsEl.replaceChildren(
-    sbHeading('Characters', [addChar], () => [{ label: 'Add Character PSD…', run: addChar[2] }, null, revealItem('masters/char', `${REVEAL} (Masters)`), revealItem('assets/char')]),
-    ...(chars.length ? chars.map(c => {
+    ...sbSection('Characters', [addChar], () => [{ label: 'Add Character PSD…', run: addChar[2] }, null, revealItem('masters/char', `${REVEAL} (Masters)`), revealItem('assets/char')], () => chars.length ? chars.map(c => {
       const master = projectAssets.masters.find(m => m.output === `char/${c}/sprite.json`)?.master;
       const flat = projectAssets.rigs[c]?.flat;
       const row = withMenu(document.createElement('div'), () => [
@@ -1000,12 +1066,11 @@ function renderSidebarAssets() {
       }), anim);
       return row;
     }) : [sbNone(filtering ? 'No matching characters' : 'No converted characters yet')]),
-    sbHeading('Assets', [addAny, newAssetDir], () => [{ label: 'Add Files…', run: addAny[2] }, { label: 'New Folder…', run: newAssetDir[2] }, null, revealItem('assets')]),
-    ...(groups.length ? groups : [sbNone(filtering ? 'No matching assets' : 'No assets yet')]),
+    ...sbSection('Assets', [addAny, newAssetDir], () => [{ label: 'Add Files…', run: addAny[2] }, { label: 'New Folder…', run: newAssetDir[2] }, null, revealItem('assets')],
+      () => groups.length ? groups : [sbNone(filtering ? 'No matching assets' : 'No assets yet')]),
   );
   if (waiting.length) sbAssetsEl.append(
-    sbHeading('Masters not converted', [], () => [{ label: 'Reconvert All Art', run: () => void runTask('art', 'art') }, null, revealItem('masters')]),
-    ...waiting.map(m => withMenu(sbItem(m.master, {
+    ...sbSection('Masters not converted', [], () => [{ label: 'Reconvert All Art', run: () => void runTask('art', 'art') }, null, revealItem('masters')], () => waiting.map(m => withMenu(sbItem(m.master, {
       key: `masters/${m.master}`, title: `masters/${m.master}: no converted art yet (the converter is off, still working, or failed; see the dev server log). Click to open it.`, meta: 'psd',
       run: () => void showPath('open', `masters/${m.master}`),
     }), () => [
@@ -1013,7 +1078,7 @@ function renderSidebarAssets() {
       { label: 'Reconvert All Art', run: () => void runTask('art', 'art') },
       null, ...changeItems(`masters/${m.master}`), { label: 'Replace…', run: () => replaceFile(`masters/${m.master}`) },
       null, copyItem('Copy Path', `masters/${m.master}`), revealItem(`masters/${m.master}`),
-    ])));
+    ]))));
   refocus(sbAssetsEl, focused);
 }
 
@@ -1088,7 +1153,14 @@ function setSidebar(show: boolean) {
   renderSidebarAssets();
 }
 
+/** Raw themes/<name>.json text by theme name, as of the last project load. */
+let themeTexts: Record<string, string> = {};
+/** Raw themes/<name>.css text by theme name, as of the last project load. */
+let themeSheets: Record<string, string> = {};
+
 function setAssets(proj: Project) {
+  themeTexts = proj.themeTexts ?? {};
+  themeSheets = proj.themeSheets ?? {};
   scriptDirs = proj.scriptDirs ?? [];
   renderSidebarFiles();
   const assetFiles = proj.assets.map(a => a.file);
@@ -1108,7 +1180,7 @@ const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume',
   'sound_volume', 'voice_volume', 'text_speed', 'auto_advance', 'skip_mode', 'skip_read', 'skip_all', 'language', 'fullscreen', 'back',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
   'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
-  'confirm_qload', 'history', 'history_empty', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
+  'confirm_qload', 'history', 'history_empty', 'history_return', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
   'gallery', 'locked', 'music_room', 'chapters', 'stop', 'now_playing', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
 
@@ -1135,7 +1207,8 @@ function updateGameSchema() {
   });
   const text = {
     type: 'object', additionalProperties: false, description: 'Story text.',
-    properties: { size: num('Font size in pixels (44).'), color: { type: 'string' }, lineHeight: num('Line height multiplier (1.45).') },
+    properties: { size: num('Font size in pixels (44).'), color: { type: 'string' }, lineHeight: num('Line height multiplier (1.45).'),
+      lines: { type: 'integer', minimum: 1, description: 'Lines the text box shows at once (3); a longer line is split into pages.' } },
   };
   const skin = (what: string) => ({
     type: 'object', additionalProperties: false, description: what,
@@ -1256,6 +1329,7 @@ function updateGameSchema() {
       },
       saveVersion: { type: 'integer', minimum: 0, default: 0, description: 'Raise this when a release breaks old saves: loading a save made under a lower number asks the player first.' },
       choiceSaves: { type: 'integer', minimum: 1, maximum: 20, default: 5, description: 'How many rotating choice autosaves to keep (the "C" page of the Load screen).' },
+      saveNames: { type: 'boolean', default: false, description: 'The player names a save when making it in a numbered slot (the name shows on the save screen in place of "Slot 3"), and can rename it there. Auto, quick and choice saves are never asked for a name.' },
       voiceLanguages: { type: 'array', items: { type: 'string' }, description: 'Languages to record voice in (e.g. ["ja", "fi"]), listed in the Voice dialog and held to having a recording for every spoken line by the build checks, even before the first recording. Separate from the text translations in locale/<lang>.json. The source language is the default take and needs no entry.' },
       language: { type: 'string', default: 'en', description: 'The language the scripts are written in (default "en"). Other languages are translations in locale/<lang>.json. Players pick the text language, and separately the voice language, in the options.' },
       memoryBudgetMB: { type: 'number', exclusiveMinimum: 0, description: 'Memory budget for loaded images and audio, in MB (default 512, 256 on low-memory devices). The debug console command memory reports against it.' },
@@ -1384,7 +1458,7 @@ function updateGameSchema() {
         additionalProperties: false,
         properties: Object.fromEntries(LABEL_KEYS.map(k => [k, { type: 'string' }])),
       },
-      theme: {
+      theme: { anyOf: [{ type: 'string', description: 'The name of a theme file: "night" uses themes/night.json.' }, {
         ...skin('Look of the text box, name tag, text and choices. Fonts in assets/fonts/ can be used by file name.'),
         properties: {
           accent: { type: 'string', description: 'Highlight color for menus and sliders, e.g. "#5fd1c3".' },
@@ -1402,18 +1476,59 @@ function updateGameSchema() {
           },
           skins: {
             type: 'object',
-            description: 'Per-character looks: `define alice ... box=alice` uses skins.alice while Alice speaks.',
+            description: 'Named styles: `define alice ... style=alice`, `style=name` on a line, a menu or a screen button or text.',
             propertyNames: { examples: characterBoxes },
-            additionalProperties: skin('Overrides while a character with this box= speaks.'),
+            additionalProperties: skin('Overrides while this style is used (appearance only).'),
           },
         },
-      },
+      }] },
     },
   };
   monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
     validate: true,
-    schemas: [{ uri: 'vn://schema/game.json', fileMatch: [GAME_URI], schema }, ...rigSchemas()],
+    schemas: [{ uri: 'vn://schema/game.json', fileMatch: [GAME_URI], schema }, ...rigSchemas(), ...themeSchemas()],
   });
+}
+
+/** The layered theme file (docs/game-json.md "theme"): tokens, components with states, screens, styles. */
+function themeSchemas() {
+  const num = (description: string) => ({ type: 'number', description });
+  const str = (description: string) => ({ type: 'string', description });
+  const look = {
+    type: 'object',
+    properties: {
+      background: str('A CSS color.'), color: str('Text color.'), border: str('Border color.'), borderWidth: num('Pixels.'), radius: num('Corner radius in pixels.'),
+      padding: { description: 'A number or a list of numbers, in pixels.', anyOf: [{ type: 'number' }, { type: 'array', items: { type: 'number' } }] },
+      size: num('Font size in pixels.'), opacity: num('0 to 1.'), shadow: str('A CSS box-shadow.'), width: num('Pixels.'),
+    },
+  };
+  const component = {
+    ...look, properties: { ...look.properties, ...Object.fromEntries(['hover', 'focus', 'disabled', 'selected'].map(k => [k, { ...look, description: `What changes in the ${k} state.` }])) },
+  };
+  const keys = Object.entries(UI_COMPONENTS).flatMap(([k, c]) => [k, ...Object.keys(c.variants ?? {}).map(v => `${k}.${v}`)]);
+  const components = Object.fromEntries(keys.map(k => [k, component]));
+  const colorToken = (d: string) => str(d);
+  const schema = {
+    type: 'object',
+    properties: {
+      extends: str('Another theme file (its name) or the built-in "base"; values here win.'),
+      tokens: {
+        type: 'object',
+        properties: {
+          accent: colorToken('Highlight color.'), font: str('Story text and menu font.'), uiFont: str('Menu font (default: font).'),
+          fonts: { type: 'object', description: 'A font per language code, e.g. {"ja": "Noto Sans JP"}; replaces font and uiFont in that language.', additionalProperties: { type: 'string' } },
+          text: colorToken('Text color.'), muted: colorToken('Secondary text color.'), surface: colorToken('Panel and button background.'),
+          line: colorToken('Border color.'), danger: colorToken('Destructive actions.'), warn: colorToken('Warnings.'),
+          radius: num('Corner radius in pixels.'), borderWidth: num('Border width in pixels (default 2).'),
+          gap: num('Spacing in menu columns (default 18).'), uiSize: num('Menu text size in pixels (default 40).'),
+        },
+      },
+      components: { type: 'object', properties: { ...components, textbox: { type: 'object' }, namebox: { type: 'object' }, text: { type: 'object' }, choice: { type: 'object' }, hotspot: { type: 'object' }, tooltip: { type: 'object' } } },
+      screens: { type: 'object', description: 'The same components inside one built-in screen.', additionalProperties: { type: 'object', properties: components } },
+      styles: { type: 'object', description: 'Named styles (the old "skins"): define ... style=, style= on lines, menus and screen buttons.', additionalProperties: { type: 'object' } },
+    },
+  };
+  return [...files.values()].filter(f => f.kind === 'theme').map(f => ({ uri: `vn://schema/theme/${f.char}`, fileMatch: [`file:///${f.name}`], schema }));
 }
 
 /** One schema per open rig.json tab, so completions offer that character's parts, slots and variants. */
@@ -1707,6 +1822,20 @@ async function syncFromDisk() {
     f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
     changed = true;
   }
+  for (const [theme, text] of Object.entries(proj.themeTexts ?? {})) {
+    const f = files.get(themeFileName(theme));
+    if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
+    f.saved = text;
+    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    changed = true;
+  }
+  for (const [theme, text] of Object.entries(proj.themeSheets ?? {})) {
+    const f = files.get(themeSheetName(theme));
+    if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
+    f.saved = text;
+    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    changed = true;
+  }
   if (changed) { recompile(); renderTabs(); }
 }
 
@@ -1747,6 +1876,7 @@ let outlineView: OutlineView;
 let translations: TranslationsDialog;
 let voiceDialog: VoiceDialog;
 let buildDialog: BuildDialog;
+let themeDialog: ThemeDialog;
 let gitPanel: GitPanel;
 const toggleOutline = () => outlineView.toggle(buildOutline(program), () => editor.focus());
 
@@ -1836,6 +1966,71 @@ function openRig(char: string) {
   recompile();
   activate(name);
 }
+
+/** Open themes/<name>.json in a tab; a name that has no file yet starts one that extends `base` (saved on the first edit). */
+function openTheme(theme: string) {
+  const name = themeFileName(theme);
+  if (files.has(name)) { activate(name); return; }
+  const onDisk = themeTexts[theme];
+  const f = addFile(name, onDisk ?? `${JSON.stringify({ extends: 'base', tokens: {}, components: {} }, null, 2)}
+`, 'theme', theme);
+  if (onDisk === undefined) { f.saved = ''; setStatus(`${name} is new: Ctrl+S saves it`); }
+  recompile();
+  activate(name);
+}
+
+/** Open themes/<name>.css in a tab; a theme without a stylesheet starts an empty one (saved on the first edit). */
+function openThemeSheet(theme: string) {
+  const name = themeSheetName(theme);
+  if (files.has(name)) { activate(name); return; }
+  const onDisk = themeSheets[theme];
+  const f = addFile(name, onDisk ?? `/* Extra CSS for the "${theme}" theme, added after the generated theme styles. */\n`, 'themecss', theme);
+  if (onDisk === undefined) { f.saved = ''; setStatus(`${name} is new: Ctrl+S saves it`); }
+  activate(name);
+}
+
+/** Every theme file parsed (open tabs as edited, the rest as loaded), by name. */
+function themeDialogFiles(): Record<string, unknown> {
+  const names = new Set([...Object.keys(themeTexts), ...[...files.values()].filter(f => f.kind === 'theme').map(f => f.char!)]);
+  const own = Object.fromEntries([...names].flatMap(n => { try { return [[n, JSON.parse(files.get(themeFileName(n))?.model.getValue() ?? themeTexts[n] ?? '')]]; } catch { return []; } }));
+  return { ...BUILTIN_THEMES, ...own }; // a theme file replaces a built-in one of the same name
+}
+
+/** The quick fix for an inline `theme` object in game.json: it becomes themes/<name>.json and game.json names it. */
+function moveThemeToFile() {
+  const g = files.get(GAME);
+  if (!g) return;
+  const taken = [...new Set([...Object.keys(themeTexts), ...[...files.values()].filter(f => f.kind === 'theme').map(f => f.char!)])];
+  const moved = moveInlineTheme(g.model.getValue(), taken);
+  if (!moved) { setStatus('game.json has no inline theme object to move'); return; }
+  const f = addFile(themeFileName(moved.name), '', 'theme', moved.name);
+  f.saved = '';
+  f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text: moved.themeText }], () => null);
+  g.model.pushEditOperations([], [{ range: g.model.getFullModelRange(), text: moved.gameText }], () => null);
+  recompile();
+  setStatus(`Moved the inline theme to ${themeFileName(moved.name)} and set "theme": "${moved.name}" in game.json`);
+}
+
+/** An Info marker on the `"theme"` line of game.json while the theme is still an inline object (Ctrl+. offers the move). */
+function inlineThemeMarkers() {
+  const g = files.get(GAME);
+  if (!g) return;
+  let inline = false;
+  try { const game = JSON.parse(g.model.getValue()); inline = !!game && typeof game.theme === 'object' && game.theme !== null && !Array.isArray(game.theme); } catch { /* the JSON tab shows its own errors */ }
+  const marks: any[] = [];
+  if (inline) {
+    const lines: string[] = g.model.getValue().split('\n');
+    const i = lines.findIndex(l => /^\s*"theme"\s*:/.test(l));
+    if (i >= 0) {
+      const col = lines[i].indexOf('"theme"');
+      marks.push({ severity: monaco.MarkerSeverity.Info, message: 'The theme is inline in game.json. Ctrl+. moves it to a theme file (themes/default.json).',
+        startLineNumber: i + 1, endLineNumber: i + 1, startColumn: col + 1, endColumn: col + 8 });
+    }
+  }
+  monaco.editor.setModelMarkers(g.model, 'vn-theme', marks);
+}
+
+const THEME_PICK = '#theme:', THEME_CSS_PICK = '#themecss:';
 
 /** Add parts that are new in the converted art to the open rig.json's order; report ones that disappeared. */
 function updateRigFromArt() {
@@ -2111,6 +2306,10 @@ function buildCommands(): Command[] {
     { title: 'Save', key: { code: K.CtrlCmd | C.KeyS, label: 'Ctrl+S' }, run: () => saveFile(files.get(active)) },
     { title: 'Save All', run: () => { for (const f of files.values()) saveFile(f); } },
     { title: 'Open game.json (title screen, menus, theme)', when: () => active !== GAME, run: () => activate(GAME) },
+    { title: 'Theme: Panel (palette and components)', run: () => themeDialog.open(files.get(active)?.kind === 'theme' ? files.get(active)!.char! : null, () => editor.focus()) },
+    { title: 'Theme: Open or Create a Theme File (themes/<name>.json)', run: () => palette.setText(THEME_PICK) },
+    { title: 'Theme: Open or Create a Theme Stylesheet (themes/<name>.css)', run: () => palette.setText(THEME_CSS_PICK) },
+    { title: 'Theme: Move the Inline Theme of game.json to a Theme File', run: () => moveThemeToFile() },
     { title: 'Character: Edit Rig (z-order, groups, shorthands)', run: () => palette.setText(RIG_PICK) },
     { title: 'Character: Update Rig from Reconverted Art', when: () => files.get(active)?.kind === 'rig', run: updateRigFromArt },
     { title: 'Character: Animation Studio (play and inspect animations)', run: () => {
@@ -2239,6 +2438,26 @@ function setupPalette() {
     items: q => rank(Object.keys(projectAssets.rigs).sort(), q, c => c).map(({ entry: c, hits }) => ({ label: c, hits, detail: title, run: () => run(c) })),
   });
   const pickers = [charMode(RIG_PICK, 'Edit rig', openRig), charMode(ANIM_PICK, 'Animation studio', c => openAnimStudio(c))];
+  const themeMode: PaletteMode = {
+    prefix: THEME_PICK, title: 'Theme file', placeholder: 'Theme name (themes/<name>.json): pick one, or type a new name and press Enter',
+    items: q => {
+      const names = new Set([...Object.keys(themeTexts), ...[...files.values()].filter(f => f.kind === 'theme').map(f => f.char!)]);
+      const found = rank([...names].sort(), q, n => n).map(({ entry: n, hits }): PaletteItem => ({ label: n, hits, detail: files.has(themeFileName(n)) ? 'theme (open)' : 'theme', run: () => openTheme(n) }));
+      const name = q.trim();
+      if (name && !names.has(name)) found.push(/^[\w-]+$/.test(name) ? { label: `Create themes/${name}.json`, className: 'create', run: () => openTheme(name) } : { label: 'Not a valid theme name', detail: 'letters, digits, _ and -', className: 'empty', run: () => {} });
+      return found.length ? found : [{ label: 'Type a name for the new theme', className: 'empty', run: () => {} }];
+    },
+  };
+  const themeCssMode: PaletteMode = {
+    prefix: THEME_CSS_PICK, title: 'Theme stylesheet', placeholder: 'Theme name (themes/<name>.css): pick one, or type a new name and press Enter',
+    items: q => {
+      const names = new Set([...Object.keys(themeTexts), ...Object.keys(themeSheets), ...[...files.values()].filter(f => f.kind === 'theme' || f.kind === 'themecss').map(f => f.char!)]);
+      const found = rank([...names].sort(), q, n => n).map(({ entry: n, hits }): PaletteItem => ({ label: n, hits, detail: files.has(themeSheetName(n)) ? 'stylesheet (open)' : n in themeSheets ? 'stylesheet' : 'new stylesheet', run: () => openThemeSheet(n) }));
+      const name = q.trim();
+      if (name && !names.has(name)) found.push(/^[\w-]+$/.test(name) ? { label: `Create themes/${name}.css`, className: 'create', run: () => openThemeSheet(name) } : { label: 'Not a valid theme name', detail: 'letters, digits, _ and -', className: 'empty', run: () => {} });
+      return found.length ? found : [{ label: 'Type a name for the new stylesheet', className: 'empty', run: () => {} }];
+    },
+  };
   const newMode: PaletteMode = {
     prefix: NEW_PICK, title: 'New script file', placeholder: 'New script file name (e.g. chapter2), Enter creates it',
     items: q => {
@@ -2289,7 +2508,7 @@ function setupPalette() {
       }));
     },
   };
-  pickers.push(newMode, newFolderMode, newAssetFolderMode, renameMode, trashMode);
+  pickers.push(themeMode, themeCssMode, newMode,newFolderMode, newAssetFolderMode, renameMode, trashMode);
 
   const modes = [fileMode, commandMode, labelMode, lineMode, assetMode];
   const helpMode: PaletteMode = {
@@ -2308,6 +2527,40 @@ function setupPalette() {
     declared: () => declaredVoiceLanguages(openGame() as { voiceLanguages?: unknown } | null, sourceLanguage(openGame() as { language?: unknown } | null)),
   });
   const saveAll = async () => { await saveAllNow(); };
+  themeDialog = new ThemeDialog(document.body, {
+    themes: () => [...new Set([...Object.keys(themeTexts), ...[...files.values()].filter(f => f.kind === 'theme').map(f => f.char!)])].sort(),
+    text: n => files.get(themeFileName(n))?.model.getValue() ?? themeTexts[n] ?? null,
+    parsed: themeDialogFiles,
+    apply: (n, text) => {
+      const name = themeFileName(n);
+      const f = files.get(name) ?? addFile(name, themeTexts[n] ?? '', 'theme', n);
+      f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    },
+    builtIns: () => Object.keys(BUILTIN_THEMES),
+    duplicate: (from, to) => {
+      const text = files.get(themeFileName(from))?.model.getValue() ?? themeTexts[from]
+        ?? `${JSON.stringify({ extends: 'base', ...(from === 'base' ? { tokens: {}, components: {} } : BUILTIN_THEMES[from]) }, null, 2)}
+`;
+      const name = themeFileName(to);
+      const f = files.get(name) ?? addFile(name, '', 'theme', to);
+      f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+      recompile();
+    },
+    openJson: n => openTheme(n),
+    fonts: () => projectAssets.files.filter(x => x.startsWith('fonts/')).map(x => x.slice(6)),
+    css: n => {
+      const themes = themeDialogFiles();
+      // The theme's own stylesheet (open tabs as edited, the rest as loaded), like the preview adds it after the generated CSS.
+      const sheets = { ...themeSheets, ...Object.fromEntries([...files.values()].filter(f => f.kind === 'themecss').map(f => [f.char!, f.model.getValue() as string])) };
+      const sheet = themeStylesheet(n, themes, sheets);
+      return themeCss({ ...resolveTheme(n, themes), ...(sheet ? { css: sheet } : {}) }, projectAssets.files.map(file => ({ file, v: 0 })));
+    },
+    stage: () => {
+      let game: unknown = null;
+      try { game = JSON.parse(files.get(GAME)?.model.getValue() ?? '{}'); } catch { /* keep the default size */ }
+      return stageSize(game);
+    },
+  });
   buildDialog = new BuildDialog(document.body, {
     reveal: goToLine,
     openTranslations: () => void translations.open(() => editor.focus()),
@@ -2332,7 +2585,7 @@ function setupPalette() {
   const panes = { Digit1: 'editor', Digit2: 'preview', Digit3: 'files' } as const;
   const onKey = (e: KeyboardEvent) => {
     const pane = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? panes[e.code as keyof typeof panes] : undefined;
-    if (pane && !(palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || gitPanel.isOpen)) {
+    if (pane && !(palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || themeDialog.isOpen || gitPanel.isOpen)) {
       e.preventDefault();
       e.stopPropagation();
       focusPane(pane);
@@ -2342,7 +2595,7 @@ function setupPalette() {
     const f1 = e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.metaKey;
     if (!(ctrlP || f1)) return;
     if (f1) { e.preventDefault(); e.stopPropagation(); if (!palette.isOpen) toggleHelp(); return; }
-    if (palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || gitPanel.isOpen) return;
+    if (palette.isOpen || help.isOpen || assetViewer.isOpen || animStudio.isOpen || translations.isOpen || voiceDialog.isOpen || buildDialog.isOpen || themeDialog.isOpen || gitPanel.isOpen) return;
     e.preventDefault();
     e.stopPropagation();
     palette.open('');

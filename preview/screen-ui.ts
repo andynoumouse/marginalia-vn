@@ -4,10 +4,15 @@
 // "active" element; directional focus uses the engine's focusMove on the shapes' centres.
 
 import { W, H } from './stage-size.js';
-import { focusMove, parseRich, sliderReadout, pickables, defaultAnswer, shiftPart, type ScreenView, type ViewItem, type ViewPart } from '../engine/src/index.js';
+import { focusMove, parseRich, sliderReadout, sliceDecls, pickables, defaultAnswer, shiftPart, type FrameEdge, type ScreenView, type Sides, type ViewItem, type ViewPart } from '../engine/src/index.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const px = (n: number) => `${n}px`;
+
+/** Draws `url` as a 9-slice frame around the element (the same border-image the theme's `image` + `slice` makes). */
+function frame(el: HTMLElement, url: string, slice: Sides, edge: FrameEdge) {
+  for (const [k, v] of Object.entries(sliceDecls(url, slice.join(' '), edge))) el.style.setProperty(k, v);
+}
 
 /** Alpha channel of a mask image, as a lookup by stage point; null while it can't be read (the box is used then). */
 interface Mask { w: number; h: number; alpha: Uint8ClampedArray }
@@ -232,10 +237,20 @@ export class ScreenLayer {
       });
       return [input, out];
     }
+    if (part.kind === 'panel') {
+      const d = document.createElement('div');
+      d.className = 'sc-panel';
+      d.style.left = px(part.x); d.style.top = px(part.y); d.style.width = px(part.w); d.style.height = px(part.h);
+      const url = part.file ? urlOf(part.file) : null;
+      if (url) { d.dataset.framed = 'true'; frame(d, url, part.slice, part.edge); }
+      return [d];
+    }
+    if (part.kind === 'bar') return [this.bar(part, urlOf)];
     if (part.kind === 'text') {
       const d = document.createElement('div');
       d.className = 'sc-text';
       d.style.left = px(part.x); d.style.top = px(part.y);
+      if (part.style) d.dataset.style = part.style;
       d.textContent = parseRich(part.text).map(s => (s.kind === 'text' ? s.text : '')).join('');
       return [d];
     }
@@ -250,6 +265,46 @@ export class ScreenLayer {
     if (part.w !== null) img.style.width = px(part.w);
     if (part.h !== null) img.style.height = px(part.h);
     return [img];
+  }
+
+  /** A `bar`: the back (a plain or 9-slice image, else the stock track) with the fill growing inside it from the left. */
+  private bar(part: Extract<ViewPart, { kind: 'bar' }>, urlOf: (file: string) => string | null): HTMLElement {
+    const d = document.createElement('div');
+    d.className = 'sc-bar';
+    d.style.left = px(part.x); d.style.top = px(part.y); d.style.width = px(part.w); d.style.height = px(part.h);
+    d.setAttribute('role', 'progressbar');
+    d.setAttribute('aria-valuemin', String(part.min)); d.setAttribute('aria-valuemax', String(part.max)); d.setAttribute('aria-valuenow', String(part.value));
+    if (part.readout) d.setAttribute('aria-valuetext', part.readout);
+    const back = part.back ? urlOf(part.back) : null;
+    if (back) {
+      d.dataset.framed = 'true';
+      if (part.slice) { d.dataset.sliced = 'true'; frame(d, back, part.slice, part.edge); }
+      else d.style.background = `url("${back}") center / 100% 100% no-repeat`;
+    }
+    const inner = document.createElement('div');
+    inner.className = 'sc-bar-in';
+    const [pt, pr, pb, pl] = part.padding;
+    inner.style.left = px(pl); inner.style.top = px(pt); inner.style.right = px(pr); inner.style.bottom = px(pb);
+    if (part.fraction > 0) {
+      const fill = document.createElement('div');
+      fill.className = 'sc-bar-fill';
+      fill.style.width = `${part.fraction * 100}%`;
+      const art = part.fill ? urlOf(part.fill) : null;
+      if (art && part.slice) { frame(fill, art, part.slice, part.edge); fill.style.minWidth = px(part.slice[1] + part.slice[3]); }
+      else if (art) fill.style.background = `url("${art}") 0 0 / ${100 / part.fraction}% 100% no-repeat`;
+      else if (part.color) fill.style.background = part.color;
+      if (art) fill.dataset.art = 'true';
+      inner.append(fill);
+    }
+    d.append(inner);
+    if (part.readout) {
+      const t = document.createElement('div');
+      t.className = 'sc-bar-text';
+      t.style.fontSize = px(Math.min(40, Math.round(part.h * 0.6)));
+      t.textContent = part.readout;
+      d.append(t);
+    }
+    return d;
   }
 
   private item(it: ViewItem, i: number, urlOf: (file: string) => string | null): Node {
@@ -273,7 +328,7 @@ export class ScreenLayer {
       b.type = 'button';
       b.className = it.kind === 'button' ? 'sc-btn' : `sc-hot sc-${s.k}`;
       b.style.left = px(s.x); b.style.top = px(s.y); b.style.width = px(s.w); b.style.height = px(s.h);
-      if (it.kind === 'button') b.textContent = it.label;
+      if (it.kind === 'button') { b.textContent = it.label; if (it.style) b.dataset.style = it.style; }
       if (s.k === 'mask') {
         const url = urlOf(s.file);
         if (url) { b.style.setProperty('--mask', `url("${url}")`); b.dataset.masked = 'true'; }

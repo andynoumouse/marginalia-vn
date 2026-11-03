@@ -12,7 +12,7 @@
 //   vn stats [--json] [--wpm <n>]    words, lines and reading time per script, label and character
 //   vn init <folder> [--title "My Game"] [--stage 1920x1080]   start a new game project that uses this engine
 //   vn version
-// Inside the engine repo (no project in the current folder) the commands work on sample/.
+// Inside the engine repo (no project in the current folder) the commands work on games/sample/.
 
 import fs from 'node:fs';
 import path from 'node:path';

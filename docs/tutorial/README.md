@@ -1,6 +1,6 @@
 # Tutorial: make a visual novel with Marginalia VN Engine
 
-This tutorial walks through `demo/` ("Rainy Day Library"), a small game that uses most of the engine.
+This tutorial walks through `games/demo/` ("Rainy Day Library"), a small game that uses most of the engine.
 Every snippet comes from its scripts, so you can open the file, run it and change it.
 
 | Page | You learn |

@@ -11,8 +11,8 @@ Answers the TODO "Performance" item. Sections 1-4 describe the code as investiga
 | Images (bg, char, ui) | `PixiRenderer.preloadArt`, `preview/pixi-renderer.ts:62-72` | `Promise.allSettled` over **every** png/webp/jpg/avif: fetch, decode (`createImageBitmap`), `Assets.load`, kept in `this.art`. |
 | Rigs | `pixi-renderer.ts:73-79` | Fetches every `char/*/sprite.json`, after the images finish (sequential). |
 | Music and sounds | `AudioSystem.setAssets`, `preview/audio.ts:39-48` | Every file is fetched and `decodeAudioData`-ed up front (`void this.buffer(url)`, comment: "decode ahead"). Not awaited, so it does not hold up the title screen, but it still downloads and holds everything. Decoded buffers are 32-bit float PCM, so memory is far above file size (a 3 minute stereo 44.1 kHz track is about 63 MB decoded; an mp3 or ogg of it is about 3 MB). |
-| Fonts | `preview/theme.ts:76-81` | `@font-face` rules for every font file. The browser fetches a face only when text uses it, so this is lazy already. |
-| UI skin images | `theme.ts:56` (`border-image: url(...)`) | CSS, so fetched only when a rule matches (skins scoped by `data-skin` load on first use). Lazy already. |
+| Fonts | `engine/src/theme.ts` (`themeCss`) | `@font-face` rules for every font file. The browser fetches a face only when text uses it, so this is lazy already. |
+| UI skin images | `engine/src/theme.ts` (`border-image: url(...)`) | CSS, so fetched only when a rule matches (skins scoped by `data-skin` load on first use). Lazy already. |
 | Gallery thumbnails | `preview.ts:134`, `menus.ts:292,312` | Full-size backgrounds used as CSS images; fetched again by the browser (the dev server sends `no-store`). |
 | Blips | `preview/blips.ts` | Synthesized; samples go through the audio list above. |
 
@@ -20,7 +20,7 @@ Nothing is ever released: no `Assets.unload`, and no `texture.destroy` anywhere 
 
 ## 2. Measurements
 
-`sample/assets` is **empty** (only `.gitkeep`), so the sample game runs entirely on placeholders and loads nothing. To get numbers I generated a synthetic project (kept outside the repo): 30 backgrounds 1920x1080 PNG (about 4 MB each, a pessimistic noisy case), 10 characters with 20 PNG layers each (500x700, 240 KB each, `sprite.json` rig), 10 music tracks (20 s stereo WAV, 3.4 MB each), 5 sounds, and a 3-chapter script. Dev server on port 5180, built-in browser, localhost, so no network latency.
+`games/games/sample/assets` is **empty** (only `.gitkeep`), so the sample game runs entirely on placeholders and loads nothing. To get numbers I generated a synthetic project (kept outside the repo): 30 backgrounds 1920x1080 PNG (about 4 MB each, a pessimistic noisy case), 10 characters with 20 PNG layers each (500x700, 240 KB each, `sprite.json` rig), 10 music tracks (20 s stereo WAV, 3.4 MB each), 5 sounds, and a 3-chapter script. Dev server on port 5180, built-in browser, localhost, so no network latency.
 
 - Boot requests: 27 code/API requests, 255 asset requests (230 images, 10 `sprite.json`, 10 music, 5 sounds), about **204 MB** of assets; all of them requested before the title appeared. (The browser tool's network list and `performance` resource timing do not show Pixi's image fetches; the count comes from the asset list and the request ordering.)
 - Time to the title screen: **about 1.0 s** on localhost (page load to "title screen"). The synthetic script only ever shows the first chapter's few backgrounds early on, yet all 30 are loaded. On a real connection the download dominates: 204 MB at 50 Mbit/s is about 33 s before the title appears, because `await renderer.preload()` gates `showTitle()`.

@@ -19,13 +19,11 @@ class FakeStorage {
 const timers = [];
 globalThis.localStorage = new FakeStorage();
 globalThis.window = { setTimeout: fn => { timers.push(fn); return timers.length; } };
-globalThis.CSS = { supports: (_prop, v) => /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\(.*\))$/i.test(v) };
 
 const storage = await import('../../dist/preview/storage.js');
 const saves = await import('../../dist/preview/saves.js');
 const { loadSettings, saveSettings } = await import('../../dist/preview/settings.js');
 const { Blips, BLIP_PRESETS } = await import('../../dist/preview/blips.js');
-const { themeCss } = await import('../../dist/preview/theme.js');
 const { Timeline } = await import('../../dist/preview/timeline.js');
 const { spatialNext, PadMapper, pickPad, oskPress, oskCaps, OSK_ROWS } = await import('../../dist/preview/input.js');
 const { fuzzy, rank } = await import('../../dist/editor/palette.js');
@@ -282,26 +280,6 @@ test('blips: samples play by name or per vowel; a sound asset works as a voice',
   assert.equal(calls[2].sample, 'other');
 });
 
-// ---- theme ----
-
-test('theme css: skins, fonts, 9-slice frames; unsafe values are dropped', () => {
-  const css = themeCss({
-    accent: '#5fd1c3',
-    font: 'Georgia',
-    textbox: { x: 100, y: 800, width: 1700, background: '#112233', radius: 12 },
-    skins: { alice: { text: { color: '#ffe6f0', size: 50 } } },
-    choices: { image: 'choice', slice: 24, gap: 18 },
-  }, [{ file: 'fonts/Mono.ttf', v: 3 }, { file: 'bg/park.png', v: 1 }]);
-  assert.match(css, /@font-face \{ font-family: "Mono"; src: url\("assets\/fonts\/Mono\.ttf\?v=3"\)/);
-  assert.doesNotMatch(css, /bg\/park/);
-  assert.match(css, /--accent: #5fd1c3/);
-  assert.match(css, /#stage #box \{[^}]*left: 100px[^}]*top: 800px[^}]*width: 1700px/);
-  assert.match(css, /#stage\[data-skin="alice"\] #text \{[^}]*--text-size: 50px[^}]*color: #ffe6f0/);
-  assert.match(css, /border-image: url\("assets\/ui\/choice\.png"\) 24 fill \/ 24px/);
-  const evil = themeCss({ accent: 'red; } body { display: none', textbox: { background: 'url(x)' }, skins: { 'a"]{x': { text: { size: 1 } } } });
-  assert.doesNotMatch(evil, /display: none|url\(x\)|a"\]/);
-});
-
 // ---- rollback history ----
 
 test('rollback history: back returns the previous moment; the same step replaces itself', () => {
@@ -319,6 +297,21 @@ test('rollback history: back returns the previous moment; the same step replaces
   assert.equal(t.recent().length, 3);
   t.clear();
   assert.equal(t.recent().length, 0);
+});
+
+test('timeline backTo: a history line rolls back over every moment after it, choices included', () => {
+  const t = new Timeline();
+  const m = (step, text) => ({ step, choices: [], line: { name: null, color: null, text } });
+  t.push(m(0, 'a')); t.push(m(1, 'b')); t.push({ step: 2, choices: [0] }); t.push(m(3, 'c')); t.push(m(4, 'd'));
+  assert.equal(t.atLine(), true);
+  assert.equal(t.backTo(3), null); // 'd' is on screen
+  assert.equal(t.backTo(9), null);
+  assert.equal(t.backTo(-1), null);
+  assert.equal(t.backTo(1).step, 1); // 'b': the choice, 'c' and 'd' go too
+  assert.deepEqual(t.lines().map(l => l.text), ['a']);
+  t.push(m(1, 'b')); t.push({ step: 2, choices: [1] });
+  assert.equal(t.atLine(), false); // a menu after 'b': going back to 'b' is a real step
+  assert.equal(t.backTo(1).step, 1);
 });
 
 test('rollback history is capped', () => {

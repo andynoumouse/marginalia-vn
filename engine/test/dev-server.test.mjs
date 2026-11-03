@@ -18,8 +18,8 @@ const freePort = () => new Promise(resolve => {
 
 before(async () => {
   project = mkdtempSync(path.join(tmpdir(), 'vn-files-'));
-  for (const d of ['script', 'assets', 'masters']) cpSync(path.join(root, 'sample', d), path.join(project, d), { recursive: true });
-  cpSync(path.join(root, 'sample', 'game.json'), path.join(project, 'game.json'));
+  for (const d of ['script', 'assets', 'masters']) cpSync(path.join(root, 'games', 'sample', d), path.join(project, d), { recursive: true });
+  cpSync(path.join(root, 'games', 'sample', 'game.json'), path.join(project, 'game.json'));
   const port = await freePort();
   base = `http://localhost:${port}`;
   server = spawn(process.execPath, ['preview/dev-server.mjs', '--no-build', '--no-art'], {

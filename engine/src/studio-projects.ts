@@ -59,6 +59,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Characters on stage have a draw order (show ... order=front|back, behind=<char>).',
     'Exported games show an error screen with a report to copy instead of stopping.',
   ],
+  '0.4': [
+    'game.json can hold a theme with named styles; speakers (define ... style=), lines (style=), menus and buttons use them.',
+    'Screens have panel (a 9-slice framed container) and bar (a stat bar) elements.',
+    'game.json "saveNames" lets the player name a save; history lines can roll the story back to them (action line).',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

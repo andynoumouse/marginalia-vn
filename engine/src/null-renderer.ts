@@ -20,8 +20,11 @@ export class NullRenderer implements Renderer {
   async say(ev: SayEvent) { this.says.push(ev); }
   /** The clock of each menu as shown (null: none). The null renderer never times out by itself: have `chooser` return `options.length` to do so. */
   timers: ({ seconds: number } | null)[] = [];
-  async menu(options: MenuItem[], _src: Src, prompt?: string, timer?: { seconds: number }) {
+  /** The `style=` of each menu as shown (null: none). */
+  menuStyles: (string | null)[] = [];
+  async menu(options: MenuItem[], _src: Src, prompt?: string, timer?: { seconds: number }, style?: string) {
     this.timers.push(timer ?? null);
+    this.menuStyles.push(style ?? null);
     this.menus.push(options.map(o => o.text));
     this.menuItems.push(options.map(o => ({ ...o })));
     this.prompts.push(prompt ?? null);

@@ -74,6 +74,7 @@ label stacks:
   iris: ...and a filter can make the room feel like an old photograph. #bfa5
   filter off 1
   flash #ffffff 0.5
+  sound play thunder
   iris: A lightning flash! {pause=0.5}Did you hear the thunder? #xa9b
   shake iris 0.4 strength=8
   animate iris stop

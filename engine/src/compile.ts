@@ -114,7 +114,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
           }
           if (n.options.length === 0) diag(n.src, 'error', 'A menu needs at least one option');
           const timeout = n.timeout ? { seconds: n.timeout.seconds, target: -1, from: n.timeout.src.line, to: n.timeout.to } : null;
-          const menuAt = emit(n.src, { op: 'menu', prompt: n.prompt, promptId: n.promptId, options, timeout, end: -1 });
+          const menuAt = emit(n.src, { op: 'menu', prompt: n.prompt, promptId: n.promptId, ...(n.look ? { look: n.look } : {}), options, timeout, end: -1 });
           const endJumps: number[] = [];
           n.options.forEach((o, idx) => {
             options[idx].target = ops.length;
@@ -154,7 +154,8 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
           }
           if (n.kind === 'hotspot' || n.kind === 'button') registerString(n.src, n.labelId, n.label);
           else if (n.kind === 'text') registerString(n.src, n.id, n.text);
-          else if (n.kind === 'layout' || n.kind === 'scroll') walk(n.body, local);
+          else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body, local);
+          else if (n.kind === 'bar') for (const e of [n.value, n.min, n.max]) exprs.push({ e, src: n.src, local });
           else if (n.kind === 'each') {
             if (!local.has(n.list)) eachLists.push({ list: n.list, src: n.src });
             walk(n.body, new Set([...local, n.as, `${n.as}.name`, `${n.as}.image`, `${n.as}.index`, ...fields.map(f => `${n.as}.${f}`)]));
@@ -209,7 +210,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
   // A HUD element's event calls a label: it must exist.
   const checkHandlers = (nodes: ScreenNode[]) => {
     for (const n of nodes) {
-      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') checkHandlers(n.body);
+      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') checkHandlers(n.body);
       else if (n.kind === 'hotspot' || n.kind === 'button') {
         for (const [event, label] of Object.entries(n.on)) if (!(label in labels)) diagnostics.push(withFix(n.src, 'error', `Unknown label "${label}" (on ${event} of ${n.id})`, label, Object.keys(labels)));
       }

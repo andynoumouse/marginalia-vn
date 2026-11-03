@@ -24,17 +24,17 @@ README.md describes the features; `docs/commands.md` is the script command refer
   preview code rebuild and reload by themselves; restart it after editing `preview/dev-server.mjs`.
 - Preview servers count against a per-folder limit (5) shared by all chats. Stop the one you started
   (`preview_stop`) when your task is done, and don't leave servers running for finished chats.
-- To see a script change rendered, temporarily patch `sample/script/park.vn`, screenshot it with a throwaway
+- To see a script change rendered, temporarily patch `games/sample/script/park.vn`, screenshot it with a throwaway
   playwright script (dev server with `--no-build --no-art` on your own port; two Space presses, with a wait, get past
   the first line), then `git checkout` the sample. The renderer exposes no handle to the pixi scene, so browser tests
   can't assert on sprite bounds without adding a debug hook first.
 - Never kill node processes broadly: the dev server and the tsc watcher are node processes too.
-- `demo/` is a second game project (Iris, the Studio's "Open the Demo"); the online demo's code is `online/`
+- `games/demo/` is a second game project (Iris, the Studio's "Open the Demo"); the online demo's code is `online/`
   (docs/online.md). After changing `online/`, the editor's URLs or `/api` routes, check it with `npm run build:online`
   and the `vn-online` preview (http://localhost:5180/marginalia-vn/); `online.test.mjs` covers the routes in node.
   Editor and preview URLs stay relative (`../assets/`, `../docs/`): the demo serves them under `p/<id>/`.
 - After adding or editing script lines run `npm run ids`, then `npm run strings`. The resulting changes to
-  `sample/locale/en.json` and the scripts are expected.
+  `games/sample/locale/en.json` and the scripts are expected.
 - Commit only when asked.
 
 ## Branches and releases
@@ -48,7 +48,7 @@ README.md describes the features; `docs/commands.md` is the script command refer
   2. `git switch main && git merge --squash dev`, then commit with a changelog-style message (what is new and fixed).
   3. `node scripts/sanitize-check.mjs` (local paths, personal email, tokens) must be clean.
   4. `git tag -a vX.Y.Z -m "..."`, then `git push origin main vX.Y.Z` (and `git lfs push --all origin main` when
-     `sample/masters/` changed).
+     `games/sample/masters/` changed).
   5. `git switch dev && git merge main -s ours -m "Sync release vX.Y.Z"`, so the next squash holds only new work.
 - Docs meant for public readers must not read as notes to Claude ("for a fresh session"), and must not cite commit hashes.
 
@@ -56,7 +56,7 @@ README.md describes the features; `docs/commands.md` is the script command refer
 
 - `engine/src` has no DOM and runs in node. Put new logic there as pure functions with a test in
   `engine/test/`; the editor (`editor/`) and game shell (`preview/`) stay thin.
-- All scripts in `script/` compile together: labels are global and `sample/script/park.vn` owns `start`. Other
+- All scripts in `script/` compile together: labels are global and `games/sample/script/park.vn` owns `start`. Other
   sample scripts (`demo.vn`) are entered with Preview from cursor. Tests hard-code park.vn's choice order, so
   don't reshuffle it.
 - Adding a script command touches: `parser.ts`, `types.ts`, `runtime.ts` (and `compile.ts` if it has

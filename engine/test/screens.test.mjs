@@ -240,6 +240,18 @@ label start:
   assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).historyView({}, {}), null);
 });
 
+test('history screen: `action line` buttons carry the line id, and `ln.current` marks the line on screen', () => {
+  const p = build(`screen history:
+  each lines as ln step 0,60:
+    button ln at 0,0 size 800,50 "[ln.text]" action line enabled not ln.current
+label start:
+  end
+`);
+  assert.deepEqual(p.diagnostics, []);
+  const v = new Runtime(p, new NullRenderer()).historyView({ lines: ['1', '2'], total: 2 }, { lines: { 1: { name: '', text: 'a', current: false }, 2: { name: '', text: 'b', current: true } } });
+  assert.deepEqual(v.parts.filter(x => x.act === 'line').map(x => [x.id, x.label, x.enabled]), [['1', 'a', true], ['2', 'b', false]]);
+});
+
 test('musicView and chaptersView are the reserved music and chapter screens; the title buttons follow the entries', () => {
   const p = build(`screen music:
   each tracks as t step 0,100:
@@ -618,7 +630,7 @@ test('completions know screens, elements and define item', () => {
 
 test('the sample screens script compiles clean', async () => {
   const fs = await import('node:fs');
-  const files = fs.readdirSync('sample/script').filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: fs.readFileSync(`sample/script/${f}`, 'utf8') }));
+  const files = fs.readdirSync('games/sample/script').filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: fs.readFileSync(`games/sample/script/${f}`, 'utf8') }));
   const p = compile(files);
   assert.deepEqual(p.diagnostics.filter(d => d.severity === 'error'), []);
   assert.ok(p.screens.town_map && p.screens.inventory && p.items.key.image);

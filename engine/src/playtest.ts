@@ -115,7 +115,8 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
       expr(n.cond, n.src, local);
       if (n.kind === 'hotspot' || n.kind === 'button') { expr(n.enabled, n.src, local); text(n.label, n.src, local); }
       else if (n.kind === 'text') text(n.text, n.src, local);
-      else if (n.kind === 'layout' || n.kind === 'scroll') walk(n.body, local);
+      else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body, local);
+      else if (n.kind === 'bar') { expr(n.value, n.src, local); expr(n.min, n.src, local); expr(n.max, n.src, local); }
       else if (n.kind === 'each') {
         if (!local.has(n.list)) read(n.list, n.src);
         walk(n.body, new Set([...local, n.as, `${n.as}.name`, `${n.as}.image`, `${n.as}.index`, ...shellEntryFields(screen).map(f => `${n.as}.${f}`)]));
@@ -168,8 +169,10 @@ export function unusedAssets(program: Program, index: AssetIndex, game: unknown 
   const walk = (nodes: ScreenNode[]) => {
     for (const n of nodes) {
       if (n.kind === 'image') addFile(n.file);
+      if (n.kind === 'panel' && n.file) addFile(n.file);
+      if (n.kind === 'bar') { if (n.back) addFile(n.back); if (n.fill) addFile(n.fill); }
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.fx.sound && ctx.has(`sound/${n.fx.sound}`)) used.add(`sound/${n.fx.sound}`);
-      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') walk(n.body);
+      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
     }
   };
   for (const def of Object.values(program.screens ?? {})) walk(def.body);
@@ -226,7 +229,8 @@ function abstraction(program: Program): Abstraction {
       if (n.cond) conds.push(n.cond);
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.enabled) conds.push(n.enabled);
       if (n.kind === 'each') lists.add(n.list);
-      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll') walk(n.body);
+      if (n.kind === 'bar') conds.push(n.value, n.min, n.max);
+      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
     }
   };
   for (const def of Object.values(program.screens ?? {})) walk(def.body);

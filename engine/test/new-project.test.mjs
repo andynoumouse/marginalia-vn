@@ -40,3 +40,15 @@ test('newProjectFiles writes a non-default stage and rejects a bad one', () => {
   assert.equal(JSON.parse(landscape['game.json']).stage, undefined);
   assert.throws(() => newProjectFiles({ title: 'P', engineVersion: '0.2.1', kind: 'studio', stage: { width: 0, height: 1920 } }), /stage\.width/);
 });
+
+test('new projects, the sample and the demo all hold the full folder structure', async () => {
+  const { PROJECT_FOLDERS } = await import('../../dist/engine/src/index.js');
+  const { readdirSync } = await import('node:fs');
+  const files = newProjectFiles({ title: 'Rain Park', engineVersion: '0.2.1', kind: 'studio' });
+  const has = (list, dir) => list.some(f => f.startsWith(`${dir}/`));
+  for (const dir of PROJECT_FOLDERS) assert.ok(has(Object.keys(files), dir), `a new project has ${dir}/`);
+  for (const project of ['sample', 'demo']) {
+    const all = readdirSync(new URL(`../../games/${project}`, import.meta.url), { recursive: true }).map(f => f.replaceAll('\\', '/'));
+    for (const dir of PROJECT_FOLDERS) assert.ok(has(all, dir), `${project}/${dir}/ holds a file (add a .gitkeep to an empty folder)`);
+  }
+});

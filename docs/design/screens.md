@@ -160,7 +160,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
    `show screen` (a screen is a node with the labels its answers jump to, which `buildOutline` can only guess at; list
    as "unknown" in v1), a Problems entry for unknown screens, `docs/commands.md` section (mind the `### a / b`
    heading rule), README syntax block.
-7. **Sample.** A small `sample/script/` demo (map with three places, an inventory) entered with Preview from cursor,
+7. **Sample.** A small `games/sample/script/` demo (map with three places, an inventory) entered with Preview from cursor,
    like `demo.vn`. Do not touch `park.vn`'s choice order. Then `npm run ids`, `npm run strings`.
 8. **Tests.** Parser, validation, focus movement, answer replay (save, load, rollback, restore into a screen loop without
    hanging), preload coverage, and a browser test that clicks a hotspot and checks the story branch.
@@ -268,5 +268,5 @@ None. Remaining detail (list syntax, exact `screen` grammar) belongs to the buil
 - A script can show the map and the inventory sample screens, branch on the chosen element, and loop back.
 - Save, load, rollback and Preview from cursor into a screen loop all work; no hang.
 - Mouse, keyboard and simulated gamepad can reach and pick every enabled element; disabled ones cannot be picked.
-- Strings appear in `sample/locale/en.json` and are translatable; missing images and bad rectangles show in Problems.
+- Strings appear in `games/sample/locale/en.json` and are translatable; missing images and bad rectangles show in Problems.
 - `npm test` is green; docs, help topics and completions mention screens.

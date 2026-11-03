@@ -35,7 +35,7 @@ const alive = pid => { try { process.kill(pid, 0); return true; } catch { return
 /** A copy of the sample (without build/) at tmp/<name>, with game.json changed by `game`. */
 function sampleCopy(tmp, name, game) {
   const project = path.join(tmp, name);
-  fs.cpSync(path.join(root, 'sample'), project, { recursive: true, filter: src => path.relative(path.join(root, 'sample'), src) !== 'build' });
+  fs.cpSync(path.join(root, 'games', 'sample'), project, { recursive: true, filter: src => path.relative(path.join(root, 'games', 'sample'), src) !== 'build' });
   if (game) {
     const file = path.join(project, 'game.json');
     fs.writeFileSync(file, JSON.stringify(game(JSON.parse(fs.readFileSync(file, 'utf8'))), null, 2) + '\n');

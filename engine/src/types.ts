@@ -83,8 +83,8 @@ export type VisualBody =
   | { op: 'wait'; dur: number };
 
 export type ControlBody =
-  | { op: 'say'; who: string | null; text: string; id: string | null }
-  | { op: 'menu'; prompt: string | null; promptId: string | null; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: number }
+  | { op: 'say'; who: string | null; text: string; id: string | null; /** `style=<name>` on the line: a theme style for it alone */ look?: string }
+  | { op: 'menu'; prompt: string | null; promptId: string | null; look?: string; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: number }
   | { op: 'screen'; name: string; as: string } // show a declared screen and store the id of the element the player chose
   | { op: 'input'; name: string; prompt: string; id: string | null; default: string; max: number } // ask the player for text, stored in a variable
   | { op: 'set'; name: string /* or persistent.<name> */; assign: '=' | '+=' | '-=' | '*=' | '/='; expr: Expr }
@@ -190,6 +190,8 @@ export interface SayEvent {
   color: string | null;
   /** Style of the speaker, or of `define narrator` for narration. */
   style: CharacterStyle;
+  /** `style=<name>` on the line itself; wins over the speaker's `define ... style=`. */
+  look?: string;
   text: string;
   segments: Segment[];
   src: Src;
@@ -222,7 +224,7 @@ export interface Renderer {
    * Show choices (with the menu's prompt line, if it has one); resolve with the index into `options`. A disabled option cannot be chosen.
    * With a `timer` the player has that many seconds; when they run out, resolve with `options.length` (one past the last option).
    */
-  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }): Promise<number>;
+  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<number>;
   /** Ask for a line of text; resolve with the answer. */
   input(prompt: string, def: string, max: number, src: Src): Promise<string>;
   /** Show a screen and wait; resolve with the id of the chosen element ("" = cancelled). */

@@ -23,7 +23,11 @@ export interface SaveData {
   version?: string;    // script version; rollback history is only reused when it matches
   saveVersion?: number; // game.json "saveVersion" when saved (none: 0); see isOutdatedSave
   history?: Moment[];  // rollback history up to this point
+  label?: string;      // the name the player gave it (game.json "saveNames"; manual slots only)
 }
+
+/** The longest save name, in characters. */
+export const SAVE_NAME_MAX = 40;
 
 /** A line or choice passed, for rollback and the history screen (exact within one script version). */
 export interface Moment { step: number; choices: Answer[]; line?: LineInfo }

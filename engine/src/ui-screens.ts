@@ -76,9 +76,9 @@ const STARTERS: Record<string, string> = {
 ${BACK}`,
   [HISTORY_SCREEN]: `screen history:
   scroll at 160,140 size 1500,760 start bottom:
-    each lines as ln step 0,120:
+    each lines as ln step 0,140:
       text at 0,0 "[ln.name]" if ln.name != ""
-      text at 0,44 "[ln.text]"
+      button ln at 0,44 size 1500,84 "[ln.text]" action line
 ${BACK}`,
   [GALLERY_SCREEN]: `screen gallery:
   scroll at 160,160 size 1600,700:

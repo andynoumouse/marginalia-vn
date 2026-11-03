@@ -40,6 +40,7 @@ test('changesSince lists the minor versions after the game\'s, up to the engine\
   assert.deepEqual(changesSince('0.3', '0.3.1', changes), []);
   assert.ok(changesSince('0.1', '0.2.1').length === 1, 'the engine has an entry for 0.2');
   assert.deepEqual(changesSince('0.2', '0.3.0').map(c => c.version), ['0.3'], 'the engine has an entry for 0.3');
+  assert.deepEqual(changesSince('0.3', '0.4.0').map(c => c.version), ['0.4'], 'the engine has an entry for 0.4');
 });
 
 test('withEngineVersion rewrites only the engine field', () => {

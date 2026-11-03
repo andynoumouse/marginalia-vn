@@ -6,12 +6,13 @@ import { FILTER_NAMES, WEATHER_NAMES, isFilterName, isWeatherName, type FilterNa
 import type { ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import { withFix } from './suggest.js';
-import { ElementSyntaxError, parseEachHeader, parseElementLine, parseLayoutHeader, parseScrollHeader } from './screen-syntax.js';
+import { ElementSyntaxError, parseEachHeader, parseElementLine, parseLayoutHeader, parsePanelHeader, parseScrollHeader } from './screen-syntax.js';
 import { TRANSITIONS, type CharacterDef, type Diagnostic, type ItemDef, type OpBody, type Src, type Transition, type VisualBody } from './types.js';
 
 // Line shapes shared with the id tool (ids.ts).
-export const RE_SAY = /^([A-Za-z_][A-Za-z0-9_]*):[ \t]+(.*?)(?:[ \t]+#([A-Za-z0-9]{4,8}))?$/;
-export const RE_NARR = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?$/;
+// A line may end in `style=<name>` (a theme style for this line) before its `#id`.
+export const RE_SAY = /^([A-Za-z_][A-Za-z0-9_]*):[ \t]+(.*?)(?:[ \t]+style=(\w+))?(?:[ \t]+#([A-Za-z0-9]{4,8}))?$/;
+export const RE_NARR = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+style=(\w+))?(?:[ \t]+#([A-Za-z0-9]{4,8}))?$/;
 // `input name "Prompt" [options] [#id]`: the prompt is a localizable string when it has an id.
 export const RE_INPUT = /^input[ \t]+[A-Za-z_]\w*[ \t]+"((?:[^"\\]|\\.)+)"/;
 export const RE_INPUT_ID = /[ \t]#([A-Za-z0-9]{4,8})$/;
@@ -22,7 +23,7 @@ const RE_LABEL = /^label[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \
 const RE_CALL = /^call[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\((.*)\))?[ \t]*(?:#.*)?$/;
 const RESERVED_WORDS = ['true', 'false', 'and', 'or', 'not'];
 // `menu ["Prompt" [#id]] [timeout <seconds>]:`
-export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?(?:[ \t]+timeout[ \t]+(.+?))?[ \t]*:$/;
+export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?(?:[ \t]+style=(\w+))?(?:[ \t]+timeout[ \t]+(.+?))?[ \t]*:$/;
 const RE_ON_TIMEOUT = /^on[ \t]+timeout[ \t]*:$/;
 const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:?$/;
 export const RE_DEFINE_ITEM = /^define[ \t]+item[ \t]+[A-Za-z_]\w*(?=[ \t]|$)/;
@@ -35,7 +36,7 @@ export type Node =
   | { k: 'op'; src: Src; body: OpBody }
   | { k: 'label'; src: Src; name: string; params: string[]; body: Node[] }
   | { k: 'if'; src: Src; branches: { cond: Expr | null; src: Src; body: Node[] }[] }
-  | { k: 'menu'; src: Src; prompt: string | null; promptId: string | null;
+  | { k: 'menu'; src: Src; prompt: string | null; promptId: string | null; look: string | null;
       options: { text: string; id: string | null; cond: Expr | null; reason: string | null; reasonId: string | null; src: Src; to: number; body: Node[] }[];
       /** `timeout <seconds>` on the header together with the `on timeout:` block; null: no clock. */
       timeout: { seconds: Expr; src: Src; to: number; body: Node[] } | null };
@@ -59,7 +60,7 @@ export function unescapeText(s: string): string {
 }
 
 const COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-export const DEFINE_ATTRS = ['color=', 'text=', 'font=', 'size=', 'italic', 'speed=', 'blip=', 'box=', 'focus=off', 'side='];
+export const DEFINE_ATTRS = ['color=', 'text=', 'font=', 'size=', 'italic', 'speed=', 'blip=', 'style=', 'box=', 'focus=off', 'side='];
 
 /** Apply one `key=value` (or flag) of a define line; returns a problem message, if any. */
 function defineAttr(def: CharacterDef, attr: string): string | null {
@@ -74,7 +75,7 @@ function defineAttr(def: CharacterDef, attr: string): string | null {
     case 'size': { const n = positive(); if (!n) return 'size= needs a number like 1.1'; def.style.size = n; return null; }
     case 'speed': { const n = positive(); if (!n) return 'speed= needs a number like 0.8'; def.style.speed = n; return null; }
     case 'blip': if (!/^\w+$/.test(val)) return 'blip= needs a sound name'; def.style.blip = val; return null;
-    case 'box': if (!/^\w+$/.test(val)) return 'box= needs a skin name'; def.style.box = val; return null;
+    case 'style': case 'box': if (!/^\w+$/.test(val)) return `${key}= needs a style name`; def.style.box = val; return null; // box= is the old name
     case 'focus': if (val !== 'on' && val !== 'off') return 'focus= is on or off'; if (val === 'off') def.focus = false; else delete def.focus; return null;
     case 'side': if (!/^\w+$/.test(val)) return 'side= needs a portrait name (assets/side/<name>.png)'; def.side = val; return null;
     default: return `Unknown define option "${attr}" (use ${DEFINE_ATTRS.join(' ')})`;
@@ -504,7 +505,21 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
           nodes.push({ kind: 'layout', type: h.type, columns: h.columns, at: h.at, anchor: h.anchor, margin: h.margin, padding: h.padding, gap: h.gap, align: h.align, cell: h.cell, body, src: src(l), cond: cond(l, h.cond) });
           continue;
         }
+        if (word === 'panel') {
+          const h = parsePanelHeader(l.text.replace(/[ \t]*:$/, ''), inLayout);
+          if (!h) continue;
+          // a panel's children sit inside it, so `at` is relative to it; a bare frame (no colon) has none
+          const body = /:[ \t]*$/.test(l.text) ? parseScreenBody(l, def, inEach, false) : [];
+          nodes.push({ kind: 'panel', x: h.x, y: h.y, w: h.w, h: h.h, file: h.file, slice: h.slice, edge: h.edge, padding: h.padding, body, src: src(l), cond: cond(l, h.cond) });
+          continue;
+        }
         const p = parseElementLine(l.text, inLayout, stage);
+        if (p.el.kind === 'bar') {
+          const { value, min, max, ...rest } = p.el;
+          const [v, lo, hi] = [exprOf(l, value), exprOf(l, min), exprOf(l, max)];
+          if (v && lo && hi) nodes.push({ ...rest, value: v, min: lo, max: hi, src: src(l), cond: cond(l, p.cond) });
+          continue;
+        }
         const node = { ...p.el, src: src(l), cond: cond(l, p.cond) } as ScreenNode;
         if (node.kind === 'hotspot' || node.kind === 'button') node.enabled = cond(l, p.enabled);
         nodes.push(node);
@@ -542,7 +557,7 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
       const options: Extract<Node, { k: 'menu' }>['options'] = [];
       if (!first || first.indent <= ln.indent) { err(ln, 'Expected options after "menu:"'); return null; }
       const optIndent = first.indent;
-      const seconds = m[3] !== undefined ? exprOf(ln, m[3]) ?? { t: 'num', v: 0 } as Expr : null;
+      const seconds = m[4] !== undefined ? exprOf(ln, m[4]) ?? { t: 'num', v: 0 } as Expr : null;
       let timeout: Extract<Node, { k: 'menu' }>['timeout'] = null, lateOptions = false;
       while (i < lines.length && lines[i].indent >= optIndent) {
         const ol = lines[i];
@@ -569,7 +584,7 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
           src: src(ol), to: child.endLine, body: child.nodes });
       }
       if (seconds !== null && !timeout && !lateOptions) err(ln, 'A menu with "timeout" needs an "on timeout:" block (the story says what happens when time runs out)');
-      return { k: 'menu', src: src(ln), prompt, promptId, options, timeout };
+      return { k: 'menu', src: src(ln), prompt, promptId, look: m[3] ?? null, options, timeout };
     }
     if (RE_ON_TIMEOUT.test(t)) { err(ln, '"on timeout:" only belongs inside a "menu ... timeout <seconds>:" block'); return null; }
     if ((m = RE_IF.exec(t))) {
@@ -596,10 +611,10 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     if (RE_OPT.test(t)) { err(ln, 'Options only belong inside a "menu:" block'); return null; }
 
     if ((m = RE_NARR.exec(t))) {
-      return { k: 'op', src: src(ln), body: { op: 'say', who: null, text: unescapeText(m[1]), id: m[2] ?? null } };
+      return { k: 'op', src: src(ln), body: { op: 'say', who: null, text: unescapeText(m[1]), id: m[3] ?? null, ...(m[2] ? { look: m[2] } : {}) } };
     }
     if ((m = RE_SAY.exec(t))) {
-      return { k: 'op', src: src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[3] ?? null } };
+      return { k: 'op', src: src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[4] ?? null, ...(m[3] ? { look: m[3] } : {}) } };
     }
     if ((m = RE_SET.exec(t))) {
       const e = exprOf(ln, m[3]);

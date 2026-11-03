@@ -1,4 +1,4 @@
-# Marginalia VN Engine (v0.3)
+# Marginalia VN Engine (v0.4)
 
 - These couple of paragraphs are the only content I type manually in to this project:
 - This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
@@ -18,7 +18,7 @@ PixiJS, the editor Monaco and the art pipeline ag-psd (dev dependencies, no bund
 any line, Ctrl+P jumps to files, labels and assets, and panels show your variables live and draw the story as a flowchart
 ([a tour with screenshots](docs/tutorial/00-the-editor.md), shown on the demo project).
 
-This repo is the engine plus a small sample game (`sample/`). Real games live in their own folders and
+This repo is the engine plus a small sample game (`games/sample/`). Real games live in their own folders and
 repos and use the engine as a package (see "Making a game").
 
 ## Run it (engine repo)
@@ -27,7 +27,7 @@ Needs Node.js 22 or newer.
 
 ```
 npm install
-npm run dev          # builds, watches, serves http://localhost:5173 (editor: /editor/) for sample/
+npm run dev          # builds, watches, serves http://localhost:5173 (editor: /editor/) for games/sample/
 npm test             # engine and shell tests (node:test, no browser needed)
 npm run test:browser # the browser tests (system Edge/Chrome); test:all runs both
 npm run studio       # the editor as a desktop app (Marginalia Studio, early): projects screen, or -- --project <folder>
@@ -38,10 +38,10 @@ npm run strings      # export locale/<source language>.json (en by default), rep
 npm run playtest     # play every route: unreachable lines, endings, unused assets and variables
 npm run stats        # words, lines and reading time per script, label and character
 npm run art          # convert changed PSDs in masters/ to assets/ (--force: all; npm run dev also watches)
-npm run export       # static web build in sample/build/web (upload it, or zip it for itch.io)
+npm run export       # static web build in games/sample/build/web (upload it, or zip it for itch.io)
 ```
 
-Edit `sample/script/park.vn` while the preview is open: it reloads and returns to the line you were on.
+Edit `games/sample/script/park.vn` while the preview is open: it reloads and returns to the line you were on.
 Editing engine code (`engine/src`, `preview/`, `editor/`) rebuilds and reloads the page automatically.
 
 ## Marginalia Studio (desktop app, Windows)
@@ -84,32 +84,32 @@ The game folder holds only content: `game.json`, `script/`, `locale/`, `assets/`
 `build/` (ignored). Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which
 runs the engine's tools on the current folder. Because the dependency is a link, not a copy, engine changes
 apply to the game right away; restart `npm run dev` after pulling engine changes. To freeze the engine for a
-release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.3.0"`) and update it on
+release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.4.0"`) and update it on
 purpose. game.json `"engine": "0.1"` makes the tools warn when the engine is older than the game expects.
 
 ## Layout
 
 ```
-engine/src/   expr, text, parser, compile, runtime, locale, ids, assets   (no DOM, runs anywhere)
+engine/src/   expr, text, parser, compile, runtime, locale, ids, assets, theme (game.json theme -> CSS)   (no DOM, runs anywhere)
 engine/test/  node:test suite
 preview/      dev-server.mjs (static + /api/project + live reload), index.html, preview.ts (game shell), saves.ts, blips.ts,
               stage-ui.ts (HTML text box, skip/auto), pixi-renderer.ts (world, WebGL), audio.ts (Web Audio),
-              menus.ts (title/pause/options/saves/history), settings.ts, theme.ts (game.json theme -> CSS),
+              menus.ts (title/pause/options/saves/history), settings.ts,
               storage.ts (per-game storage: browser or desktop files), input.ts (keyboard/gamepad navigation), timeline.ts (rollback history)
 editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts
 tools/        paths.mjs (engine vs project folder), vn-tool.mjs (ids, strings), psd-convert.mjs (art pipeline),
               export-web.mjs, project-data.mjs
 online/       the online demo: sw.ts (service worker: the dev server's API on IndexedDB), routes.ts, store.ts, projects.ts
 bin/vn.mjs    the vn command
-sample/       the sample game: script/ (*.vn scenes), locale/ (<lang>.json), game.json (menus, theme, gallery),
+games/        the sample game (sample/) and the Iris demo (demo/), each: script/ (*.vn scenes), locale/ (<lang>.json), game.json (menus, theme, gallery),
               masters/ (big PSDs, Git LFS), assets/ (game-ready art and audio)
 ```
 
 ## Script syntax
 
 A quick overview; every command with examples is in [docs/commands.md](docs/commands.md), and
-`sample/script/demo.vn` demonstrates input, flash, tint, camera, weather, filters and text tags (open it in the editor and use
-Preview from cursor, since park.vn owns the `start` label). `sample/script/animations.vn` is a tour of every
+`games/sample/script/demo.vn` demonstrates input, flash, tint, camera, weather, filters and text tags (open it in the editor and use
+Preview from cursor, since park.vn owns the `start` label). `games/sample/script/animations.vn` is a tour of every
 animation feature: put the cursor on its `label animation_showcase:` line and press Ctrl+Enter.
 
 ```
@@ -138,7 +138,7 @@ label start:                            # entry point is "start" (or the first l
   alice: {color=#ff6fa5}Pink{/color}, {size=1.5}big{/size}, {wave}wavy{/wave}, {shake}shaky{/shake}, {ruby=kan}漢{/ruby}
   alice: Wait for it...{wait} there.{nw}   # {wait} stops until a click; {nw} goes on without one
   "Narration line."
-  menu "Optional prompt line" timeout 8:   # timeout is optional: seconds to answer; needs the on timeout block below
+  menu "Optional prompt line" style=urgent timeout 8:   # style= (a theme style) and timeout are optional: seconds to answer; needs the on timeout block below
     "Option" if trust >= 1:             # optional condition; add  else "Reason shown"  to show it disabled instead of hiding it
       set trust += 1
       jump other
@@ -148,6 +148,8 @@ label start:                            # entry point is "start" (or the first l
   input name "What's your name?" default="Alex" max=16   # asks the player; stores text in [name]
   screen map:  /  hotspot cafe at 300,300 size 360,200 "Cafe"  /  button back at 80,940 "Back"   # declare a page
   column at 80,200 gap 20: / row anchor topright: / grid 3:   # inside a screen: place buttons without pixel maths
+  panel at 560,200 padding 48 image "ui/frame.png" slice 40:   # a 9-slice framed box; its children sit inside it (no size: it fits them)
+  bar hp max 100 at 80,90 size 480,44 back "ui/back.png" fill "ui/fill.png" readout   # a stat bar that follows a variable
   show screen map as place              # waits; the chosen element's id is stored in [place]
   screen options:  /  slider master at 700,300  /  button text_sounds at 700,400 "Sounds: [text_sounds]" action cycle   # replaces the stock options (also `screen title`, `pause`, `quickmenu`); `action tab` switches the variable `tab`
   hud on status  /  hud off status      # a screen that stays up while the story runs; its `on click label` elements call that label; `hover "img.png"` on a hotspot swaps in art while it is hovered
@@ -223,10 +225,12 @@ Main menu); Esc and Back always return to the previous screen.
 - Back (rollback) returns to the previous line or choice exactly, and lets you choose differently. It
   replays to that step (`Runtime.restore({ step })`). Saves carry the last 150 steps, so Back and History
   also reach past a load, unless the script changed since the save (then they start at the loaded line).
+  Clicking a line in History rolls back to it in one step (`action line` on a project's `screen history`).
 - Skip fast-forwards through lines read before (in any playthrough, kept per browser) and stops at choices
   and at unread text; Options can make it skip everything. Auto's speed is in Options; A toggles it.
 - Saves: 9 pages x 6 slots plus an autosave (written on every line, page "A" in Load). Each slot shows a
   thumbnail, the time and the line on screen; overwriting, deleting and loading mid-game ask first.
+  With game.json `"saveNames": true` the player names a save when making it (and can rename it); the name shows in place of "Slot 3".
   Load also has the quick save page ("Q") and a "C" page with the last 5 choice autosaves (game.json `"choiceSaves"`, 1-20), written whenever a
   choice or name prompt appears, so players can return to just before a decision.
   Continue loads the newest save of any kind. A save stores the source position and the choices made, not
@@ -416,6 +420,9 @@ math are in engine/src/outline.ts.
 **F1** (or the Help button) opens the command reference from docs/commands.md in a dialog, scrolled to the
 statement under the cursor (a `{` in dialogue text opens the text tags); F1 or Esc closes it. In the game.json tab it
 opens docs/game-json.md, and in a rig.json tab docs/rig-json.md at the key (`order`, `groups`, `poses`) the cursor is under.
+Ctrl+F (or the search box) highlights every match and lists only the topics that have one; Enter and Shift+Enter
+step through them. **Open in window** moves the reference to a window of its own (`editor/help.html`), which stays open
+beside the editor.
 
 Keys: Ctrl+Enter preview from cursor, Ctrl+S save, F8 / Shift+F8 next /
 previous problem, Alt+Z word wrap. Commands are one list in `buildCommands()` (editor/editor.ts): a title,
@@ -432,7 +439,7 @@ ready to run (a zip to share).
 Characters: `define` takes style options after the name.
 
 ```
-define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi box=alice
+define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi style=alice
 define cat "Cat" focus=off               # never dimmed by speaker focus
 define mina "Mina" side=mina            # portrait in the text box (game.json "sideImages"; assets/side/mina.png)
 define narrator "" text=#d8d2c0 italic   # style for "quoted narration" lines
@@ -440,7 +447,7 @@ define thought "" italic                 # thought: ... shows no name tag
 ```
 
 `color` = name tag color, `text` = text color, `size` / `speed` = multipliers, `blip` = a text sound voice
-(see below), `box` = a text box skin from game.json `theme.skins`, `side` = a portrait shown in the text box while the character speaks
+(see below), `style` = a style from the theme's `styles` (`box` is the old name), `side` = a portrait shown in the text box while the character speaks
 (opt-in with game.json `"sideImages": true`; `assets/side/<name>_<pose>.png` follows their pose on stage).
 
 **Text sounds (blips)** are optional sounds while a line types, like courtroom games. `blip=` takes a
@@ -471,7 +478,7 @@ game.json `theme` (all optional, pixels on the stage (1920x1080 by default, see 
                "background": "rgba(10,13,19,.84)", "border": "#ffffff24", "radius": 8,
                "image": "textbox", "slice": 32 },
   "namebox": { "x": 40, "y": -26, "size": 34, "background": "#20252f" },
-  "text":    { "size": 44, "color": "#e6e9ef", "lineHeight": 1.45 },
+  "text":    { "size": 44, "color": "#e6e9ef", "lineHeight": 1.45, "lines": 3 },
   "choices": { "width": 1000, "size": 40, "gap": 22, "radius": 8, "image": "button", "slice": 24 },
   "skins":   { "alice": { "textbox": { "image": "textbox_alice" }, "text": { "color": "#ffe6f0" } } }
 }
@@ -565,4 +572,4 @@ Save backgrounds with "Maximize compatibility" so Photoshop's own composite is u
 
 ## License
 
-Code: [MIT](LICENSE). The sample game's art (`sample/assets`, `sample/masters`) was generated by Claude (Anthropic).
+Code: [MIT](LICENSE). The sample game's art (`games/games/sample/assets`, `games/games/sample/masters`) was generated by Claude (Anthropic).

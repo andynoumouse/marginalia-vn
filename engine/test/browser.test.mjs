@@ -131,6 +131,36 @@ play('a click finishes the typing, the next click advances to the next line', as
   assert.equal(await page.locator('#name').innerText(), 'Alice');
 });
 
+// ---- a line longer than the text box holds is split into pages of three lines ----
+const LONG_LINE = Array.from({ length: 90 }, (_, i) => `word${i + 1}`).join(' ');
+play('a long line is split into pages: each fits the box, a click turns the page, the last click moves on', async page => {
+  await newGame(page);
+  const pages = [];
+  for (let i = 0; i < 8 && pages.join(' ') !== LONG_LINE; i++) {
+    await page.keyboard.press('Space'); // finishes the page's typing
+    await textDone(page);
+    const shown = await page.evaluate(() => {
+      const t = document.getElementById('text'), lh = parseFloat(getComputedStyle(t).lineHeight);
+      return { text: t.textContent, lines: Math.round(t.offsetHeight / lh), boxTop: document.getElementById('box').offsetTop };
+    });
+    assert.ok(shown.lines <= 3, `page ${i + 1} has ${shown.lines} lines`);
+    assert.ok(shown.boxTop > 0, 'the box stays on the stage');
+    pages.push(shown.text.trim());
+    await page.keyboard.press('Space'); // to the next page
+    await until(page, () => document.getElementById('box').dataset.done !== 'true');
+  }
+  assert.ok(pages.length >= 2, 'the line took more than one page');
+  assert.equal(pages.join(' '), LONG_LINE, 'no word is lost or repeated');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    for (const s of proj.scripts) if (s.file === 'park.vn') s.text = s.text.replace('The park was nearly empty. Only one bench was occupied.', LONG_LINE);
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
 play('choices: number keys pick an option and the story branches', async page => {
   await newGame(page);
   await toChoice(page);
@@ -298,6 +328,17 @@ play('saves: a manual save fills a slot, Continue/Load bring it back, the delete
   await slotButton(page, 0).click(); // a filled slot asks before overwriting
   await page.locator('#confirm').waitFor({ state: 'visible' });
   assert.match(await page.locator('#confirmText').innerText(), /Overwrite/);
+  assert.equal(await page.locator('#saves').isVisible(), true); // the save screen stays behind the question
+  const looks = () => page.evaluate(() => ['confirmYes', 'confirmNo'].map(id => {
+    const b = document.getElementById(id), cs = getComputedStyle(b);
+    return { variant: b.dataset.variant, border: cs.borderTopColor, accent: getComputedStyle(document.getElementById('stage')).getPropertyValue('--vn-accent').trim() };
+  }));
+  const [yes, no] = await looks(); // Yes is the dialog's main action: accent border; No keeps the stock look
+  assert.equal(yes.variant, 'primary');
+  assert.equal(yes.border, 'rgb(95, 209, 195)');
+  assert.equal(yes.accent, '#5fd1c3');
+  assert.equal(no.variant, undefined);
+  assert.notEqual(no.border, yes.border);
   await page.locator('#confirm').getByRole('button', { name: 'No' }).click();
   await page.locator('#confirm').waitFor({ state: 'hidden' });
   // Back to the title and load it from there.
@@ -313,6 +354,9 @@ play('saves: a manual save fills a slot, Continue/Load bring it back, the delete
   // Delete it again.
   await openPause(page, 'Save');
   await page.locator('#slotGrid .del').click();
+  await page.locator('#confirm').waitFor({ state: 'visible' });
+  assert.equal((await looks())[0].variant, 'danger'); // deleting marks Yes as destructive
+  assert.equal((await looks())[0].border, 'rgb(240, 112, 122)');
   await confirmYes(page);
   await until(page, () => !document.querySelector('#slotGrid .del'));
   assert.equal(await page.evaluate(() => Object.keys(localStorage).some(k => /slot/i.test(k) && localStorage[k].includes('Alice'))), false);
@@ -361,6 +405,71 @@ play('history lists the lines so far, opens with L and closes with Escape', asyn
   assert.ok(rows.length >= 1 && !rows.some(r => /Nothing yet/.test(r)));
   await page.keyboard.press('Escape');
   await page.locator('#history').waitFor({ state: 'hidden' });
+});
+
+play('history: clicking an earlier line rolls back to it; the line on screen does nothing', async page => {
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await textDone(page);
+  await page.keyboard.press('l');
+  await page.locator('#history').waitFor({ state: 'visible' });
+  const rows = page.locator('#historyList .hist-line');
+  assert.equal(await rows.count(), 2);
+  assert.equal(await rows.nth(1).getAttribute('aria-current'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-current')), 'true'); // focus starts at the newest line
+  await rows.nth(1).click();
+  assert.equal(await page.locator('#history').isHidden(), false);
+  await rows.nth(0).click();
+  await page.locator('#history').waitFor({ state: 'hidden' });
+  await until(page, () => /^The park was nearly empty\./.test(document.getElementById('text').textContent) && document.getElementById('name').textContent === '');
+  await textDone(page);
+  await page.keyboard.press('Space'); // and the story goes on from there
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+});
+
+play('saveNames: a numbered slot asks for a name, shows it, keeps it on overwrite and can be renamed', async page => {
+  await newGame(page);
+  await textDone(page);
+  await openPause(page, 'Save');
+  await slotButton(page, 0).click();
+  await page.locator('#saveName').waitFor({ state: 'visible' });
+  assert.equal(await page.evaluate(() => document.activeElement.id), 'saveNameInput');
+  await page.keyboard.type('Before the bench');
+  await page.keyboard.press('Enter');
+  await page.locator('#saveName').waitFor({ state: 'hidden' });
+  await until(page, () => document.querySelector('#slotGrid .slot-head .label')?.textContent === 'Before the bench');
+  // Overwriting offers the old name; Cancel leaves the save alone.
+  await slotButton(page, 0).click();
+  await confirmYes(page);
+  await page.locator('#saveName').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#saveNameInput').inputValue(), 'Before the bench');
+  await page.locator('#saveNameCancel').click();
+  await page.locator('#saveName').waitFor({ state: 'hidden' });
+  // Rename from the card.
+  await page.locator('#slotGrid .ren').first().click();
+  await page.locator('#saveNameInput').fill('Park');
+  await page.locator('#saveNameOk').click();
+  await until(page, () => document.querySelector('#slotGrid .slot-head .label')?.textContent === 'Park');
+  assert.equal(await page.evaluate(k => JSON.parse(localStorage.getItem(k)).label, gameKey('save.1')), 'Park');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.game = { ...proj.game, saveNames: true };
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+play('saves without saveNames: no name is asked and no rename button shows', async page => {
+  await newGame(page);
+  await textDone(page);
+  await openPause(page, 'Save');
+  await slotButton(page, 0).click();
+  await until(page, () => document.querySelector('#slotGrid .del'));
+  assert.equal(await page.locator('#saveName').isHidden(), true);
+  assert.equal(await page.locator('#slotGrid .ren').count(), 0);
 });
 
 play('gallery: opens from the title screen, locked tiles are disabled, Escape goes back', async page => {
@@ -1123,8 +1232,8 @@ test('animation studio: the Parts tree dresses the stage, and picking shows the 
   }
 });
 
-// ---- custom screens (sample/script/screens.vn): clicks, keys and a pad pick elements; the answer drives the story ----
-const screensVn = readFileSync(path.join(root, 'sample/script/screens.vn'), 'utf8').split('\n');
+// ---- custom screens (games/sample/script/screens.vn): clicks, keys and a pad pick elements; the answer drives the story ----
+const screensVn = readFileSync(path.join(root, 'games/sample/script/screens.vn'), 'utf8').split('\n');
 const screensLine = needle => screensVn.findIndex(l => l.includes(needle)) + 1;
 const gotoScreens = (page, needle) => page.evaluate(m => window.postMessage({ type: 'goto', file: 'screens.vn', line: m }, location.origin), screensLine(needle));
 const screenUp = page => until(page, () => document.getElementById('screenui').dataset.visible === 'true');
@@ -1521,9 +1630,11 @@ play('saves: a screen named saves is drawn in place of the stock one; slots, pag
   await until(page, () => /Alice/.test(document.querySelector('#savesui [data-act="slot"]').textContent));
   await slots.first().click(); // a filled slot asks before overwriting
   await page.locator('#confirm').waitFor({ state: 'visible' });
-  await until(page, () => document.getElementById('savesui').dataset.visible === 'false');
+  assert.equal(await page.evaluate(() => document.getElementById('savesui').dataset.visible), 'true'); // stays in sight behind the question
+  assert.equal(await page.evaluate(() => document.getElementById('savesui').inert), true); // but out of reach
   await page.locator('#confirm').getByRole('button', { name: 'No' }).click();
-  await until(page, () => document.getElementById('savesui').dataset.visible === 'true');
+  await page.locator('#confirm').waitFor({ state: 'hidden' });
+  assert.equal(await page.evaluate(() => document.getElementById('savesui').inert), false);
   await page.locator('#savesui [data-id="page2"]').click(); // page 2 has other slots, all empty
   await until(page, () => /Empty/i.test(document.querySelector('#savesui [data-act="slot"]').textContent));
   assert.notEqual(await slots.first().getAttribute('data-id'), '1');
@@ -2113,7 +2224,7 @@ const shownLine = (page, part) => until(page, part => [...document.querySelector
 const activeLine = page => page.evaluate(() => document.querySelector('.monaco-editor .active-line-number')?.textContent ?? '');
 /** Open a script and put the cursor inside `word` on the first line containing `needle` (End, then left: no pixel guessing). */
 async function cursorIn(page, file, needle, word) {
-  const lines = readFileSync(path.join(root, 'sample/script', file), 'utf8').split('\n');
+  const lines = readFileSync(path.join(root, 'games/sample/script', file), 'utf8').split('\n');
   const n = lines.findIndex(l => l.includes(needle)) + 1;
   const line = lines[n - 1].replace(/\r$/, '');
   await palette(page, file);
@@ -2278,4 +2389,62 @@ inEditor('screens sidebar: a built-in screen row opens it in the preview and sho
 
 describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
   for (const args of queued) nodeTest(...args);
+});
+
+test('theme panel: fields write the theme file, contrast warns, the gallery follows and click-to-inspect jumps to the component', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  // The sample project has no theme file: add one to the project listing and catch its saves.
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    await route.fulfill({ response: res, json: { ...proj, themeTexts: { night: '{\n  "extends": "base",\n  "tokens": { "accent": "#e0a050" }\n}\n' } } });
+  });
+  await page.route('**/api/theme*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.keyboard.press('Control+p');
+    await page.keyboard.type('>Theme: Panel');
+    await page.keyboard.press('Enter');
+    const panel = page.locator('#themePanel');
+    await panel.locator('.td-field').first().waitFor();
+    const field = (label) => panel.locator('.td-field', { has: page.locator(`label:text-is("${label}")`) });
+    assert.equal(await field('accent').locator('input[type=text]').inputValue(), '#e0a050');
+    assert.equal(await field('accent').locator('.td-src').innerText(), 'set here');
+    assert.equal(await panel.locator('.td-warn').count(), 0, 'the default palette is readable');
+
+    const tile = title => panel.locator(`iframe[title="${title}"]`);
+    await tile('Title').waitFor();
+    const themeStyle = async title => tile(title).evaluate(f => f.contentDocument?.getElementById('themeStyle')?.textContent ?? '');
+    await until(page, () => [...document.querySelectorAll('#themePanel iframe')].every(f => f.contentDocument?.getElementById('themeStyle')?.textContent.includes('#e0a050')));
+    assert.match(await themeStyle('Pause'), /--vn-accent: #e0a050/, 'the gallery renders the theme being edited');
+
+    // A white surface under the light default text: the panel warns, the file is saved, every tile restyles.
+    await field('surface').locator('input[type=text]').fill('#ffffff');
+    await field('surface').locator('input[type=text]').press('Tab');
+    await field('text').locator('.td-warn').waitFor();
+    assert.match(await field('text').locator('.td-warn').innerText(), /^Contrast 1\.\d:1 with surface \(aim for 4\.5:1\)$/);
+    for (let i = 0; !saved.length && i < 50; i++) await page.waitForTimeout(100);
+    assert.deepEqual(JSON.parse(saved.at(-1)).tokens, { accent: '#e0a050', surface: '#ffffff' });
+    await until(page, () => [...document.querySelectorAll('#themePanel iframe')].every(f => f.contentDocument?.getElementById('themeStyle')?.textContent.includes('--vn-surface: #ffffff')));
+
+    // Clicking the selected options tab inside the gallery opens that component and state in the Components tab.
+    await tile('Options').evaluate(f => f.contentDocument.querySelector('#tabAudio').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    await panel.locator('.td-comp').waitFor();
+    assert.equal(await panel.locator('.td-comp').inputValue(), 'tab');
+    assert.equal(await panel.locator('.td-state').inputValue(), 'selected');
+    await tile('Text box').evaluate(f => f.contentDocument.querySelector('#name').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    await until(page, () => document.querySelector('#themePanel .td-comp')?.value === 'namebox');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
 });

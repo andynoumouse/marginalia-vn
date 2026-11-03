@@ -1,0 +1,6 @@
+{
+  "extends": "base",
+  "tokens": {
+    "accent": "#5fd1c3"
+  }
+}

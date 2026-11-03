@@ -10,7 +10,7 @@ export { captionFor, captionTable, captionProblem, humanizeSoundName, type Capti
 export * from './types.js';
 export * from './screens.js';
 export { DEFAULT_STAGE, MAX_STAGE_SIDE, MIN_STAGE_SIDE, fxUnit, stageLabel, stageProblem, stageSize, type StageSize } from './stage.js';
-export { newProjectFiles, projectSlug, titleFromFolder, type NewProjectOptions, type ProjectKind } from './new-project.js';
+export { newProjectFiles, PROJECT_FOLDERS, projectSlug, titleFromFolder, type NewProjectOptions, type ProjectKind } from './new-project.js';
 export { parseFile, RE_SAY, RE_NARR, RE_OPT } from './parser.js';
 export { compile, type SourceFile } from './compile.js';
 export { BUILTIN_POSITIONS, namedPositions, positionProblem, type Position, type Positions } from './positions.js';
@@ -35,7 +35,8 @@ export { normalizeSplash, titleFade, DEFAULT_SPLASH_DURATION, DEFAULT_SPLASH_FAD
 export { sideImageSettings, sideImageProblems, sideImageKey, SIDE_PLACES, SIDE_WHEN, type SideImages, type SidePlace, type SideWhen } from './side.js';
 export { speakerFocusSettings, speakerFocusProblems, focusLevels, raisedSpeaker, OFFSTAGE_MODES, type SpeakerFocus, type OffstageMode } from './focus.js';
 export { normalizeMusicRoom, normalizeChapters, musicItems, chapterItems, chapterProblems, normalizeAchievements, achievementItems, achievementToToast, achievementToastSettings, achievementProblems, TOAST_POSITIONS, type MusicEntry, type ChapterEntry, type MusicItem, type ChapterItem, type AchievementEntry, type AchievementItem, type AchievementToastSettings, type ToastPosition } from './extras.js';
-export { findColors, parseHex, formatHex, type ColorRef } from './colors.js';
+export { findColors, parseHex, formatHex, isCssColor, parseColor, contrast, type ColorRef } from './colors.js';
+export { sliceDecls, themeCss, themeStylesheet, resolveTheme, normalizeTheme, BUILTIN_THEMES, type ThemeFile, type Theme, type Skin, type BoxTheme, type TextTheme, type Tokens, type UiLook, type UiComponent, UI_COMPONENTS, SCREEN_IDS } from './theme.js';
 export { variableRefs, variableAt, variableUses, renameVariable, type VarRef } from './var-refactor.js';
 export { labelRefs,labelAt, renameLabel, applyTextEdits, findInFiles, replaceInFiles, type FindOptions, type FindMatch, type ProjectFile, type LabelRef, type LabelRefKind, type TextEdit as LabelEdit, type RenameResult } from './refactor.js';
 export { voiceFile, splitVoiceName, voiceText, sourceLanguage, declaredVoiceLanguages, shipsAsset, buildLanguages, type BuildLanguages, voiceLanguages, resolveVoiceLanguage, checkVoice, acceptVoice, changedSpan, voiceName, voiceRows, matchVoiceDrops, recordingScriptCsv, type VoiceLock, type VoiceCheck, type VoiceRow, type VoiceFilter, type VoiceTable, type VoiceStatus } from './voice.js';
@@ -62,3 +63,4 @@ export { FULL_CAPABILITIES, readCapabilities, type Capabilities } from './capabi
 export { projectFromListing, projectTextFiles, editorExtras, type ProjectListing, type ProjectData, type ListedFile } from './project-data.js';
 export { convertMaster, masterKind, previousParts, planCharacter, prefixFrom, type Psd, type PsdLayer, type Deflate, type Converted, type MasterKind } from './psd.js';
 export { writeZip, readZip, commonRoot, crc32, type ZipEntry, type RawDeflate } from './zip.js';
+export { TOKEN_FIELDS, componentKeys, componentStates, componentFields, getValue as getThemeValue, setValue as setThemeValue, valueSource as themeValueSource, TOKEN_DEFAULTS, contrastNote, COMMON_FONTS, fontNote, moveInlineTheme, type ThemeField, type FieldKind } from './theme-edit.js';

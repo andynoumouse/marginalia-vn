@@ -16,7 +16,7 @@ import type { Voice } from './blips.js';
 import { $, H, sleep, stage, W, type AssetFile, type LineInfo } from './stage-ui.js';
 import { setStageSize } from './stage-size.js';
 import { gameId, setGameId } from './storage.js';
-import { themeCss, type Theme } from './theme.js';
+import { themeCss, type Theme } from '../engine/src/index.js';
 import { Studio } from './studio.js';
 import { Timeline } from './timeline.js';
 
@@ -30,12 +30,17 @@ interface QuickConfig {
 interface GameConfig {
   id?: string;
   title?: string;
+  /** Themes the player may pick in Options, and their resolved looks by name (made by projectFromListing). */
+  themes?: string[];
+  themeLooks?: Record<string, Theme>;
   /** The language the scripts are written in (default "en"): the text language that needs no locale/<lang>.json. */
   language?: string;
   /** How many rotating choice autosaves to keep (1-20, default 5). */
   choiceSaves?: number;
   /** Raise it when a release breaks old saves: loading an older save then asks first. */
   saveVersion?: number;
+  /** The player names a save when making it in a numbered slot (and can rename it); off by default. */
+  saveNames?: boolean;
   /** Memory budget for loaded images and audio in MB (default 512, 256 on low-memory devices); the debug console's `memory` reports against it. */
   memoryBudgetMB?: number;
   titleScreen?: TitleConfig;
@@ -292,10 +297,18 @@ function chapterDiagnostics(labels: Record<string, number>, text: string): Diagn
   });
 }
 
+let themeAssets: AssetFile[] = [];
+/** The stage stylesheet: the theme the player picked in Options (game.json "themes"), else the game's own. */
+function applyTheme() {
+  const look = settings.theme && Array.isArray(game.themes) && game.themes.includes(settings.theme) ? game.themeLooks?.[settings.theme] : undefined;
+  themeEl.textContent = themeCss(look ?? game.theme, themeAssets);
+}
+
 function applyGame(assets: AssetFile[]) {
   assetFiles = assets;
   setChoiceSlots(game.choiceSaves);
   saveVersion = normalizeSaveVersion(game.saveVersion);
+  menus.setSaveNames(game.saveNames === true);
   menus.configure(game.title ?? 'Untitled', game.titleScreen, {
     gallery: Array.isArray(game.gallery) && game.gallery.length > 0,
     music_room: normalizeMusicRoom(game.musicRoom).length > 0,
@@ -309,7 +322,10 @@ function applyGame(assets: AssetFile[]) {
   quickEl.replaceChildren(...new Set(items.map(i => quickButtons[i])));
   quickEl.dataset.position = q.position ?? 'bottom';
   quickEl.dataset.align = q.align ?? 'center';
-  themeEl.textContent = themeCss(game.theme, assets);
+  themeAssets = assets;
+  const themes = Array.isArray(game.themes) ? game.themes.filter((n): n is string => typeof n === 'string' && !!game.themeLooks?.[n]) : [];
+  menus.setThemes(themes, settings.theme);
+  applyTheme();
   renderer.blips.voices = game.blips && typeof game.blips === 'object' ? game.blips : {};
   renderer.speakerFocus = speakerFocusSettings(game.speakerFocus);
   menus.setFocusOption(renderer.speakerFocus !== null);
@@ -418,14 +434,15 @@ const menus = new Menus(settings, {
   },
   toTitle: () => void showTitle(),
   isPlaying: () => playing,
-  save: async slot => {
+  save: async (slot, label) => {
     const data = await capture();
-    return !!data && writeSave(slot, data);
+    return !!data && writeSave(slot, label ? { ...data, label } : data);
   },
   load: slot => {
     const s = readSave(slot);
     if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices), s));
   },
+  rollbackTo: n => rollbackTo(n),
   galleryItems,
   musicItems: musicRoomItems,
   playTrack: name => { void renderer.audio.music(name ?? game.titleScreen?.music ?? null, true, 0.5); },
@@ -435,6 +452,7 @@ const menus = new Menus(settings, {
   screens: open => { renderer.paused = open || !playing; },
   changed: lang => {
     applySettings();
+    applyTheme();
     if (lang) { langEl.value = settings.lang; void load(); }
   },
 });
@@ -489,6 +507,15 @@ function rollback() {
   void runtime.restore({ step: prev.step, from: runtime.jumpedFrom ?? undefined }, prev.choices); // steps count from a direct entry
 }
 
+/** A line picked in the history screen (which has closed): roll back to it, however far. */
+function rollbackTo(n: number) {
+  if (!playing || !runtime) return;
+  const to = timeline.backTo(n);
+  if (!to) return;
+  stopModes();
+  void runtime.restore({ step: to.step, from: runtime.jumpedFrom ?? undefined }, to.choices);
+}
+
 async function quickSave() {
   if (!canAct()) return;
   const data = await capture();
@@ -513,7 +540,7 @@ const uiHidden = () => stage.dataset.uiHidden === 'true';
 
 const quickActions: Record<string, () => void> = {
   back: rollback,
-  history: () => { if (canAct()) menus.openHistory(timeline.lines()); },
+  history: () => { if (canAct()) menus.openHistory(timeline.lines(), timeline.atLine()); },
   auto: () => { if (canAct()) renderer.setAuto(!renderer.autoOn); },
   skip: () => toggleSkip(),
   qsave: () => void quickSave(),
@@ -609,7 +636,10 @@ function syncHistory() {
   void renderer.history(view && !historyEl.hidden ? view : null);
 }
 new MutationObserver(syncHistory).observe(historyEl, { attributes: true, attributeFilter: ['hidden'] });
-renderer.onHistoryAction = item => { if (item?.act === 'close') menus.closeHistory(); };
+renderer.onHistoryAction = item => {
+  if (item?.act === 'close') menus.closeHistory();
+  else if (item?.act === 'line') menus.pickLine(item.id);
+};
 /** The project's `screen gallery` replaces the stock gallery: drawn when it opens (and again when the viewer closes). */
 const galleryEl = $('gallery');
 function syncGallery() {
@@ -785,6 +815,7 @@ async function load() {
   langEl.value = settings.lang;
   menus.setLanguages(langs, settings.lang);
   const locale = new Locale(tables, settings.lang, source);
+  stage.lang = settings.lang;
   game = proj.game ?? {};
   renderer.captionTexts = captionTable(game);
   menus.translate(locale, game.labels);
@@ -797,6 +828,7 @@ async function load() {
     rigs: proj.rigs,
     blips: Object.keys(game.blips ?? {}),
     skins: Object.keys(game.theme?.skins ?? {}),
+    themeSkins: Object.fromEntries(Object.entries(game.themeLooks ?? {}).map(([n, t]: [string, any]) => [n, Object.keys(t?.skins ?? {})])),
   };
   if (!precompiled) { // an export checked all this, and baked the preloads in
     attachPreloads(program, index, { gallery: Array.isArray(game.gallery) ? game.gallery.map(g => g?.image).filter(n => typeof n === 'string') : [] });
@@ -1038,7 +1070,7 @@ async function previewScreen(name: string) {
     case 'pause': menus.showPause(); break;
     case 'options': menus.openOptions(); break;
     case 'saves': menus.openSaves('load'); break;
-    case 'history': menus.openHistory(timeline.lines()); break;
+    case 'history': menus.openHistory(timeline.lines(), timeline.atLine()); break;
     case 'gallery': case 'viewer': menus.showGallery(); break;
     case 'music': menus.showMusic(); break;
     case 'chapters': menus.showChapters(); break;

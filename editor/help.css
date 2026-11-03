@@ -1,0 +1,38 @@
+/* The F1 help (help-dialog.ts): a modal in the editor, or the whole page in help.html. */
+#help { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
+#help[hidden] { display: none; }
+#help .help-card { width: min(980px, 100%); height: min(760px, 100%); display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+#help header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+#help header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+#help .help-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 190px 1fr; }
+#help nav { overflow-y: auto; padding: 8px; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+#help nav a { color: var(--muted); text-decoration: none; padding: 2px 8px; border-radius: 4px; }
+#help nav a[data-level="2"] { margin-top: 8px; color: var(--text); font-weight: 600; }
+#help nav a[data-level="3"] { padding-left: 18px; }
+#help nav a:hover { background: rgba(255,255,255,.06); }
+#help nav a[aria-current] { background: rgba(95, 209, 195, .16); color: var(--accent); }
+#help article { position: relative; overflow-y: auto; padding: 4px 22px 40px; outline: none; line-height: 1.55; }
+#help article h1 { font-size: 20px; } #help article h2 { font-size: 17px; margin-top: 30px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+#help article h3 { font-size: 15px; margin-top: 22px; color: var(--accent); }
+#help article a { color: var(--accent); }
+#help code { font: 12.5px ui-monospace, Consolas, monospace; background: var(--ink); padding: 1px 5px; border-radius: 3px; }
+#help pre { background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; overflow-x: auto; }
+#help pre code { background: none; padding: 0; }
+#help table { border-collapse: collapse; margin: 8px 0; }
+#help th, #help td { border: 1px solid var(--line); padding: 4px 10px; text-align: left; vertical-align: top; }
+@media (max-width: 700px) { #help .help-main { grid-template-columns: 1fr; } #help nav { display: none; } }
+#help header .search { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+#help header .search input { width: 200px; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line);
+  border-radius: 4px; padding: 3px 8px; }
+#help header .search input:focus { border-color: var(--accent); outline: none; }
+#help header .search button { padding: 2px 8px; }
+#help header .count { color: var(--muted); font-size: 12px; min-width: 52px; text-align: right; }
+#help header .search ~ .hint { margin-left: 0; }
+#help nav a.nohit { display: none; }
+#help mark { background: rgba(232, 182, 76, .35); color: inherit; border-radius: 2px; }
+#help mark.current { background: var(--warn); color: var(--ink); }
+/* help.html: the same help, filling its own window. */
+#help.standalone { position: static; height: 100%; padding: 0; background: none; }
+#help.standalone .help-card { width: 100%; height: 100%; border: 0; border-radius: 0; box-shadow: none; }
+#help.standalone .modal-only { display: none; }

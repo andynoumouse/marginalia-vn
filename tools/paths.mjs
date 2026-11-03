@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const engineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const sampleRoot = path.join(engineRoot, 'sample');
+export const sampleRoot = path.join(engineRoot, 'games', 'sample');
 export const engineVersion = JSON.parse(fs.readFileSync(path.join(engineRoot, 'package.json'), 'utf8')).version;
 
 const isProject = dir => fs.existsSync(path.join(dir, 'game.json')) || fs.existsSync(path.join(dir, 'script'));

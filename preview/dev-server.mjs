@@ -80,7 +80,11 @@ function broadcast(type, file) {
   for (const c of clients) c.write(msg);
 }
 function watch(dir, type) {
-  if (!fs.existsSync(dir)) return;
+  if (!fs.existsSync(dir)) { // a folder made later (the first theme file makes themes/) is picked up, and its arrival counts as a change
+    const wait = setInterval(() => { if (fs.existsSync(dir)) { clearInterval(wait); watch(dir, type); broadcast(type, path.basename(dir)); } }, 1000);
+    wait.unref();
+    return;
+  }
   let timer;
   try {
     fs.watch(dir, { recursive: true }, (_ev, file) => {
@@ -93,6 +97,7 @@ watch(scriptDir, 'content');
 watch(localeDir, 'content');
 watch(path.join(distRoot, 'dist'), 'engine');
 watch(assetDir, 'content');
+watch(path.join(project, 'themes'), 'content');
 watch(path.join(project, 'masters'), 'masters'); // only the editor's files panel listens (the converter's output arrives as 'content')
 fs.watchFile(gameFile, { interval: 300 }, () => broadcast('content', 'game.json')); // also notices it being created
 
@@ -496,6 +501,20 @@ async function saveRig(req, res, url) {
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
 }
 
+async function saveTheme(req, res, url) {
+  const name = url.searchParams.get('name') ?? '';
+  if (!isLocalRequest(req) || !/^[\w\-]+$/.test(name)) { res.writeHead(403); res.end('Forbidden'); return; }
+  try {
+    const body = await readBody(req);
+    const css = url.searchParams.get('ext') === 'css'; // themes/<name>.css is free-form CSS
+    if (!css) { try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; } }
+    fs.mkdirSync(path.join(project, 'themes'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'themes', `${name}.${css ? 'css' : 'json'}`), body);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end('{"ok":true}');
+  } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+}
+
 // ---- project tasks (editor command palette) ----
 const TASKS = {
   export: ['tools/export-web.mjs', '--no-build'],
@@ -594,6 +613,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/voice' && req.method === 'GET') { void readVoice(res); return; }
   if (url.pathname === '/api/voice' && req.method === 'PUT') { void saveVoice(req, res); return; }
   if (url.pathname === '/api/rig' && req.method === 'PUT') { saveRig(req, res, url); return; }
+  if (url.pathname === '/api/theme' && req.method === 'PUT') { void saveTheme(req, res, url); return; }
   if (url.pathname === '/api/build-check' && req.method === 'GET') { void readBuildCheck(req, res, url); return; }
   if (url.pathname === '/api/task' && req.method === 'POST') { runTask(req, res, url); return; }
   if (url.pathname === '/api/capabilities') { // engine/src/capabilities.ts; the online demo's service worker answers with less

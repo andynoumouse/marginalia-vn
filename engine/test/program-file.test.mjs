@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { compile, playtest, packProgram, unpackProgram, scriptsVersion, hashText, PROGRAM_FORMAT } from '../../dist/engine/src/index.js';
 
-const dir = new URL('../../sample/script/', import.meta.url);
+const dir = new URL('../../games/sample/script/', import.meta.url);
 const files = fs.readdirSync(dir).filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: fs.readFileSync(new URL(f, dir), 'utf8') }));
 const roundTrip = program => unpackProgram(JSON.parse(JSON.stringify(packProgram(program, scriptsVersion(files))))).program;
 

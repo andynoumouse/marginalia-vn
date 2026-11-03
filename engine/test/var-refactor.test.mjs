@@ -135,3 +135,14 @@ test('a local only changes in translations of its own lines', () => {
   assert.ok(res.ok, res.error);
   assert.equal(applyTextEdits(en, res.edits.filter(e => e.file === 'locale/en.json')), '{\n  "ab12": "The [thing] costs.",\n  "cd34": "The [item] is here."\n}\n');
 });
+
+test('a bar\'s value, max and min are variable uses; a panel line is an element too', () => {
+  const text = 'set hp = 3\nset top = 9\nscreen hud:\n    panel at 0,0 size 5,5 if hp > 0:\n        bar hp max top min base at 0,0 back "ui/hp.png" if hp > 1\nlabel start:\n    "Hp [hp]"\n';
+  const fs = [{ name: 'b.vn', text }];
+  const out = applyTextEdits(text, (() => { const r = renameVariable(fs, variableAt(fs, 'b.vn', 1, 4), 'life'); assert.ok(r.ok, r.error); return r.edits; })());
+  assert.match(out, /^set life = 3$/m);
+  assert.match(out, /panel at 0,0 size 5,5 if life > 0:/);
+  assert.match(out, /bar life max top min base at 0,0 back "ui\/hp.png" if life > 1/);
+  const top = applyTextEdits(text, (() => { const r = renameVariable(fs, variableAt(fs, 'b.vn', 2, 4), 'peak'); assert.ok(r.ok, r.error); return r.edits; })());
+  assert.match(top, /bar hp max peak min base/);
+});

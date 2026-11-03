@@ -252,7 +252,7 @@ test('the budget ends the search and says so', () => {
 });
 
 test('the sample game: park.vn plays to its endings and town.vn has its known dead lines', () => {
-  const dir = new URL('../../sample/script/', import.meta.url);
+  const dir = new URL('../../games/sample/script/', import.meta.url);
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: fs.readFileSync(new URL(f, dir), 'utf8') }));
   const program = compile(files);
   const r = playtest(program);

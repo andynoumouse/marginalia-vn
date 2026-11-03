@@ -5,7 +5,7 @@ import { assetContext, captionFor, sideImageKey, stateAssets, VOICE_KEY, type Ca
 import { AudioSystem } from './audio.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
 import { Blips } from './blips.js';
-import { autoFocus, OSK_ROWS, oskCaps, oskPress, type OskState } from './input.js';
+import { autoFocus, oskBoard } from './input.js';
 import { TEXT_INSTANT } from './settings.js';
 
 export { W, H } from './stage-size.js';
@@ -26,6 +26,34 @@ const look = (el: HTMLElement, r: TextRun) => {
   if (r.color) el.style.color = r.color;
   if (r.size) el.style.fontSize = `${r.size}em`;
 };
+/** Where a typed character sits: a range of a text node, or a whole element (`at` -1) for ruby and animated text. */
+type Spot = { node: Node; at: number; len: number };
+/**
+ * The item indexes where a new page of the text box starts, for a line laid out in full in `box`. A page holds
+ * `--text-lines` lines (theme text.lines, default 3) and breaks only at the start of a line. `spots` has null for items
+ * that cannot start a line (pauses, spaces).
+ */
+function pageStarts(box: HTMLElement, spots: (Spot | null)[]): number[] {
+  const cs = getComputedStyle(box);
+  if (!box.offsetWidth) return [];
+  const scale = box.getBoundingClientRect().width / box.offsetWidth; // the stage is scaled to fit the window
+  const line = (parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45) * scale;
+  const room = ((Number(cs.getPropertyValue('--text-lines')) || 3) + 0.5) * line;
+  const range = document.createRange(), starts: number[] = [];
+  let top = NaN, bottom = -Infinity;
+  spots.forEach((s, i) => {
+    if (!s) return;
+    let r: DOMRect | undefined;
+    if (s.at < 0) r = (s.node as Element).getBoundingClientRect();
+    else { range.setStart(s.node, s.at); range.setEnd(s.node, s.at + s.len); r = range.getClientRects()[0]; }
+    if (!r?.height) return;
+    if (Number.isNaN(top)) { top = r.top; bottom = r.bottom; return; }
+    if (r.top < bottom - 1) { bottom = Math.max(bottom, r.bottom); return; } // same line
+    if (r.bottom - top > room) { starts.push(i); top = r.top; }
+    bottom = r.bottom;
+  });
+  return starts;
+}
 /** Show a finished line at once (the earlier lines of an NVL page). */
 function appendRuns(target: HTMLElement, segments: SayEvent['segments']) {
   for (const seg of segments) {
@@ -473,7 +501,7 @@ export abstract class StageRenderer implements Renderer {
       target.replaceChildren();
       // The speaker's style (define ... text= font= size= italic box=); theme skins are keyed by `box`.
       const st = ev.style;
-      stage.dataset.skin = ev.nvl ? '' : st.box ?? '';
+      stage.dataset.skin = ev.nvl ? '' : ev.look ?? st.box ?? '';
       target.style.color = st.textColor ?? '';
       target.style.fontFamily = st.font ? `"${st.font}", var(--vn-font)` : '';
       target.style.fontSize = st.size ? `calc(var(--text-size, 44px) * var(--text-scale, 1) * ${st.size})` : '';
@@ -496,7 +524,8 @@ export abstract class StageRenderer implements Renderer {
       const isText = (it: Item): it is { ch: string; run: Run } => 'ch' in it;
 
       let idx = 0, done = false, waiting = false, span: HTMLSpanElement | null = null, key = '';
-      const put = (it: { ch: string; run: Run }) => {
+      /** Show one character (or ruby piece); returns where it landed, for measuring pages. */
+      const put = (it: { ch: string; run: Run }): Spot => {
         const r = it.run;
         if (r.ruby || r.fx) {
           const el = document.createElement(r.ruby ? 'ruby' : 'span');
@@ -507,18 +536,26 @@ export abstract class StageRenderer implements Renderer {
           target.append(el);
           span = null;
           if (ev.nvl) this.fitPage();
-          return;
+          return { node: el, at: -1, len: 0 };
         }
         const k = `${r.italic}${r.bold}${r.color ?? ''}${r.size ?? ''}`;
         if (!span || k !== key) {
           span = document.createElement('span');
           look(span, r);
+          span.append(document.createTextNode(''));
           target.append(span);
           key = k;
         }
-        span.textContent += it.ch;
+        const t = span.firstChild as Text;
+        t.appendData(it.ch);
         if (ev.nvl) this.fitPage();
+        return { node: t, at: t.length - it.ch.length, len: it.ch.length };
       };
+      // A line too long for the text box is split into pages: lay it all out once, find where each page starts, clear it.
+      const pages = ev.nvl ? [] : pageStarts(target, items.map(it => (isText(it) ? (s => (it.ch.trim() ? s : null))(put(it)) : null)));
+      if (!ev.nvl) { target.replaceChildren(); span = null; }
+      let page = 0;
+      const pageEnd = () => pages[page] ?? items.length;
       // The recording starts with the line; auto-advance waits for it to end, and moving on (or skipping) cuts it.
       let voicePlaying = false, over = false;
       const voiced = this.audio.hasVoice(ev.id, this.lang);
@@ -549,10 +586,37 @@ export abstract class StageRenderer implements Renderer {
         if (autoNext) { later(this.skipping ? SKIP_MS : 250); return; }
         if (this.autoOn && !voicePlaying) later((this.autoDelay + items.length * 0.02) * 1000);
       };
+      // The box is full and the line goes on: wait like at {w}, then clear the box and type the next page.
+      const pageFull = () => {
+        clearTimeout(this.typeTimer);
+        clearTimeout(this.settleTimer);
+        this.speakTick(null);
+        frame.dataset.done = 'true';
+        waiting = true;
+        const turn = () => {
+          if (!waiting) return;
+          waiting = false;
+          clearTimeout(this.settleTimer);
+          page++;
+          target.replaceChildren();
+          span = null;
+          frame.dataset.done = 'false';
+          this.advanceFn = () => (done ? next() : finishTyping());
+          if (this.skipping && skippable()) finishTyping(); else step();
+        };
+        this.advanceFn = turn;
+        if (this.skipping) {
+          if (skippable()) { this.settleTimer = window.setTimeout(turn, SKIP_MS); return; }
+          this.skipping = false; // unread text: stop here
+          this.onModeChange();
+        }
+        if (this.autoOn) this.settleTimer = window.setTimeout(turn, (this.autoDelay + (pageEnd() - (pages[page - 1] ?? 0)) * 0.02) * 1000);
+      };
       const finishTyping = () => {
         clearTimeout(this.typeTimer);
-        while (idx < items.length) { const it = items[idx++]; if (isText(it)) put(it); }
         waiting = false;
+        while (idx < pageEnd()) { const it = items[idx++]; if (isText(it)) put(it); }
+        if (idx < items.length) { pageFull(); return; }
         this.speakTick(null);
         this.advanceFn = () => (done ? next() : finishTyping());
         done = true;
@@ -562,7 +626,7 @@ export abstract class StageRenderer implements Renderer {
       const instant = this.textSpeed >= TEXT_INSTANT;
       const cps = this.textSpeed * (st.speed ?? 1);
       const step = () => {
-        if (idx >= items.length) { finishTyping(); return; }
+        if (idx >= pageEnd()) { if (idx < items.length) pageFull(); else finishTyping(); return; }
         const it = items[idx++];
         if ('pause' in it) { this.typeTimer = window.setTimeout(step, it.pause * 1000); return; }
         if ('wait' in it) {
@@ -597,8 +661,9 @@ export abstract class StageRenderer implements Renderer {
     });
   }
 
-  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }): Promise<number> {
+  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<number> {
     this.onPosition(src);
+    if (style) menuEl.dataset.style = style; else delete menuEl.dataset.style; // theme styles[style].choice
     this.lineSpeaker = null;
     if (this.skipping) { this.skipping = false; this.onModeChange(); } // choices are always the player's
     return new Promise<number>(resolve => {
@@ -872,36 +937,7 @@ export abstract class StageRenderer implements Renderer {
       ok.type = 'button';
       ok.textContent = 'OK';
       ok.dataset.ok = 'true';
-      // On-screen keyboard for gamepads: always built, shown by CSS while the last input came from a pad.
-      let osk: OskState = { value: field.value, shift: false, fresh: true };
-      const board = document.createElement('div');
-      board.className = 'osk';
-      const key = (label: string, id: string, cls = '') => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.tabIndex = -1;
-        b.textContent = label;
-        b.dataset.osk = id;
-        if (cls) b.className = cls;
-        b.addEventListener('click', e => {
-          e.stopPropagation();
-          osk = oskPress(osk, id, max);
-          field.value = osk.value;
-          board.dataset.caps = String(oskCaps(osk));
-        });
-        return b;
-      };
-      const letters: HTMLButtonElement[] = [];
-      for (const row of OSK_ROWS) {
-        const r = document.createElement('div');
-        for (const ch of row) { const b = key(ch, ch); letters.push(b); r.append(b); }
-        board.append(r);
-      }
-      const bottom = document.createElement('div');
-      bottom.append(key('⇧', 'shift', 'wide'), key('space', 'space', 'space'), key('⌫', 'back', 'wide'));
-      board.append(bottom);
-      board.dataset.caps = 'true';
-      field.addEventListener('input', () => { osk = { value: field.value, shift: false, fresh: false }; });
+      const board = oskBoard(field, max);
       // In the editor the field waits for the player to enter the preview (a click or Alt+2) before taking focus.
       const takeFocus = () => { if (autoFocus(field)) { field.select(); window.removeEventListener('focus', takeFocus); } };
       const submit = () => {

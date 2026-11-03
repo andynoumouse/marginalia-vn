@@ -3,7 +3,7 @@
 //   The folder is Electron's runtime from node_modules/electron/dist with the exe renamed, and resources/app holding the
 //   engine unpacked (no asar: the dev server spawns, serves and watches files there): the prebuilt dist/, the editor,
 //   preview, tools, docs and the demo, and only the vendor files that are served or imported (Monaco's min build, the one
-//   PixiJS module the preview imports, ag-psd's runtime). No TypeScript, playwright or sample/.
+//   PixiJS module the preview imports, ag-psd's runtime). No TypeScript, playwright or games/sample/.
 //   --no-zip skips the zip.
 
 import fs from 'node:fs';
@@ -78,7 +78,7 @@ fromRoot('preview', noTs);
 fromRoot('tools');
 fromRoot('bin');
 fromRoot('docs', rel => rel !== 'design');
-fromRoot('demo', rel => !['build', 'node_modules', '.trash'].includes(rel));
+fromRoot('games/demo', rel => !['build', 'node_modules', '.trash'].includes(rel));
 
 // ---- vendor files: only what is served or imported ----
 const withPackageJson = keep => (rel, dir) => rel === 'package.json' || /^LICENSE/i.test(rel) || keep(rel, dir);

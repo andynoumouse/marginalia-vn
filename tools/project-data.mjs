@@ -40,10 +40,10 @@ export function assetIndex(project) {
 /** Every file and folder under script/, locale/ and assets/ (plus game.json) as the listing engine/src/project-data.ts reads. */
 export function projectListing(root) {
   const files = [], dirs = [];
-  for (const top of ['script', 'locale', 'assets']) {
+  for (const top of ['script', 'locale', 'themes', 'assets']) {
     const dir = path.join(root, top);
     for (const f of listFiles(dir)) files.push({ path: `${top}/${rel(dir, f)}`, mtime: fs.statSync(f).mtimeMs });
-    for (const d of listDirs(dir)) dirs.push(`${top}/${d}`);
+    if (top !== 'themes') for (const d of listDirs(dir)) dirs.push(`${top}/${d}`);
   }
   const game = path.join(root, 'game.json');
   if (fs.existsSync(game)) files.push({ path: 'game.json', mtime: fs.statSync(game).mtimeMs });

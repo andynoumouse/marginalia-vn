@@ -28,7 +28,5 @@
     { "unlock": "town_visit", "title": "Into town", "description": "Leave the park behind." }
   ],
   "labels": {},
-  "theme": {
-    "accent": "#5fd1c3"
-  }
+  "theme": "default"
 }
