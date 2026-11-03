@@ -15,7 +15,11 @@ export interface CharacterStyle {
   blip?: string;   // sound played while the text types
   box?: string;    // text box skin (game.json theme.skins.<box>)
 }
-export interface CharacterDef { id: string; name: string; color: string | null; style: CharacterStyle; src: Src }
+/**
+ * `focus: false`: `define ... focus=off`, always lit under speaker focus (game.json "speakerFocus").
+ * `side`: `define ... side=<name>`, the portrait in the text box (assets/side/<name>, game.json "sideImages").
+ */
+export interface CharacterDef { id: string; name: string; color: string | null; style: CharacterStyle; focus?: false; side?: string; src: Src }
 
 /** `define item <id> "Name" [image=<file>]`: what a list entry shows as (`[bag]` in text, `item.name` / `item.image` in screens). */
 export interface ItemDef { id: string; name: string; nameId: string | null; image: string | null; src: Src }
@@ -59,7 +63,7 @@ export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'ir
 
 export type VisualBody =
   | { op: 'scene'; bg: string; transition: Transition; dir: string | null; dur: number }
-  | { op: 'show'; char: string; pose: string | null; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number] }
+  | { op: 'show'; char: string; pose: string | null; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string } // order/behind: where it goes in the draw order (state.sprites, back to front)
   | { op: 'hide'; char: string; fade: number }
   | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
   | { op: 'shake'; target: string; dur: number; strength: number }
@@ -70,6 +74,7 @@ export type VisualBody =
   | { op: 'camera'; zoom: number | null; x: number; y: number; dur: number; ease: string } // zoom about (x, y), both 0-1; zoom null = a pan that keeps the zoom
   | { op: 'weather'; kind: WeatherName | null; intensity: number; dur: number } // falling particles over the scene; null clears them
   | { op: 'filter'; name: FilterName | null; strength: number; dur: number } // screen-wide look (blur, grayscale, ...); null clears it
+  | { op: 'focus'; on: boolean } // speaker focus (game.json "speakerFocus") on or off for the story from here
   | { op: 'image'; action: 'show'; name: string; file: string; x?: number; y?: number; scale?: number; rotation?: number; alpha?: number; anchor?: [number, number]; layer?: number; fixed?: boolean; keep?: boolean; fade: number } // an overlay picture; fields left out stay as they are
   | { op: 'image'; action: 'hide'; name: string; fade: number }
   | { op: 'image'; action: 'move'; name: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
@@ -173,6 +178,8 @@ export interface DisplayState {
   images?: ImageState[];
   /** Screens up as a HUD, in the order shown; absent in older saves (= none). */
   hud?: HudState[];
+  /** `focus off` is in effect (speaker focus does not dim anyone); absent = on. Survives `scene`. */
+  focus?: false;
 }
 
 export interface SayEvent {

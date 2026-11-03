@@ -82,7 +82,7 @@ export function sliderReadout(setting: string, value: number): string {
   return setting === 'text_speed' ? String(Math.round(value)) : `${Math.round(value * 100)}%`;
 }
 /** Player settings a button with `action cycle` steps through (its id names the setting); their current word is a variable of the options screen. */
-export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'timed_choices', 'language'] as const;
+export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language'] as const;
 /** Art-free hover look of a hotspot or button: `hover tint <color>`, `hover scale <n>`, `hover sound "name"`. */
 export interface HoverFx { tint: string | null; scale: number | null; sound: string | null }
 

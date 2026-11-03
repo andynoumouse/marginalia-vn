@@ -5,6 +5,7 @@ import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import { shellEntryFields, shellVars, validateScreen, type ScreenDef, type ScreenNode } from './screens.js';
 import { withFix } from './suggest.js';
+import { stackedShows } from './stacking.js';
 import type { CharacterDef, Diagnostic, ItemDef, MenuOption, Op, OpBody, Program, Src } from './types.js';
 
 export interface SourceFile { file: string; text: string }
@@ -74,6 +75,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
           } else if ((b.op === 'show' || b.op === 'hide' || b.op === 'move' || b.op === 'hop' || b.op === 'animate') && !(b.char in characters)) {
             unknownChar(n.src, b.char);
           }
+          if (b.op === 'show' && b.behind && !(b.behind in characters)) unknownChar(n.src, b.behind);
           emit(n.src, b);
           break;
         }
@@ -214,6 +216,9 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
     }
   };
   for (const def of Object.values(screens)) checkHandlers(def.body);
+
+  // Two characters on one spot because a `show` left out `at`.
+  diagnostics.push(...stackedShows(ops, Object.keys(characters)));
 
   // 4. variable sanity check
   for (const { list, src } of eachLists) {

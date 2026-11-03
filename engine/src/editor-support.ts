@@ -19,19 +19,20 @@ const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
 const COMMANDS: [string, string][] = [
   ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
-  ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [pose] [at pos] [fade s]'],
+  ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [pose] [at pos] [order=front|back | behind=<char>] [fade s]'],
   ['hide', 'hide <character> [fade s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <seconds>'],
   ['shake', 'shake <character|screen> [seconds]'], ['hop', 'hop <character> [seconds]'],
   ['animate', 'animate <character> <name|stop> [seconds] [loop]'],
   ['hud', 'hud on <screen> [keep] | hud off <screen>  (keep a screen up while the story runs)'],
   ['image', 'image show <name> <file> [at x,y] [layer=] | image move <name> ... | image hide <name>'],
   ['flash', 'flash [#color] [seconds]'], ['tint', 'tint <#color> [strength] [seconds] | tint off'],
+  ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
   ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera reset'],
   ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
    ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  (a page of hotspots and buttons; show it with show screen name)'],
-  ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= box=]'],
+  ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= box= focus=off side=]'],
 ];
 // Text tags, offered right after a "{" (which is not part of the typed word, so labels leave it out).
 // `$0` marks where the cursor goes; the editor inserts these as snippets.
@@ -123,7 +124,8 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       const rig = rigs[prev[1]];
       const poses = [...(rig ? rigPoseNames(rig) : []), ...program.ops.flatMap(o => (o.op === 'show' && o.char === prev[1] && o.pose ? [o.pose] : []))];
       const slots = (rig ? rigSlotNames(rig) : []).map(s => ({ label: `${s}=`, kind: 'keyword' as const, detail: `slot of ${prev[1]}` }));
-      return [...assets(poses, `pose of ${prev[1]}`), ...slots, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'nowait'])];
+      const behind = characters.filter(c => c.label !== prev[1]).map(c => ({ label: `behind=${c.label}`, kind: 'keyword' as const, detail: 'draw order' }));
+      return [...assets(poses, `pose of ${prev[1]}`), ...slots, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'order=front', 'order=back', 'nowait']), ...behind];
     }
     case 'hide': return arg === 0 ? characters : kw(['fade', 'nowait']);
     case 'hop': return arg === 0 ? characters : kw(['nowait']);
@@ -159,6 +161,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
     case 'weather': return arg === 0 ? kw([...WEATHER_NAMES, 'off']) : kw(['nowait']);
     case 'filter': return arg === 0 ? kw([...FILTER_NAMES, 'off']) : kw(['nowait']);
     case 'nvl': return arg === 0 ? kw(['on', 'off', 'clear']) : [];
+    case 'focus': return arg === 0 ? kw(['on', 'off']) : [];
     case 'camera':
       if (arg === 0) return kw(['zoom', 'pan', 'reset']);
       if (last === 'at' || last === 'pan') return kw(Object.keys(program.positions));
@@ -179,7 +182,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (prev[1] === 'item') return arg >= 3 ? kw(['image=']) : [];
       if (arg < 2) return [];
       if (word.startsWith('blip=')) return kw(BLIP_PRESETS); // "=" ends a word in the editor: complete the value only
-      return kw(['color=', 'text=', 'font=""', 'size=1.1', 'italic', 'speed=0.8', 'blip=', 'box=']);
+      return kw(['color=', 'text=', 'font=""', 'size=1.1', 'italic', 'speed=0.8', 'blip=', 'box=', 'focus=off', 'side=']);
     case 'hud':
       if (arg === 0) return kw(['on', 'off']);
       if (arg === 1) return Object.keys(program.screens ?? {}).map(label => ({ label, kind: 'keyword' as const, detail: 'screen' }));

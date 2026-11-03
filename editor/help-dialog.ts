@@ -4,9 +4,9 @@ import { parseHelp, type HelpDoc } from '../engine/src/index.js';
 
 export type HelpSource = 'commands' | 'game-json' | 'rig-json';
 const DOCS: Record<HelpSource, { url: string; title: string }> = {
-  commands: { url: '/docs/commands.md', title: 'Command reference' },
-  'game-json': { url: '/docs/game-json.md', title: 'game.json reference' },
-  'rig-json': { url: '/docs/rig-json.md', title: 'rig.json reference' },
+  commands: { url: '../docs/commands.md', title: 'Command reference' },
+  'game-json': { url: '../docs/game-json.md', title: 'game.json reference' },
+  'rig-json': { url: '../docs/rig-json.md', title: 'rig.json reference' },
 };
 
 export class HelpDialog {

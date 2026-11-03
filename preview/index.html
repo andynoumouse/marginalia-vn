@@ -51,6 +51,14 @@
   #text .i { font-style: italic; } #text .b { font-weight: 700; }
   #box[data-done="true"]::after { content: ""; position: absolute; right: 36px; bottom: 26px; border: 14px solid transparent;
     border-top-color: rgba(255,255,255,.7); border-bottom: 0; }
+  /* Side image (game.json "sideImages"): the speaker's portrait standing on the box's bottom edge; it may rise above the box. */
+  #side { display: none; position: absolute; bottom: 0; left: 24px; width: var(--side-size, 260px); height: var(--side-size, 260px);
+    object-fit: contain; object-position: bottom; pointer-events: none; }
+  #box[data-side] #side { display: block; }
+  #box[data-side="left"] #text, #box[data-side="left"] #name { margin-left: var(--side-size, 260px); }
+  #box[data-side="right"] #side { left: auto; right: 24px; }
+  #box[data-side="right"] #text { margin-right: var(--side-size, 260px); }
+  #box[data-side="right"][data-done="true"]::after { right: calc(36px + var(--side-size, 260px)); }
 
   /* NVL: a full-screen page of narration filling from the top; when it is full the oldest lines fall off */
   #nvl { position: absolute; inset: 0; display: none; padding: 80px 220px; box-sizing: border-box;
@@ -318,6 +326,11 @@
     color: rgba(255,255,255,.75); text-shadow: 0 1px 4px #000; white-space: pre; }
   .confirm { grid-template-columns: 1fr; width: 960px; }
   .confirm p { margin: 0; font: 40px/1.35 var(--vn-font); }
+  /* the error screen of an exported game (the story stopped on an error); above everything, the splash and curtain included */
+  #crash { z-index: 60; }
+  .crash p { margin: 0; font: 34px/1.35 var(--vn-font); }
+  .crash pre { margin: 0; padding: 16px 20px; max-height: 420px; overflow: auto; background: rgba(0,0,0,.45); border-radius: 6px;
+    font: 22px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
 
   html[data-mode="game"] #bar, html[data-mode="game"] #diag, html[data-mode="game"] #debug { display: none; }
   html[data-mode="game"] #viewport { inset: 0; }
@@ -365,7 +378,7 @@
     <div id="stage">
       <div id="hud"></div>
       <div id="hudui" data-visible="false"></div>
-      <div id="box" data-visible="false" data-done="false"><div id="name"></div><div id="text"></div></div>
+      <div id="box" data-visible="false" data-done="false"><img id="side" alt=""><div id="name"></div><div id="text"></div></div>
       <div id="nvl" data-visible="false" data-done="false"><div id="nvl-page"></div></div>
       <div id="menu" data-visible="false"></div>
       <div id="screenui" data-visible="false"></div>
@@ -452,6 +465,10 @@
               <select id="optSkip">
                 <option value="read" data-ui="skip_read">Read text only</option><option value="all" data-ui="skip_all">All text</option>
               </select><span></span>
+              <label for="optFocus" data-ui="speaker_focus" id="optFocusLabel" hidden>Dim who is not speaking</label>
+              <select id="optFocus" hidden>
+                <option value="on" data-ui="on">On</option><option value="off" data-ui="off">Off</option>
+              </select><span id="optFocusEnd" hidden></span>
               <label for="optLang" data-ui="language">Language</label>
               <select id="optLang"></select><span></span>
               <label for="optVoiceLang" data-ui="voice_language" id="optVoiceLangLabel">Voice language</label>
@@ -548,6 +565,17 @@
           </div>
         </div>
       </div>
+      <div id="crash" class="screen dim" hidden>
+        <div class="panel crash" role="alertdialog" aria-labelledby="crashHead" aria-describedby="crashText">
+          <h2 id="crashHead" data-ui="crash_title">Something went wrong</h2>
+          <p id="crashText" data-ui="crash_text">The story stopped because of an error. Your saves are kept. If it happens again, copy the report and send it to the game's author.</p>
+          <pre id="crashReport"></pre>
+          <div class="actions">
+            <button id="crashCopy" type="button" data-ui="crash_copy">Copy report</button>
+            <button id="crashToTitle" type="button" data-ui="crash_to_title">Return to title</button>
+          </div>
+        </div>
+      </div>
       <div hidden>
         <span data-ui="instant">Instant</span>
         <span data-ui="slot">Slot</span>
@@ -582,6 +610,7 @@
         <span data-ui="confirm_old_save">This save was made with an older version of the game and may not load correctly. Load it anyway?</span>
         <span data-ui="confirm_delete">Delete this save?</span>
         <span data-ui="confirm_title">Return to the main menu? Progress since your last save will be lost.</span>
+        <span data-ui="crash_copied">Copied</span>
       </div>
     </div>
   </div>

@@ -13,9 +13,11 @@ export interface BuildHost {
   saveAll(): Promise<void>;
   /** Run the export through the dev server's task stream; `output` is everything it printed. */
   build(target: BuildTarget, out: string, langs: BuildLanguages): Promise<{ ok: boolean; output: string }>;
+  /** Inside Marginalia Studio: the desktop app can be built ready to run, on the Studio's own Electron runtime. */
+  portable?: boolean;
 }
 
-export type BuildTarget = 'web' | 'desktop';
+export type BuildTarget = 'web' | 'desktop' | 'portable';
 /** What the project has to include: the source language, translation tables, voice languages (the source name = default takes). */
 interface Languages { source: string; text: string[]; voice: string[] }
 interface CheckReport { findings: BuildFinding[]; errors: number; warnings: number; languages: Languages }
@@ -31,6 +33,9 @@ const HEADINGS: Record<CheckLevel, string> = { error: 'Errors (the build refuses
 const FOLDER = /^build(\/\w[\w.-]*)+$/;
 const defaultFolder = (target: BuildTarget) => `build/${target}`;
 const SUMMARY = /Exported ".*?" to .*?: (\d+) files, ([\d.]+) MB/;
+/** The portable export's exe and zip, relative to the project folder. */
+const APP = /^App: (.+)$/m;
+const ZIP = /^Zip: (.+?) \(([\d.]+) MB\)/m;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -64,7 +69,9 @@ export class BuildDialog {
           <button type="button" class="close" aria-label="Close build">Close</button></header>
         <div class="bd-bar">
           <label>Target <select class="bd-target" aria-label="Build target">
-            <option value="web">Web (static folder)</option><option value="desktop">Desktop (Electron app folder, packed assets)</option></select></label>
+            <option value="web">Web (static folder)</option>
+            <option value="portable">Desktop app (ready to run, zipped)</option>
+            <option value="desktop">Desktop npm folder (Electron, for installers)</option></select></label>
           <label>Folder <input class="bd-folder" type="text" spellcheck="false" aria-label="Output folder"></label>
           <button type="button" class="bd-rerun">Re-run checks</button>
         </div>
@@ -86,6 +93,8 @@ export class BuildDialog {
     this.targetSel = q('.bd-target'); this.folder = q('.bd-folder'); this.folderNote = q('.bd-note'); this.summary = q('.bd-summary');
     this.rows = q('.bd-rows'); this.langBox = q('.bd-langs'); this.ackLabel = q('.bd-ack'); this.ack = q('.bd-ack-box'); this.buildBtn = q('.bd-go');
     this.rerun = q('.bd-rerun'); this.result = q('.bd-result');
+    // Outside the Studio there is no Electron runtime to copy: the npm folder downloads its own.
+    if (!h.portable) this.targetSel.querySelector('option[value=portable]')!.remove();
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     q('.close').addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
@@ -102,7 +111,7 @@ export class BuildDialog {
 
   get isOpen() { return !this.root.hidden; }
 
-  private get target(): BuildTarget { return this.targetSel.value === 'desktop' ? 'desktop' : 'web'; }
+  private get target(): BuildTarget { const v = this.targetSel.value; return v === 'desktop' || v === 'portable' ? v : 'web'; }
 
   async open(returnFocus: () => void) {
     this.returnFocus = returnFocus;
@@ -237,7 +246,11 @@ export class BuildDialog {
     this.result.dataset.state = res.ok ? 'ok' : 'failed';
     if (!res.ok) { this.result.textContent = `Build failed. ${res.output.trim().split('\n').slice(-3).join(' ')}`; return; }
     const open = target === 'web' ? ` <a class="bd-open" href="/${esc(out)}/" target="_blank" rel="noopener">Open the game</a>` : '';
+    const app = APP.exec(res.output), zip = ZIP.exec(res.output);
+    const next = target === 'web' ? 'Upload the folder or zip its contents (index.html at the root).'
+      : target === 'desktop' ? 'Run <code>npm install &amp;&amp; npm start</code> inside it to try the app.'
+      : `${zip ? `Share <code class="bd-path">${esc(zip[1])}</code> (${zip[2]} MB): players unzip it and run the exe.` : ''}${app ? ` Try it: <code class="bd-path">${esc(app[1])}</code>.` : ''}`;
     this.result.innerHTML = `Built into <code class="bd-path">${esc(out)}</code> in the project folder${m ? `: ${m[1]} files, ${m[2]} MB` : ''}.${open}
-      ${target === 'web' ? 'Upload the folder or zip its contents (index.html at the root).' : 'Run <code>npm install &amp;&amp; npm start</code> inside it to try the app.'}`;
+      ${next}`;
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "marginalia-vn",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -17,17 +17,27 @@
     "test": "tsc -p . && node scripts/test.mjs fast",
     "test:browser": "tsc -p . && node scripts/test.mjs browser",
     "test:all": "tsc -p . && node scripts/test.mjs all",
+    "test:studio": "tsc -p . && node scripts/test.mjs studio",
+    "studio": "electron studio",
     "ids": "node bin/vn.mjs ids",
     "strings": "node bin/vn.mjs strings",
     "voice": "node bin/vn.mjs voice",
     "art": "node bin/vn.mjs art",
     "playtest": "node bin/vn.mjs playtest",
-    "export": "node bin/vn.mjs export"
+    "stats": "node bin/vn.mjs stats",
+    "export": "node bin/vn.mjs export",
+    "package:studio": "tsc -p . && node scripts/package-studio.mjs",
+    "build:online": "node scripts/build-online.mjs",
+    "serve:online": "node scripts/serve-online.mjs"
   },
-  "devDependencies": {
+  "dependencies": {
     "ag-psd": "34.1.0",
     "monaco-editor": "0.52.2",
     "pixi.js": "8.22.0",
+    "resedit": "3.1.0"
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
     "playwright-core": "^1.64.1",
     "typescript": "^5.6.0"
   }

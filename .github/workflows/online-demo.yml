@@ -1,0 +1,40 @@
+# Publishes the online demo (docs/online.md) to GitHub Pages when a release tag is pushed, or by hand from the Actions tab.
+# Once per repository: Settings -> Pages -> Source: GitHub Actions.
+name: Online demo
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true # the sample's PSD master is in Git LFS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: node scripts/build-online.mjs --no-build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/online
+      - id: deployment
+        uses: actions/deploy-pages@v4

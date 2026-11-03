@@ -117,13 +117,18 @@ screen inventory:
   default back
   cancel
 
-# Timed choice, disabled option with a reason, persistent flags.
+# Two characters and their draw order, timed choice, disabled option with a reason, persistent flags.
 label archive:
   set visits += 1
   scene bg_reading_room fade 0.5
   filter night 0.6 1
   show iris neutral at center fade 0.3
   iris: The archive. Closed to the public. #j1hm
+  move iris to 0.43 0.5 ease=out
+  show theo neutral at 0.57 behind=iris fade 0.4
+  theo: Closed to everyone but the archivist, Iris. That's me. Theo. #aphh
+  show theo smile order=front
+  iris: Theo keeps the archive. Mind the step, he likes to stand in front. #akt4
   menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" #g4mt timeout 8:
     "Open the box" #ugk2 if archive_open == 1 else "You need the brass key." #u9yu:
       iris: It's a stack of rain-stained postcards. {pause=0.4}Take one. #yyoc

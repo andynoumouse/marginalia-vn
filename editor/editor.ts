@@ -3,7 +3,7 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry,
+  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
   type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
@@ -30,6 +30,9 @@ window.addEventListener('unhandledrejection', e => {
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const statusEl = $('status'), tabsEl = $('tabs'), problemsEl = $('problems'), followEl = $<HTMLInputElement>('follow');
 const preview = $<HTMLIFrameElement>('preview');
+/** What the server can do (`/api/capabilities`): the online demo has no git, file manager or node tools. Read at boot. */
+let caps: Capabilities = FULL_CAPABILITIES;
+const NOT_IN_DEMO = 'needs the local dev server (not available in the online demo)';
 
 // kind 'rig' is a character's assets/char/<char>/rig.json (tab name char/<char>/rig.json)
 interface FileState { name: string; kind: 'script' | 'game' | 'rig'; char?: string; model: any; saved: string; timer: number }
@@ -66,7 +69,9 @@ function loadMonaco(): Promise<void> {
       reject(new Error('Monaco was not found. Run "npm install" in the project folder, then reload this page.'));
       return;
     }
-    const base = `${location.origin}/vendor/monaco`;
+    // Where the page loaded Monaco's loader from: /vendor/monaco on the dev server, the site's root folder in the online demo.
+    const loader = document.querySelector<HTMLScriptElement>('script[src$="/vs/loader.js"]')?.src;
+    const base = loader ? loader.slice(0, -'/vs/loader.js'.length) : `${location.origin}/vendor/monaco`;
     // A blob: worker keeps the page's origin (a data: worker gets an opaque one and cannot importScripts from localhost).
     const workerUrl = URL.createObjectURL(new Blob([
       `self.MonacoEnvironment={baseUrl:'${base}/'};importScripts('${base}/vs/base/worker/workerMain.js');`,
@@ -92,7 +97,7 @@ function registerLanguage() {
 
   monaco.languages.setMonarchTokensProvider('vn', {
     keywords: ['label', 'menu', 'if', 'elif', 'else', 'jump', 'call', 'return', 'end', 'set', 'define', 'unlock', 'input',
-      'scene', 'show', 'hide', 'move', 'shake', 'hop', 'animate', 'flash', 'tint', 'camera', 'weather', 'filter', 'music', 'sound', 'wait', 'nvl', 'screen', 'hotspot', 'button', 'text', 'image', 'each', 'scroll', 'row', 'column', 'grid', 'cancel'],
+      'scene', 'show', 'hide', 'move', 'shake', 'hop', 'animate', 'flash', 'tint', 'focus', 'camera', 'weather', 'filter', 'music', 'sound', 'wait', 'nvl', 'screen', 'hotspot', 'button', 'text', 'image', 'each', 'scroll', 'row', 'column', 'grid', 'cancel'],
     modifiers: ['at', 'fade', 'to', 'loop', 'nowait', 'play', 'stop', 'on', 'off', 'clear', 'cut', 'dissolve', 'wipe', 'iris', 'blinds', 'pixelate', 'pan', 'zoom', 'reset',
       'left', 'right', 'center', 'up', 'down', 'size', 'poly', 'ellipse', 'mask', 'step', 'cursor', 'enabled', 'anchor', 'margin', 'padding', 'gap', 'align', 'cell', 'as', 'and', 'or', 'not', 'true', 'false', 'screen'],
     tokenizer: {
@@ -486,6 +491,27 @@ function addFile(name: string, text: string, kind: FileState['kind'] = 'script',
   return f;
 }
 
+/**
+ * What would be lost by leaving the page: tabs not on disk (a pending autosave, JSON that does not parse, a failed save)
+ * and the animation studio's unapplied edits. A generated rig.json skeleton nobody edited does not count.
+ */
+function unsavedWork(): string[] {
+  const names = [...files.values()]
+    .filter(f => isDirty(f) && !(f.saved === '' && f.model.getAlternativeVersionId() === 1))
+    .map(f => f.name);
+  if (animStudio?.hasUnapplied) names.push('animation studio');
+  return names;
+}
+
+// Leaving with unsaved edits: start the pending saves now and ask (the browser, or Marginalia Studio, shows the question).
+window.addEventListener('beforeunload', e => {
+  const unsaved = unsavedWork();
+  if (!unsaved.length) return;
+  for (const f of files.values()) if (isDirty(f) && f.saved !== '') { clearTimeout(f.timer); void save(f); }
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 // ---- game.json schema (completions, hover docs and validation in the JSON tab) ----
 interface Project {
   scripts: { file: string; text: string }[];
@@ -600,13 +626,15 @@ const sbHeading = (text: string, actions: SbAction[] = [], menu?: () => MenuEntr
 // File manager actions on project-relative paths (dev server: /api/reveal and /api/open).
 const REVEAL = /Win/.test(navigator.platform) ? 'Reveal in File Explorer' : /Mac/.test(navigator.platform) ? 'Reveal in Finder' : 'Open Containing Folder';
 async function showPath(how: 'reveal' | 'open', rel: string) {
+  if (!caps.reveal) { setStatus(`opening files ${NOT_IN_DEMO}`); return; }
   try {
     const r = await fetch(`/api/${how}?path=${encodeURIComponent(rel)}`, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
     if (r.status === 404) { setStatus('the dev server is older than the editor: restart it to open files'); return; }
     if (!r.ok) throw new Error(String(r.status));
   } catch { setStatus(how === 'open' ? `could not open ${rel}` : `could not show ${rel}`); }
 }
-const revealItem = (rel: string, label = REVEAL): MenuItem => ({ label, title: rel || 'the project folder', run: () => void showPath('reveal', rel) });
+const revealItem = (rel: string, label = REVEAL): MenuItem =>
+  ({ label, title: caps.reveal ? rel || 'the project folder' : NOT_IN_DEMO, disabled: !caps.reveal, run: () => void showPath('reveal', rel) });
 const copyItem = (label: string, text: string): MenuItem => ({
   label, title: text, run: () => void navigator.clipboard.writeText(text).then(() => setStatus(`copied ${text}`), () => setStatus('copy failed')),
 });
@@ -1050,7 +1078,7 @@ let assetViewer: AssetViewer;
  * Files panel row when it was opened from there (`fromPanel`), else to the editor. */
 function openAsset(file: string, siblings: string[] = [file], fromPanel = false) {
   if (canView(file)) assetViewer.open(file, siblings, () => (fromPanel ? refocus(sbAssetsEl, `assets/${file}`) : editor.focus()));
-  else window.open(`/assets/${encodeURI(file)}`, '_blank', 'noopener');
+  else window.open(`../assets/${encodeURI(file)}`, '_blank', 'noopener');
 }
 
 function setSidebar(show: boolean) {
@@ -1079,8 +1107,8 @@ const QUICK_ITEMS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save'
 const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume', 'main_menu', 'master_volume', 'music_volume',
   'sound_volume', 'voice_volume', 'text_speed', 'auto_advance', 'skip_mode', 'skip_read', 'skip_all', 'language', 'fullscreen', 'back',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
-  'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title',
-  'confirm_qload', 'history', 'history_empty', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
+  'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
+  'confirm_qload', 'history', 'history_empty', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
   'gallery', 'locked', 'music_room', 'chapters', 'stop', 'now_playing', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
 
@@ -1144,6 +1172,8 @@ function updateGameSchema() {
     additionalProperties: false,
     properties: {
       title: { type: 'string', description: 'Game name, shown on the title screen.' },
+      icon: { type: 'string', description: 'The game\'s icon: assets/ui/<icon>.png, square, 256x256 or larger. The desktop app\'s exe and window icon and the web build\'s favicon.', examples: assetNames.ui },
+      version: { type: 'string', pattern: '^\\d{1,5}(\\.\\d{1,5}){0,3}$', description: 'The game\'s version, like "1.0" or "1.2.3": the desktop app\'s version info. Separate from saveVersion.', examples: ['1.0'] },
       id: { type: 'string', description: 'Key for saves, settings and read-text tracking. Defaults to a slug of `title`. Changing it starts with fresh saves.' },
       engine: { type: 'string', description: 'Minimum engine version, e.g. "0.1". The tools warn when the engine is older.' },
       stage: {
@@ -1318,6 +1348,29 @@ function updateGameSchema() {
           seconds: { type: 'number', exclusiveMinimum: 0, description: 'How long each one stays (default 4).' },
           sound: { type: 'string', description: 'Played as it appears: assets/sound/<sound>.', examples: assetNames.sound },
         },
+      },
+      speakerFocus: {
+        description: 'Dim the characters who are not speaking. true for the defaults; players can turn it off in Options, scripts with "focus off", one character with "define ... focus=off".',
+        oneOf: [{ type: 'boolean' }, {
+          type: 'object', additionalProperties: false,
+          properties: {
+            dim: { type: 'number', minimum: 0, maximum: 1, description: 'How much darker the others get (default 0.35).' },
+            fade: { type: 'number', minimum: 0, description: 'Seconds the change takes (default 0.2).' },
+            front: { type: 'boolean', description: 'Draw the speaker in front of the others for the line (default false).' },
+            offstage: { enum: ['lit', 'dim'], description: 'When the speaker is not on stage (narration): everyone lit (default) or everyone dimmed.' },
+          },
+        }],
+      },
+      sideImages: {
+        description: 'The speaker portrait in the text box, for characters defined with "side=<name>" (assets/side/<name>.png, or <name>_<pose>.png while they are on stage in that pose). true for the defaults.',
+        oneOf: [{ type: 'boolean' }, {
+          type: 'object', additionalProperties: false,
+          properties: {
+            place: { enum: ['left', 'right'], description: 'Which end of the text box (default left).' },
+            size: { type: 'number', exclusiveMinimum: 0, description: 'Portrait height in stage pixels (default 260).' },
+            when: { enum: ['always', 'offstage'], description: 'always (default), or only while the speaker is not on stage.' },
+          },
+        }],
       },
       blips: {
         type: 'object',
@@ -1854,6 +1907,7 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
         setTimeout(() => postPreview({ type: 'goto', file: scene.file, line: scene.line }), 600);
       })();
     }),
+    scene: scene ?? target ?? undefined,
     positions: namedPositions(openGame()),
     anchors: namedAnchors(openGame()),
     parts: manifest ? rigPartNames({ ...manifest, rig: object(data) }) : [], // groups from the file as it is now
@@ -1864,7 +1918,7 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
     height: manifest?.height ?? 0,
     shown: manifest ? (pose, overrides) => rigLayers(manifest, pose, overrides).map(l => l.part) : undefined,
     outline: manifest ? (pose, overrides) => rigOutline({ ...manifest, rig: object(data) }, pose, overrides) : undefined,
-    image: file => `/assets/char/${encodeURIComponent(f.char!)}/${encodeURI(file)}`,
+    image: file => `../assets/char/${encodeURIComponent(f.char!)}/${encodeURI(file)}`,
     apply: change => {
       const writes: RigWrite[] = [{ key: 'animations', value: change.anims }, { key: 'pivots', value: change.pivots }];
       const now = change.rig;
@@ -1932,6 +1986,12 @@ function runPlaytest() {
   showOutput(playtestText(report));
   setStatus(`playtest: ${report.endings.length} endings, ${found.length} problem${found.length === 1 ? '' : 's'}${report.complete ? '' : ' (incomplete)'}`);
 }
+/** Words, lines and reading time of the scripts as they are in the editor, in the Output panel. */
+function showStats() {
+  const stats = scriptStats(program);
+  showOutput(statsText(stats));
+  setStatus(`${stats.total.words} words, reading time ${readingTime(stats.minutes)}`);
+}
 /** Fill the Output panel; `file.ext:line[:col]` references to open files become links. Stays scrolled to the end if it was there. */
 function showOutput(text: string) {
   const atEnd = outputText.scrollTop + outputText.clientHeight >= outputText.scrollHeight - 4;
@@ -1957,8 +2017,12 @@ function showOutput(text: string) {
   if (atEnd) outputText.scrollTop = outputText.scrollHeight;
 }
 
+/** Writes every open file now (pending autosaves included). */
+const saveAllNow = () => Promise.all([...files.values()].map(f => { clearTimeout(f.timer); return save(f); }));
+
 /** Run a dev-server task; its output streams in as NDJSON (`{"out"}` chunks, then `{"ok"}`), see runTask in preview/dev-server.mjs. */
 async function runTask(name: string, label: string, params = ''): Promise<{ ok: boolean; output: string }> {
+  if (!caps.tasks.includes(name)) { setStatus(`${label} ${NOT_IN_DEMO}`); return { ok: false, output: '' }; }
   setStatus(`${label}...`);
   let output = '', ok = false, frame = 0;
   const show = () => { frame = 0; showOutput(output.trim() || '(running...)'); };
@@ -2017,6 +2081,7 @@ function buildCommands(): Command[] {
     { title: 'Find and Replace in All Files', key: { code: K.CtrlCmd | K.Shift | C.KeyF, label: 'Ctrl+Shift+F' }, run: openFind },
     { title: 'Story: Show Outline (label flowchart)', run: toggleOutline },
     { title: 'Story: Playtest All Routes (unreachable lines, endings, unused assets and variables)', run: runPlaytest },
+    { title: 'Story: Script Statistics (words, lines and reading time per script, label and character)', run: showStats },
     { title: 'Help: Command Reference (for the statement at the cursor)', key: { code: C.F1, label: 'F1' }, run: toggleHelp },
     { title: 'Preview from Cursor', key: { code: K.CtrlCmd | C.Enter, label: 'Ctrl+Enter' }, run: () => previewFromCursor() },
     { title: 'Preview: Splash (game.json splash cards)', run: () => postPreview({ type: 'splash' }) },
@@ -2058,14 +2123,17 @@ function buildCommands(): Command[] {
       editor.updateOptions({ wordWrap: editor.getOption(monaco.editor.EditorOption.wordWrap) === 'on' ? 'off' : 'on' });
     } },
     { title: 'Toggle Minimap', run: () => editor.updateOptions({ minimap: { enabled: !editor.getOption(monaco.editor.EditorOption.minimap).enabled } }) },
-    { title: 'Build: Checks and Export (web or desktop)', run: () => void buildDialog.open(() => editor.focus()) },
-    { title: 'Git: Commit All Changes (review, then stage and commit the project folder)', run: () => void gitPanel.open(() => editor.focus()) },
-    { title: 'Export Web Build (build/web)', run: () => runTask('export', 'export') },
-    { title: 'Open Exported Game', run: () => { window.open('/build/web/', '_blank', 'noopener'); } },
-    { title: 'Export Strings (locale/<source language>.json, report untranslated)', run: () => runTask('strings', 'strings') },
+    { title: 'Build: Checks and Export (web or desktop)', when: () => caps.tasks.includes('build'), run: () => void buildDialog.open(() => editor.focus()) },
+    { title: 'Git: Commit All Changes (review, then stage and commit the project folder)', when: () => caps.git, run: () => void gitPanel.open(() => editor.focus()) },
+    { title: 'Export Web Build (build/web)', when: () => caps.tasks.includes('export'), run: () => runTask('export', 'export') },
+    { title: 'Open Exported Game', when: () => caps.tasks.includes('export'), run: () => { window.open('../build/web/', '_blank', 'noopener'); } },
+    { title: 'Export Strings (locale/<source language>.json, report untranslated)', when: () => caps.tasks.includes('strings'), run: () => runTask('strings', 'strings') },
     { title: 'Translations: Edit Side by Side (and export CSV for translators)', run: () => void translations.open(() => editor.focus()) },
     { title: 'Voice: Recordings per Line (drop audio files, find outdated takes)', run: () => void voiceDialog.open(() => editor.focus()) },
-    { title: 'Reconvert All Art (masters/ to assets/)', run: () => runTask('art', 'art') },
+    { title: 'Reconvert All Art (masters/ to assets/)', when: () => caps.tasks.includes('art'), run: () => runTask('art', 'art') },
+    // The online demo keeps the project in this browser (online/sw.ts): a zip is the way to keep it or move it to the desktop tools.
+    { title: 'Online: Download Project as .zip', when: () => caps.online, run: async () => { await saveAllNow(); location.assign('../project.zip'); } },
+    { title: 'Online: Back to the Project List', when: () => caps.online, run: async () => { await saveAllNow(); location.assign('../../../'); } },
   ];
 }
 
@@ -2239,16 +2307,17 @@ function setupPalette() {
     source: () => sourceLanguage(openGame() as { language?: unknown } | null),
     declared: () => declaredVoiceLanguages(openGame() as { voiceLanguages?: unknown } | null, sourceLanguage(openGame() as { language?: unknown } | null)),
   });
-  const saveAll = async () => { await Promise.all([...files.values()].map(f => { clearTimeout(f.timer); return save(f); })); };
+  const saveAll = async () => { await saveAllNow(); };
   buildDialog = new BuildDialog(document.body, {
     reveal: goToLine,
     openTranslations: () => void translations.open(() => editor.focus()),
     openVoice: () => void voiceDialog.open(() => editor.focus()),
     saveAll,
     build: (target, out, langs) => runTask('build', 'build', `&target=${target}&out=${encodeURIComponent(out)}${langQuery(langs)}`),
+    portable: 'vnStudio' in window, // studio/preload.cjs
   });
   gitPanel = new GitPanel($('sbGit'), document.body, { saveAll, done: setStatus });
-  void gitPanel.refresh();
+  if (caps.git) void gitPanel.refresh();
   translations = new TranslationsDialog(document.body, {
     rows: () => { recompile(); return stringRows(program); },
     reveal: goToLine,
@@ -2407,6 +2476,7 @@ async function boot() {
       editor.setSelection({ startLineNumber: m.line, startColumn: m.col + 1, endLineNumber: m.line, endColumn: m.col + 1 + m.length });
     },
   });
+  try { caps = readCapabilities(await (await fetch('/api/capabilities')).json()); } catch { /* an older dev server: it can do everything */ }
   setupPalette();
 
   const proj = await (await fetch('/api/project')).json() as Project;
@@ -2419,7 +2489,7 @@ async function boot() {
   recompile();
   const first = files.keys().next().value as string | undefined;
   if (first) activate(first);
-  setStatus('ready');
+  setStatus(caps.online ? 'ready (online demo: the project is kept in this browser; Ctrl+P > Online to download it as a zip)' : 'ready');
 
   let sidebarShown = true;
   try { sidebarShown = localStorage.getItem(SIDEBAR_KEY) !== '0'; } catch { /* default: shown */ }
@@ -2432,6 +2502,7 @@ async function boot() {
   $('outlineBtn').addEventListener('click', toggleOutline);
   $('translateBtn').addEventListener('click', () => void translations.open(() => editor.focus()));
   $('buildBtn').addEventListener('click', () => void buildDialog.open(() => editor.focus()));
+  $('buildBtn').hidden = !caps.tasks.includes('build');
   $('voiceBtn').addEventListener('click', () => void voiceDialog.open(() => editor.focus()));
   $('varsBtn').addEventListener('click', () => { varsEl.hidden = !varsEl.hidden; if (!varsEl.hidden) showVars(lastVars); });
   $('varsClose').addEventListener('click', () => { varsEl.hidden = true; });
@@ -2444,7 +2515,7 @@ async function boot() {
   events.onmessage = e => {
     if (!['content', 'masters'].includes((JSON.parse(e.data) as { type: string }).type)) return;
     void syncFromDisk();
-    gitPanel.refreshSoon();
+    if (caps.git) gitPanel.refreshSoon();
   };
 }
 

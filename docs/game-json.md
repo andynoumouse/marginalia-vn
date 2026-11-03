@@ -57,6 +57,8 @@ What follows the size and what does not:
 | `captions` | Text shown for sound effects when the player turns on Sound captions, below. |
 | `choiceSaves` | How many rotating choice autosaves to keep, 1 to 20 (default 5). |
 | `memoryBudgetMB` | Memory budget for loaded images and audio, in MB (default 512, or 256 when the browser reports 2 GB of device memory or less). Nothing is unloaded yet; the debug console's `memory` command compares what is resident against it. |
+| `icon` | The game's icon: `assets/ui/<icon>.png`, square, 256x256 or larger. The desktop app's exe and window icon and the web build's favicon (see docs/desktop.md). |
+| `version` | The game's version, one to four whole numbers like `"1.0"` or `"1.2.3"`: the desktop app's version info and its package version. Unrelated to `saveVersion`. |
 | `saveVersion` | A whole number (default 0). Raise it when a release breaks old saves: Continue, Load and quick load then ask "made with an older version, load anyway?" for saves made under a lower number (saves from before the field count as 0). The engine itself loads any save it finds. |
 | `psdPrefix` | Character PSDs: a top-level group whose name starts with this is a folder, not a slot (default `"+"`; `""` turns it off). Used by `npm run art`. |
 | `build` | `{ "checks": { "<check>": "error" \| "warning" \| "info" \| "off" } }`: how serious each pre-build check is, below. |
@@ -69,6 +71,8 @@ What follows the size and what does not:
 | `chapters` | Chapter select entries, below. |
 | `achievements` | Achievements and endings, below. |
 | `achievementToast` | The notice an unlocked achievement pops up, below. |
+| `speakerFocus` | Dim the characters who are not speaking, below. |
+| `sideImages` | The speaker's portrait in the text box, below. |
 | `blips` | Text sound voices, below. |
 | `labels` | Menu text overrides, below. |
 | `theme` | Look of the text box, text and choices, below. |
@@ -251,6 +255,41 @@ one after another. Every key is optional.
 The stock toast says "Achievement unlocked" or "Ending reached" (`ui.achievement_unlocked`, `ui.ending_reached` in the
 locale files) over the title, description and icon. To draw your own, declare `screen achievement_toast` (see the screens
 section of docs/commands.md); `seconds` and `sound` still apply, `position` is up to the screen.
+
+## speakerFocus
+
+Dims the characters on stage who are not speaking (off when absent). `true` takes the defaults; an object sets them, every
+key optional:
+
+```json
+"speakerFocus": { "dim": 0.35, "fade": 0.2, "front": false, "offstage": "lit" }
+```
+
+| Key | Meaning |
+|---|---|
+| `dim` | How much darker the others get, 0 to 1 (default 0.35). |
+| `fade` | Seconds the change takes (default 0.2; reduce motion and skipping change at once). |
+| `front` | Draw the speaker in front of the others for the line (default false); the script's draw order comes back after it. |
+| `offstage` | When the speaker is not on stage (narration, the player character): `lit` (default) lights everyone, `dim` dims everyone. |
+
+Scripts turn it off and on with `focus off` / `focus on`, `define <id> ... focus=off` keeps one character always lit, and
+players can turn it off in Options (Game tab; the switch shows only in games that have `speakerFocus`).
+
+## sideImages
+
+Draws the speaker's portrait in the text box (off when absent), for characters defined with `side=<name>` (see `define` in
+docs/commands.md). The art is `assets/side/<name>.png`, and `assets/side/<name>_<pose>.png` while the speaker is on stage in
+that pose. `true` takes the defaults; an object sets them, every key optional:
+
+```json
+"sideImages": { "place": "left", "size": 260, "when": "always" }
+```
+
+| Key | Meaning |
+|---|---|
+| `place` | Which end of the text box: `left` (default) or `right`. The text moves over to make room. |
+| `size` | Portrait height (and width of its place) in stage pixels (default 260); a taller one rises above the box. |
+| `when` | `always` (default), or `offstage`: only while the speaker is not on stage, as for a narrator or the player character. |
 
 ## blips
 

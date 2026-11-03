@@ -145,6 +145,9 @@ The other tabs:
 - **By itself** sets `idle`, `speak` (animation, mouth slot, variants, rate) and `blink` (slot, variant, interval, duration). Empty fields use the defaults; keys it does not know are kept.
 - **Place** shows where the character would stand in a scene. Press **Place on stage** and drag the character, or type x, y,
   scale and flip; the line below is the `show` command for it (`show mina at 0.35 y=0.02 scale=1.1`). **Copy** it into the script.
+  When the studio is opened with a script in front, the stage shows that scene as the story has it at the cursor line:
+  the background and the other characters where they stand (menus on the way take their first option, as in Preview
+  from cursor). Saved scripts are used, and the scene is hidden while a pivot is being placed.
 
 A channel is eased between its own keys, so keys that name different channels overlap freely: one channel can sway
 while another bounces. Every channel is 0 at `t=0` and `t=1` unless a key there says otherwise, which makes loops

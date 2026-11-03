@@ -1,0 +1,7 @@
+{
+  "name": "marginalia-studio",
+  "productName": "Marginalia Studio",
+  "private": true,
+  "description": "The Marginalia VN editor as a desktop app (see docs/design/studio.md)",
+  "main": "main.cjs"
+}

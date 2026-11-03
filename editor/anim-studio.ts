@@ -54,6 +54,8 @@ export interface StudioHost {
   image?: (file: string) => string;
   /** Write both to the character's rig.json; false when that failed (the studio then keeps its changes pending). */
   apply: (change: Snap) => boolean;
+  /** The script line the studio was opened from: the stage shows that scene's background and other characters. */
+  scene?: { file: string; line: number };
   /** Set when the studio was opened from a script line: plays the game from that line once the rig.json is saved. */
   tryInScene?: () => void;
   /** Set when a script tab was in front: puts a line under the cursor line there and says where it went (for the note). */
@@ -408,6 +410,8 @@ export class AnimStudio {
   private doc(): Snap { return { anims: this.anims, pivots: this.pivots, rig: this.rig }; }
   private snap(): Snap { return structuredClone(this.doc()); }
   private get dirty() { return JSON.stringify(this.doc()) !== this.baseline; }
+  /** Open with edits not applied to rig.json yet (the editor's leave-page guard asks about them). */
+  get hasUnapplied() { return this.isOpen && this.dirty; }
 
   /** Show `char`'s animations: `start` is its rig.json `animations` and `pivots` and what it does by itself. */
   open(char: string, start: Snap, host: StudioHost, animation?: string) {
@@ -438,7 +442,7 @@ export class AnimStudio {
     this.focusSent = undefined;
     this.rebuild();
     this.showPlace();
-    this.frame = el('iframe', { title: `${char} on the studio stage`, src: `/?studio=${encodeURIComponent(char)}` });
+    this.frame = el('iframe', { title: `${char} on the studio stage`, src: `../?studio=${encodeURIComponent(char)}` });
     this.stageHost.replaceChildren(this.frame);
     if (!host.parts?.length) this.stageHost.append(el('div', { className: 'as-empty', textContent: `No art for ${char} yet. Convert its PSD (or add its images) to see it here.` }));
     this.root.hidden = false;
@@ -473,6 +477,7 @@ export class AnimStudio {
       this.post({ type: 'studioAnims', anims: this.anims });
       this.postPivots();
       this.dressStage();
+      if (this.host.scene) this.post({ type: 'studioScene', ...this.host.scene });
       this.sendPlace();
       this.focusSent = undefined; // a reloaded stage starts with every part at full strength
       this.sendFocus();

@@ -10,6 +10,7 @@ export { captionFor, captionTable, captionProblem, humanizeSoundName, type Capti
 export * from './types.js';
 export * from './screens.js';
 export { DEFAULT_STAGE, MAX_STAGE_SIDE, MIN_STAGE_SIDE, fxUnit, stageLabel, stageProblem, stageSize, type StageSize } from './stage.js';
+export { newProjectFiles, projectSlug, titleFromFolder, type NewProjectOptions, type ProjectKind } from './new-project.js';
 export { parseFile, RE_SAY, RE_NARR, RE_OPT } from './parser.js';
 export { compile, type SourceFile } from './compile.js';
 export { BUILTIN_POSITIONS, namedPositions, positionProblem, type Position, type Positions } from './positions.js';
@@ -19,6 +20,7 @@ export { planDrop, masterOutput, matchMasters, type DropPlan } from './asset-dro
 export { stringRows, translationStatus, translatorCsv, outdatedIds, type StringRow, type StringKind, type TranslationStatus, type SourceSnapshot } from './translation.js';
 export { assignIds, existingIds } from './ids.js';
 export { NullRenderer } from './null-renderer.js';
+export { sceneAt } from './scene-at.js';
 export { getCompletions, type Suggestion } from './editor-support.js';
 export { parseHelp, helpTopicAt, rigHelpTopicAt, type HelpDoc, type HelpHeading } from './help.js';
 export {
@@ -30,6 +32,8 @@ export { rigOutline, type RigOutline, type OutlinePart, type OutlineVariant, typ
 export { pakHeader, packAssets, openPak, scramble, pakSeed, PAK_PREAMBLE, PAK_TEXT_DIR, type Pak, type PakReader, type PakFile, type PakEntry } from './pak.js';
 export { buildOutline, outlineCrossings, backEdgeLanes, fitView, zoomAt, centerOn, searchOutline, MIN_SCALE, MAX_SCALE, type OutlineView as ViewState, type Outline, type OutlineNode, type OutlineEdge, type OutlineEdgeKind } from './outline.js';
 export { normalizeSplash, titleFade, DEFAULT_SPLASH_DURATION, DEFAULT_SPLASH_FADE, DEFAULT_TITLE_FADE, type SplashCard } from './splash.js';
+export { sideImageSettings, sideImageProblems, sideImageKey, SIDE_PLACES, SIDE_WHEN, type SideImages, type SidePlace, type SideWhen } from './side.js';
+export { speakerFocusSettings, speakerFocusProblems, focusLevels, raisedSpeaker, OFFSTAGE_MODES, type SpeakerFocus, type OffstageMode } from './focus.js';
 export { normalizeMusicRoom, normalizeChapters, musicItems, chapterItems, chapterProblems, normalizeAchievements, achievementItems, achievementToToast, achievementToastSettings, achievementProblems, TOAST_POSITIONS, type MusicEntry, type ChapterEntry, type MusicItem, type ChapterItem, type AchievementEntry, type AchievementItem, type AchievementToastSettings, type ToastPosition } from './extras.js';
 export { findColors, parseHex, formatHex, type ColorRef } from './colors.js';
 export { variableRefs, variableAt, variableUses, renameVariable, type VarRef } from './var-refactor.js';
@@ -37,6 +41,7 @@ export { labelRefs,labelAt, renameLabel, applyTextEdits, findInFiles, replaceInF
 export { voiceFile, splitVoiceName, voiceText, sourceLanguage, declaredVoiceLanguages, shipsAsset, buildLanguages, type BuildLanguages, voiceLanguages, resolveVoiceLanguage, checkVoice, acceptVoice, changedSpan, voiceName, voiceRows, matchVoiceDrops, recordingScriptCsv, type VoiceLock, type VoiceCheck, type VoiceRow, type VoiceFilter, type VoiceTable, type VoiceStatus } from './voice.js';
 export { UI_SCREENS, overriddenScreens, type UiScreen } from './ui-screens.js';
 export { playtest, playtestDiagnostics, playtestText, variableUse, unusedAssets, type PlaytestOptions, type PlaytestReport, type PlaytestEnding, type LineRange, type VariableUse } from './playtest.js';
+export { scriptStats, statsText, readingTime, countText, plainText, type ScriptStats, type TextCount, type NamedCount, type LabelCount, type CharacterCount } from './stats.js';
 export { parseDebugCommand, formatDebugValue, DEBUG_HELP, RESET_TARGETS, type DebugCommand, type ResetTarget } from './debug.js';
 export { imageBytes, audioBytes, memoryBudget, formatBytes, residencyReport, DEFAULT_BUDGET_MB, LOW_MEMORY_GB, LOW_MEMORY_BUDGET_MB, type Resident, type ResidentKind, type ResidencyStats } from './residency.js';
 export { editDistance, closest, didYouMean, withFix, wordSpan } from './suggest.js';
@@ -49,3 +54,11 @@ export { assetRefs, renameAssetRefs, type AssetRef, type AssetRefKind, type Asse
 export { parseGitStatus, changeKind, suggestCommitMessage, checkCommit, GIT_IGNORE_LINES, LFS_WARN_BYTES, HOST_LIMIT_BYTES, type GitChange, type GitChangeKind, type GitFacts } from './git.js';
 export { TRASH_DIR, MANIFEST, TRASH_LIMITS, trashId, isTrashId, readManifest, planPurge, describeTrashEntry, type TrashAction, type TrashManifest, type TrashEntry } from './trash.js';
 export { buildChecks, buildCheckSettings, formatBuildReport, DEFAULT_LEVELS, CHECK_TITLES, type CheckId, type CheckLevel, type CheckSettings, type BuildFinding, type BuildCheckInput, type BuildReport } from './build-checks.js';
+export { touchRecent, removeRecent, parseRecent, sharedGameId, changesSince, withEngineVersion, ENGINE_CHANGES, MAX_RECENT, type RecentProject } from './studio-projects.js';
+export { safeFileName, portableExeName, portableFolderName, keepRuntimeFile } from './portable-app.js';
+export { crashReport, errorText, CRASH_LINES, CRASH_FRAMES, type CrashInfo } from './crash.js';
+export { pngSize, icoFromPng, iconSizeProblem, iconAsset, versionProblem, windowsVersion, packageVersion, ICON_MIN_SIZE } from './app-info.js';
+export { FULL_CAPABILITIES, readCapabilities, type Capabilities } from './capabilities.js';
+export { projectFromListing, projectTextFiles, editorExtras, type ProjectListing, type ProjectData, type ListedFile } from './project-data.js';
+export { convertMaster, masterKind, previousParts, planCharacter, prefixFrom, type Psd, type PsdLayer, type Deflate, type Converted, type MasterKind } from './psd.js';
+export { writeZip, readZip, commonRoot, crc32, type ZipEntry, type RawDeflate } from './zip.js';

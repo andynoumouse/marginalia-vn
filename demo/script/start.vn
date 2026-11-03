@@ -3,6 +3,7 @@
 
 define narrator "" text=#d8d2c0
 define iris "Iris" color=#7cc4ff blip=mid
+define theo "Theo" color=#9fd08a blip=low
 define you "You" color=#ffd27c
 
 set curious = 0

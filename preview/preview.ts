@@ -5,7 +5,7 @@
 // project data from project.json instead of the dev server, no live reload.
 
 import { initDebug } from './debug.js';
-import { attachPreloads, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeChapters, normalizeMusicRoom, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest } from '../engine/src/index.js';
+import { attachPreloads, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeChapters, normalizeMusicRoom, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
 import { Menus, type AchievementRow, type GalleryItem, type TitleConfig } from './menus.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { playSplash } from './splash.js';
@@ -57,11 +57,18 @@ interface GameConfig {
   achievements?: unknown;
   /** The notice an unlocked achievement pops up: { position, seconds, sound }. */
   achievementToast?: unknown;
+  /** Dim the characters who are not speaking: true or { dim, fade, front, offstage }. */
+  speakerFocus?: unknown;
+  sideImages?: unknown;
+  /** The game's own version ("1.2"), shown in the error screen's report. */
+  version?: unknown;
 }
 interface Project {
   scripts?: { file: string; text: string }[];
   /** An export ships the compiled program (engine/src/program-file.ts) instead of the scripts. */
   program?: ProgramFile;
+  /** The engine version an export was made with (for the error screen's report). */
+  engine?: string;
   locales: Record<string, Record<string, string>>;
   /** An export ships each translation as `locale/<lang>.json`, fetched when that language is picked; the dev server inlines `locales`. */
   localeFiles?: string[];
@@ -78,6 +85,7 @@ const embedded = window.parent !== window;
 const studioChar = devMode && embedded ? new URLSearchParams(location.search).get('studio') : null;
 if (studioChar !== null) document.documentElement.dataset.studio = '';
 let studio: Studio | null = null;
+let studioProgram: Program | null = null; // the project's scripts, for the stage behind the studio's character
 const fetchProject = async (): Promise<Project> => (await fetch(devMode ? '/api/project' : 'project.json')).json();
 const fetchedLocales = new Map<string, Record<string, string>>();
 /** One exported translation table; a missing or damaged file leaves the language on the source text. */
@@ -103,6 +111,8 @@ try {
   statusEl.textContent = 'WebGL is not available in this browser';
   throw e;
 }
+// The dev preview lets browser tests read the stage (the characters' draw order, tint and bounds); an export does not.
+if (devMode) (window as unknown as { vnStage: () => unknown }).vnStage = () => renderer.stageSnapshot();
 // Saves and settings are kept per game, so the id must be known before anything reads them.
 setGameId(gameId(firstProject?.game ?? {}));
 const settings = loadSettings();
@@ -170,6 +180,7 @@ function applySettings() {
   renderer.blips.enabled = settings.textSounds;
   renderer.reduceMotion = settings.reduceMotion;
   renderer.captions = settings.captions;
+  renderer.focusOn = settings.speakerFocus;
   renderer.timedChoices = settings.timedChoices;
   stage.style.setProperty('--text-scale', String(settings.textSize));
   stage.style.setProperty('--box-alpha', String(settings.boxOpacity));
@@ -300,6 +311,9 @@ function applyGame(assets: AssetFile[]) {
   quickEl.dataset.align = q.align ?? 'center';
   themeEl.textContent = themeCss(game.theme, assets);
   renderer.blips.voices = game.blips && typeof game.blips === 'object' ? game.blips : {};
+  renderer.speakerFocus = speakerFocusSettings(game.speakerFocus);
+  menus.setFocusOption(renderer.speakerFocus !== null);
+  renderer.sideImages = sideImageSettings(game.sideImages);
   document.title = embedded ? 'VN preview' : game.title ?? 'VN preview';
 }
 
@@ -423,6 +437,45 @@ const menus = new Menus(settings, {
     applySettings();
     if (lang) { langEl.value = settings.lang; void load(); }
   },
+});
+
+// ---- error screen ----
+// In an exported game, an error that stops the story (a bad expression, a renderer failure) shows a message with a
+// copyable report and Return to title, instead of leaving a frozen stage. The dev preview leaves it to the console.
+const crashEl = $('crash'), crashReportEl = $('crashReport'), crashCopy = $('crashCopy');
+let crashed = false;
+let engineVersion = ''; // project.json "engine", written by the export
+function showCrash(error: unknown, at: Src | null) {
+  console.error(error);
+  crashed = true;
+  stopModes();
+  playing = introRunning = curtained = false;
+  curtainEl.dataset.show = 'false';
+  menus.hideAll();
+  showQuick(false);
+  renderer.paused = true;
+  crashReportEl.textContent = crashReport({
+    error, at, engine: engineVersion, game: game.title, gameVersion: typeof game.version === 'string' ? game.version : undefined,
+    lines: timeline.lines().map(l => (l.name ? `${l.name}: ${l.text}` : l.text)), agent: navigator.userAgent, time: new Date(),
+  });
+  crashEl.hidden = false;
+  $('crashToTitle').focus();
+}
+crashCopy.addEventListener('click', () => {
+  const text = crashReportEl.textContent ?? '';
+  const done = () => {
+    const label = crashCopy.textContent;
+    crashCopy.textContent = document.querySelector('[data-ui="crash_copied"]')?.textContent ?? 'Copied';
+    setTimeout(() => { crashCopy.textContent = label; }, 1500);
+  };
+  // No clipboard (an insecure origin, a desktop build without permission): select the report for Ctrl+C instead.
+  navigator.clipboard?.writeText(text).then(done, () => getSelection()?.selectAllChildren(crashReportEl))
+    ?? getSelection()?.selectAllChildren(crashReportEl);
+});
+$('crashToTitle').addEventListener('click', () => {
+  crashEl.hidden = true;
+  crashed = false;
+  void showTitle();
 });
 
 // ---- quick menu actions ----
@@ -701,7 +754,10 @@ async function load() {
   if (studioChar !== null) {
     renderer.reduceMotion = true; // no idle loop to fight the studio's pose
     await renderer.preload(proj.assets ?? [], proj.rigs);
-    studio ??= new Studio(renderer, studioChar);
+    const scripts = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), stageSize(proj.game));
+    studioProgram = scripts;
+    studio ??= new Studio(renderer, studioChar, at => sceneAt(studioProgram!, at));
+    await studio.loadScene(); // the scripts may have changed under the scene line
     await studio.show();
     return;
   }
@@ -715,6 +771,7 @@ async function load() {
     program = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), size);
     scriptVersion = scriptsVersion(proj.scripts ?? []);
   }
+  engineVersion = proj.engine ?? '';
   const source = sourceLanguage(proj.game);
   const tables = { ...proj.locales };
   const langs = [...new Set([...Object.keys(tables), ...(proj.localeFiles ?? [])])];
@@ -756,6 +813,7 @@ async function load() {
     runtime.onSeen = key => optionsTaken.add(key);
     runtime.onPersist = (name, value) => persistent.set(name, value);
     runtime.onLabel = name => { if (playing) labelsReached.add(name); };
+    if (!devMode) runtime.onError = showCrash;
     if (embedded) play(rt => rt.start());
     else {
       const cards = normalizeSplash(game.splash);
@@ -797,7 +855,10 @@ function postVars() {
   window.parent.postMessage({ type: 'vars', vars: { ...runtime.vars, ...Object.fromEntries(flags), ...Object.fromEntries(data) } }, location.origin);
 }
 
-renderer.onHudEvent = (id, on) => { runtime?.hudEvent(id, on); };
+renderer.onHudEvent = (id, on) => {
+  try { runtime?.hudEvent(id, on); } // a quiet handler runs on the spot, outside the story's run
+  catch (e) { if (devMode || !runtime) throw e; runtime.stop(); showCrash(e, runtime.current); }
+};
 renderer.onPosition = (src, line) => {
   statusEl.textContent = `${src.file}:${src.line}`;
   if (line) lastLine = line;
@@ -820,7 +881,7 @@ window.addEventListener('pointerdown', () => { stage.dataset.pad = 'false'; });
 window.addEventListener('keydown', () => renderer.audio.unlock(), { once: true });
 
 stage.addEventListener('click', () => {
-  if (menus.open) return;
+  if (menus.open || crashed) return;
   if (uiHidden()) { setUiHidden(false); return; } // the first click only brings the interface back
   renderer.advance();
 });
@@ -843,11 +904,11 @@ stage.addEventListener('wheel', e => {
 // Keyboard and gamepad share one set of actions (input.ts). With a menu or the choices on screen, directions
 // move focus; otherwise the pad plays the game.
 const choiceOpen = () => menuEl.dataset.visible === 'true';
-const screenOpen = () => !menus.top && renderer.screens.open; // a custom screen (show screen) is up, with no menu over it
+const screenOpen = () => !crashed && !menus.top && renderer.screens.open; // a custom screen (show screen) is up, with no menu over it
 // A project screen (title, pause, options) replaces a stock menu's contents; focus then moves inside its layer, not the hidden stock element.
 const customRoot = (el: HTMLElement | null): HTMLElement | null =>
   el?.dataset.custom !== 'true' ? el : el === titleEl ? renderer.titleLayer.root : el === pauseEl ? renderer.pauseLayer.root : el === optionsEl ? renderer.optionsLayer.root : el === savesEl ? renderer.savesLayer.root : el === historyEl ? renderer.historyLayer.root : el === galleryEl ? renderer.galleryLayer.root : el === viewerEl ? renderer.viewerLayer.root : el === musicEl ? renderer.musicLayer.root : el === chaptersEl ? renderer.chaptersLayer.root : el;
-const uiRoot = (): HTMLElement | null => customRoot(menus.top) ?? (renderer.screens.open ? renderer.screens.root : choiceOpen() ? menuEl : renderer.hudLayer.focused ? renderer.hudLayer.root : null);
+const uiRoot = (): HTMLElement | null => crashed ? crashEl : customRoot(menus.top) ?? (renderer.screens.open ? renderer.screens.root : choiceOpen() ? menuEl : renderer.hudLayer.focused ? renderer.hudLayer.root : null);
 const isTab = (e: Element | null) => !!e?.matches('.opt-tabs [data-tab]');
 
 function handleAction(a: Action) {
@@ -912,6 +973,7 @@ window.addEventListener('keydown', e => {
   // In a text field left/right move the caret, but up/down have no other use: they leave for the on-screen keys.
   const typing = e.target instanceof HTMLInputElement && e.target.type === 'text' && dir !== 'up' && dir !== 'down';
   if (dir && uiRoot() && !typing && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); handleAction(dir); return; }
+  if (crashed) return; // Tab, Enter and Space work the error screen's buttons as usual
   if (e.key === 'Escape') {
     e.preventDefault();
     if (uiHidden()) setUiHidden(false);

@@ -43,7 +43,14 @@ function quoted(line: string): [number, number][] {
   return out;
 }
 
-type Add = (col: number, name: string, persistent: boolean, how?: 'param' | 'each' | 'outer') => void;
+const SAY = new RegExp(`^\\s*${ID}:[ \\t]+`);
+/** The [from, to) ranges of a line's shown text: everything after `who:` on a dialogue line, else its "quoted" strings. */
+function textSpans(line: string): [number, number][] {
+  const say = SAY.exec(line);
+  return say ? [[say[0].length, line.length]] : quoted(line);
+}
+
+type Add =(col: number, name: string, persistent: boolean, how?: 'param' | 'each' | 'outer') => void;
 
 /** Variable names in an expression (strings, numbers, keywords and function names skipped); stops at a `#` comment. */
 function exprRefs(raw: string, from: number, to: number, add: Add) {
@@ -141,7 +148,7 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
       }
       return;
     }
-    if ((r = new RegExp(`^\\s*${ID}:[ \\t]+`).exec(m))) { textRefs(raw, r[0].length, raw.length, add); return; }
+    if ((r = SAY.exec(m))) { textRefs(raw, r[0].length, raw.length, add); return; }
     strings();
   });
   for (const s of stack) s.end = lines.length;
@@ -219,7 +226,7 @@ function localeEdits(files: ProjectFile[], mine: { file: string; line: number; c
   for (const r of mine) {
     const raw = lineOf.get(r.file)?.[r.line - 1] ?? '';
     const id = /#([0-9a-z]{4,})\s*$/.exec(raw);
-    if (id && quoted(raw).some(([a, b]) => r.col >= a && r.col < b)) ids.add(id[1]);
+    if (id && textSpans(raw).some(([a, b]) => r.col >= a && r.col < b)) ids.add(id[1]);
   }
   if (!ids.size) return [];
   const ref = new RegExp(`\\[${target.persistent ? 'persistent\\.' : ''}(${target.name})(?=[\\].:])`, 'g');

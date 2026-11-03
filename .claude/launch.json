@@ -2,6 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     { "name": "vn-dev", "runtimeExecutable": "node", "runtimeArgs": ["preview/dev-server.mjs"], "port": 5173 },
-    { "name": "vn-demo", "runtimeExecutable": "node", "runtimeArgs": ["bin/vn.mjs", "dev", "--project", "demo"], "env": { "PORT": "5174" }, "port": 5174 }
+    { "name": "vn-demo", "runtimeExecutable": "node", "runtimeArgs": ["bin/vn.mjs", "dev", "--project", "demo"], "env": { "PORT": "5174" }, "port": 5174 },
+    { "name": "vn-online", "runtimeExecutable": "node", "runtimeArgs": ["scripts/serve-online.mjs"], "env": { "PORT": "5180" }, "port": 5180 }
   ]
 }

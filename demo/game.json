@@ -1,11 +1,13 @@
 {
   "id": "rainy-day-library",
   "title": "Rainy Day Library",
+  "icon": "app_icon",
   "engine": "0.1",
   "positions": {
     "farleft": 0.12,
     "farright": 0.88
   },
+  "speakerFocus": true,
   "titleScreen": {
     "background": "bg_library",
     "music": "evening_theme",

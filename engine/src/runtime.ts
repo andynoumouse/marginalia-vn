@@ -62,6 +62,11 @@ export function applyToState(state: DisplayState, op: VisualOp): void {
       if (op.scale !== undefined) s.scale = op.scale;
       if (op.flip !== undefined) s.flip = op.flip;
       if (op.anchor !== undefined) s.anchor = [...op.anchor];
+      if (op.order || (op.behind && state.sprites.some(x => x.char === op.behind))) { // behind someone not on stage: stays where it is
+        const rest = state.sprites.filter(x => x !== s);
+        const at = op.order === 'back' ? 0 : op.order === 'front' ? rest.length : rest.findIndex(x => x.char === op.behind);
+        state.sprites = [...rest.slice(0, at), s, ...rest.slice(at)];
+      }
       break;
     }
     case 'hide':
@@ -139,6 +144,9 @@ export function applyToState(state: DisplayState, op: VisualOp): void {
     case 'filter':
       state.filter = op.name ? { name: op.name, strength: op.strength } : null;
       break;
+    case 'focus':
+      if (op.on) delete state.focus; else state.focus = false;
+      break;
     // flash, shake, hop, one-shot animate, sound play, wait leave no lasting state
   }
 }
@@ -203,6 +211,11 @@ export class Runtime {
   onUnlock: (name: string) => void = () => {};
   /** The story entered a label (jump, call or falling through), but not while a restore is replaying (chapters unlock from it). */
   onLabel: (name: string) => void = () => {};
+  /**
+   * The story stopped on an error (a bad expression, a failing renderer call): the error and the line it was on (`current`).
+   * The run is stopped first. Unset, the error rejects the promise of start/restore/load like any other.
+   */
+  onError: ((error: unknown, at: Src | null) => void) | null = null;
   private labelNames: Map<number, string[]> | null = null;
   /**
    * HUD events (`hud on <screen>`, elements with `on click <label>`): the shell reports a choice with hudEvent(); it waits in
@@ -726,6 +739,18 @@ export class Runtime {
   }
 
   private async run(): Promise<void> {
+    const gen = this.gen + 1; // the one loop() takes
+    try {
+      await this.loop();
+    } catch (e) {
+      if (!this.onError) throw e;
+      if (gen !== this.gen) return; // a newer run replaced this one meanwhile
+      this.stop();
+      this.onError(e, this.current);
+    }
+  }
+
+  private async loop(): Promise<void> {
     const gen = ++this.gen;
     const { ops } = this.program;
 

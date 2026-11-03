@@ -12,10 +12,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFile, spawn, spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
+import { buildPlan } from '../tools/build-plan.mjs';
 import { pathToFileURL } from 'node:url';
 import { checkEngineVersion, engineRoot as root, projectRoot } from '../tools/paths.mjs';
-import { projectData as readProject } from '../tools/project-data.mjs';
 
 const project = projectRoot();
 checkEngineVersion(project);
@@ -44,16 +43,20 @@ const mime = {
 };
 
 // ---- TypeScript build ----
-if (!process.argv.includes('--no-build')) {
-  let tsc;
-  try { tsc = createRequire(import.meta.url).resolve('typescript/bin/tsc'); }
-  catch { console.error('TypeScript not found. Run "npm install" first (or use --no-build).'); process.exit(1); }
+// Without TypeScript (a packaged engine) it serves the dist/ that is there.
+const build = buildPlan(distRoot, { noBuild: process.argv.includes('--no-build') });
+if (build.mode === 'missing') { console.error(build.message); process.exit(1); }
+if (build.note) console.log(build.note);
+if (build.mode === 'build') {
+  const { tsc } = build;
   console.log('Building engine...');
   const first = spawnSync(process.execPath, [tsc, '-p', '.'], { cwd: root, stdio: 'inherit' });
   if (first.status !== 0) console.error('Initial build reported errors (see above); watching for fixes.');
   spawn(process.execPath, [tsc, '-p', '.', '--watch', '--preserveWatchOutput'], { cwd: root, stdio: 'inherit' });
 }
 
+// After the build: project-data.mjs uses the built engine (engine/src/project-data.ts).
+const { projectData: readProject } = await import('../tools/project-data.mjs');
 const { isLocalHost, isOwnOrigin, isOpenable } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'request-guard.js')).href);
 
 // ---- art pipeline ----
@@ -499,7 +502,8 @@ const TASKS = {
   strings: ['tools/vn-tool.mjs', 'strings'],
   art: ['tools/psd-convert.mjs', '--force'],
 };
-// The editor's Build dialog: `name=build&target=web|desktop&out=<folder>`. The folder is a validated parameter (never raw args): it
+// The editor's Build dialog: `name=build&target=web|desktop|portable&out=<folder>` (portable only works when the server runs inside
+// Marginalia Studio: export-web.mjs copies the Studio's Electron runtime). The folder is a validated parameter (never raw args): it
 // must sit inside build/ (export-web.mjs also refuses anything that is not clearly an export target, and deletes what it replaces).
 const buildFolder = out => /^build(\/\w[\w.-]*)+$/.test(out) && !out.includes('..');
 function taskArgs(url) {
@@ -507,10 +511,10 @@ function taskArgs(url) {
   if (name !== 'build') return Object.hasOwn(TASKS, name) ? TASKS[name] : undefined;
   const target = url.searchParams.get('target');
   const out = url.searchParams.get('out') ?? `build/${target}`;
-  if ((target !== 'web' && target !== 'desktop') || !buildFolder(out)) return undefined;
+  if (!['web', 'desktop', 'portable'].includes(target) || !buildFolder(out)) return undefined;
   const langs = langParams(url);
   if (!langs) return undefined;
-  return ['tools/export-web.mjs', '--no-build', ...(target === 'desktop' ? ['--desktop'] : []), '--out', out,
+  return ['tools/export-web.mjs', '--no-build', ...(target === 'desktop' ? ['--desktop'] : target === 'portable' ? ['--desktop', '--portable'] : []), '--out', out,
     ...(langs.text ? ['--locales', langs.text.join(',')] : []), ...(langs.voice ? ['--voice', langs.voice.join(',')] : [])];
 }
 // `locales=fi,ja&voice=en` (present but empty = none): validated language codes, or null when one is malformed.
@@ -592,6 +596,11 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/rig' && req.method === 'PUT') { saveRig(req, res, url); return; }
   if (url.pathname === '/api/build-check' && req.method === 'GET') { void readBuildCheck(req, res, url); return; }
   if (url.pathname === '/api/task' && req.method === 'POST') { runTask(req, res, url); return; }
+  if (url.pathname === '/api/capabilities') { // engine/src/capabilities.ts; the online demo's service worker answers with less
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ git: true, reveal: true, tasks: [...Object.keys(TASKS), 'build'], buildCheck: true, online: false }));
+    return;
+  }
   if (url.pathname === '/api/project') {
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(projectData()));

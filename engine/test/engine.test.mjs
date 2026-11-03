@@ -866,6 +866,29 @@ test('show: y=, scale= and flip= place the sprite without a move, and are kept w
   assert.match(run('show alice y=abc'), /number/);
 });
 
+test('show: draw order follows first show; order= and behind= move a character, behind someone absent keeps it', async () => {
+  const src = 'define alice "Alice"\ndefine bob "Bob"\ndefine cara "Cara"\nlabel start:\n'
+    + '  show alice at left\n  show bob at center\n  show cara at right\n  "1"\n'
+    + '  show cara order=back\n  "2"\n  show alice smile order=front\n  "3"\n  show bob behind=cara\n  "4"\n'
+    + '  hide cara\n  show alice behind=cara\n  "5"\n  show cara\n  "6"\n  end\n';
+  const p = compile([{ file: 't.vn', text: src }]);
+  assert.deepEqual(errors(p), []);
+  const r = new NullRenderer();
+  const rt = new Runtime(p, r);
+  const orders = [];
+  r.say = async () => { orders.push(rt.state.sprites.map(s => s.char).join(' ')); };
+  await rt.start();
+  assert.deepEqual(orders, ['alice bob cara', 'cara alice bob', 'cara bob alice', 'bob cara alice', 'bob alice', 'bob alice cara']);
+  assert.equal(rt.state.sprites.find(s => s.char === 'alice').pose, 'smile'); // the pose still applies alongside order=
+  const run = line => compile([{ file: 't.vn', text: `define alice "Alice"\nlabel start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
+  assert.match(run('show alice order=top'), /front or back/);
+  assert.match(run('show alice behind=alice'), /behind itself/);
+  assert.match(run('show alice order=front behind=bob'), /not both/);
+  assert.match(run('show alice behind=nobody'), /nobody/);
+  assert.equal(getCompletions(p, '  show bob ').filter(s => s.label.startsWith('behind=') || s.label.startsWith('order=')).map(s => s.label).join(' '),
+    'order=front order=back behind=alice behind=cara');
+});
+
 test('outline: back edges with overlapping column ranges get different lanes', () => {
   const text = [
     'label start:', '  jump b', 'label b:', '  jump c', 'label c:', '  jump d', 'label d:',

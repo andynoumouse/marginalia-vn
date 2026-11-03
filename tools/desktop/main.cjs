@@ -19,7 +19,7 @@ const MIME = {
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
 };
 // Only these parts of the app folder are reachable through the protocol (not main.cjs, config.json or the pak).
-const PUBLIC = /^(index\.html|dist\/.+|vendor\/.+)$/;
+const PUBLIC = /^(index\.html|icon\.png|dist\/.+|vendor\/.+)$/;
 // The program and the translations live in the pak, under TEXT_DIR (engine/src/pak.ts: PAK_TEXT_DIR).
 const TEXT = /^(project\.json|locale\/[^/]+\.json)$/;
 const TEXT_DIR = '.vn';
@@ -79,10 +79,13 @@ function createWindow() {
   // title bar and frame out of the numbers). Once the player resizes it, the stage letterboxes as usual.
   const area = screen.getPrimaryDisplay().workAreaSize;
   const width = Math.max(640, Math.min(1280, Math.floor((area.height - 80) * 16 / 9), area.width - 40));
+  // game.json `icon`, copied next to this file by the export. Without it the window shows the exe's icon.
+  const icon = path.join(appDir, 'icon.png');
   const win = new BrowserWindow({
     useContentSize: true, width, height: Math.round(width * 9 / 16), minWidth: 640, minHeight: 360,
     backgroundColor: '#000000',
     title: config.title,
+    icon: fs.existsSync(icon) ? icon : undefined,
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, sandbox: true, devTools: false, spellcheck: false, preload: path.join(appDir, 'preload.cjs') },
   });

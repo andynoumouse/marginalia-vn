@@ -65,6 +65,7 @@ const STARTERS: Record<string, string> = {
   button timed_choices at 700,700 "Timed choices: [timed_choices]" action cycle if tab == "game"
   button language at 700,780 "Language: [language]" action cycle if tab == "game"
   button full at 700,860 "Fullscreen" action fullscreen if tab == "game"
+  button speaker_focus at 700,940 "Dim who is not speaking: [speaker_focus]" action cycle if tab == "game" and speaker_focus != "none"
 `,
   [SAVES_SCREEN]: `screen saves:
   each pages as pg at 100,50 step 140,0:

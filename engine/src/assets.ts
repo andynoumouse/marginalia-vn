@@ -14,6 +14,9 @@ import { anchorProblem } from './anchor.js';
 import { captionProblem } from './captions.js';
 import { positionProblem } from './positions.js';
 import { stageProblem } from './stage.js';
+import { speakerFocusProblems } from './focus.js';
+import { sideImageProblems } from './side.js';
+import { iconAsset, versionProblem } from './app-info.js';
 import { hudLabels, type ScreenNode } from './screens.js';
 import { expandShow, liveOverrides, orderedParts, partName, rigPartNames, rigPoseNames, type RigData } from './rig.js';
 import { withFix } from './suggest.js';
@@ -162,11 +165,13 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
 
   const voices = new Set([...BLIP_PRESETS, ...(index.blips ?? []), ...sounds]);
   const skins = new Set(index.skins ?? []);
+  const sides = new Set(index.files.flatMap(f => (IMAGE.test(f) && /^side\/[^/]+$/.test(f) ? [f.slice(5).replace(IMAGE, '')] : [])));
   for (const c of Object.values(program.characters) as CharacterDef[]) {
     if (c.style.blip && !voices.has(c.style.blip)) {
       warn(c.src, `No blip voice "${c.style.blip}" (built in: ${BLIP_PRESETS.join(', ')}; or game.json "blips", or assets/sound)`);
     }
     if (c.style.box && !skins.has(c.style.box)) warn(c.src, `No text box skin "${c.style.box}" (add it to game.json theme.skins)`);
+    if (c.side && !sides.has(c.side)) warn(c.src, `No portrait "${c.side}" in assets/side (side=)`);
   }
   return out;
 }
@@ -261,7 +266,14 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   }
   const toastSound = g.achievementToast && typeof g.achievementToast === 'object' ? g.achievementToast.sound : undefined;
   if (typeof toastSound === 'string' && toastSound && !sounds.has(toastSound)) warn(toastSound, `achievementToast.sound: no sound "${toastSound}" in assets/sound`);
+  for (const message of speakerFocusProblems(g.speakerFocus)) warn('speakerFocus', message);
+  for (const message of sideImageProblems(g.sideImages)) warn('sideImages', message);
   if (Array.isArray(g.splash)) for (const e of g.splash) image(typeof e === 'string' ? e : e?.image, 'splash');
+  if (g.icon !== undefined && (typeof g.icon !== 'string' || !g.icon)) warn('icon', 'icon needs the name of a PNG in assets/ui');
+  const icon = iconAsset(g);
+  if (icon && !index.files.includes(icon)) warn(g.icon, `icon: no PNG "${g.icon}" in assets/ui (an icon must be a .png)`);
+  const version = versionProblem(g.version);
+  if (version) warn('version', version);
   return out;
 }
 

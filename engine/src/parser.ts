@@ -50,7 +50,7 @@ class UnknownCommand extends ParseError {
 }
 /** Every word a statement can start with (for "did you mean" on an unknown one). */
 export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
-  'animate', 'hop', 'flash', 'tint', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'wait', 'call', 'jump', 'nvl',
+  'animate', 'hop', 'flash', 'tint', 'focus', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'wait', 'call', 'jump', 'nvl',
   'unlock', 'input', 'return', 'end'];
 interface RawLine { no: number; indent: number; text: string }
 
@@ -59,7 +59,7 @@ export function unescapeText(s: string): string {
 }
 
 const COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
-export const DEFINE_ATTRS = ['color=', 'text=', 'font=', 'size=', 'italic', 'speed=', 'blip=', 'box='];
+export const DEFINE_ATTRS = ['color=', 'text=', 'font=', 'size=', 'italic', 'speed=', 'blip=', 'box=', 'focus=off', 'side='];
 
 /** Apply one `key=value` (or flag) of a define line; returns a problem message, if any. */
 function defineAttr(def: CharacterDef, attr: string): string | null {
@@ -75,6 +75,8 @@ function defineAttr(def: CharacterDef, attr: string): string | null {
     case 'speed': { const n = positive(); if (!n) return 'speed= needs a number like 0.8'; def.style.speed = n; return null; }
     case 'blip': if (!/^\w+$/.test(val)) return 'blip= needs a sound name'; def.style.blip = val; return null;
     case 'box': if (!/^\w+$/.test(val)) return 'box= needs a skin name'; def.style.box = val; return null;
+    case 'focus': if (val !== 'on' && val !== 'off') return 'focus= is on or off'; if (val === 'off') def.focus = false; else delete def.focus; return null;
+    case 'side': if (!/^\w+$/.test(val)) return 'side= needs a portrait name (assets/side/<name>.png)'; def.side = val; return null;
     default: return `Unknown define option "${attr}" (use ${DEFINE_ATTRS.join(' ')})`;
   }
 }
@@ -132,11 +134,22 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       const char = need(0, 'a character');
       let pose: string | null = null, x: number | null = null, fade = 0;
       const overrides: Record<string, string> = {};
-      const place: { y?: number; scale?: number; flip?: boolean; anchor?: Anchor } = {};
+      const place: { y?: number; scale?: number; flip?: boolean; anchor?: Anchor; order?: 'front' | 'back'; behind?: string } = {};
       let posY: number | undefined; // the named position's height, used unless the line has its own y=
       for (let i = 1; i < a.length;) {
         const t = a[i];
         if (t === 'at') { const p = parsePos(a[i + 1], positions); x = p.x; posY = p.y; i += 2; }
+        else if (t.startsWith('order=')) {
+          const v = t.slice(6);
+          if (v !== 'front' && v !== 'back') throw new ParseError('order= takes front or back');
+          place.order = v; i++;
+        }
+        else if (t.startsWith('behind=')) {
+          const v = t.slice(7);
+          if (!/^[A-Za-z_]\w*$/.test(v)) throw new ParseError('behind= takes a character name');
+          if (v === char) throw new ParseError(`"${char}" cannot stand behind itself`);
+          place.behind = v; i++;
+        }
         else if (t === 'fade') { fade = num(a[i + 1], 'fade duration'); i += 2; }
         else if (t.startsWith('y=')) { place.y = num(t.slice(2), 'y'); i++; }
         else if (t.startsWith('scale=')) { place.scale = num(t.slice(6), 'scale'); i++; }
@@ -151,6 +164,7 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
         else throw new ParseError(`Unexpected "${t}" in show`);
       }
       if (place.y === undefined && posY !== undefined) place.y = posY;
+      if (place.order && place.behind) throw new ParseError('Use either order= or behind=, not both');
       return visual({ op: 'show', char, pose, overrides, x, fade, ...place });
     }
     case 'hide': {
@@ -226,6 +240,10 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       const strength = isNum(a[1]) ? Number(a[1]) : 0.4;
       if (strength < 0 || strength > 1) throw new ParseError('Tint strength is 0 to 1');
       return visual({ op: 'tint', color, strength, dur: isNum(a[2]) ? Number(a[2]) : 0 });
+    }
+    case 'focus': {
+      if ((a[0] !== 'on' && a[0] !== 'off') || a.length > 1) throw new ParseError('Use: focus on  |  focus off');
+      return visual({ op: 'focus', on: a[0] === 'on' });
     }
     case 'camera': {
       const easeArg = a.find(t => t.startsWith('ease=')), yArg = a.find(t => t.startsWith('y='));

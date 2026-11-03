@@ -30,14 +30,25 @@ export function projectRoot() {
   return dir;
 }
 
-/** Warn when game.json asks for a newer engine ("engine": "0.3") than this one. */
-export function checkEngineVersion(project) {
-  let wanted;
-  try { wanted = JSON.parse(fs.readFileSync(path.join(project, 'game.json'), 'utf8')).engine; } catch { return; }
-  if (typeof wanted !== 'string') return;
+/**
+ * How a game's game.json "engine" ("0.3", major.minor) compares with an engine version: 'newer-game' when the game asks
+ * for a newer engine, 'older-game' when it was made with an older one, 'ok' when they match or the game names none.
+ */
+export function engineStatus(wanted, have = engineVersion) {
+  if (typeof wanted !== 'string') return { wanted: null, have, status: 'ok' };
   const parse = v => v.split('.').map(n => Number(n) || 0);
-  const [wMaj, wMin = 0] = parse(wanted), [eMaj, eMin = 0] = parse(engineVersion);
-  if (eMaj < wMaj || (eMaj === wMaj && eMin < wMin)) {
+  const [wMaj, wMin = 0] = parse(wanted), [hMaj, hMin = 0] = parse(have);
+  const diff = wMaj !== hMaj ? wMaj - hMaj : wMin - hMin;
+  return { wanted, have, status: diff > 0 ? 'newer-game' : diff < 0 ? 'older-game' : 'ok' };
+}
+
+/** The project's engineStatus; warns when the game asks for a newer engine than this one (unless quiet). */
+export function checkEngineVersion(project, { quiet = false } = {}) {
+  let wanted;
+  try { wanted = JSON.parse(fs.readFileSync(path.join(project, 'game.json'), 'utf8')).engine; } catch { /* no game.json */ }
+  const result = engineStatus(wanted);
+  if (result.status === 'newer-game' && !quiet) {
     console.warn(`This game expects engine ${wanted} or newer, but the engine is ${engineVersion} (${engineRoot}). Update the engine.`);
   }
+  return result;
 }

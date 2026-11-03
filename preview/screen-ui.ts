@@ -100,11 +100,13 @@ export class ScreenLayer {
     this.tip.dataset.show = 'false';
     this.placeScroll(view, scrolled);
     if (this.cur >= 0) this.els[this.cur].dataset.active = 'true';
-    // Mask images are read in the background; until one is there it hits nothing.
-    this.items.forEach((it, i) => {
+    // Mask images are read in the background; until one is there it hits nothing. data-masks says when all are in (tests wait on it).
+    const reads = this.items.map((it, i) => {
       const u = it.shape.k === 'mask' ? urlOf(it.shape.file) : null;
-      if (u) void loadMask(u).then(m => { if (this.view === view) this.maskData.set(i, m); });
-    });
+      return u ? loadMask(u).then(m => { if (this.view === view) this.maskData.set(i, m); }) : null;
+    }).filter(p => p !== null);
+    this.root.dataset.masks = reads.length ? 'loading' : 'ready';
+    if (reads.length) void Promise.all(reads).then(() => { if (this.view === view) this.root.dataset.masks = 'ready'; });
   }
 
   /** HUD: the pointer is at this stage point (or -1,-1 for away). Moves the hover over `mask` hotspots; true while one is hovered. */

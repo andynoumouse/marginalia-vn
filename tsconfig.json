@@ -13,5 +13,5 @@
     "incremental": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["engine/src", "preview/*.ts", "editor/*.ts"]
+  "include": ["engine/src", "preview/*.ts", "editor/*.ts", "online/*.ts"]
 }

@@ -75,7 +75,7 @@ const sliders = {
   textSize: $<HTMLInputElement>('optSize'),
   boxOpacity: $<HTMLInputElement>('optBox'),
 };
-const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
+const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
 const optTabs = [...document.querySelectorAll<HTMLButtonElement>('.opt-tabs [data-tab]')];
 const optPages = [...document.querySelectorAll<HTMLElement>('.opt-page')];
 const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesTitle'), savesNote = $('savesNote');
@@ -102,6 +102,7 @@ export class Menus {
   private viewIndex = 0;
   private tab = 0;
   private langs: string[] = [];
+  private hasFocus = false;
   private voiceLangs: string[] = [];
   /** The tab of the project's `screen options` ('' = its first). */
   private customTab = '';
@@ -157,6 +158,8 @@ export class Menus {
     motionEl.addEventListener('change', () => { settings.reduceMotion = motionEl.value === 'on'; this.commit(false); });
     captionsEl.value = settings.captions ? 'on' : 'off';
     captionsEl.addEventListener('change', () => { settings.captions = captionsEl.value === 'on'; this.commit(false); });
+    focusEl.value = settings.speakerFocus ? 'on' : 'off';
+    focusEl.addEventListener('change', () => { settings.speakerFocus = focusEl.value === 'on'; this.commit(false); });
     timedEl.value = settings.timedChoices;
     timedEl.addEventListener('change', () => { settings.timedChoices = timedEl.value as Settings['timedChoices']; this.commit(false); });
     skipEl.value = settings.skipAll ? 'all' : 'read';
@@ -194,7 +197,7 @@ export class Menus {
     return {
       master: s.master, music: s.music, sound: s.sound, voice: s.voice, text_speed: s.textSpeed, text_size: s.textSize, box_opacity: s.boxOpacity,
       text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[nearest(AUTO_DELAYS, s.autoDelay)], skip: s.skipAll ? 'all' : 'read',
-      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', tab: this.customTab,
+      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', tab: this.customTab,
     };
   }
 
@@ -218,6 +221,7 @@ export class Menus {
       case 'skip': s.skipAll = !s.skipAll; break;
       case 'reduce_motion': s.reduceMotion = !s.reduceMotion; break;
       case 'captions': s.captions = !s.captions; break;
+      case 'speaker_focus': if (!this.hasFocus) return; s.speakerFocus = !s.speakerFocus; break;
       case 'timed_choices': s.timedChoices = TIMED_MODES[(TIMED_MODES.indexOf(s.timedChoices) + 1) % TIMED_MODES.length]; break;
       case 'language': {
         if (this.langs.length < 2) return;
@@ -281,6 +285,12 @@ export class Menus {
     this.langs = langs;
     langEl.replaceChildren(...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
     langEl.value = current;
+  }
+
+  /** The game dims who is not speaking (game.json "speakerFocus"): only then do the options offer to turn it off. */
+  setFocusOption(has: boolean) {
+    this.hasFocus = has;
+    for (const id of ['optFocusLabel', 'optFocus', 'optFocusEnd']) $(id).hidden = !has;
   }
 
   /** The languages the game has voice recordings in; the option to pick one is shown only when there are some. */

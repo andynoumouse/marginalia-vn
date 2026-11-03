@@ -4,7 +4,7 @@
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i, AUDIO = /\.(ogg|mp3|wav|m4a|flac)$/i, FONT = /\.(ttf|otf|woff2?)$/i;
 
 export const canView = (file: string) => IMAGE.test(file) || AUDIO.test(file) || FONT.test(file);
-const url = (file: string) => `/assets/${encodeURI(file)}`;
+const url = (file: string) => `../assets/${encodeURI(file)}`;
 
 export class AssetViewer {
   private root: HTMLDivElement;

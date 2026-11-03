@@ -6,7 +6,8 @@ README.md describes the features; `docs/commands.md` is the script command refer
 ## Workflow
 
 - `npm test` runs `tsc` and then the fast set (everything but `browser.test.mjs`, a few seconds); `npm run test:browser`
-  runs only the browser file (~30 s) and `npm run test:all` both (`scripts/test.mjs`). The browser set is costly: don't
+  runs only the browser file (~30 s) and `npm run test:all` both (`scripts/test.mjs`). `npm run test:studio` runs
+  `studio.test.mjs` (Marginalia Studio in Electron, ~15 s); it is in neither set, so run it after changing `studio/`. The browser set is costly: don't
   run it unless the user asks. For a change to `preview/`, `editor/` or the renderer, run `node scripts/browser-gate.mjs`
   once per such change; it keeps a counter in `.claude/browser-test-counter` and prints RUN on every 5th call (then run
   `npm run test:browser`) or SKIP (then don't, and say in the wrap-up that the browser set was skipped).
@@ -28,6 +29,10 @@ README.md describes the features; `docs/commands.md` is the script command refer
   the first line), then `git checkout` the sample. The renderer exposes no handle to the pixi scene, so browser tests
   can't assert on sprite bounds without adding a debug hook first.
 - Never kill node processes broadly: the dev server and the tsc watcher are node processes too.
+- `demo/` is a second game project (Iris, the Studio's "Open the Demo"); the online demo's code is `online/`
+  (docs/online.md). After changing `online/`, the editor's URLs or `/api` routes, check it with `npm run build:online`
+  and the `vn-online` preview (http://localhost:5180/marginalia-vn/); `online.test.mjs` covers the routes in node.
+  Editor and preview URLs stay relative (`../assets/`, `../docs/`): the demo serves them under `p/<id>/`.
 - After adding or editing script lines run `npm run ids`, then `npm run strings`. The resulting changes to
   `sample/locale/en.json` and the scripts are expected.
 - Commit only when asked.

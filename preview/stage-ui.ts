@@ -1,7 +1,7 @@
 // Shared by the preview renderers: the text box, choice menu, HUD and audio live here (DOM over the
 // stage: crisp text, real buttons, any language), so a renderer subclass only draws the world.
 
-import { assetContext, captionFor, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type Resident, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type Src, type VisualOp } from '../engine/src/index.js';
+import { assetContext, captionFor, sideImageKey, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type Resident, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type SideImages, type SpeakerFocus, type Src, type VisualOp } from '../engine/src/index.js';
 import { AudioSystem } from './audio.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
 import { Blips } from './blips.js';
@@ -44,7 +44,7 @@ function appendRuns(target: HTMLElement, segments: SayEvent['segments']) {
 
 export const stage = $('stage');
 const nvlEl = $('nvl'), nvlPage = $('nvl-page');
-const box = $('box'), nameEl = $('name'), textEl = $('text'), menuEl = $('menu'), hud = $('hud'), endedEl = $('ended');
+const box = $('box'), sideEl = $<HTMLImageElement>('side'), nameEl = $('name'), textEl = $('text'), menuEl = $('menu'), hud = $('hud'), endedEl = $('ended');
 
 /** A line as the shell sees it (history, saves). */
 export interface LineInfo { name: string | null; color: string | null; text: string }
@@ -73,6 +73,18 @@ export abstract class StageRenderer implements Renderer {
   skipAll = false;
   /** Accessibility: no shake, hop, flash or wipes; the camera snaps. Set from the player's options. */
   reduceMotion = false;
+  /** game.json "speakerFocus" (null: the game has none), and the player's Options switch for it. */
+  speakerFocus: SpeakerFocus | null = null;
+  focusOn = true;
+  /** game.json "sideImages" (null: the game has none): the speaker's portrait in the text box. */
+  sideImages: SideImages | null = null;
+  /** The state last synced or applied: who is on stage, in which pose (side images). */
+  private onStage: DisplayState | null = null;
+  /**
+   * Whose line is up, for speaker focus: set when a line starts and held until the next line, choice, input or screen
+   * (null for narration and while nothing is said). Unlike speakTick, it does not stop when the letters do.
+   */
+  protected lineSpeaker: string | null = null;
   /** The player's setting for timed menus: the written time, three times as long, or no clock. */
   timedChoices: 'normal' | 'extended' | 'off' = 'normal';
   private menuClock = 0;
@@ -193,6 +205,8 @@ export abstract class StageRenderer implements Renderer {
     }
     this.versions = versions;
     this.imageUrls = new Map(assets.filter(a => IMAGE_FILE.test(a.file)).map(a => [assetKey(a.file), `assets/${a.file}?v=${a.v}`] as const));
+    // Portraits are small and appear without warning (any line), so the browser fetches them all up front.
+    if (this.sideImages) for (const [key, url] of this.imageUrls) if (key.startsWith('side/')) new Image().src = url;
     this.indexArt(assets);
   }
   /** Files the story had to wait for when it reached them; the lookahead should keep this at 0 (debug console: memory). */
@@ -267,6 +281,11 @@ export abstract class StageRenderer implements Renderer {
   /** Animate a world op; stop early when `alive()` turns false (a sync happened). */
   protected abstract applyWorld(op: WorldOp, state: DisplayState, alive: () => boolean): Promise<void>;
 
+  /** Speaker focus as it applies to `state` now: off when the game has none, the story said `focus off` or the player turned it off. */
+  protected focusFor(state: DisplayState): SpeakerFocus | null {
+    return this.focusOn && state.focus !== false ? this.speakerFocus : null;
+  }
+
   protected spriteColor(char: string) {
     return this.characters[char]?.color ?? `hsl(${hue(char)} 45% 45%)`;
   }
@@ -311,6 +330,7 @@ export abstract class StageRenderer implements Renderer {
     clearTimeout(this.sfxTimer);
     this.advanceFn = null;
     this.lineKick = null;
+    this.lineSpeaker = null;
     this.audio.stopVoice();
     this.lineVoice = null;
     this.onVoice(false);
@@ -320,6 +340,7 @@ export abstract class StageRenderer implements Renderer {
     this.hudLayer.clear();
     this.endLine = null;
     box.dataset.visible = 'false';
+    delete box.dataset.side;
     this.clearPage();
     menuEl.dataset.visible = 'false';
     endedEl.style.display = 'none';
@@ -329,6 +350,7 @@ export abstract class StageRenderer implements Renderer {
     if (state.music) this.onMusic(state.music);
     void this.audio.music(state.music, state.musicLoop, 0.5, !!state.musicPaused);
     void this.audio.syncAmbience(state.ambience ?? [], 0.5);
+    this.onStage = state;
     this.syncWorld(state);
   }
 
@@ -345,6 +367,7 @@ export abstract class StageRenderer implements Renderer {
 
   async apply(op: VisualOp, state: DisplayState): Promise<void> {
     const ep = this.epoch;
+    this.onStage = state;
     // Wait for the files of what is about to appear or play: a short hold, never a placeholder.
     if (op.op === 'scene' || op.op === 'show' || (op.op === 'image' && op.action === 'show') || (op.op === 'music' && op.action === 'play') || (op.op === 'sound' && op.action === 'loop')) {
       const keys = stateAssets(state, this.files);
@@ -378,6 +401,17 @@ export abstract class StageRenderer implements Renderer {
         if (this.skipping) { this.syncWorld(state); return; }
         return this.applyWorld(op, state, () => ep === this.epoch);
     }
+  }
+
+  /** The speaker's portrait in the text box (game.json "sideImages"), following their pose on stage; none in NVL mode. */
+  private showSide(ev: SayEvent) {
+    const sprite = ev.who ? this.onStage?.sprites.find(s => s.char === ev.who) : undefined;
+    const key = ev.nvl || !ev.who ? null : sideImageKey(this.characters[ev.who]?.side, sprite ? sprite.pose : undefined, this.sideImages, k => this.imageUrls.has(k));
+    const url = key ? this.imageUrls.get(key) : undefined;
+    if (!url || !this.sideImages) { delete box.dataset.side; return; }
+    if (sideEl.getAttribute('src') !== url) sideEl.src = url;
+    box.dataset.side = this.sideImages.place;
+    box.style.setProperty('--side-size', `${this.sideImages.size}px`);
   }
 
   clearPage() {
@@ -424,6 +458,7 @@ export abstract class StageRenderer implements Renderer {
     this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain });
     const wasSeen = this.isSeen(ev);
     this.markSeen(ev);
+    this.lineSpeaker = ev.who;
     const skippable = () => this.skipAll || wasSeen;
     return new Promise<void>(resolve => {
       clearTimeout(this.typeTimer);
@@ -433,6 +468,7 @@ export abstract class StageRenderer implements Renderer {
       const target = ev.nvl ? this.openPage(ev) : textEl;
       if (ev.nvl) box.dataset.visible = 'false';
       else { this.clearPage(); box.dataset.visible = 'true'; nameEl.textContent = ev.name ?? ''; nameEl.style.setProperty('--ncolor', ev.color ?? '#ffffff'); }
+      this.showSide(ev);
       frame.dataset.done = 'false';
       target.replaceChildren();
       // The speaker's style (define ... text= font= size= italic box=); theme skins are keyed by `box`.
@@ -563,6 +599,7 @@ export abstract class StageRenderer implements Renderer {
 
   menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }): Promise<number> {
     this.onPosition(src);
+    this.lineSpeaker = null;
     if (this.skipping) { this.skipping = false; this.onModeChange(); } // choices are always the player's
     return new Promise<number>(resolve => {
       this.menuOpen = true;
@@ -804,6 +841,7 @@ export abstract class StageRenderer implements Renderer {
   /** Show a custom screen: its images are loaded first, then it waits for the player to pick an element. */
   async screen(view: ScreenView, src: Src): Promise<string> {
     this.onPosition(src);
+    this.lineSpeaker = null;
     if (this.skipping) { this.skipping = false; this.onModeChange(); } // screens are always the player's
     const ep = this.epoch;
     const key = (file: string) => file.replace(IMAGE_FILE, '');
@@ -817,6 +855,7 @@ export abstract class StageRenderer implements Renderer {
 
   input(prompt: string, def: string, max: number, src: Src): Promise<string> {
     this.onPosition(src);
+    this.lineSpeaker = null;
     if (this.skipping) { this.skipping = false; this.onModeChange(); }
     return new Promise<string>(resolve => {
       this.menuOpen = true;

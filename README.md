@@ -27,15 +27,44 @@ npm install
 npm run dev          # builds, watches, serves http://localhost:5173 (editor: /editor/) for sample/
 npm test             # engine and shell tests (node:test, no browser needed)
 npm run test:browser # the browser tests (system Edge/Chrome); test:all runs both
+npm run studio       # the editor as a desktop app (Marginalia Studio, early): projects screen, or -- --project <folder>
+npm run test:studio  # the Studio tests (Electron)
+npm run package:studio # the portable Studio in release/ (a folder and a zip)
 npm run ids          # add localization ids (#abcd) to new dialogue/menu lines
 npm run strings      # export locale/<source language>.json (en by default), report gaps in other languages
 npm run playtest     # play every route: unreachable lines, endings, unused assets and variables
+npm run stats        # words, lines and reading time per script, label and character
 npm run art          # convert changed PSDs in masters/ to assets/ (--force: all; npm run dev also watches)
 npm run export       # static web build in sample/build/web (upload it, or zip it for itch.io)
 ```
 
 Edit `sample/script/park.vn` while the preview is open: it reloads and returns to the line you were on.
 Editing engine code (`engine/src`, `preview/`, `editor/`) rebuilds and reloads the page automatically.
+
+## Marginalia Studio (desktop app, Windows)
+
+The editor as a desktop app that needs neither Node.js nor git: a projects screen (recent projects, New Project, Open
+Folder, Open the Demo) and the same editor and live preview as `npm run dev`. It is early and portable only, with no
+installer yet.
+
+1. Get `Marginalia Studio-<version>-win-x64.zip` (`npm run package:studio` builds it in `release/`; about 150 MB).
+2. Unzip it anywhere and run `Marginalia Studio.exe` in the folder.
+3. The exe is not code-signed, so Windows SmartScreen may stop the first start: choose **More info**, then **Run
+   anyway**.
+
+New projects go to `Documents/Marginalia Studio` by default, and so does the copy of the demo. The Studio carries the
+engine's version number; a project made with an older engine version is offered an update when opened.
+
+The Build dialog's **Desktop app** target makes the game ready to run without npm: the Studio's own Electron runtime
+with the game inside, the exe named after the game, and a zip to share (about 140 MB). See
+[docs/desktop.md](docs/desktop.md).
+
+## Online demo (in the browser)
+
+The editor as a static website that keeps its projects in the browser: a project list (the sample game, a blank
+project, a `.zip` import), the full editor and live preview, PSD conversion on drop, and a zip download that opens in
+Marginalia Studio. git, the file manager and Build/Export need the desktop tools. `npm run build:online` writes it
+to `build/online/`, and `npm run serve:online` tries it locally. See [docs/online.md](docs/online.md).
 
 ## Making a game
 
@@ -46,11 +75,12 @@ npm install          # links the engine: "marginalia-vn": "file:../marginalia-vn
 npm run dev          # same editor and preview, on this project
 ```
 
+`--stage 1080x1920` starts a project with another stage size (portrait here; the default is 1920x1080).
 The game folder holds only content: `game.json`, `script/`, `locale/`, `assets/`, `masters/` (Git LFS) and
 `build/` (ignored). Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which
 runs the engine's tools on the current folder. Because the dependency is a link, not a copy, engine changes
 apply to the game right away; restart `npm run dev` after pulling engine changes. To freeze the engine for a
-release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.2.1"`) and update it on
+release, point the dependency at a tag (`"marginalia-vn": "git+file:../marginalia-vn#v0.3.0"`) and update it on
 purpose. game.json `"engine": "0.1"` makes the tools warn when the engine is older than the game expects.
 
 ## Layout
@@ -65,6 +95,7 @@ preview/      dev-server.mjs (static + /api/project + live reload), index.html, 
 editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts
 tools/        paths.mjs (engine vs project folder), vn-tool.mjs (ids, strings), psd-convert.mjs (art pipeline),
               export-web.mjs, project-data.mjs
+online/       the online demo: sw.ts (service worker: the dev server's API on IndexedDB), routes.ts, store.ts, projects.ts
 bin/vn.mjs    the vn command
 sample/       the sample game: script/ (*.vn scenes), locale/ (<lang>.json), game.json (menus, theme, gallery),
               masters/ (big PSDs, Git LFS), assets/ (game-ready art and audio)
@@ -85,6 +116,7 @@ label start:                            # entry point is "start" (or the first l
   music play theme loop  /  music stop fade 1  /  music pause  /  music resume
   show alice smile at left fade 0.3     # pose, at left|center|right|0-1|a game.json position, layer=variant overrides
   show alice smile at 0.35 y=0.02 scale=1.1 flip=on   # place without a slide (the animation studio's Place row writes it)
+  show bob at right behind=alice  /  show alice order=front|back   # draw order (else the order of first show, newest in front)
   move alice to right 0.6 ease=out      # ease: linear | in | out | inout | back | bounce | elastic ; add `nowait` to run in background
   move alice scale=1.2 rot=-5 y=-0.03 0.4   # size, tilt, lift, alpha=, flip=on|off, anchor=feet|center|head|0.5,0.3 (the pivot)
   shake alice 0.3 strength=6   hop alice 0.25   wait 0.5   sound play door duck   # duck: the music dips under it
@@ -92,6 +124,7 @@ label start:                            # entry point is "start" (or the first l
   animate alice breathe loop  /  animate alice nod  /  animate alice stop   # breathe bob sway nod shiver pulse bounce hop shake, or a rig.json animation; part=hair moves one part
   flash [#ffffff] [0.4]                 # screen flash that fades out
   tint #203060 0.4 1.5  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
+  focus off  /  focus on                 # speaker focus (game.json "speakerFocus" dims who is not speaking): off for a group scene
   image show letter cg/letter at 960,540 anchor=center fade 0.4  /  image move letter to 960,300 0.5  /  image hide letter   # overlay pictures: assets/ path, stage pixels, layer=-1 behind characters, fixed, keep
   camera zoom 1.5 at left y=0.4 0.8 ease=out  /  camera pan right 1  /  camera reset 0.5   # zoom about a point, slide it, reset; resets on `scene`
   weather rain|snow|petals|embers [0.6] [1]  /  weather off      # falling particles: intensity 0-1, fade-in seconds
@@ -289,6 +322,16 @@ the point the HUD went up. The bot cannot know what the player does in the shell
 `intro`/`chapters` unlock conditions mean, and it treats assets named only in code it cannot see (a dynamic
 `image "item_[n]"` is matched as a pattern) on a best-effort basis.
 
+## Script statistics
+
+`npm run stats` (`vn stats` in a game project, `--json` for the numbers, `--wpm 250` for another reading speed; the
+editor's **Story: Script Statistics** command shows the same for the unsaved scripts in the Output panel) counts the
+text the player reads: dialogue and narration, menu prompts, options and their `else` reasons, and `input` prompts.
+Text tags are left out and a `[variable]` counts as one word. It gives words, lines and characters (without spaces)
+in all, per character (what a voice studio quotes by), per script file and per label, and a reading time at 200
+words a minute with every route read once. The "to translate" count adds up the localizable strings, each id once,
+including screen labels and item names. Characters matter more than words for languages written without spaces.
+
 ## Checking art and audio
 
 The editor (and the preview's Problems list, and `npm run export`) warns about names with no matching file:
@@ -377,7 +420,8 @@ an optional key (bound automatically and shown in the palette), an optional `whe
 `file:line` references open that line. The **Build** button (or "Build: Checks and Export" in the palette) opens the Build dialog: it saves
 your tabs, lists the pre-build checks grouped by severity (each with a link to the line, the Translations or the Voice dialog), blocks the
 build on errors, asks you to tick "I've seen these warnings" before building with warnings, and exports the web or desktop build into a
-folder inside `build/`, showing its size and, for the web build, a link to play it.
+folder inside `build/`, showing its size and, for the web build, a link to play it. In Marginalia Studio it also offers the desktop app
+ready to run (a zip to share).
 
 ## Look and feel
 
@@ -385,12 +429,15 @@ Characters: `define` takes style options after the name.
 
 ```
 define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi box=alice
+define cat "Cat" focus=off               # never dimmed by speaker focus
+define mina "Mina" side=mina            # portrait in the text box (game.json "sideImages"; assets/side/mina.png)
 define narrator "" text=#d8d2c0 italic   # style for "quoted narration" lines
 define thought "" italic                 # thought: ... shows no name tag
 ```
 
 `color` = name tag color, `text` = text color, `size` / `speed` = multipliers, `blip` = a text sound voice
-(see below), `box` = a text box skin from game.json `theme.skins`.
+(see below), `box` = a text box skin from game.json `theme.skins`, `side` = a portrait shown in the text box while the character speaks
+(opt-in with game.json `"sideImages": true`; `assets/side/<name>_<pose>.png` follows their pose on stage).
 
 **Text sounds (blips)** are optional sounds while a line types, like courtroom games. `blip=` takes a
 built-in synthesized voice (`high`, `mid`, `low`, `soft`, `typewriter`, `robot`; no files needed), a voice
@@ -448,8 +495,15 @@ is its own `locale/<lang>.json`, fetched only when the player picks that languag
 encryption, the dialogue is still readable in project.json. A game exported by another engine version refuses to
 start and asks for a new export.
 
+When an exported game's story stops on an error (a bad expression, a failing renderer call), the player sees an error screen
+instead of a frozen stage: a short message, **Return to title**, and **Copy report**, which copies the game and engine version,
+the script `file:line`, the error, the last lines shown and the start of the stack trace (`engine/src/crash.ts`), for the
+player to send you. Its texts are `ui.crash_*` strings, translated like the other menu labels. The dev preview leaves such
+errors to the browser console.
+
 `npm run export -- --desktop` instead writes an Electron app folder with packed, scrambled assets and saves
-stored as files (see [docs/desktop.md](docs/desktop.md)).
+stored as files (see [docs/desktop.md](docs/desktop.md)). From Marginalia Studio the same app comes ready to run and
+zipped, with no npm.
 
 Saves, settings and read-text tracking are stored per game under the game's id (game.json `"id"`, else a
 slug of the title), so games on one site (itch.io serves all HTML games from one origin) don't collide.

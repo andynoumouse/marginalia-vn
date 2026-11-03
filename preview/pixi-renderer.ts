@@ -5,7 +5,7 @@
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
 import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
-import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
+import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, focusLevels, raisedSpeaker, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
 import { $, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
@@ -28,7 +28,11 @@ interface Actor {
   speaking: boolean; talkStart: number; posed: boolean;
   parts: Map<string, Container>;   // a layered character's parts (slots and plain layers) by name, each turning about its pivot
   partPose: Map<string, Offset>;   // what the parts are posed with now, kept so a swapped-in slot variant starts posed
+  lit: number;                     // speaker focus: 1 lit, lower dimmed (drawn as a grey tint), easing toward focusLevels
 }
+
+/** A grey tint of brightness `v` (0-1). */
+const grey = (v: number) => { const g = Math.round(Math.max(0, Math.min(1, v)) * 255); return (g << 16) | (g << 8) | g; };
 
 export class PixiRenderer extends StageRenderer {
   private app = new Application();
@@ -56,6 +60,8 @@ export class PixiRenderer extends StageRenderer {
   private flashLayer = new Graphics();
   private fade = new Graphics();
   private actors = new Map<string, Actor>();
+  private shown: DisplayState | null = null;         // the state last synced or applied (speaker focus reads who is on stage)
+  private raised: string | null = null;              // the speaker drawn in front for the line (speakerFocus.front)
   private focused = new Map<string, string>();       // the animation studio's chosen part, by character
   private tweens = new Set<Tween>();
   private art = new Map<string, Texture>();          // "bg/park" -> texture, from assets/
@@ -74,7 +80,7 @@ export class PixiRenderer extends StageRenderer {
     this.fade.rect(0, 0, W, H).fill(0x000000);
     this.fade.alpha = 0;
     for (const g of [this.tintLayer, this.flashLayer]) { g.rect(0, 0, W, H).fill(0xffffff); g.alpha = 0; }
-    for (const c of [this.imagesBehind, this.imagesFront, this.imagesFixed]) c.sortableChildren = true;
+    for (const c of [this.imagesBehind, this.imagesFront, this.imagesFixed, this.spriteLayer]) c.sortableChildren = true;
     this.world.addChild(this.bgLayer, this.imagesBehind, this.spriteLayer, this.imagesFront);
     this.makeEffectTextures();
     this.scene.addChild(this.world, this.imagesFixed, this.weatherLayer);
@@ -150,6 +156,7 @@ export class PixiRenderer extends StageRenderer {
       if (k >= 1) { this.tweens.delete(t); t.done(); }
     }
     for (const a of this.actors.values()) { this.stepFx(a, ms / 1000); this.stepLive(a, ms / 1000); }
+    this.stepFocus(ms / 1000);
     this.stepWeather(ms / 1000);
   }
   private speaker: string | null = null;
@@ -157,6 +164,29 @@ export class PixiRenderer extends StageRenderer {
   protected override speakTick(who: string | null) {
     this.speaker = who;
     if (who) this.speakUntil = performance.now() + 350; // typing goes on: the mouth does too, until the characters stop coming
+  }
+  /** How bright each character on stage should be now (speaker focus), and the speaker to raise, if any. */
+  private focusNow(state: DisplayState) {
+    const focus = this.focusFor(state), chars = state.sprites.map(s => s.char);
+    return {
+      levels: focusLevels(chars, this.lineSpeaker, focus, c => this.characters[c]?.focus === false),
+      raised: raisedSpeaker(chars, this.lineSpeaker, focus),
+    };
+  }
+  /** Speaker focus: ease each character toward lit or dimmed (a snap under reduced motion and while skipping), and raise the speaker. */
+  private stepFocus(seconds: number) {
+    const state = this.shown;
+    if (!state) return;
+    const { levels, raised } = this.focusNow(state);
+    const fade = this.speakerFocus?.fade ?? 0;
+    const by = fade > 0 && !this.reduceMotion && !this.skipping ? (seconds / fade) * (this.speakerFocus?.dim || 1) : Infinity;
+    for (const [c, a] of this.actors) {
+      const to = levels.get(c) ?? 1;
+      if (a.lit === to) continue;
+      a.lit = a.lit < to ? Math.min(to, a.lit + by) : Math.max(to, a.lit - by);
+      a.node.tint = grey(a.lit);
+    }
+    if (raised !== this.raised) { this.raised = raised; this.restack(state); }
   }
   /** Blinking and talking: swap slot variants in and out, and loop the speak animation, while the character is talking. */
   private stepLive(a: Actor, seconds: number) {
@@ -430,7 +460,8 @@ export class PixiRenderer extends StageRenderer {
     const node = new Container(), turn = new Container(), body = new Container();
     node.addChild(turn);
     turn.addChild(body);
-    const a: Actor = { node, turn, body, size: null, key: '', fx: [], s, idle: null, talk: null, live: {}, blink: null, speaking: false, talkStart: 0, posed: false, parts: new Map(), partPose: new Map() };
+    const a: Actor = { node, turn, body, size: null, key: '', fx: [], s, idle: null, talk: null, live: {}, blink: null, speaking: false, talkStart: 0, posed: false, parts: new Map(), partPose: new Map(), lit: 1 };
+    if (this.shown) { a.lit = this.focusNow(this.shown).levels.get(s.char) ?? 1; node.tint = grey(a.lit); } // a newcomer starts as lit or dimmed as they will be
     const data = this.files.rigs[s.char]?.rig, blink = blinkOf(data);
     if (data?.idle && !this.reduceMotion) a.idle = this.makeFx(s.char, data.idle, null, 1, true);
     if (blink) a.blink = startBlink(blink.every, Math.random);
@@ -451,6 +482,22 @@ export class PixiRenderer extends StageRenderer {
       this.actors.set(s.char, a);
       this.spriteLayer.addChild(a.node);
     }
+    this.restack(state);
+  }
+  /** Draw the characters in the order of `state.sprites` (back to front), the raised speaker on top; one fading out keeps its place meanwhile. */
+  private restack(state: DisplayState) {
+    state.sprites.forEach((s, i) => { const a = this.actors.get(s.char); if (a) a.node.zIndex = s.char === this.raised ? state.sprites.length : i; });
+  }
+
+  /** The characters on stage back to front, for browser tests: where each is drawn (stage pixels) and how lit it is. */
+  stageSnapshot() {
+    return [...this.actors.values()].filter(a => a.node.parent === this.spriteLayer)
+      .sort((a, b) => a.node.zIndex - b.node.zIndex)
+      .map(a => {
+        const r = a.node.getBounds();
+        return { char: a.s.char, z: a.node.zIndex, lit: a.lit, tint: a.node.tint, alpha: a.node.alpha,
+          bounds: [r.x, r.y, r.width, r.height].map(Math.round) };
+      });
   }
 
   // ---- overlay pictures ----
@@ -612,11 +659,14 @@ export class PixiRenderer extends StageRenderer {
     this.setLook(state.filter ?? null);
     this.fade.alpha = 0;
     this.setBg(state.bg);
+    this.shown = state;
+    this.raised = null;
     this.rebuildSprites(state);
     this.releaseStale();
   }
 
   protected async applyWorld(op: WorldOp, state: DisplayState, alive: () => boolean): Promise<void> {
+    this.shown = state; // `focus on/off` needs nothing more: stepFocus follows it
     if (this.reduceMotion) {
       // Anything that moves or flashes is dropped or shown as its result.
       if (op.op === 'shake' || op.op === 'hop' || op.op === 'animate' || op.op === 'flash') return;
@@ -683,6 +733,7 @@ export class PixiRenderer extends StageRenderer {
         if (!s) return;
         const existing = this.actors.get(op.char);
         if (existing) {
+          this.restack(state);
           this.dress(existing, s);
           existing.node.x = s.x * W;
           if (op.y !== undefined || op.scale !== undefined || op.flip !== undefined || op.anchor !== undefined) {
@@ -695,6 +746,7 @@ export class PixiRenderer extends StageRenderer {
         const a = this.makeActor(s);
         this.actors.set(s.char, a);
         this.spriteLayer.addChild(a.node);
+        this.restack(state);
         if (op.fade > 0) { a.node.alpha = 0; await this.tween(op.fade, k => { a.node.alpha = k * s.alpha; }); }
         return;
       }

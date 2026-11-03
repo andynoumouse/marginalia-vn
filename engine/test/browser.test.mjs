@@ -560,19 +560,66 @@ play('language: an exported translation is fetched when picked, and only once', 
   assert.equal(fetchedFinnish.length, 1, 'one fetch serves the title and the story');
 }, withFinnishFile);
 
+// An exported game (data-mode="game", the program in project.json) whose second line runs an `if` on a function this
+// engine does not have, as after a hot fix made against a newer engine: the story stops with the error screen.
+const asBrokenExport = async context => {
+  const { compile, packProgram } = await import('../../dist/engine/src/index.js');
+  const program = compile([{ file: 'crash.vn', text: 'label start:\n  "Fine so far."\n  if ok:\n    "Never."\n  "After."' }]);
+  for (const op of program.ops) if (op.op === 'branch') op.cond = { t: 'call', name: 'nosuch', args: [] };
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await context.route(url => url.pathname === '/', async route => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replace(/<html\b/, '<html data-mode="game"') });
+  });
+  await context.route('**/project.json', async route => {
+    const proj = await (await route.fetch({ url: new URL('/api/project', route.request().url()).href })).json();
+    await route.fulfill({ json: { game: proj.game, assets: proj.assets, rigs: proj.rigs, locales: {}, program: packProgram(program, 'v1'), engine: '9.9.9' } });
+  });
+};
+
+play('error screen: an exported game stops on a runtime error with a report and a way back to the title', async page => {
+  await newGame(page);
+  await textDone(page);
+  assert.equal(await text(page), 'Fine so far.');
+  await page.keyboard.press('Space');
+  await page.locator('#crash').waitFor({ state: 'visible' });
+  const report = await page.locator('#crashReport').innerText();
+  assert.match(report, /^Engine: Marginalia 9\.9\.9$/m);
+  assert.match(report, /^Where: crash\.vn:3$/m);
+  assert.match(report, /^Error: Unknown function nosuch$/m);
+  assert.match(report, /Last lines:\n {2}Fine so far\./);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'crashToTitle');
+  await page.keyboard.press('Space'); // works the focused button, not the story
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+  assert.equal(await page.locator('#crash').isHidden(), true);
+  // again, this time copying the report first
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await page.locator('#crash').waitFor({ state: 'visible' });
+  await page.locator('#crashCopy').click();
+  await page.locator('#crashCopy', { hasText: 'Copied' }).waitFor();
+  assert.match(await page.evaluate(() => navigator.clipboard.readText()), /^Where: crash\.vn:3$/m);
+  await page.locator('#crashToTitle').click();
+  await page.getByRole('button', { name: 'New game' }).waitFor();
+}, asBrokenExport);
+
 // A pad the page can read: navigator.getGamepads() returns this object, and the test presses its buttons.
 const withPad = async context => {
   await context.addInitScript(() => {
     const pad = { index: 0, id: 'Test Pad (STANDARD GAMEPAD)', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
     window.__pad = pad;
-    navigator.getGamepads = () => [pad];
+    window.__padPolls = 0;
+    navigator.getGamepads = () => { window.__padPolls++; return [pad]; };
   });
 };
+// Press and release a button, each held until the page's poll (once a frame) has read it twice: a busy machine stalls
+// frames, and a fixed wait then let a press come and go unseen.
 const tap = async (page, n) => {
-  await page.evaluate(n => { __pad.buttons[n].pressed = true; }, n);
-  await page.waitForTimeout(80);
-  await page.evaluate(n => { __pad.buttons[n].pressed = false; }, n);
-  await page.waitForTimeout(80);
+  for (const pressed of [true, false]) {
+    const polls = await page.evaluate(([n, pressed]) => { __pad.buttons[n].pressed = pressed; __pad.buttons[n].value = pressed ? 1 : 0; return __padPolls; }, [n, pressed]);
+    await until(page, p => __padPolls >= p + 2, polls);
+  }
 };
 const focusedText = page => page.evaluate(() => document.activeElement?.textContent ?? '');
 
@@ -849,7 +896,11 @@ test('files panel: renaming an asset rewrites the scripts that name it and says 
     if (r.request().method() === 'PUT') saved[new URL(r.request().url()).searchParams.get('file')] = r.request().postData();
     return r.fulfill({ json: { ok: true } });
   });
-  await context.route('**/api/game', r => r.request().method() === 'PUT' ? r.fulfill({ json: { ok: true } }) : r.fallback());
+  await context.route('**/api/game', r => {
+    if (r.request().method() !== 'PUT') return r.fallback();
+    saved['game.json'] = r.request().postData();
+    return r.fulfill({ json: { ok: true } });
+  });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -867,7 +918,9 @@ test('files panel: renaming an asset rewrites the scripts that name it and says 
     await until(page, () => /^renamed assets\/bg\/bg_park_night\.png to assets\/bg\/night_park\.png: updated \d+ mentions in \d+ files$/.test(document.querySelector('#toast span')?.textContent ?? ''));
     assert.deepEqual(moves, [{ from: 'assets/bg/bg_park_night.png', to: 'assets/bg/night_park.png' }]);
     assert.equal(await page.locator('#toast button').isVisible(), false, 'no Undo for a rename yet');
-    for (let i = 0; i < 50 && !(saved['park.vn'] && saved['screens.vn'] && saved['demo.vn']); i++) await page.waitForTimeout(100);
+    // Wait for every autosave, game.json too: one still in flight when the context closes would reach the real sample.
+    for (let i = 0; i < 50 && !(saved['park.vn'] && saved['screens.vn'] && saved['demo.vn'] && saved['game.json']); i++) await page.waitForTimeout(100);
+    assert.match(saved['game.json'] ?? '', /"image": "night_park"/, 'the gallery entry in game.json follows');
     assert.match(saved['park.vn'] ?? '', /^ {2}scene night_park dissolve 1\.2$/m, 'a scene name follows');
     assert.doesNotMatch(saved['park.vn'], /bg_park_night/);
     assert.match(saved['park.vn'], /scene bg_park_evening fade/, 'the other background is left alone');
@@ -1140,6 +1193,59 @@ play('screens: theme hotFill, hotBorder and tipColor style the highlight and the
   });
 });
 
+// Two characters on stage with speaker focus: a script and game.json settings injected into the project the page fetches.
+const STAGE_VN = [
+  'label stage_test:',
+  '  scene bg_park_evening',
+  '  show alice neutral at 0.4',
+  '  show mina at 0.6 behind=alice',
+  '  alice: Alice speaks. #st01',
+  '  mina: Mina speaks. #st02',
+  '  "Nobody speaks." #st03',
+  '  show mina order=front',
+  '  "Mina stepped forward." #st04',
+].join('\n');
+const withStageScene = async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts = [...proj.scripts, { file: 'stage.vn', text: STAGE_VN }];
+    proj.game = { ...proj.game, speakerFocus: { dim: 0.4, fade: 0, front: true } };
+    await route.fulfill({ response: res, json: proj });
+  });
+};
+const stageNow = page => page.evaluate(() => window.vnStage());
+const order = shot => shot.map(a => a.char);
+const lit = shot => Object.fromEntries(shot.map(a => [a.char, Math.round(a.lit * 100) / 100]));
+const lineUp = async (page, re) => { await until(page, re => new RegExp(re).test(document.getElementById('text').textContent), re.source); await textDone(page); };
+
+play('several characters: behind= and order= set the draw order, speaker focus dims the others and raises the speaker', async page => {
+  await page.evaluate(() => window.postMessage({ type: 'goto', file: 'stage.vn', line: 1 }, location.origin));
+  await lineUp(page, /Alice speaks/);
+  let shot = await stageNow(page);
+  assert.deepEqual(order(shot), ['mina', 'alice'], 'behind=alice draws mina first');
+  assert.deepEqual(lit(shot), { mina: 0.6, alice: 1 });
+  const middle = a => a.bounds[0] + a.bounds[2] / 2;
+  const [mina, alice] = shot;
+  assert.ok(Math.abs(middle(alice) - 0.4 * 1920) < 40 && Math.abs(middle(mina) - 0.6 * 1920) < 40, `drawn where "at" says: ${JSON.stringify(shot)}`);
+
+  await page.keyboard.press('Space');
+  await lineUp(page, /Mina speaks/);
+  shot = await stageNow(page);
+  assert.deepEqual(order(shot), ['alice', 'mina'], 'front: the speaker is raised for the line');
+  assert.deepEqual(lit(shot), { alice: 0.6, mina: 1 });
+
+  await page.keyboard.press('Space');
+  await lineUp(page, /Nobody speaks/);
+  shot = await stageNow(page);
+  assert.deepEqual(order(shot), ['mina', 'alice'], 'narration: the scripted order comes back');
+  assert.deepEqual(lit(shot), { mina: 1, alice: 1 }, 'offstage "lit": everyone is lit for narration');
+
+  await page.keyboard.press('Space');
+  await lineUp(page, /Mina stepped forward/);
+  assert.deepEqual(order(await stageNow(page)), ['alice', 'mina'], 'order=front');
+}, withStageScene);
+
 play('screens: row, column and grid place their buttons at the computed stage positions', async page => {
   await gotoScreens(page, 'show screen layout_demo');
   await screenUp(page);
@@ -1164,10 +1270,11 @@ play('screens: a polygon hotspot is hit only inside its outline', async page => 
   await gotoScreens(page, 'show screen town_map');
   await screenUp(page);
   await page.locator('#screenui [data-id="cafe"]').click();
-  await textDone(page);
+  // Wait for the cafe line itself: the box's done flag can still be set from before, and an early Space only finishes the typing.
+  await lineUp(page, /cafe smells of coffee/);
   await page.keyboard.press('Space');
+  await page.locator('#screenui [data-id="station"]').waitFor({ state: 'attached' }); // drawn once visited > 0
   await screenUp(page);
-  await page.locator('#screenui [data-id="station"]').waitFor({ state: 'attached' });
   // stage point -> what the browser finds there (the stage is scaled to the window)
   const at = (x, y) => page.evaluate(([x, y]) => {
     const r = document.getElementById('screenui').getBoundingClientRect();
@@ -1294,7 +1401,8 @@ play('hud: a mask hotspot in a HUD hits only its opaque pixels and lets other cl
   await hudUp(page);
   await until(page, () => /status strip stays up/.test(document.getElementById('text').textContent));
   await textDone(page);
-  await page.waitForTimeout(300); // the mask image is read in the background
+  // the mask image is read in the background; each HUD screen is a layer of its own inside #hudui
+  await until(page, () => !!document.querySelector('#hudui [data-masks]') && !document.querySelector('#hudui [data-masks="loading"]'));
   const at = (fx, fy) => page.evaluate(([fx, fy]) => { const r = document.getElementById('hudui').getBoundingClientRect(); return [r.left + r.width * fx, r.top + r.height * fy]; }, [fx, fy]);
   const [cx, cy] = await at((860 + 100) / 1920, (700 + 75) / 1080);
   const [ex, ey] = await at((860 + 4) / 1920, (700 + 4) / 1080); // a corner of the box: transparent
@@ -1931,6 +2039,241 @@ test('build dialog: errors block, warnings need a tick, go-to links, build with 
   } finally {
     await context.close();
   }
+});
+
+// ---- debug console (the dev preview's drawer) ----
+
+play('debug console: set, eval and vars read the running story, story keys stay out, jump starts at a label, Escape closes', async page => {
+  await newGame(page);
+  await textDone(page);
+  const before = await text(page);
+  await page.locator('#debugBtn').click();
+  const input = page.getByRole('textbox', { name: 'Debug command' });
+  await until(page, () => document.activeElement?.getAttribute('aria-label') === 'Debug command');
+  const log = page.locator('#debug .log');
+  const run = async cmd => { await input.fill(cmd); await input.press('Enter'); };
+  await run('set trust = 2');
+  await run('trust * 10');
+  await run('vars');
+  await run('jump nowhere');
+  const rows = await log.locator('div').allInnerTexts();
+  assert.ok(rows.includes('> set trust = 2') && rows.includes('trust = 2'), `set echoes the value: ${JSON.stringify(rows)}`);
+  assert.ok(rows.includes('20'), 'an expression is evaluated against the story variables');
+  assert.equal(rows.filter(r => r === 'trust = 2').length, 2, 'vars lists the new value');
+  assert.match(await log.locator('.err').last().innerText(), /No label "nowhere"/);
+
+  await input.press('Space'); // typed into the field, not an advance
+  assert.equal(await text(page), before);
+  await input.press('ArrowUp');
+  assert.equal(await input.inputValue(), 'jump nowhere', 'ArrowUp recalls the last command');
+  await input.press('ArrowUp');
+  assert.equal(await input.inputValue(), 'vars');
+
+  await run('jump bench_talk');
+  await until(page, () => /Sit down|Sit\. We need to talk/.test(document.getElementById('text').textContent));
+  assert.match(await log.locator('div').last().innerText(), /New playthrough at bench_talk/);
+  await input.press('Escape');
+  await until(page, () => document.getElementById('debug').dataset.visible === 'false');
+});
+
+// ---- editor panels: the page with every write mocked (nothing reaches the sample project); `puts` collects them ----
+function inEditor(name, fn, setup) {
+  test(name, async t => {
+    if (skipReason) { t.skip(skipReason); return; }
+    const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+    const puts = [];
+    await context.route(/\/api\/(script|locale|game|rig)(\?|$)/, route => {
+      const r = route.request();
+      if (r.method() !== 'PUT') return route.fallback();
+      puts.push({ file: new URL(r.url()).searchParams.get('file'), body: r.postData() ?? '' });
+      return route.fulfill({ json: { ok: true } });
+    });
+    await setup?.(context);
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    try {
+      await page.goto(`${base}editor/`);
+      await page.locator('.monaco-editor .view-line').first().waitFor();
+      await fn(page, puts);
+      assert.deepEqual(errors, [], 'the page threw errors');
+    } finally {
+      await context.close();
+    }
+  });
+}
+const palette = async (page, query) => {
+  await page.keyboard.press('Control+p');
+  await page.locator('[aria-controls="paletteList"]').waitFor();
+  await page.keyboard.type(query);
+  await page.keyboard.press('Enter');
+};
+// Monaco draws spaces as no-break spaces: compare the rendered rows with those turned back.
+const shownLine = (page, part) => until(page, part => [...document.querySelectorAll('.monaco-editor .view-line')].some(e => e.textContent.replace(/\s/g, ' ').includes(part)), part);
+const activeLine = page => page.evaluate(() => document.querySelector('.monaco-editor .active-line-number')?.textContent ?? '');
+/** Open a script and put the cursor inside `word` on the first line containing `needle` (End, then left: no pixel guessing). */
+async function cursorIn(page, file, needle, word) {
+  const lines = readFileSync(path.join(root, 'sample/script', file), 'utf8').split('\n');
+  const n = lines.findIndex(l => l.includes(needle)) + 1;
+  const line = lines[n - 1].replace(/\r$/, '');
+  await palette(page, file);
+  await until(page, f => document.querySelector('#tabs .tab[data-selected="true"]')?.textContent?.includes(f), file);
+  await palette(page, `:${n}`);
+  await until(page, n => document.querySelector('.monaco-editor .active-line-number')?.textContent === String(n), n);
+  await page.keyboard.press('End');
+  const inside = line.indexOf(word, line.indexOf(needle)) + 2; // two characters into the word
+  for (let i = 0; i < line.length - inside; i++) await page.keyboard.press('ArrowLeft');
+  return n;
+}
+const demoLocales = { 'locale/fi.json': `${JSON.stringify({ vbsv: 'Hauska tavata, [player].', bu9l: 'Nähdään, [player]. (Käyntejä: [demo_visits])' }, null, 2)}\n` };
+
+inEditor('task output: a task streams into the Output panel, file:line links open the line, Close hides it', async page => {
+  await page.route('**/api/task?*', route => route.fulfill({
+    contentType: 'application/x-ndjson',
+    body: '{"out":"Wrote locale/en.json\\n"}\n{"out":"park.vn:9: a line has no id\\n"}\n{"ok":false}\n',
+  }));
+  const output = page.locator('#taskOutput');
+  assert.equal(await output.isHidden(), true);
+  await palette(page, '>Export Strings');
+  await until(page, () => /strings: failed/.test(document.getElementById('status').textContent));
+  assert.equal(await page.locator('#taskOutputText').innerText(), 'Wrote locale/en.json\npark.vn:9: a line has no id');
+  const link = page.locator('#taskOutputText a');
+  assert.equal(await link.innerText(), 'park.vn:9');
+  await link.click();
+  await until(page, () => document.querySelector('.monaco-editor .active-line-number')?.textContent === '9');
+  await page.locator('#taskOutputClose').click();
+  await output.waitFor({ state: 'hidden' });
+});
+
+inEditor('translations dialog: progress, filter, edits saved as you type, changed source, Still correct, a new language', async (page, puts) => {
+  const dialog = page.locator('#translations');
+  await palette(page, '>Translations: Edit');
+  const summary = dialog.locator('.tr-summary');
+  await until(page, () => /translated/.test(document.querySelector('#translations .tr-summary').textContent));
+  assert.match(await summary.innerText(), /^1 of \d+ translated · 1 with changed source · 1 unused entry in locale\/fi\.json$/);
+  assert.equal(await dialog.locator('.tr-lang').inputValue(), 'fi');
+
+  await dialog.locator('.tr-filter').fill('kx0c');
+  await until(page, () => document.querySelectorAll('#translations .tr-row').length === 1);
+  assert.match(await summary.innerText(), /· 1 shown$/);
+  await dialog.locator('.tr-edit').fill('Istu. Meidän pitää puhua.');
+  await until(page, () => /^2 of /.test(document.querySelector('#translations .tr-summary').textContent));
+  for (let i = 0; i < 40 && !puts.some(p => p.file === 'fi.json'); i++) await page.waitForTimeout(100);
+  assert.equal(JSON.parse(puts.find(p => p.file === 'fi.json').body).kx0c, 'Istu. Meidän pitää puhua.');
+
+  await dialog.locator('.tr-filter').fill('');
+  await dialog.locator('.tr-changed').check();
+  await until(page, () => document.querySelectorAll('#translations .tr-row[data-outdated="true"]').length === 1);
+  assert.match(await dialog.locator('.tr-was').innerText(), /Was: An older wording\./);
+  await dialog.locator('.tr-ok').click();
+  await until(page, () => !/changed source/.test(document.querySelector('#translations .tr-summary').textContent));
+  // The edit above saved fi.src too (with the old j30k); Still correct saves it again with the current source.
+  const j30k = () => JSON.parse(puts.filter(p => p.file === 'fi.src').at(-1)?.body ?? '{}').j30k;
+  for (let i = 0; i < 40 && !/^Fine/.test(j30k() ?? ''); i++) await page.waitForTimeout(100);
+  assert.match(j30k(), /^Fine\. Sit down/);
+  await dialog.locator('.tr-changed').uncheck();
+
+  await dialog.locator('.tr-new').fill('x');
+  await dialog.locator('.tr-add').click();
+  assert.match(await summary.innerText(), /A language code is 2-3 letters/);
+  await dialog.locator('.tr-new').fill('de');
+  await dialog.locator('.tr-new').press('Enter');
+  assert.equal(await dialog.locator('.tr-lang').inputValue(), 'de');
+  assert.match(await summary.innerText(), /^0 of \d+ translated/);
+
+  // A row's file:line closes the dialog and shows the line.
+  await dialog.locator('.tr-filter').fill('j30k');
+  await until(page, () => document.querySelectorAll('#translations .tr-row').length === 1);
+  const where = await dialog.locator('.tr-where').innerText();
+  await dialog.locator('.tr-where').click();
+  await dialog.waitFor({ state: 'hidden' });
+  await until(page, l => document.querySelector('.monaco-editor .active-line-number')?.textContent === l, where.split(':')[1]);
+
+  await palette(page, '>Translations: Edit');
+  await dialog.waitFor();
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'hidden' });
+}, async context => {
+  await context.route('**/api/locales', route => route.fulfill({ json: {
+    'locale/en.json': '{}',
+    'locale/fi.json': JSON.stringify({ j30k: 'Hyvä on. Istu.', zzzz: 'Ei käytössä.' }),
+    'locale/fi.src': JSON.stringify({ j30k: 'An older wording.' }),
+  } }));
+});
+
+inEditor('variable rename: F2 on a variable rewrites the scripts and the translation tables that use it', async (page, puts) => {
+  const n = await cursorIn(page, 'demo.vn', 'Nice to meet you, [player]', 'player');
+  await page.keyboard.press('F2');
+  const box = page.locator('.rename-box input, .rename-input').first();
+  await box.waitFor();
+  assert.equal(await box.inputValue(), 'player');
+  await box.fill('hero');
+  await box.press('Enter');
+  await shownLine(page, 'Nice to meet you, [hero]');
+  for (let i = 0; i < 40 && !puts.some(p => p.file === 'fi.json'); i++) await page.waitForTimeout(100);
+  const fi = puts.filter(p => p.file === 'fi.json');
+  assert.equal(fi.length, 1, 'the table is written once');
+  assert.deepEqual(JSON.parse(fi[0].body), { vbsv: 'Hauska tavata, [hero].', bu9l: 'Nähdään, [hero]. (Käyntejä: [demo_visits])' });
+  assert.equal(await activeLine(page), String(n));
+}, async context => {
+  await context.route('**/api/locales', route => route.fulfill({ json: demoLocales }));
+});
+
+inEditor('find all uses: Shift+F12 on a variable lists every use in a peek view', async page => {
+  await cursorIn(page, 'demo.vn', 'Nice to meet you, [player]', 'player');
+  await page.keyboard.press('Shift+F12');
+  const peek = page.locator('.peekview-widget');
+  await peek.waitFor();
+  await until(page, () => /\(\d+\)/.test(document.querySelector('.peekview-widget .peekview-title')?.textContent ?? ''));
+  const meta = await peek.locator('.peekview-title').innerText();
+  assert.match(meta, /References \(3\)/, 'the input, the greeting and the goodbye (the comment that names it is no use)');
+  await page.keyboard.press('Escape');
+  await peek.waitFor({ state: 'hidden' });
+});
+
+inEditor('art drop: files dropped on an asset folder go there, elsewhere the server picks; the status says what came in', async page => {
+  const uploads = [];
+  await page.route('**/api/asset?*', route => {
+    const q = new URL(route.request().url()).searchParams;
+    uploads.push({ name: q.get('name'), folder: q.get('folder') });
+    const dest = `assets/${q.get('folder') || 'bg'}/${q.get('name')}`;
+    return route.fulfill(q.get('name') === 'bg_park_night.png' ? { status: 409, json: { dest } } : { json: { dest } });
+  });
+  const folder = page.locator('#sbList details[data-dir="bg"]');
+  await folder.waitFor();
+  const drag = (type, onFolder, names) => page.evaluate(([type, onFolder, names]) => {
+    const dt = new DataTransfer();
+    for (const n of names) dt.items.add(new File(['PNG'], n, { type: 'image/png' }));
+    const d = document.querySelector('#sbList details[data-dir="bg"]');
+    (onFolder ? d.querySelector('summary') : d.parentElement).dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+  }, [type, onFolder, names]);
+  await drag('dragover', true, ['new_bg.png']);
+  assert.match(await folder.getAttribute('class') ?? '', /\bdrop\b/, 'the folder under the pointer is marked');
+  await drag('drop', true, ['new_bg.png', 'bg_park_night.png']);
+  await until(page, () => /added/.test(document.getElementById('status').textContent));
+  assert.equal(await page.locator('#status').innerText(), 'added assets/bg/new_bg.png; assets/bg/bg_park_night.png exists');
+  assert.deepEqual(uploads, [{ name: 'new_bg.png', folder: 'bg' }, { name: 'bg_park_night.png', folder: 'bg' }]);
+  assert.equal(await page.locator('#sbList .drop').count(), 0, 'the mark is gone after the drop');
+  await drag('drop', false, ['loose.png']);
+  for (let i = 0; i < 40 && uploads.length < 3; i++) await page.waitForTimeout(100);
+  assert.deepEqual(uploads[2], { name: 'loose.png', folder: '' }, 'off a folder, the server routes by type');
+});
+
+inEditor('screens sidebar: a built-in screen row opens it in the preview and shows its starter code read-only', async page => {
+  const frame = page.frameLocator('#preview');
+  await frame.locator('#title:not([hidden]), #box[data-visible="true"]').first().waitFor();
+  const screenRow = title => page.locator('#sbList .row', { has: page.locator('.item span:first-child', { hasText: new RegExp(`^${title}$`) }) }).locator('.item');
+  await screenRow('Options').click();
+  await frame.locator('#options').waitFor({ state: 'visible' });
+  await shownLine(page, 'screen options');
+  assert.equal(await screenRow('Options').getAttribute('aria-current'), 'true');
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.type('zzz');
+  assert.ok(!(await page.locator('.monaco-editor .view-lines').innerText()).includes('zzz'), 'the starter code is read-only');
+  await screenRow('History').click();
+  await frame.locator('#history').waitFor({ state: 'visible' });
+  assert.equal(await frame.locator('#options').isHidden(), true);
+  assert.equal(await screenRow('History').getAttribute('aria-current'), 'true');
 });
 
 describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+<title>Marginalia Studio</title>
+<style>
+  :root { --ink: #0e1117; --panel: #171b23; --line: #2a303c; --text: #e6e9ef; --muted: #8b93a3;
+    --accent: #5fd1c3; --warn: #e8b64c; --bad: #f0707a; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--ink); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  button, input, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 10px; }
+  button { cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 24px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  .muted { color: var(--muted); }
+  #actions { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
+  #error { color: var(--bad); margin: -12px 0 16px; white-space: pre-wrap; }
+  #error:empty { display: none; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  #list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
+  #list:empty::after { content: 'No recent projects. Open a folder, start a new project or open the demo.'; display: block; padding: 18px; color: var(--muted); }
+  #list li { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; padding: 10px 14px; border-top: 1px solid var(--line); }
+  #list li:first-child { border-top: 0; }
+  #list li.openable { cursor: pointer; }
+  #list li.openable:hover { background: var(--panel); }
+  #list li.missing .title { color: var(--muted); text-decoration: line-through; }
+  .title { font-weight: 600; }
+  .folder { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .marks { display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+  .mark { border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; color: var(--muted); }
+  .mark.warn { color: var(--warn); border-color: var(--warn); }
+  .mark.bad { color: var(--bad); border-color: var(--bad); }
+  .row-actions { grid-row: 1 / span 3; grid-column: 2; display: flex; gap: 6px; align-items: center; }
+  #busy { position: fixed; inset: 0; display: none; place-items: center; background: #0e1117cc; font-size: 16px; }
+  body.busy #busy { display: grid; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 20px; width: min(560px, 92vw); }
+  dialog::backdrop { background: #0008; }
+  dialog h3 { margin: 0 0 16px; font-size: 17px; }
+  .field { display: grid; gap: 4px; margin-bottom: 12px; }
+  .field > span { color: var(--muted); font-size: 12px; }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input[type=text] { flex: 1; min-width: 0; }
+  .inline input[type=number] { width: 90px; }
+  #newError { color: var(--bad); min-height: 1.4em; white-space: pre-wrap; }
+  .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  label.check { display: flex; gap: 8px; align-items: flex-start; }
+  label.check input { margin-top: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Marginalia Studio</h1><span class="muted" id="version"></span></header>
+  <div id="actions">
+    <button id="openFolder" class="primary">Open Folder...</button>
+    <button id="newProject">New Project...</button>
+    <button id="openDemo">Open the Demo</button>
+  </div>
+  <div id="error" role="alert"></div>
+  <h2>Recent projects</h2>
+  <ul id="list"></ul>
+</main>
+<div id="busy">Opening...</div>
+
+<dialog id="newDialog">
+  <form method="dialog" id="newForm">
+    <h3>New project</h3>
+    <label class="field"><span>Title</span><input type="text" id="newTitle" required autocomplete="off"></label>
+    <div class="field"><span>Location</span>
+      <div class="inline"><input type="text" id="newParent" required><button type="button" id="newBrowse">Browse...</button></div>
+    </div>
+    <label class="field"><span>Folder name</span><input type="text" id="newName" required autocomplete="off"></label>
+    <div class="field"><span>Stage size (one per project; a portrait version is a copy of the project)</span>
+      <div class="inline">
+        <select id="newStage">
+          <option value="1920x1080">1920 x 1080 (landscape, 16:9)</option>
+          <option value="1280x720">1280 x 720 (landscape, 16:9)</option>
+          <option value="1080x1920">1080 x 1920 (portrait, 9:16)</option>
+          <option value="720x1280">720 x 1280 (portrait, 9:16)</option>
+          <option value="custom">Custom...</option>
+        </select>
+        <input type="number" id="newWidth" min="64" max="8192" value="1920" hidden aria-label="Width">
+        <input type="number" id="newHeight" min="64" max="8192" value="1080" hidden aria-label="Height">
+      </div>
+    </div>
+    <label class="check field"><input type="checkbox" id="newGit">
+      <span>Make it a git repository (PSDs in masters/ go to Git LFS)<br><small class="muted" id="gitNote"></small></span></label>
+    <div id="newError" role="alert"></div>
+    <div class="buttons"><button type="button" id="newCancel">Cancel</button><button type="submit" class="primary" id="newCreate">Create</button></div>
+  </form>
+</dialog>
+<script src="projects.js"></script>
+</body>
+</html>

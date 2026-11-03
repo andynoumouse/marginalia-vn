@@ -11,13 +11,15 @@
 //                                                         answers { type: 'studioPicked', part, x, y } in PSD pixels; null ends it
 //   { type: 'studioPlace', on, x, y, scale, flip, anchor: [fx, fy] }        where the character stands; with `on` a drag on the stage moves it and
 //                                                         answers { type: 'studioPlaced', x, y } (stage fractions, as `show` takes them)
+//   { type: 'studioScene', file, line }                   draw the background and the other characters as the story has them
+//                                                         at that script line (null file: a plain stage again); not while picking
 
 import { psdToStage, stageToPsd, type AnimDef, type DisplayState, type PivotFrame, type Pivots } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
 
 interface Run { name: string; dur: number; loop: boolean; part: string | null; start: number }
-type Msg = { type?: string; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; anims?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown };
+type Msg = { type?: string; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; anims?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown };
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const num = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
@@ -37,8 +39,11 @@ export class Studio {
   private again = false;                  // and the placement changed meanwhile
   private marker = document.createElement('div');
   private others: HTMLElement[] = [];     // dim crosses for the other parts' pivots, shown while picking
+  private sceneLine: { file: string; line: number } | null = null;
+  private scene: DisplayState | null = null; // the stage at sceneLine, without this character
 
-  constructor(private renderer: PixiRenderer, readonly char: string) {
+  /** `sceneAt` replays the project's scripts to a line (the page's current program, so a hot reload is followed). */
+  constructor(private renderer: PixiRenderer, readonly char: string, private sceneAt: (at: { file: string; line: number }) => Promise<DisplayState>) {
     this.marker.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none;z-index:30;display:none';
     const bar = (css: string) => `<div style="position:absolute;background:#ff3b6b;box-shadow:0 0 0 2px #000;${css}"></div>`;
     this.marker.innerHTML = bar('left:-30px;top:-1.5px;width:60px;height:3px') + bar('left:-1.5px;top:-30px;width:3px;height:60px');
@@ -53,11 +58,12 @@ export class Studio {
 
   /** Put the character on stage with the current pose (again after a hot reload of the project). */
   async show(announce = true) {
-    // Pivots are placed in PSD pixels from a character standing bottom-centre, so picking ignores the placement.
+    // Pivots are placed in PSD pixels from a character standing bottom-centre, so picking ignores the placement and the scene.
     const at = this.pick ? { x: 0.5, y: 0, scale: 1, flip: false, anchor: [0.5, 1] as [number, number] } : this.place;
+    const scene = this.pick ? null : this.scene;
     const state: DisplayState = {
-      bg: null, music: null, musicLoop: false,
-      sprites: [{ char: this.char, pose: this.pose, overrides: this.overrides, ...at, rotation: 0, alpha: 1, anim: null }],
+      bg: scene?.bg ?? null, music: null, musicLoop: false,
+      sprites: [...scene?.sprites ?? [], { char: this.char, pose: this.pose, overrides: this.overrides, ...at, rotation: 0, alpha: 1, anim: null }],
     };
     await this.renderer.prepare(state);
     this.renderer.sync(state);
@@ -65,6 +71,15 @@ export class Studio {
     if (this.last) this.poseAt(this.last.name, this.last.t, this.last.part);
     if (this.pick) this.renderer.studioRest(this.char);
     if (announce) window.parent.postMessage({ type: 'studioReady' }, location.origin);
+  }
+
+  /** Replay the story to the scene line again (it is set, or the scripts changed). */
+  async loadScene() {
+    const at = this.sceneLine;
+    if (!at) { this.scene = null; return; }
+    const s = await this.sceneAt(at);
+    if (at !== this.sceneLine) return; // a newer line arrived meanwhile
+    this.scene = { ...s, sprites: s.sprites.filter(x => x.char !== this.char).map(x => ({ ...x, anim: null })) };
   }
 
   /** Redraw after the placement or pick mode changed; changes that arrive during a redraw are drawn once it is done. */
@@ -157,6 +172,11 @@ export class Studio {
         this.placing = m.on === true;
         this.place = { x: num(m.x, 0.5), y: num(m.y, 0), scale: Math.max(0.05, num(m.scale, 1)), flip: m.flip === true, anchor: Array.isArray(m.anchor) && m.anchor.length === 2 ? [num(m.anchor[0], 0.5), num(m.anchor[1], 1)] : [0.5, 1] };
         stage.style.cursor = this.placing ? 'move' : '';
+        this.redraw();
+        break;
+      case 'studioScene':
+        this.sceneLine = typeof m.file === 'string' && typeof m.line === 'number' ? { file: m.file, line: m.line } : null;
+        await this.loadScene();
         this.redraw();
         break;
       case 'studioAnims':

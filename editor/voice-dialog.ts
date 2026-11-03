@@ -271,7 +271,7 @@ export class VoiceDialog {
     const file = this.files[name];
     if (!file) return;
     this.audio?.pause();
-    this.audio = new Audio(`/assets/voice/${encodeURIComponent(file)}?t=${Date.now()}`);
+    this.audio = new Audio(`../assets/voice/${encodeURIComponent(file)}?t=${Date.now()}`);
     void this.audio.play().catch(() => this.say(`Could not play ${file}.`));
   }
 

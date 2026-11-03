@@ -16,12 +16,21 @@ Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) ·
 
 ### define
 `define <id> "<Name>" [options]` declares a character. Options: `color=` (name tag), `text=` (text color),
-`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `box=` (text box skin).
+`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `box=` (text box skin), `focus=off` (always
+lit under [speaker focus](#focus)), `side=` (a portrait in the text box, below).
 
 ```
 define alice "Alice" color=#ff6fa5 text=#ffe6f0 font="Georgia" size=1.1 italic speed=0.8 blip=blip_hi box=alice
 define narrator "" text=#d8d2c0 italic      # style of "quoted narration" lines
 define thought "" italic                    # `thought: ...` lines show no name tag
+```
+
+**Side images**: with game.json `"sideImages"` on, a character defined with `side=<name>` has their portrait drawn in the
+text box while they speak: `assets/side/<name>.png`, or `assets/side/<name>_<pose>.png` while they are on stage in that
+pose (`show alice smile` makes Alice's lines use `alice_smile.png` when it exists). Portraits are off in NVL mode.
+
+```
+define alice "Alice" color=#ff6fa5 side=alice   # assets/side/alice.png, alice_smile.png, ...
 ```
 
 `define item <id> "<Name>" [image=<file>]` declares an item for lists and screens: the name is localizable (`npm run ids` gives
@@ -167,17 +176,26 @@ scene bg_hall pixelate 0.8
 ```
 
 ### show / hide
-`show <char> [pose] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [fade <seconds>] [slot=variant ...]`. For layered
+`show <char> [pose] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...]`. For layered
 (PSD) characters a pose picks a variant per slot, and `slot=variant` overrides one slot (`glasses=none` empties it).
 A pose-less show keeps the character's current pose. `y=`, `scale=` and `flip=` place the character in the same
 units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
 Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand. The line includes the pose and slot variants chosen in the Parts tab, and "Insert in script" puts it under the line the cursor was on.
 `hide <char> [fade <seconds>]`.
 
+Characters are drawn in the order they were first shown, the newest in front. `order=front` or `order=back` moves a
+character in front of or behind everyone on stage, and `behind=<char>` puts it just behind that character (nothing
+changes when that character is not on stage). The order lasts until the next `order=` / `behind=`, a `hide` or a `scene`,
+and saves and rollback keep it. A character shown without `at` stands at center, so give each one its own place when
+several are on stage. The editor warns when a character shown without `at` would stand on top of someone already at
+center (unless the `show` has `behind=` or `order=`, which say the overlap is meant).
+
 ```
 show alice smile at left fade 0.3
 show alice smile at 0.35 y=0.02 scale=1.1
 show alice neutral eyes=closed
+show bob at center behind=alice      # bob steps in, drawn behind alice
+show alice order=back                # alice steps back behind everyone
 hide alice fade 0.3
 ```
 
@@ -254,6 +272,23 @@ animate alice stop
 ```
 flash
 flash #ff3030 0.8
+```
+
+### focus
+`focus off` stops [speaker focus](#focus) from dimming anyone (a group scene, a cutscene), and `focus on` brings it back. It
+lasts across scenes until the next `focus` line, and saves, rollback and hot reload keep it.
+
+Speaker focus is on only when game.json has `"speakerFocus"` (see docs/game-json.md): while a character speaks, the
+others on stage are drawn darker, fading over a moment (at once under reduce motion and while skipping). The speaker
+stays lit until the next line, choice, input or screen; during narration or a line by someone not on stage everyone is
+lit (or everyone dimmed, with `"offstage": "dim"`). With `"front": true` the speaker is also drawn in front of the others
+for the line, and the order set with `order=` / `behind=` comes back after it. A character defined with `focus=off` is
+never dimmed, and players can turn the whole thing off in Options (Game tab).
+
+```
+focus off
+"Everyone talks at once."
+focus on
 ```
 
 ### tint
@@ -595,7 +630,7 @@ The settings are the screen's variables, so labels and conditions can show them:
 - `slider <setting> at x,y [size w,h] [readout]` is a range bound to `master`, `music`, `sound`, `voice`, `text_speed`, `text_size` or `box_opacity`
   (400x48 without `size`). It shows its own position; `readout` adds the live value (`65%`, or the plain number for `text_speed`)
   16px to its right. `[master]` in a text is the value when the screen was last drawn.
-- `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion` and `captions` (`on`/`off`), `timed_choices` (`normal`/`extended`/`off`),
+- `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion` and `captions` (`on`/`off`), `speaker_focus` (`on`/`off`, `none` when game.json has no `speakerFocus`; cycling it then does nothing), `timed_choices` (`normal`/`extended`/`off`),
   `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do).
   The button id names the setting, and `[text_sounds]` in the label is its current word.
 - `button <name> ... action tab` selects a tab: the variable `tab` becomes the button id (the first `action tab` button until one is picked), so
