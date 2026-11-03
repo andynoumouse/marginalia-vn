@@ -10,6 +10,7 @@ Every snippet comes from its scripts, so you can open the file, run it and chang
 | [2. Choices and variables](02-choices-and-variables.md) | `menu`, `set`, `if`, `jump`, `input`, `[variables]` in text, lists, random |
 | [3. Staging and effects](03-staging-and-effects.md) | `move`, `hop`, `shake`, `animate`, named positions, `tint`, `filter`, `camera`, `flash`, weather, sound, text tags |
 | [4. Screens and memory](04-screens-and-memory.md) | clickable map, scrolling grid, HUD, `call` with parameters, timed menus, `unlock`, `persistent`, gallery and chapters, endings and achievements, a custom pause menu |
+| [5. Starting from a template](05-templates.md) | the six project templates, `vn init --template`, what each brings |
 
 Planned: the PSD art pipeline, localization, and exporting for the web. The demo's art is placeholder shapes for now,
 so the screenshots show those. The full command list is in [../commands.md](../commands.md), `game.json` is in [../game-json.md](../game-json.md).

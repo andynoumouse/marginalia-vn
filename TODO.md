@@ -128,13 +128,35 @@ Nothing open right now; pick from the topic sections below.
 - [ ] Playtest bot in the Build dialog: its findings (unreachable labels, stuck loops, unused variables and assets) as an
   `info` check with a level in `build.checks`, since today they show only after running the bot by hand.
 - [ ] Consider pipeline settings for asset preprocessing (a project-level resize/compression/format config per asset type).
-- [ ] **NEEDS PLANNING** Project templates for different game styles: New project (Studio and `engine/src/new-project.ts`)
-  offers a few starters, each with game.json engine options set for its style instead of one generic starter. Candidates:
-  classic ADV (text box, speaker focus, quick menu), NVL/kinetic novel (full-screen text, no choices, auto-forward),
-  dating sim / branching (affection variables, chapters, gallery and achievements on), mystery/adventure (map and
-  inventory screens, hotspots), portrait/mobile (portrait stage size, larger text). Open questions: which options and
-  screens each template turns on, how much sample script and placeholder art each ships, whether templates are folders or
-  overlays on one base, and how they stay in step with the engine as game.json options change (a test that builds each).
+- [x] Project templates for different game styles. Plan: a template is an overlay on the base starter, pure data in
+  `engine/src/templates.ts` (id, title, description, optional stage, a game.json patch, theme tokens, extra script files,
+  the assets it takes from a shared pool); `newProjectFiles` gets a `template` option, `blank` stays the default of the
+  API, the Studio picker defaults to Classic ADV. Placeholder art is generated (flat colour backgrounds, silhouette
+  sprites), not art packs. The sample stays the showcase and the demo stays Iris; templates are small starting points.
+  - [x] Mechanism: registry (`engine/src/templates.ts`), `template` option in `new-project.ts`, `vn init --template`, and
+    card pickers (radio cards with the description) in Studio's New project dialog and on the online demo, which also
+    takes the title in a field instead of a `window.prompt`.
+  - [x] Shared asset pool, `templates/assets/` (placeholder title backgrounds from `scripts/make-placeholders.mjs`, plus
+    the demo's audio): `templateAssets` lists what a template copies, `tools/template-assets.mjs` copies it for `vn init`
+    and the Studio, the online demo fetches it from `templates/assets/`; Studio packaging and the online build include it.
+    `games/sample` and `games/demo` keep their own copies (the editor opens them as they are; git stores identical files
+    once) and a test checks they stay byte-identical to the pool.
+  - [x] Guard test (`engine/test/templates.test.mjs`): for each template, the scripts compile, the playtest bot finds
+    no unreachable labels or stuck loops, the theme resolves without warnings, the asset check and `checkGame` find
+    nothing missing or invalid, and `assignIds` marks every string and a second pass adds none.
+  - [x] Silhouette placeholder sprites (`scripts/make-silhouettes.mjs` writes `templates/assets/char/{mina,ren}/neutral.png`):
+    Classic ADV shows Mina and Branching shows Mina and Ren, so `speakerFocus` has something to focus on. Blank, Portrait
+    and Kinetic/NVL stay without characters.
+  - [x] Templates: all five (Classic ADV, Portrait, Kinetic/NVL, Branching, Mystery) are in (Classic ADV and
+    Branching show the silhouette sprites). Branching has the status HUD, chapters, three endings as achievements and a
+    persistent play counter; Mystery has a hotspot room and an inventory list. Mystery also has an `each` inventory
+    screen and asks the player's name with `input`. Branching has a gallery too: one generated placeholder CG per ending (`scripts/make-cgs.mjs`), unlocked by that ending. Planned as: Classic ADV (`speakerFocus`, `sideImages`, `blips`, `quickMenu`, gallery, music room; two
+    characters, a menu with a variable, two endings); Portrait/mobile (1080x1920, larger text tokens, bottom text box,
+    bigger quick menu; also offered as a stage-size choice on any template); Kinetic/NVL (`nvl`, no choices,
+    auto-forward, minimal title and quick menu); Branching/dating sim (affection variables, `bar` HUD, `chapters`,
+    `achievements` as endings, `persistent`, gallery unlocks, a hub label); Mystery/adventure (`screen` with
+    `hotspot`/`each`, inventory list, map screen, `hud`, `input`).
+  - [x] Docs: README, `docs/game-json.md`, and a template page in the tutorial (`docs/tutorial/05-templates.md`).
 - [ ] **NEEDS PLANNING** Extension points for authors who know JavaScript: custom text tags, effects or screen elements
   in a project file, without breaking the deterministic runtime (no state outside variables; replay must give the same
   result). Decide first whether this is wanted at all.
@@ -186,6 +208,35 @@ Nothing open right now; pick from the topic sections below.
 - [ ] View/animation mode: click an element while playing to trigger a sound and affect its animation.
 - [ ] Point and click adventure mode. Hotspots, inventory via `each` and a verb bar via `hud on` exist; left: using an item
   on a hotspot (drag and drop), cursor verbs.
+  - [ ] Cursor changes: today a hotspot only takes a CSS cursor name (`cursor help`). Wanted: a custom cursor image (with
+    a hotspot offset), a script command to set it (e.g. the held item or the active verb, kept in saves and replay), and
+    a per-element override. Keep the touch/pad fallback (no cursor there: show the held item as text or an icon).
+  - [ ] Hover-reveal zones: an element that shows or hides other elements while hovered or focused (an edge strip that
+    slides the item bar in). Today `hover` only restyles the element itself and screen conditions are evaluated on redraw,
+    not on hover; the workaround is a click-toggled variable. Needs a keyboard/pad equivalent (focus counts as hover).
+  - [ ] Popup next to the click: a verb/item menu placed where the player clicked. Today `at x,y` takes literal numbers
+    and a screen answers only with an element id, so a popup can only sit at a fixed position per spot (one `if spot ==`
+    group each). Needs the click position stored in variables (recorded like the answer, so replay and saves keep it) and
+    `at` taking variables or expressions, with clamping to the stage edges. Keyboard/pad: use the focused element's centre.
+  - [x] Parameterised screens: `screen room(name, floor):` and `show screen room("hall", 2) as spot`, so one layout
+    serves many rooms (docs/commands.md). Not for `hud on` screens (no arguments to give). F2 renames a screen parameter inside
+    its screen. The Mystery template's `inventory(title)` uses it (bag, and
+    "use an item on the door"). A second room that shares a `room(name, backdrop)` layout is not built.
+  - [ ] Hotspots follow the scene: they are stage coordinates, not tied to sprites or props. Checked: they do not move
+    with `camera` (screens are DOM layers over the stage, outside the pixi `world` that the camera scales). Decide on
+    anchoring a hotspot to a shown sprite or to the camera (transform the layer by the camera state).
+  - [ ] Item stacks and combining: lists hold plain entries, so no quantity. Add counts, and a combine flow (pick item A,
+    then item B) as a documented pattern or a built-in, with the Mystery template as the example.
+  - [ ] Status line while hovering ("Use key on door"): a text element showing the hovered element's label or a
+    description, updated on hover. Shares its mechanism with hover-reveal above.
+  - [ ] Animation inside screens (a flickering lamp, an idling NPC): checked: screen images are plain `<img>`
+    elements (`preview/screen-ui.ts`), so only a self-animating file (APNG/animated WebP) would move; sprite animation
+    (`animate`, rigs) is not available there. Decide whether to support it.
+  - [ ] Touch: no hover on phones, so tooltips and hover-reveal are gone. Define a tap-to-inspect step (first tap names the
+    hotspot, second acts) for screens that rely on hover text.
+  - [~] Playtest bot and screens: checked: the bot already takes every enabled non-`act` element of a blocking screen
+    as a choice, and states are deduplicated, so a looping room does not spin. Left: report an element that no route
+    could ever enable (today only its unreachable handler lines/labels show); a test with a looping room screen.
 
 ## Known gaps (user stories)
 

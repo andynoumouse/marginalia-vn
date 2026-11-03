@@ -10,7 +10,7 @@
   * { box-sizing: border-box; }
   html, body { min-height: 100%; margin: 0; background: var(--ink); color: var(--text);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  button, input { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+  button, input, select { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
     border-radius: 4px; padding: 5px 10px; }
   button, .button { cursor: pointer; white-space: nowrap; }
   button:hover:not(:disabled) { border-color: var(--muted); }
@@ -23,6 +23,12 @@
   h1 { font-size: 22px; font-weight: 600; margin: 0; }
   .muted { color: var(--muted); }
   .intro { margin: 0 0 20px; max-width: 70ch; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin-bottom: 24px; }
+  .cards label { display: grid; gap: 2px; align-content: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+  .cards label:has(input:checked) { border-color: var(--accent); background: #5fd1c31a; }
+  .cards label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .cards input { position: absolute; opacity: 0; pointer-events: none; }
+  .cards small { color: var(--muted); font-size: 12px; }
   #actions { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
   #error { color: var(--bad); margin: -12px 0 16px; white-space: pre-wrap; }
   #error:empty { display: none; }
@@ -49,10 +55,12 @@
     storage on this device only: download a project as a zip to keep it, or to open it in Marginalia Studio or with <code>vn dev</code>.</p>
   <div id="actions">
     <button type="button" class="primary" id="newSample">New from the sample game</button>
-    <button type="button" id="newEmpty">New empty project</button>
+    <input type="text" id="title" value="My Visual Novel" aria-label="Title of a new project" autocomplete="off">
+    <button type="button" id="newEmpty">New project</button>
     <button type="button" id="import">Import .zip…</button>
     <input type="file" id="importFile" accept=".zip,application/zip" hidden>
   </div>
+  <div id="template" class="cards" role="radiogroup" aria-label="Template for a new project"></div>
   <div id="error" role="alert"></div>
   <div id="note"></div>
   <h2>Projects</h2>

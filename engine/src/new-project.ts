@@ -3,6 +3,7 @@
 // package.json and gets its engine from the app.
 
 import { DEFAULT_STAGE, stageProblem, type StageSize } from './stage.js';
+import { DEFAULT_TEMPLATE, TEMPLATES, templateById } from './templates.js';
 
 export type ProjectKind = 'npm' | 'studio';
 
@@ -12,8 +13,10 @@ export interface NewProjectOptions {
   /** The engine version ("0.2.1"); game.json asks for its major.minor. */
   engineVersion: string;
   kind: ProjectKind;
-  /** Stage size, when not the default 1920x1080. */
+  /** Stage size; defaults to the template's, else 1920x1080. */
   stage?: StageSize;
+  /** A template id from templates.ts (default "blank"). */
+  template?: string;
   /** npm only: the engine folder relative to the project ("../marginalia-vn"), for the file: dependency. */
   engineRef?: string;
   /** npm only: the engine folder as shown in the README. */
@@ -47,10 +50,13 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
   const { title, kind, engineVersion } = opts;
   const problem = stageProblem(opts.stage);
   if (problem) throw new Error(problem);
+  const template = templateById(opts.template ?? DEFAULT_TEMPLATE);
+  if (!template) throw new Error(`Unknown template "${opts.template}" (${TEMPLATES.map(t => t.id).join(', ')}).`);
   const slug = projectSlug(title);
   const [major, minor] = engineVersion.split('.');
-  const stage = opts.stage && (opts.stage.width !== DEFAULT_STAGE.width || opts.stage.height !== DEFAULT_STAGE.height)
-    ? { stage: { width: opts.stage.width, height: opts.stage.height } } : {};
+  const size = opts.stage ?? template.stage;
+  const stage = size && (size.width !== DEFAULT_STAGE.width || size.height !== DEFAULT_STAGE.height)
+    ? { stage: { width: size.width, height: size.height } } : {};
   const json = (value: unknown) => JSON.stringify(value, null, 2) + '\n';
 
   const files: Record<string, string> = {};
@@ -73,23 +79,20 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
     gallery: [],
     labels: {},
     theme: 'default',
+    ...template.game,
   });
-  files['themes/default.json'] = json({ extends: 'base', tokens: { accent: '#5fd1c3' } });
+  files['themes/default.json'] = json({
+    extends: 'base',
+    tokens: { accent: '#5fd1c3', ...template.tokens },
+    ...(template.components ? { components: template.components } : {}),
+  });
   files['script/start.vn'] = [
     '# start.vn - the story starts at "label start". Lines starting with # are comments.',
     kind === 'npm'
       ? '# Give dialogue lines localization ids with "npm run ids" (or the editor\'s Add Localization IDs).'
       : '# Give dialogue lines localization ids with the editor\'s Add Localization IDs.',
     '',
-    'define narrator "" text=#d8d2c0',
-    'define hero "Hero" color=#7cc4ff blip=mid',
-    '',
-    'label start:',
-    '  scene bg_title fade 0.5',
-    '  "The story begins."',
-    '  hero: Hello! Edit script/start.vn to continue.',
-    '  end',
-    '',
+    ...template.start,
   ].join('\n');
   for (const dir of EMPTY_FOLDERS) files[`${dir}/.gitkeep`] = '';
   files['.gitignore'] = kind === 'npm' ? 'node_modules/\nbuild/\n' : 'build/\n';

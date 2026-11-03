@@ -146,3 +146,30 @@ test('a bar\'s value, max and min are variable uses; a panel line is an element 
   const top = applyTextEdits(text, (() => { const r = renameVariable(fs, variableAt(fs, 'b.vn', 2, 4), 'peak'); assert.ok(r.ok, r.error); return r.edits; })());
   assert.match(top, /bar hp max peak min base/);
 });
+
+test('screen parameters are local to their screen; show screen arguments are uses of the caller\'s variables', () => {
+  const text = `set name = "x"
+screen room(name, exit):
+  text at 0,0 "In the [name]"
+  button go at 5,5 "To [exit]" if name != ""
+label start:
+  show screen room(name, "out") as pick
+  "[name] [pick]"
+  end
+`;
+  const fs = [{ name: 's.vn', text }];
+  const line = (n, w, nth = 0) => { let c = -1; for (let i = 0; i <= nth; i++) c = text.split('\n')[n - 1].indexOf(w, c + 1); return c; };
+  // the parameter: header, text and condition inside the screen, and nothing outside
+  const param = variableAt(fs, 's.vn', 2, line(2, 'name'));
+  const res = renameVariable(fs, param, 'place');
+  assert.ok(res.ok, res.error);
+  assert.equal(applyTextEdits(text, res.edits), text
+    .replace('room(name, exit)', 'room(place, exit)').replace('[name]"\n  button', '[place]"\n  button').replace('if name !=', 'if place !='));
+  // the global: the set, the argument and the later line, not the screen's own name
+  const glob = variableAt(fs, 's.vn', 1, 4);
+  const res2 = renameVariable(fs, glob, 'who');
+  assert.ok(res2.ok, res2.error);
+  assert.equal(applyTextEdits(text, res2.edits), text.replace('set name', 'set who').replace('room(name, "out")', 'room(who, "out")').replace('"[name] [pick]"', '"[who] [pick]"'));
+  // `as` still finds the result variable
+  assert.equal(variableAt(fs, 's.vn', 6, line(6, 'pick'))?.name, 'pick');
+});

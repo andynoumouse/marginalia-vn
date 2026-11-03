@@ -31,6 +31,12 @@ function writeJson(file, value) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 }
 const readSettings = () => readJson(settingsFile(), {});
+/** The folder the author last made a project in, if it is still there: New project starts from it. */
+function lastParent() {
+  const { lastParent } = readSettings();
+  try { if (typeof lastParent === 'string' && fs.statSync(lastParent).isDirectory()) return lastParent; } catch { /* gone */ }
+  return undefined;
+}
 
 // The engine's own modules are ES modules: tools/paths.mjs (engine version) and the built engine (dist/).
 let engine = null;
@@ -327,20 +333,22 @@ async function pickFolder(title, defaultPath) {
 const gitAvailable = () => { const r = spawnSync('git', ['--version'], { windowsHide: true }); return !r.error && r.status === 0; };
 
 /** Write a Studio-kind project into parent/name, optionally as a git repository. Resolves with { folder } or { error }. */
-async function newProject({ parent, name, title, stage, git }) {
-  const { newProjectFiles, engineVersion } = await loadEngine();
+async function newProject({ parent, name, title, stage, git, template }) {
+  const { newProjectFiles, templateAssets, engineVersion } = await loadEngine();
   if (!title?.trim()) return { error: 'Give the game a title.' };
   if (!parent || !name?.trim()) return { error: 'Choose a location and a folder name.' };
   if (/[<>:"/\\|?*]/.test(name)) return { error: 'The folder name cannot contain < > : " / \\ | ? *' };
   const folder = path.resolve(parent, name.trim());
   if (fs.existsSync(folder) && fs.readdirSync(folder).length) return { error: `${folder} is not empty; choose another folder name.` };
   let files;
-  try { files = newProjectFiles({ title: title.trim(), engineVersion, kind: 'studio', stage }); } catch (err) { return { error: err.message }; }
+  try { files = newProjectFiles({ title: title.trim(), engineVersion, kind: 'studio', stage, template }); } catch (err) { return { error: err.message }; }
+  writeJson(settingsFile(), { ...readSettings(), lastParent: path.resolve(parent) });
   for (const [rel, text] of Object.entries(files)) {
     const file = path.join(folder, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
   }
+  try { (await import(pathToFileURL(path.join(engineRoot, 'tools', 'template-assets.mjs')).href)).copyTemplateAssets(templateAssets(template, stage), folder); } catch (err) { return { error: err.message }; }
   if (git && gitAvailable()) {
     const r = spawnSync('git', ['init'], { cwd: folder, windowsHide: true, encoding: 'utf8' });
     if (r.status !== 0) return { folder, warning: `git init failed: ${(r.stderr || r.error?.message || '').trim()}` };
@@ -380,8 +388,9 @@ function handle(channel, fn) {
 function registerBridge() {
   ipcMain.on('studio:info', e => { e.returnValue = { project: currentProject, engineRoot, version: app.getVersion() }; });
   handle('projects:defaults', async () => {
-    const { engineVersion } = await loadEngine();
-    return { documents: studioDocuments(), git: gitAvailable(), engineVersion, version: app.getVersion() };
+    const { engineVersion, TEMPLATES, DEFAULT_TEMPLATE } = await loadEngine();
+    const templates = TEMPLATES.map(({ id, title, description, stage }) => ({ id, title, description, stage }));
+    return { documents: studioDocuments(), parent: lastParent() ?? studioDocuments(), git: gitAvailable(), engineVersion, version: app.getVersion(), templates, defaultTemplate: DEFAULT_TEMPLATE };
   });
   handle('projects:list', listProjects);
   handle('projects:pick', (title, defaultPath) => pickFolder(title, defaultPath));

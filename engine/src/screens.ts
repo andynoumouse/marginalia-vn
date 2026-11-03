@@ -132,6 +132,17 @@ export interface ScreenDef {
   default: string | null;
   /** Declared with `cancel`: the cancel key answers "" instead of being ignored. */
   cancel: boolean;
+  /** Declared with `textbox off`: the text box is hidden while a blocking `show screen` of this screen is up. */
+  hideBox?: boolean;
+  /** `screen room(name, floor):` parameter names; `show screen room("hall", 2)` binds them for that showing. */
+  params?: string[];
+}
+
+/** The parameters of `def` bound to the values of the `show screen` arguments, as extra variables for drawing it. */
+export function screenParams(def: ScreenDef | undefined, args: Expr[] | undefined, vars: Vars): Vars {
+  const out: Vars = {};
+  (def?.params ?? []).forEach((p, i) => { out[p] = args?.[i] ? evalExpr(args[i], vars) : 0; });
+  return out;
 }
 
 // ---- resolved view (what a renderer draws) ----
@@ -146,7 +157,7 @@ export type ViewPart = (
   | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null }
 ) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number };
 export type ViewItem = Extract<ViewPart, { id: string }>;
-export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean }
+export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean; /** `textbox off`: the shell hides the text box while the screen is up */ hideBox?: true }
 
 /** What a screen needs from the runtime: localized text with variables filled in, and the item table. */
 export interface ScreenEnv {
@@ -468,7 +479,7 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
     }
   };
   walk(def.body, scope, 0, 0, null, parts);
-  return { name: def.name, parts, default: def.default, cancel: def.cancel };
+  return { name: def.name, parts, default: def.default, cancel: def.cancel, ...(def.hideBox ? { hideBox: true as const } : {}) };
 }
 
 // ---- validation ----

@@ -1,0 +1,378 @@
+// Starter templates for a new project: overlays on the base starter in new-project.ts (its folders, README, git files),
+// each setting game.json options, theme tokens and a first script for one style of game. Pure data, so a test builds
+// every one of them (engine/test/templates.test.mjs).
+
+import { DEFAULT_STAGE, type StageSize } from './stage.js';
+
+export interface ProjectTemplate {
+  id: string;
+  title: string;
+  /** One or two sentences for the New project picker. */
+  description: string;
+  /** The stage size this template wants, unless the caller picks one. */
+  stage?: StageSize;
+  /** Keys that replace the base game.json's (a whole value each: `titleScreen` replaces the base's `titleScreen`). */
+  game?: Record<string, unknown>;
+  /** Keys merged into `tokens` of themes/default.json. */
+  tokens?: Record<string, unknown>;
+  /** Keys merged into `components` of themes/default.json, per component. */
+  components?: Record<string, Record<string, unknown>>;
+  /** Extra files from the shared asset pool (templates/assets/), by path under it: "music/evening_theme.ogg". */
+  assets?: string[];
+  /** The lines of script/start.vn after its header comments. */
+  start: string[];
+}
+
+export const DEFAULT_TEMPLATE = 'blank';
+
+const BLANK_START = [
+  'define narrator "" text=#d8d2c0',
+  'define hero "Hero" color=#7cc4ff blip=mid',
+  '',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  "The story begins."',
+  '  hero: Hello! Edit script/start.vn to continue.',
+  '  end',
+  '',
+];
+
+const ADV_START = [
+  'define narrator "" text=#d8d2c0',
+  'define mina "Mina" color=#ff9ec4 blip=high',
+  'define you "You" color=#7cc4ff blip=mid',
+  '',
+  '# Variables hold what the player has done; "if" and menu options can read them.',
+  'set kindness = 0',
+  '',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  "A quiet evening. Someone is waiting for you."',
+  '  # Sprites live in assets/char/<name>/<pose>.png; these are placeholder silhouettes to paint over.',
+  '  show mina neutral at center fade 0.3',
+  '  mina: You came. I wasn\'t sure you would.',
+  '',
+  '  menu "What do you say?":',
+  '    "I wouldn\'t miss it.":',
+  '      set kindness += 1',
+  '      mina: Good. That means a lot to me.',
+  '      jump ending',
+  '    "I almost didn\'t.":',
+  '      mina: Honest, at least.',
+  '      jump ending',
+  '',
+  'label ending:',
+  '  if kindness >= 1:',
+  '    jump warm_ending',
+  '  else:',
+  '    jump quiet_ending',
+  '',
+  'label warm_ending:',
+  '  "She smiles, and the evening feels a little warmer."',
+  '  end',
+  '',
+  'label quiet_ending:',
+  '  "She nods, and you walk on in silence."',
+  '  end',
+  '',
+];
+
+const PORTRAIT_START = [
+  'define narrator "" text=#d8d2c0',
+  'define hero "Hero" color=#7cc4ff blip=mid',
+  '',
+  '# The stage is 1080 x 1920: place characters with "at center" and keep art tall.',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  "The story begins."',
+  '  hero: Hello! Edit script/start.vn to continue.',
+  '  end',
+  '',
+];
+
+const NVL_START = [
+  'define narrator "" text=#d8d2c0',
+  'define hero "Hero" color=#7cc4ff blip=mid',
+  '',
+  '# A kinetic novel: full-screen pages of text and no choices. {nw} at the end of a line goes on by itself',
+  '# once the text is shown; a line without it waits for a click. "nvl clear" starts a new page.',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  nvl on',
+  '  "The rain had not stopped for three days.{nw}"',
+  '  "Even the crows had gone quiet.{nw}"',
+  '  "Then, somewhere below, a bell rang."',
+  '  nvl clear',
+  '  hero: Did you hear that?',
+  '  "Nobody answered. Edit script/start.vn to continue the story."',
+  '  end',
+  '',
+];
+
+const BRANCHING_START = [
+  'define narrator "" text=#d8d2c0',
+  'define mina "Mina" color=#ff9ec4 blip=high',
+  'define ren "Ren" color=#7cc4ff blip=low',
+  '',
+  '# Affection is two variables. Top-level "set" lines run first on every new game and on chapter select.',
+  'set love_mina = 0',
+  'set love_ren = 0',
+  '',
+  '# A HUD: stays up beside the story and follows the variables ("keep" lets it survive a scene).',
+  'screen status:',
+  '  text at 40,24 "Mina"',
+  '  bar love_mina max 4 at 140,20 size 360,36 color #ff9ec4',
+  '  text at 560,24 "Ren"',
+  '  bar love_ren max 4 at 640,20 size 360,36 color #7cc4ff',
+  '  # A HUD with nothing to click is flagged, so this button runs a label ("return" goes back to the story).',
+  '  button recap at 1620,20 size 260,64 "Status" on click show_status',
+  '',
+  'label show_status:',
+  '  "Mina: [love_mina] of 4.  Ren: [love_ren] of 4."',
+  '  return',
+  '',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  hud on status keep',
+  '  # persistent values last across playthroughs (they are not part of a save).',
+  '  set persistent.plays += 1',
+  '  if persistent.plays > 1:',
+  '    "You have walked this road before."',
+  '  show mina neutral at left fade 0.3',
+  '  show ren neutral at right fade 0.3',
+  '  "The first day of term. Two classmates wave you over."',
+  '  menu "Whom do you walk with?":',
+  '    "Mina":',
+  '      set love_mina += 1',
+  '      mina: I was hoping you would say that.',
+  '      jump chapter2',
+  '    "Ren":',
+  '      set love_ren += 1',
+  '      ren: Good. I could use the company.',
+  '      jump chapter2',
+  '    "Nobody":',
+  '      "You walk alone, and the day passes quietly."',
+  '      jump chapter2',
+  '',
+  '# chapters in game.json lists this label, so it shows in Chapters on the title screen.',
+  'label chapter2:',
+  '  "The festival is a week away, and there is more work than hands."',
+  '  menu "Who do you help?":',
+  '    "Mina, with the posters":',
+  '      set love_mina += 1',
+  '      jump route',
+  '    "Ren, with the stage":',
+  '      set love_ren += 1',
+  '      jump route',
+  '',
+  'label route:',
+  '  if love_mina >= 2:',
+  '    jump mina_end',
+  '  elif love_ren >= 2:',
+  '    jump ren_end',
+  '  else:',
+  '    jump friends_end',
+  '',
+  '# "unlock" marks an ending in the Achievements screen (the flags are listed in game.json).',
+  'label mina_end:',
+  '  # "unlock" opens the gallery entry of the same name (game.json "gallery"); the CG is just a scene.',
+  '  unlock mina_end',
+  '  scene cg_mina_end fade 1',
+  '  mina: Stay a while after the festival?',
+  '  "Mina\'s ending."',
+  '  end',
+  '',
+  'label ren_end:',
+  '  unlock ren_end',
+  '  scene cg_ren_end fade 1',
+  '  ren: Meet me on the roof when it is over.',
+  '  "Ren\'s ending."',
+  '  end',
+  '',
+  'label friends_end:',
+  '  unlock friends_end',
+  '  scene cg_friends_end fade 1',
+  '  "The festival is a success, and you have friends on both sides."',
+  '  end',
+  '',
+];
+
+const MYSTERY_START = [
+  'define narrator "" text=#d8d2c0',
+  'define item key "Brass key" image=ui/key.png',
+  'define item letter "Torn letter" image=ui/letter.png',
+  '',
+  '# The inventory is a list; [bag] in text shows the item names.',
+  'set bag = []',
+  '',
+  '# A screen with clickable areas. Coordinates are stage pixels (1920 x 1080). The room picture is assets/ui/room.png, shown',
+  '# below as a scene picture (a placeholder: paint your own, and move the hotspots to match). A picture shown with "image show"',
+  '# stays up under the text when the screen closes; an "image" line inside a screen would vanish with it.',
+  'screen room:',
+  '  textbox off     # hide the last line while the room is up (leave it out for a screen that answers a question)',
+  '  text at 60,40 "You carry: [bag]"',
+  '  hotspot desk at 300,520 size 460,260 "The desk" hover tint rgba(255,220,120,.30)',
+  '  hotspot window ellipse at 1050,180 size 360,420 "The window" hover tint rgba(120,200,255,.30)',
+  '  hotspot door at 1480,380 size 320,580 "The locked door" hover tint rgba(200,255,160,.30)',
+  '  button bag at 60,960 "Bag"',
+  '',
+  '# A second screen: "each" draws one copy of its body per list entry, moved down by "step" each time.',
+  '# It takes a parameter, so one screen serves both the bag and "use an item on something": show screen inventory("Your bag").',
+  'screen inventory(title):',
+  '  text at 60,40 "[title]"',
+  '  each bag as it at 120,160 step 0,110:',
+  '    image "[it.image]" at 0,0 size 80,80',
+  '    button it at 100,0 size 540,80 "[it.name]"',
+  '  button back at 60,960 "Close"',
+  '  cancel',
+  '',
+  'label start:',
+  '  scene bg_title fade 0.5',
+  '  # "input" asks the player for text; [name] shows it afterwards.',
+  '  input name "What is your name?" default="Alex" max=16',
+  '  image show room ui/room.png at 0,0 layer=-1 fade 0.5',
+  '  "You wake in a study you do not remember entering, [name]. The door is locked."',
+  '  jump explore',
+  '',
+  'label explore:',
+  '  show screen room as spot',
+  '  if spot == "desk":',
+  '    jump desk',
+  '  elif spot == "window":',
+  '    jump window',
+  '  elif spot == "bag":',
+  '    jump bag_screen',
+  '  else:',
+  '    jump door',
+  '',
+  'label bag_screen:',
+  '  if count(bag) == 0:',
+  '    "Your pockets are empty."',
+  '    jump explore',
+  '  show screen inventory("Your bag") as chosen',
+  '  if chosen != "back" and chosen != "":',
+  '    "You turn it over. It may be useful."',
+  '  jump explore',
+  '',
+  'label desk:',
+  '  if contains(bag, "key"):',
+  '    "Nothing else of interest on the desk."',
+  '  else:',
+  '    "Under a pile of papers you find a brass key."',
+  '    set bag += "key"',
+  '  jump explore',
+  '',
+  'label window:',
+  '  if contains(bag, "letter"):',
+  '    "Rain streaks the glass. The garden below is empty."',
+  '  else:',
+  '    "A torn letter is wedged in the frame."',
+  '    set bag += "letter"',
+  '  jump explore',
+  '',
+  'label door:',
+  '  "The door is locked."',
+  '  if count(bag) == 0:',
+  '    jump explore',
+  '  # Use an item on the door: pick it from the same inventory screen, then branch on the item and the spot.',
+  '  show screen inventory("Use on the door") as chosen',
+  '  if chosen == "key":',
+  '    "The key turns. You step out into the corridor."',
+  '    end',
+  '  if chosen != "back" and chosen != "":',
+  '    "That does nothing here."',
+  '  jump explore',
+  '',
+];
+
+export const TEMPLATES: ProjectTemplate[] = [
+  {
+    id: 'blank',
+    title: 'Blank',
+    description: 'A title screen and one scene. Everything else is up to you.',
+    start: BLANK_START,
+  },
+  {
+    id: 'classic-adv',
+    title: 'Classic ADV',
+    description: 'A text box at the bottom, the speaker in focus, a quick menu, a choice that sets a variable and two endings.',
+    game: {
+      speakerFocus: true,
+      quickMenu: { items: ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'options'] },
+    },
+    assets: ['char/mina/neutral.png'],
+    start: ADV_START,
+  },
+  {
+    id: 'portrait',
+    title: 'Portrait (phone)',
+    description: 'A 1080 x 1920 stage with larger text and a short quick menu, for phones held upright.',
+    stage: { width: 1080, height: 1920 },
+    game: { quickMenu: { items: ['back', 'history', 'auto', 'skip', 'options'], position: 'bottom' } },
+    tokens: { uiSize: 56 },
+    components: { text: { size: 56, lines: 5 } },
+    start: PORTRAIT_START,
+  },
+  {
+    id: 'kinetic-nvl',
+    title: 'Kinetic novel (NVL)',
+    description: 'Full-screen pages of text, no choices, lines that go on by themselves, and a minimal title screen.',
+    game: {
+      titleScreen: { background: 'bg_title', music: '', buttons: ['new_game', 'continue', 'load', 'options'] },
+      quickMenu: { items: ['history', 'auto', 'skip', 'options'] },
+    },
+    start: NVL_START,
+  },
+  {
+    id: 'branching',
+    title: 'Branching story / dating sim',
+    description: 'Affection variables with a status HUD, chapters, endings as achievements and a persistent play counter.',
+    game: {
+      titleScreen: { background: 'bg_title', music: '', buttons: ['new_game', 'continue', 'load', 'chapters', 'gallery', 'achievements', 'options'] },
+      chapters: [{ label: 'start', title: 'Prologue' }, { label: 'chapter2', title: 'The festival' }],
+      gallery: [
+        { image: 'cg_mina_end', title: 'Mina\'s ending', unlock: 'mina_end' },
+        { image: 'cg_ren_end', title: 'Ren\'s ending', unlock: 'ren_end' },
+        { image: 'cg_friends_end', title: 'Good friends', unlock: 'friends_end' },
+      ],
+      achievements: [
+        { unlock: 'mina_end', title: 'Mina\'s ending', description: 'Grow close to Mina.', ending: true },
+        { unlock: 'ren_end', title: 'Ren\'s ending', description: 'Grow close to Ren.', ending: true },
+        { unlock: 'friends_end', title: 'Good friends', description: 'Stay friends with both.', ending: true },
+      ],
+    },
+    assets: ['char/mina/neutral.png', 'char/ren/neutral.png', 'bg/cg_mina_end.png', 'bg/cg_ren_end.png', 'bg/cg_friends_end.png'],
+    start: BRANCHING_START,
+  },
+  {
+    id: 'mystery',
+    title: 'Mystery / adventure',
+    description: 'A room to explore: clickable hotspots on a screen, an inventory list and a locked door.',
+    assets: ['ui/room.png', 'ui/key.png', 'ui/letter.png'],
+    start: MYSTERY_START,
+  },
+];
+
+/** The template with this id, or undefined. */
+export function templateById(id: string): ProjectTemplate | undefined {
+  return TEMPLATES.find(t => t.id === id);
+}
+
+/** A file a new project copies from the shared asset pool (templates/assets/): `from` is a path under the pool, `to` one in the project. */
+export interface TemplateAsset { from: string; to: string }
+
+/**
+ * The binary files a new project of this template needs: the title background (the portrait one on a portrait stage)
+ * and the template's own. The text files come from newProjectFiles; the caller copies these, since the engine has no
+ * file access.
+ */
+export function templateAssets(id: string = DEFAULT_TEMPLATE, stage?: StageSize): TemplateAsset[] {
+  const template = templateById(id);
+  if (!template) return [];
+  const size = stage ?? template.stage ?? DEFAULT_STAGE;
+  const title = size.height > size.width ? 'bg/bg_title_portrait.png' : 'bg/bg_title.png';
+  return [
+    { from: title, to: 'assets/bg/bg_title.png' },
+    ...(template.assets ?? []).map(from => ({ from, to: `assets/${from}` })),
+  ];
+}

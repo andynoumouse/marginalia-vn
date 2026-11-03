@@ -62,6 +62,10 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
             unlocked.add(b.name);
           } else if (b.op === 'screen') {
             assigned.add(b.as);
+            for (const e of b.args ?? []) {
+              exprs.push({ e, src: n.src });
+              if (usesRandom(e)) diag(n.src, 'error', 'random(), pick() and chance() cannot be used in a screen argument (set a variable first)');
+            }
           } else if (b.op === 'input') {
             assigned.add(b.name);
             registerString(n.src, b.id, b.prompt);
@@ -163,7 +167,8 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
         }
       };
       // the shell fills these in on the options and saves screens: they are not story variables
-      walk(sc.body, new Set(shellVars(sc.name)));
+      // (and its parameters, bound by `show screen name(...)`)
+      walk(sc.body, new Set([...shellVars(sc.name), ...(sc.params ?? [])]));
     }
   }
 
@@ -202,8 +207,13 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
       }
     } else if (op.op === 'hud' && !(op.name in screens)) {
       diagnostics.push(withFix(op.src, 'error', `Unknown screen "${op.name}"`, op.name, Object.keys(screens), ` (declare it with "screen ${op.name}:")`));
+    } else if (op.op === 'hud' && op.mode === 'on' && screens[op.name].params?.length) {
+      diag(op.src, 'error', `"${op.name}" takes parameters (${screens[op.name].params!.join(', ')}), and a HUD has no arguments to give them; show it with "show screen"`);
     } else if (op.op === 'screen' && !(op.name in screens)) {
       diagnostics.push(withFix(op.src, 'error', `Unknown screen "${op.name}"`, op.name, Object.keys(screens), ` (declare it with "screen ${op.name}:")`));
+    } else if (op.op === 'screen') {
+      const want = screens[op.name].params ?? [], got = op.args?.length ?? 0;
+      if (got !== want.length) diag(op.src, 'error', `Screen "${op.name}" takes ${want.length} argument${want.length === 1 ? '' : 's'}${want.length ? ` (${want.join(', ')})` : ''}, but show screen gives ${got}`);
     }
   }
 

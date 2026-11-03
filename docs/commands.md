@@ -541,6 +541,22 @@ and waits. The id of the element the player chose is stored in the variable (`sc
 menu answer, so save, load, rollback and Preview from cursor work. A screen never runs script code itself: the story
 branches on the answer with `if` / `jump`, and loops back to the screen if it wants more.
 
+A screen can take parameters, so one layout serves many rooms: `screen room(name, floor):` declares them and
+`show screen room("hall", 2) as spot` gives the values (expressions, one per parameter; a wrong count is an error). Inside
+the screen a parameter is an ordinary read-only name in texts (`"In the [name]"`) and in `if` / `enabled` conditions; it hides a
+story variable of the same name and is not a story variable itself. `random()`, `pick()` and `chance()` are not allowed
+in the arguments (set a variable first), and a screen with parameters cannot be a `hud on` HUD, which has no
+arguments to give.
+
+```
+screen room(name, exit):
+  text at 60,40 "[name]"
+  button go at 1600,900 "To the [exit]"
+label start:
+  show screen room("hall", "garden") as pick
+  show screen room("garden", "hall") as pick
+```
+
 Coordinates are **stage pixels**: 1920x1080 unless game.json `stage` sets another size (the examples assume the default), origin top left, y down. The screen scales with the window. Elements:
 
 ```
@@ -559,6 +575,12 @@ screen map:
   default cafe                                   # answer when a replay has none (else the first enabled element)
   cancel                                         # the cancel key (Backspace, pad B) answers ""
 ```
+
+While a blocking screen is up, the line that came before it stays in the text box: that suits a screen that answers a
+question ("Where to next?" then a map), and it is what a confirmation dialog built as a screen wants. A full-page screen
+such as a room usually does not want it: declare `textbox off` directly in the screen (like `default` and `cancel`) and the
+box is hidden while it is up; the next line shows it again. `textbox on` is the default. It has no effect on a `hud on`
+screen, which does not wait.
 
 `up <id>`, `down <id>`, `left <id>` and `right <id>` on a hotspot or button say where that arrow key goes instead of the nearest
 element (`button play at 100,100 "Play" down options`); when the target is disabled or hidden the nearest one is used.

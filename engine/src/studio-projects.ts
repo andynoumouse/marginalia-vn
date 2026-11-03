@@ -64,6 +64,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Screens have panel (a 9-slice framed container) and bar (a stat bar) elements.',
     'game.json "saveNames" lets the player name a save; history lines can roll the story back to them (action line).',
   ],
+  '0.5': [
+    'Screens take parameters (screen room(name, floor):, show screen room("hall", 2) as spot); F2 renames them inside the screen.',
+    'textbox off hides the text box while a blocking screen is up.',
+    'New projects start from a template (Blank, Classic ADV, Portrait, Kinetic/NVL, Branching, Mystery) with a shared asset pool.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

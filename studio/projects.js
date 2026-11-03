@@ -3,7 +3,7 @@
 
 const api = window.vnStudio.projects;
 const $ = id => document.getElementById(id);
-let defaults = { documents: '', git: false };
+let defaults = { documents: '', parent: '', git: false };
 
 const showError = text => { $('error').textContent = text || ''; };
 
@@ -110,7 +110,7 @@ let nameEdited = false;
 $('newProject').addEventListener('click', () => {
   $('newTitle').value = '';
   $('newName').value = '';
-  $('newParent').value ||= defaults.documents;
+  $('newParent').value ||= defaults.parent || defaults.documents;
   $('newError').textContent = '';
   nameEdited = false;
   $('newDialog').showModal();
@@ -119,9 +119,16 @@ $('newProject').addEventListener('click', () => {
 $('newTitle').addEventListener('input', () => { if (!nameEdited) $('newName').value = folderName($('newTitle').value); });
 $('newName').addEventListener('input', () => { nameEdited = $('newName').value !== ''; });
 $('newBrowse').addEventListener('click', async () => {
-  const folder = await api.pickFolder('Where to put the new project', $('newParent').value || defaults.documents);
+  const folder = await api.pickFolder('Where to put the new project', $('newParent').value || defaults.parent || defaults.documents);
   if (folder) $('newParent').value = folder;
 });
+const chosenTemplate = () => $('newTemplate').querySelector('input:checked')?.value;
+const templateNote = () => {
+  const t = defaults.templates.find(t => t.id === chosenTemplate());
+  const size = t?.stage && `${t.stage.width}x${t.stage.height}`;
+  if (size && [...$('newStage').options].some(o => o.value === size)) { $('newStage').value = size; $('newStage').dispatchEvent(new Event('change')); }
+};
+$('newTemplate').addEventListener('change', templateNote);
 $('newStage').addEventListener('change', () => {
   const custom = $('newStage').value === 'custom';
   $('newWidth').hidden = $('newHeight').hidden = !custom;
@@ -136,7 +143,7 @@ $('newForm').addEventListener('submit', async e => {
   try {
     const r = await opening(() => api.create({
       title: $('newTitle').value, parent: $('newParent').value, name: $('newName').value,
-      stage: { width, height }, git: $('newGit').checked,
+      stage: { width, height }, git: $('newGit').checked, template: chosenTemplate(),
     }));
     if (r?.error) { $('newError').textContent = r.error; showError(''); }
     else $('newDialog').close();
@@ -146,6 +153,15 @@ $('newForm').addEventListener('submit', async e => {
 (async () => {
   defaults = await api.defaults();
   $('version').textContent = `engine ${defaults.engineVersion}`;
+  for (const t of defaults.templates) {
+    const card = document.createElement('label');
+    const radio = Object.assign(document.createElement('input'), { type: 'radio', name: 'template', value: t.id, checked: t.id === defaults.defaultTemplate });
+    const title = Object.assign(document.createElement('strong'), { textContent: t.title });
+    const text = Object.assign(document.createElement('small'), { textContent: t.description });
+    card.append(radio, title, text);
+    $('newTemplate').append(card);
+  }
+  templateNote();
   $('newGit').disabled = !defaults.git;
   $('newGit').checked = defaults.git;
   $('gitNote').textContent = defaults.git

@@ -913,6 +913,8 @@ export abstract class StageRenderer implements Renderer {
     await this.ensure(view.parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : 'shape' in p && p.shape.k === 'mask' ? [key(p.shape.file)] : [])));
     if (ep !== this.epoch) return ''; // replaced while loading: the runtime has moved on and ignores this
     this.menuOpen = true;
+    // `textbox off` on the screen: the last line must not stay under it; the next line shows the box again. (An NVL page is not the box and stays.)
+    if (view.hideBox) { box.dataset.visible = 'false'; delete box.dataset.side; }
     const id = await this.screens.show(view, file => this.imageUrls.get(key(file)) ?? null);
     if (ep === this.epoch) this.menuOpen = false;
     return id;

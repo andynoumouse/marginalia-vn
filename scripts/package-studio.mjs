@@ -76,6 +76,7 @@ fromRoot('studio', rel => rel !== 'package.json');
 fromRoot('editor', noTs);
 fromRoot('preview', noTs);
 fromRoot('tools');
+fromRoot('templates');
 fromRoot('bin');
 fromRoot('docs', rel => rel !== 'design');
 fromRoot('games/demo', rel => !['build', 'node_modules', '.trash'].includes(rel));

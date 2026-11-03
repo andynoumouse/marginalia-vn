@@ -11,6 +11,7 @@ export * from './types.js';
 export * from './screens.js';
 export { DEFAULT_STAGE, MAX_STAGE_SIDE, MIN_STAGE_SIDE, fxUnit, stageLabel, stageProblem, stageSize, type StageSize } from './stage.js';
 export { newProjectFiles, PROJECT_FOLDERS, projectSlug, titleFromFolder, type NewProjectOptions, type ProjectKind } from './new-project.js';
+export { TEMPLATES, DEFAULT_TEMPLATE, templateById, templateAssets, type ProjectTemplate, type TemplateAsset } from './templates.js';
 export { parseFile, RE_SAY, RE_NARR, RE_OPT } from './parser.js';
 export { compile, type SourceFile } from './compile.js';
 export { BUILTIN_POSITIONS, namedPositions, positionProblem, type Position, type Positions } from './positions.js';

@@ -1,7 +1,7 @@
 // The online demo's project list (online/index.html): registers the service worker (online/sw.ts) that serves the projects, and
 // makes, imports, renames, duplicates and deletes projects in IndexedDB (online/store.ts). The editor opens at p/<id>/editor/.
 
-import { newProjectFiles, projectSlug, readZip, commonRoot } from '../engine/src/index.js';
+import { newProjectFiles, templateAssets, TEMPLATES, DEFAULT_TEMPLATE, projectSlug, readZip, commonRoot } from '../engine/src/index.js';
 import { listProjects, putProject, deleteProject, freeId, projectStore, writeFiles, type ProjectMeta } from './store.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -56,10 +56,16 @@ async function newFromSample() {
 }
 
 async function newEmpty() {
-  const title = window.prompt('Title of the new game:', 'My Visual Novel')?.trim();
-  if (!title) return;
+  const title = $<HTMLInputElement>('title').value.trim();
+  if (!title) { $('error').textContent = 'Give the new game a title first.'; return; }
   const s = await loadSeed();
-  const files = Object.entries(newProjectFiles({ title, engineVersion: s.engine, kind: 'studio' })).map(([p, t]) => file(p, t));
+  const template = document.querySelector<HTMLInputElement>('#template input:checked')?.value;
+  const files = Object.entries(newProjectFiles({ title, engineVersion: s.engine, kind: 'studio', template })).map(([p, t]) => file(p, t));
+  for (const { from, to } of templateAssets(template)) {
+    const r = await fetch(`templates/assets/${from.split('/').map(encodeURIComponent).join('/')}`);
+    if (!r.ok) throw new Error(`could not load the template asset ${from}`);
+    files.push({ path: to, bytes: new Uint8Array(await r.arrayBuffer()) });
+  }
   await create(title, files);
 }
 
@@ -143,6 +149,14 @@ async function main() {
   if (!(await startWorker())) { for (const b of document.querySelectorAll<HTMLButtonElement>('#actions button')) b.disabled = true; return; }
   void navigator.storage?.persist?.().catch(() => false);
   void loadSeed().then(s => { $('version').textContent = `engine ${s.engine}`; }, () => {});
+  for (const t of TEMPLATES) {
+    const radio = Object.assign(document.createElement('input'), { type: 'radio', name: 'template', value: t.id, checked: t.id === DEFAULT_TEMPLATE });
+    const title = Object.assign(document.createElement('strong'), { textContent: t.title });
+    const text = Object.assign(document.createElement('small'), { textContent: t.description });
+    const card = document.createElement('label');
+    card.append(radio, title, text);
+    $('template').append(card);
+  }
   $('newSample').addEventListener('click', () => void busy(newFromSample));
   $('newEmpty').addEventListener('click', () => void busy(newEmpty));
   const input = $<HTMLInputElement>('importFile');

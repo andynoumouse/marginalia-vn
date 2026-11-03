@@ -121,7 +121,21 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
     if ((r = /^\s*(?:if|elif)\s+/.exec(m))) { exprRefs(raw, r[0].length, end, add); return; }
     if ((r = new RegExp(`^\\s*call\\s+${ID}\\s*\\(`).exec(m))) { exprRefs(raw, r[0].length, end, add); return; }
     if ((r = new RegExp(`^(\\s*input\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); strings(); return; }
-    if ((r = new RegExp(`^(\\s*show\\s+screen\\s+${ID}\\s+as\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); return; }
+    if ((r = new RegExp(`^(\\s*show\\s+screen\\s+${ID})(?:(\\s*\\()(.*)\\))?(?:(\\s+as\\s+)(${ID}))?`).exec(m.slice(0, end)))) {
+      let at = r[1].length;
+      if (r[3] !== undefined) { // the arguments
+        exprRefs(raw, at + r[2].length, at + r[2].length + r[3].length, add);
+        at += r[2].length + r[3].length + 1;
+      }
+      if (r[5]) add(at + r[4].length, r[5], false);
+      return;
+    }
+    if ((r = new RegExp(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter is local to its screen, like a label's
+      const ps = new RegExp(ID, 'g');
+      for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index, p[0], false, 'param');
+      screenIndent = indent;
+      return;
+    }
     if (/^\s*screen\s/.test(m)) { screenIndent = indent; return; }
     if (/^\s*menu\b/.test(m)) {
       const t = /\stimeout\s+/.exec(m);

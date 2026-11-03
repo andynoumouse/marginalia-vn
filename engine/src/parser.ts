@@ -25,7 +25,8 @@ const RESERVED_WORDS = ['true', 'false', 'and', 'or', 'not'];
 // `menu ["Prompt" [#id]] [timeout <seconds>]:`
 export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?(?:[ \t]+style=(\w+))?(?:[ \t]+timeout[ \t]+(.+?))?[ \t]*:$/;
 const RE_ON_TIMEOUT = /^on[ \t]+timeout[ \t]*:$/;
-const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:?$/;
+const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:?$/;
+const RE_SHOW_SCREEN = /^show[ \t]+screen[ \t]+([A-Za-z_]\w*)[ \t]*(?:\((.*)\))?(?:[ \t]+as[ \t]+([A-Za-z_]\w*))?[ \t]*(?:#.*)?$/;
 export const RE_DEFINE_ITEM = /^define[ \t]+item[ \t]+[A-Za-z_]\w*(?=[ \t]|$)/;
 const RE_IF = /^if[ \t]+(.+?)[ \t]*:$/;
 const RE_ELIF = /^elif[ \t]+(.+?)[ \t]*:$/;
@@ -128,9 +129,11 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     }
     case 'show': {
       if (a[0] === 'screen') {
-        const word = /^[A-Za-z_]\w*$/;
-        if (!word.test(a[1] ?? '') || (a.length > 2 && (a[2] !== 'as' || !word.test(a[3] ?? '') || a.length > 4))) throw new ParseError('Use: show screen <name> [as <variable>]');
-        return { op: 'screen', name: a[1], as: a[3] ?? 'screen' };
+        const m = RE_SHOW_SCREEN.exec(text.trim());
+        if (!m) throw new ParseError('Use: show screen <name> [(arguments)] [as <variable>]');
+        let args: Expr[] = [];
+        try { args = parseExprList(m[2] ?? ''); } catch (e) { throw new ParseError(e instanceof ExprError ? e.message : String(e)); }
+        return { op: 'screen', name: m[1], as: m[3] ?? 'screen', ...(args.length ? { args } : {}) };
       }
       const char = need(0, 'a character');
       let pose: string | null = null, x: number | null = null, fade = 0;
@@ -484,6 +487,13 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
           else def.default = l.text.split(/\s+/)[1];
           continue;
         }
+        if (word === 'textbox') {
+          if (inEach || inLayout) throw new ElementSyntaxError('"textbox" belongs directly in the screen, not inside each, row, column or grid');
+          const m = /^textbox[ \t]+(on|off)[ \t]*(?:#.*)?$/.exec(l.text);
+          if (!m) throw new ElementSyntaxError('Use: textbox off  (hide the text box while the screen is up) or textbox on (the default)');
+          if (m[1] === 'off') def.hideBox = true; else delete def.hideBox;
+          continue;
+        }
         if (word === 'each') {
           const h = parseEachHeader(l.text.replace(/[ \t]*:$/, ''));
           if (!h) continue;
@@ -531,8 +541,13 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     return nodes;
   }
 
-  function parseScreen(ln: RawLine, name: string): ScreenDef {
-    const def: ScreenDef = { name, src: src(ln), body: [], default: null, cancel: false };
+  function parseScreen(ln: RawLine, name: string, paramText: string | undefined): ScreenDef {
+    const params = (paramText ?? '').split(',').map(s => s.trim()).filter((s, idx, all) => s !== '' || all.length > 1);
+    for (const [idx, p] of params.entries()) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p) || RESERVED_WORDS.includes(p)) err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
+      else if (params.indexOf(p) !== idx) err(ln, `Parameter "${p}" is listed twice`);
+    }
+    const def: ScreenDef = { name, src: src(ln), body: [], default: null, cancel: false, ...(params.length ? { params } : {}) };
     def.body = parseScreenBody(ln, def, false);
     return def;
   }
@@ -623,7 +638,7 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     }
     if ((m = RE_SCREEN.exec(t))) {
       if (depth > 0) err(ln, 'Screens must be at the top level');
-      screens.push(parseScreen(ln, m[1]));
+      screens.push(parseScreen(ln, m[1], m[2]));
       return null;
     }
     if (RE_DEFINE_ITEM.test(t)) {

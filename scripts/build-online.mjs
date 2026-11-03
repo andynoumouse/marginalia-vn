@@ -6,6 +6,7 @@
 //   dist/                    the compiled engine, editor, preview and online code
 //   editor/, preview/, docs/ the pages and the help the editor reads
 //   vendor/                  Monaco, PixiJS and ag-psd (the PSD converter) from node_modules
+//   templates/assets/        the shared asset pool: the placeholder art and audio a new project copies
 //   seed/                    the sample game (its files in git), copied into a new project by "New from the sample game"
 
 import fs from 'node:fs';
@@ -40,6 +41,7 @@ copy('editor/help.html');
 copy('editor/help.css');
 copy('preview/index.html');
 for (const f of fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md'))) copy(`docs/${f}`);
+copy('templates/assets');
 copy('node_modules/monaco-editor/min', 'vendor/monaco');
 copy('node_modules/pixi.js/dist/pixi.min.mjs', 'vendor/pixi/pixi.min.mjs');
 copy('node_modules/ag-psd/dist/bundle.js', 'vendor/ag-psd/bundle.js');

@@ -80,6 +80,9 @@ npm run dev          # same editor and preview, on this project
 ```
 
 `--stage 1080x1920` starts a project with another stage size (portrait here; the default is 1920x1080).
+`--template classic-adv` (or `blank`, the default, `portrait`, `kinetic-nvl`, `branching` or `mystery`) starts from a template with the game.json options and first script
+of that style; Marginalia Studio's New project dialog has the same list. See [docs/tutorial/05-templates.md](docs/tutorial/05-templates.md)
+for what each one brings.
 The game folder holds only content: `game.json`, `script/`, `locale/`, `assets/`, `masters/` (Git LFS) and
 `build/` (ignored). Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which
 runs the engine's tools on the current folder. Because the dependency is a link, not a copy, engine changes
@@ -150,7 +153,7 @@ label start:                            # entry point is "start" (or the first l
   column at 80,200 gap 20: / row anchor topright: / grid 3:   # inside a screen: place buttons without pixel maths
   panel at 560,200 padding 48 image "ui/frame.png" slice 40:   # a 9-slice framed box; its children sit inside it (no size: it fits them)
   bar hp max 100 at 80,90 size 480,44 back "ui/back.png" fill "ui/fill.png" readout   # a stat bar that follows a variable
-  show screen map as place              # waits; the chosen element's id is stored in [place]
+  show screen map as place              # waits; the chosen element's id is stored in [place] (screens take parameters: show screen room("hall") as place)
   screen options:  /  slider master at 700,300  /  button text_sounds at 700,400 "Sounds: [text_sounds]" action cycle   # replaces the stock options (also `screen title`, `pause`, `quickmenu`); `action tab` switches the variable `tab`
   hud on status  /  hud off status      # a screen that stays up while the story runs; its `on click label` elements call that label; `hover "img.png"` on a hotspot swaps in art while it is hovered
   define item key "Brass key"           # name for list entries (set bag += "key")
@@ -395,7 +398,7 @@ The rig.json tab (see Art pipeline) completes part, slot and variant names for t
 warnings, and saves like game.json. **Character: Update Rig from Reconverted Art** adds parts that are new in the
 art to `order` and reports ones that are gone. `show alice ` completes rig.json shorthands and `slot=` names.
 
-**F2** on a label name (its `label` line, a `jump`/`call`, an `on click|focus|blur`, or `intro`/`chapters` in game.json) renames the label and every reference to it in all scripts and game.json at once; a name that is invalid or already taken is refused. F2 on a variable name does the same for a story variable (`set`, conditions, `call` arguments, `[name]` in text, `input`, `show screen ... as`), and for `persistent.<name>`; a label parameter or a screen `each ... as` name is renamed only inside its label or loop, and a reserved word, a name the game fills in, or one that would merge with another variable is refused (translations in locale/*.json keep the old `[name]` until you re-export or edit them). **Ctrl+Shift+F** (Find and Replace in All Files) opens a panel that searches every script and game.json (match case, whole word, regexp with `$1` in the replacement), lists the hits (click one to go there) and replaces them all. The logic is in engine/src/refactor.ts and engine/src/var-refactor.ts.
+**F2** on a label name (its `label` line, a `jump`/`call`, an `on click|focus|blur`, or `intro`/`chapters` in game.json) renames the label and every reference to it in all scripts and game.json at once; a name that is invalid or already taken is refused. F2 on a variable name does the same for a story variable (`set`, conditions, `call` arguments, `[name]` in text, `input`, `show screen ... as`), and for `persistent.<name>`; a label parameter, a screen parameter or a screen `each ... as` name is renamed only inside its label, screen or loop, and a reserved word, a name the game fills in, or one that would merge with another variable is refused (translations in locale/*.json keep the old `[name]` until you re-export or edit them). **Ctrl+Shift+F** (Find and Replace in All Files) opens a panel that searches every script and game.json (match case, whole word, regexp with `$1` in the replacement), lists the hits (click one to go there) and replaces them all. The logic is in engine/src/refactor.ts and engine/src/var-refactor.ts.
 
 Hex colors show a swatch in the editor, and clicking it opens a color picker that rewrites the value (`#rrggbb`, or `#rrggbbaa` when not opaque). In scripts that covers colors after `=` (`color=`, `text=`, `{color=#...}`) and after `tint` / `flash`; in game.json any quoted hex string (the `theme`). Named colors and `rgba(...)` get no swatch. The logic is in engine/src/colors.ts.
 

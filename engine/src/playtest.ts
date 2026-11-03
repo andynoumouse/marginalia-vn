@@ -10,7 +10,7 @@
 
 import { arith, collectVars, evalExpr, usesRandom, type Expr, type Value } from './expr.js';
 import { randomStep, type Rng } from './random.js';
-import { blocks, enabledItems, hudLabels, resolveScreen, shellEntryFields, shellVars, type ScreenNode, type ScreenView } from './screens.js';
+import { blocks, enabledItems, hudLabels, resolveScreen, screenParams, shellEntryFields, shellVars, type ScreenNode, type ScreenView } from './screens.js';
 import { interpolate } from './text.js';
 import { assetContext, bgKey, imageKey, opAssets, screenAssets, type AssetIndex } from './assets.js';
 import type { Diagnostic, Op, Program, Src, Vars } from './types.js';
@@ -94,7 +94,7 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
     switch (op.op) {
       case 'say': text(op.text, op.src); break;
       case 'input': write(op.name, op.src); text(op.prompt, op.src); break;
-      case 'screen': write(op.as, op.src); break;
+      case 'screen': write(op.as, op.src); for (const a of op.args ?? []) expr(a, op.src); break;
       case 'set': write(op.name, op.src); expr(op.expr, op.src); break;
       case 'call': // the arguments are read at the call, the parameters are written by it
         for (const a of op.args ?? []) expr(a, op.src);
@@ -126,7 +126,7 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
   for (const def of Object.values(program.screens ?? {})) {
     // the shell fills these in on the options and saves screens: they are not story variables
     screen = def.name;
-    walk(def.body, new Set(shellVars(def.name)));
+    walk(def.body, new Set([...shellVars(def.name), ...(def.params ?? [])]));
   }
   return { reads, exprReads, writes, unlocks };
 }
@@ -381,7 +381,8 @@ class Bot {
           return { kind: 'choice', at: here, key: this.key(s), choices };
         }
         case 'screen': {
-          const view = this.view(op.name, this.scope(s, base));
+          const scope = this.scope(s, base);
+          const view = this.view(op.name, { ...scope, ...screenParams(this.program.screens[op.name], op.args, scope) });
           if (!blocks(view)) { s.vars[op.as] = ''; s.pc++; break; }
           const items = enabledItems(view).filter(p => !p.act);
           const choices: Choice[] = items.map(p => ({ label: `${op.name}: ${p.id}`, apply: t => { t.vars[op.as] = p.id; t.pc = here + 1; } }));

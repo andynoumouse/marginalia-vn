@@ -11,7 +11,7 @@
 //   scroll at x,y size w,h [start top|bottom] [bar off] [if <expr>]:      (a clipped box that scrolls its children, placed relative to its top left)
 //   row|column|grid <columns> [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end] [cell w,h] [if <expr>]:
 //        (children of a row, column or grid omit `at`; a hotspot there is `rect`/`ellipse` with `size`, an image needs `size`)
-//   default <id>   cancel
+//   default <id>   cancel   textbox off
 
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import { CYCLE_SETTINGS, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';

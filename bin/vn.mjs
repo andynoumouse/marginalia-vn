@@ -10,7 +10,7 @@
 //   vn voice [accept <name>...|all]  report voice recordings made for lines that were reworded since
 //   vn playtest [--strict] [--json]  play every route; report unreachable lines, endings, unused assets and variables
 //   vn stats [--json] [--wpm <n>]    words, lines and reading time per script, label and character
-//   vn init <folder> [--title "My Game"] [--stage 1920x1080]   start a new game project that uses this engine
+//   vn init <folder> [--title "My Game"] [--stage 1920x1080] [--template blank]   start a new game project that uses this engine
 //   vn version
 // Inside the engine repo (no project in the current folder) the commands work on games/sample/.
 
@@ -19,6 +19,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { checkEngineVersion, engineRoot, engineVersion, findProject } from '../tools/paths.mjs';
+import { copyTemplateAssets } from '../tools/template-assets.mjs';
 
 const TOOLS = {
   dev: ['preview/dev-server.mjs'],
@@ -47,8 +48,8 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
 } else if (cmd === 'version' || cmd === '--version') {
   console.log(`marginalia-vn ${engineVersion} (${engineRoot})`);
 } else if (cmd === 'init') {
-  const title = flag('--title'), stage = flag('--stage');
-  await init(argv[1], title, stage);
+  const title = flag('--title'), stage = flag('--stage'), template = flag('--template');
+  await init(argv[1], title, stage, template);
 } else if (TOOLS[cmd]) {
   const projectArg = flag('--project');
   const project = findProject(projectArg ?? process.cwd());
@@ -69,28 +70,29 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
 }
 
 // ---- vn init ----
-async function init(dir, title, stage) {
-  if (!dir) { console.error('Use: vn init <folder> [--title "My Game"] [--stage 1920x1080]'); process.exit(1); }
+async function init(dir, title, stage, template) {
+  if (!dir) { console.error('Use: vn init <folder> [--title "My Game"] [--stage 1920x1080] [--template blank]'); process.exit(1); }
   const target = path.resolve(dir);
   if (fs.existsSync(target) && fs.readdirSync(target).length) {
     console.error(`${target} is not empty; vn init only creates new projects.`);
     process.exit(1);
   }
-  const { newProjectFiles, titleFromFolder } = await import(pathToFileURL(path.join(engineRoot, 'dist', 'engine', 'src', 'new-project.js')).href);
+  const { newProjectFiles, templateAssets, titleFromFolder } = await import(pathToFileURL(path.join(engineRoot, 'dist', 'engine', 'src', 'index.js')).href);
   const name = title ?? titleFromFolder(path.basename(target));
   const [width, height] = (stage ?? '').split('x').map(Number);
   let files;
   try {
     files = newProjectFiles({
-      title: name, engineVersion, kind: 'npm', stage: stage ? { width, height } : undefined,
+      title: name, engineVersion, kind: 'npm', stage: stage ? { width, height } : undefined, template,
       engineRef: path.relative(target, engineRoot).split(path.sep).join('/') || '.', engineRoot,
     });
-  } catch (e) { console.error(`${e.message} (--stage 1080x1920, for example).`); process.exit(1); }
+  } catch (e) { console.error(/stage/.test(e.message) ? `${e.message} (--stage 1080x1920, for example).` : e.message); process.exit(1); }
   for (const [rel, text] of Object.entries(files)) {
     const file = path.join(target, rel);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, text);
   }
+  copyTemplateAssets(templateAssets(template, stage ? { width, height } : undefined), target);
   console.log(`Created ${name} in ${target}`);
   console.log(`Next: cd "${target}" && npm install && npm run dev`);
 }

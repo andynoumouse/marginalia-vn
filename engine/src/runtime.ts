@@ -1,6 +1,6 @@
 import { arith, evalExpr, type Value } from './expr.js';
 import { Locale } from './locale.js';
-import { blocks, pickables, replayAnswer, firstTab, ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
+import { blocks, pickables, replayAnswer, firstTab, ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, screenParams, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
 import { newSeed, randomStep, type Rng } from './random.js';
 import { interpolate, parseRich } from './text.js';
 import type { Answer, DisplayState, MenuOption, Op, Program, Renderer, SayEvent, Src, VisualOp, Vars } from './types.js';
@@ -479,7 +479,9 @@ export class Runtime {
   }
 
   /** What the screen of a `show screen` op looks like with the variables as they are now. */
-  private screenView(op: Extract<Op, { op: 'screen' }>): ScreenView { return this.viewOf(op.name); }
+  private screenView(op: Extract<Op, { op: 'screen' }>): ScreenView {
+    return this.viewOf(op.name, screenParams(this.program.screens[op.name], op.args, this.scope()));
+  }
 
   private viewOf(name: string, extra: Vars = {}, entries?: ScreenEnv['entries']): ScreenView {
     const def = this.program.screens[name];

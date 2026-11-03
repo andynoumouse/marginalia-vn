@@ -85,7 +85,7 @@ export type VisualBody =
 export type ControlBody =
   | { op: 'say'; who: string | null; text: string; id: string | null; /** `style=<name>` on the line: a theme style for it alone */ look?: string }
   | { op: 'menu'; prompt: string | null; promptId: string | null; look?: string; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: number }
-  | { op: 'screen'; name: string; as: string } // show a declared screen and store the id of the element the player chose
+  | { op: 'screen'; name: string; as: string; /** values for the screen's parameters, evaluated each time the screen is drawn */ args?: Expr[] } // show a declared screen and store the id of the element the player chose
   | { op: 'input'; name: string; prompt: string; id: string | null; default: string; max: number } // ask the player for text, stored in a variable
   | { op: 'set'; name: string /* or persistent.<name> */; assign: '=' | '+=' | '-=' | '*=' | '/='; expr: Expr }
   | { op: 'jump'; label: string; target: number }

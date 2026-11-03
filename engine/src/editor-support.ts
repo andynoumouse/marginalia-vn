@@ -31,7 +31,7 @@ const COMMANDS: [string, string][] = [
   ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
    ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
-  ['screen', 'screen name:  (a page of hotspots and buttons; show it with show screen name)'],
+  ['screen', 'screen name:  or  screen name(a, b):  (a page of hotspots and buttons; show it with show screen name or name(1, 2))'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ];
 // Text tags, offered right after a "{" (which is not part of the typed word, so labels leave it out).
@@ -59,7 +59,7 @@ const SCREEN_ELEMENTS: [string, string][] = [
   ['scroll', 'scroll at x,y size w,h [start top|bottom] [bar off]:  (a box that scrolls its children; they are placed from its top left)'],
   ['panel', 'panel [at x,y] [size w,h] [image "frame.png" slice 32] [padding p]:  (a framed box; its children are placed from its top left plus the padding)'],
   ['bar', 'bar <variable> [max n] at x,y [size w,h] [back "file.png"] [fill "file.png"] [slice s] [color c] [readout]'],
-  ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel  (the cancel key answers "")'],
+  ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel  (the cancel key answers "")'], ['textbox', 'textbox off  (hide the text box while the screen is up)'],
 ];
 const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (n.kind === 'hotspot' || n.kind === 'button' ? [n.id] : childNodes(n).length ? elementIds(childNodes(n)) : []));
 const DIRECTIONS = ['left', 'right', 'up', 'down'];
@@ -119,7 +119,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
 
   switch (cmd) {
     case 'show': {
-      if (arg === 0) return [...characters, { label: 'screen', kind: 'keyword' as const, detail: 'show screen <name> [as <variable>]' }];
+      if (arg === 0) return [...characters, { label: 'screen', kind: 'keyword' as const, detail: 'show screen <name> [(arguments)] [as <variable>]' }];
       if (prev[1] === 'screen') return arg === 1 ? Object.keys(program.screens ?? {}).map(label => ({ label, kind: 'keyword' as const, detail: 'screen' })) : arg === 2 ? kw(['as']) : [];
       if (last === 'at') return kw(Object.keys(program.positions));
       if (last === 'fade') return [];

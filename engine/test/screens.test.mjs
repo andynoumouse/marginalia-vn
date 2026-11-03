@@ -743,3 +743,60 @@ label start:
   assert.equal(v.parts[0].focus.right, 'b');
   assert.deepEqual(v.parts.map(x => x.bounds.y), [976, 976]); // bottom: 1080 - 20 - 84
 });
+
+test('a screen with parameters: one layout, bound per show screen, checked at compile time', async () => {
+  const p = build(`
+screen room(name, locked):
+  text at 0,0 "In the [name]"
+  button exit at 5,5 "Leave" if not locked
+  button knock at 5,50 "Knock" if locked
+label start:
+  show screen room("hall", false) as a
+  "a [a]"
+  set n = 1
+  show screen room("attic", n > 0) as b
+  "b [b]"
+  end
+`);
+  assert.equal(p.diagnostics.filter(d => d.severity === 'error').length, 0);
+  const r = new NullRenderer();
+  const seq = ['exit', 'knock'];
+  r.picker = () => seq.shift();
+  r.screen = async v => { r.screens.push(v); return r.picker(v); };
+  const rt = new Runtime(p, r);
+  await rt.start();
+  assert.deepEqual(r.says.map(s => s.text), ['a exit', 'b knock']);
+  assert.deepEqual(r.screens[0].parts.map(x => x.id).filter(Boolean), ['exit']);
+  assert.deepEqual(r.screens[1].parts.map(x => x.id).filter(Boolean), ['knock']);
+  assert.ok(r.screens[0].parts.some(x => x.text === 'In the hall'));
+  assert.ok(r.screens[1].parts.some(x => x.text === 'In the attic'));
+  assert.equal(rt.vars.name, undefined, 'a parameter is not a story variable');
+
+  const errs = src => build(src).diagnostics.filter(d => d.severity === 'error').map(d => d.message);
+  assert.match(errs('screen s(a, b):\n  button x at 0,0 "x"\nlabel start:\n  show screen s(1) as c\n').join(), /takes 2 arguments \(a, b\), but show screen gives 1/);
+  assert.match(errs('screen s:\n  button x at 0,0 "x"\nlabel start:\n  show screen s(1) as c\n').join(), /takes 0 arguments/);
+  assert.match(errs('screen s(a):\n  button x at 0,0 "x"\nlabel start:\n  hud on s\n').join(), /takes parameters/);
+  assert.match(errs('screen s(a):\n  button x at 0,0 "x"\nlabel start:\n  show screen s(random(1, 3)) as c\n').join(), /cannot be used in a screen argument/);
+});
+
+test('textbox off marks the screen view so the shell hides the text box; the default keeps it', async () => {
+  const p = build(`
+screen room:
+  textbox off
+  button go at 0,0 "Go"
+screen ask:
+  button yes at 0,0 "Yes"
+label start:
+  "Where to?"
+  show screen room as a
+  show screen ask as b
+  end
+`);
+  assert.equal(p.diagnostics.filter(d => d.severity === 'error').length, 0);
+  const r = new NullRenderer();
+  r.screen = async v => { r.screens.push(v); return v.parts.find(x => x.id)?.id ?? ''; };
+  await new Runtime(p, r).start();
+  assert.equal(r.screens[0].hideBox, true);
+  assert.equal(r.screens[1].hideBox, undefined);
+  assert.match(build('screen s:\n  textbox maybe\n  button x at 0,0 "x"\n').diagnostics.map(d => d.message).join(), /Use: textbox off/);
+});

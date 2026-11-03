@@ -23,6 +23,9 @@ errors is not saved. Pixel values are on the stage, 1920x1080 unless `stage` say
 }
 ```
 
+A new project can start from a template that sets several of these options at once (`stage`, `titleScreen`, `quickMenu`,
+`chapters`, `achievements`, `theme` and so on); see [the template page](tutorial/05-templates.md).
+
 ## Stage size
 
 One size per project: `"stage": { "width": 1080, "height": 1920 }`. Both are whole pixels from 64 to 8192; a missing or invalid

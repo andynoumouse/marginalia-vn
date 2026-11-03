@@ -317,14 +317,19 @@ test('New Project without git on PATH: the option is off, the project has no npm
     assert.equal(await win.inputValue('#newParent'), parent);
     await win.fill('#newTitle', 'Night: Train?');
     assert.equal(await win.inputValue('#newName'), 'Night Train');
+    assert.equal(await win.locator('#newTemplate input:checked').getAttribute('value'), 'blank', 'the default card is checked');
+    await win.click('#newTemplate label:has(input[value="branching"])');
     await win.selectOption('#newStage', '1080x1920');
     await win.click('#newCreate');
     await editorReady(win);
     const folder = path.join(parent, 'Night Train');
     const game = JSON.parse(fs.readFileSync(path.join(folder, 'game.json'), 'utf8'));
     assert.deepEqual([game.title, game.id, game.engine, game.stage], ['Night: Train?', 'night-train', engineMinor, { width: 1080, height: 1920 }]);
+    assert.equal(game.achievements.length, 3, 'the chosen card is the template');
+    assert.ok(fs.existsSync(path.join(folder, 'assets', 'char', 'ren', 'neutral.png')), 'its sprites come from the pool');
     assert.ok(!fs.existsSync(path.join(folder, 'package.json')));
     assert.ok(!fs.existsSync(path.join(folder, '.git')));
+    assert.ok(fs.statSync(path.join(folder, 'assets', 'bg', 'bg_title.png')).size > 1000, 'the template copies the title background from the pool');
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), 'Night: Train? - Marginalia Studio');
 
     await clickSwitchProject(app);
@@ -332,6 +337,8 @@ test('New Project without git on PATH: the option is off, the project has no npm
     await screenReady(win);
     // A second project in the same folder is refused.
     await win.click('#newProject');
+    assert.equal(await win.inputValue('#newParent'), parent, 'New project starts from the folder of the last one');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(s.userData, 'settings.json'), 'utf8')).lastParent, parent);
     await win.fill('#newParent', parent);
     await win.fill('#newTitle', 'Night Train');
     await win.click('#newCreate');
