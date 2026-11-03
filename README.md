@@ -1,4 +1,4 @@
-# Marginalia VN Engine (v0.2)
+# Marginalia VN Engine (v0.3)
 
 - These couple of paragraphs are the only content I type manually in to this project:
 - This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
@@ -8,6 +8,9 @@
 TypeScript visual novel engine with its own script language, an editor with a hot-reloading live preview,
 localization, a PSD art pipeline and a web export. The engine core has no dependencies; the preview uses
 PixiJS, the editor Monaco and the art pipeline ag-psd (dev dependencies, no bundler).
+
+**Try it in the browser:** [andynoumouse.github.io/marginalia-vn](https://andynoumouse.github.io/marginalia-vn/)
+(the editor and the sample game, nothing to install; see [Online demo](#online-demo-in-the-browser)).
 
 ![The editor: the script on the left, the running game on the right](docs/tutorial/img/editor-hub.png)
 
@@ -61,6 +64,7 @@ with the game inside, the exe named after the game, and a zip to share (about 14
 
 ## Online demo (in the browser)
 
+[andynoumouse.github.io/marginalia-vn](https://andynoumouse.github.io/marginalia-vn/), rebuilt with each release.
 The editor as a static website that keeps its projects in the browser: a project list (the sample game, a blank
 project, a `.zip` import), the full editor and live preview, PSD conversion on drop, and a zip download that opens in
 Marginalia Studio. git, the file manager and Build/Export need the desktop tools. `npm run build:online` writes it
