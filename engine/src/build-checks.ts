@@ -3,13 +3,14 @@ import type { StringTable } from './locale.js';
 import { assignIds, existingIds } from './ids.js';
 import { outdatedIds, translationStatus, type SourceSnapshot, type StringRow } from './translation.js';
 import { declaredVoiceLanguages, splitVoiceName, voiceRows, type BuildLanguages, type VoiceLock } from './voice.js';
+import type { PlaytestReport } from './playtest.js';
 
 /**
  * The checks run before a build, as rows the editor's Build dialog and `vn export` both report. Pure: the caller gathers the
  * project (diagnostics, strings, locale tables, recordings) and decides what to do with the findings.
  */
 
-export type CheckId = 'script' | 'script-warnings' | 'ids' | 'untranslated' | 'translation-outdated' | 'voice-outdated' | 'voice-missing' | 'unused-locale' | 'unmatched-voice';
+export type CheckId = 'script' | 'script-warnings' | 'ids' | 'untranslated' | 'translation-outdated' | 'voice-outdated' | 'voice-missing' | 'unused-locale' | 'unmatched-voice' | 'playtest';
 export type CheckLevel = 'error' | 'warning' | 'info';
 
 /** What each check counts as unless game.json `build.checks` says otherwise. */
@@ -23,6 +24,7 @@ export const DEFAULT_LEVELS: Record<CheckId, CheckLevel> = {
   'voice-missing': 'info',
   'unused-locale': 'info',
   'unmatched-voice': 'info',
+  playtest: 'info',
 };
 
 export const CHECK_TITLES: Record<CheckId, string> = {
@@ -35,6 +37,7 @@ export const CHECK_TITLES: Record<CheckId, string> = {
   'voice-missing': 'Lines without a recording',
   'unused-locale': 'Unused locale entries',
   'unmatched-voice': 'Recordings that match no line',
+  playtest: 'Playtest bot',
 };
 
 export type CheckSettings = Partial<Record<CheckId, CheckLevel | 'off'>>;
@@ -87,6 +90,8 @@ export interface BuildCheckInput {
   game?: unknown;
   /** The languages this build ships; the ones left out are not checked. Missing = all. */
   include?: BuildLanguages;
+  /** The playtest bot's report. Missing = the check is not run (the bot is slow on a big game, so the caller plays it only when the check is on). */
+  playtest?: PlaytestReport;
 }
 
 export interface BuildReport {
@@ -153,6 +158,25 @@ export function buildChecks(input: BuildCheckInput): BuildReport {
     if (missing.length) add('voice-missing', { lang: label(lang), message: `${label(lang)}: ${missing.length} of ${table.total} spoken lines have no recording (${some(missing.map(r => r.row.id))})`, count: missing.length, ...where(missing[0].row.id) });
   }
   if (strays.length) add('unmatched-voice', { message: `${plural(strays.length, 'recording')} in assets/voice match no line (${strays.slice(0, EXAMPLES).join(', ')}${strays.length > EXAMPLES ? ', ...' : ''})`, count: strays.length });
+
+  if (input.playtest) {
+    const p = input.playtest;
+    const hedge = p.complete ? '' : ' (the bot ran out of budget, so this may be wrong)';
+    const at = (s: { file: string; line: number }) => ({ file: s.file, line: s.line });
+    const names = (list: string[]) => `${list.slice(0, EXAMPLES).join(', ')}${list.length > EXAMPLES ? `, and ${list.length - EXAMPLES} more` : ''}`;
+    if (p.unreachableLines.length) {
+      const n = p.unreachableLines.reduce((sum, r) => sum + r.to - r.from + 1, 0);
+      const first = p.unreachableLines[0];
+      add('playtest', { message: `${plural(n, 'line')} no route reaches, from ${first.file}:${first.from}${hedge}`, file: first.file, line: first.from, count: n });
+    }
+    if (p.unreachableLabels.length) add('playtest', { message: `${plural(p.unreachableLabels.length, 'label')} no route reaches (${names(p.unreachableLabels)})${hedge}`, count: p.unreachableLabels.length });
+    if (p.loops.length) add('playtest', { message: `The story can loop forever without a choice or an end${p.loops.length > 1 ? ` (${p.loops.length} places)` : ''}${hedge}`, ...at(p.loops[0]), count: p.loops.length });
+    if (p.stuck.length) add('playtest', { message: `A screen waits with nothing the player can pick${p.stuck.length > 1 ? ` (${p.stuck.length} places)` : ''}${hedge}`, ...at(p.stuck[0]), count: p.stuck.length });
+    if (p.unusedVariables.length) add('playtest', { message: `${plural(p.unusedVariables.length, 'variable')} set but never read (${names(p.unusedVariables.map(v => v.name))})`, ...at(p.unusedVariables[0].src), count: p.unusedVariables.length });
+    if (p.unsetVariables.length) add('playtest', { message: `${plural(p.unsetVariables.length, 'variable')} read but never set (${names(p.unsetVariables.map(v => v.name))})`, ...at(p.unsetVariables[0].src), count: p.unsetVariables.length });
+    if (p.unusedFlags.length) add('playtest', { message: `${plural(p.unusedFlags.length, 'flag')} nothing checks (${names(p.unusedFlags.map(v => v.name))})`, ...at(p.unusedFlags[0].src), count: p.unusedFlags.length });
+    if (p.unusedAssets.length) add('playtest', { message: `${plural(p.unusedAssets.length, 'asset')} no script uses (${names(p.unusedAssets)})`, count: p.unusedAssets.length });
+  }
 
   const rank = { error: 0, warning: 1, info: 2 } as const;
   const findings = found.map((f, i) => ({ f, i })).sort((a, b) => rank[a.f.severity] - rank[b.f.severity] || a.i - b.i).map(x => x.f);

@@ -2,7 +2,8 @@
 //   vn export [--out build/web] [--no-build]       (--out is relative to the project folder)
 //   vn export --check                              only run the pre-build checks and print the report (writes nothing)
 //   vn export --strict                             refuse to export while the checks have warnings, not just errors
-//   vn export --locales fi,ja --voice ja           ship only these translations / voice languages (default: all; the source name
+//   vn export --no-playtest                        skip the playtest bot's check for this run
+//   vn export --locales fi,ja --voice ja          ship only these translations / voice languages (default: all; the source name
 //                                                  stands for the default takes in --voice; the languages left out are not checked)
 // Per-check levels ("error", "warning", "info" or "off") go in game.json: { "build": { "checks": { "voice-missing": "off" } } }.
 // Upload the folder to any static host, or zip it for itch.io ("HTML" project, index.html at the root).
@@ -68,7 +69,7 @@ if (build.mode === 'build' && !run(build.tsc, ['-p', '.'])) { console.error('Typ
 if (!checkOnly && !run(path.join(root, 'tools', 'psd-convert.mjs'))) console.warn('Some art failed to convert (see above); exporting the rest.');
 
 // 2. The pre-build checks (engine/src/build-checks.ts): errors always refuse, warnings only with --strict.
-const { project, program, report, languages } = runBuildChecks(projectDir, undefined, include);
+const { project, program, report, languages } = runBuildChecks(projectDir, undefined, include, { playtest: !args.includes('--no-playtest') });
 for (const [flag, asked, known] of [['--locales', include.text, languages.text], ['--voice', include.voice, [...new Set([...languages.voice, languages.source])]]]) {
   const unknown = (asked ?? []).filter(l => !known.includes(l));
   if (unknown.length) console.warn(`warning ${flag}: no such language: ${unknown.join(', ')} (known: ${known.join(', ') || 'none'})`);

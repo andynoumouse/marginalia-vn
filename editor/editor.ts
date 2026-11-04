@@ -13,7 +13,7 @@ import { HelpDialog } from './help-dialog.js';
 import { FindDialog } from './find-dialog.js';
 import { TranslationsDialog } from './translations-dialog.js';
 import { VoiceDialog } from './voice-dialog.js';
-import { BuildDialog, langQuery } from './build-dialog.js';
+import { BuildDialog, langQuery, playtestQuery } from './build-dialog.js';
 import { ThemeDialog } from './theme-dialog.js';
 import { GitPanel } from './git-dialog.js';
 import { OutlineView } from './outline-view.js';
@@ -2599,7 +2599,7 @@ function setupPalette() {
     openTranslations: () => void translations.open(() => editor.focus()),
     openVoice: () => void voiceDialog.open(() => editor.focus()),
     saveAll,
-    build: (target, out, langs) => runTask('build', 'build', `&target=${target}&out=${encodeURIComponent(out)}${langQuery(langs)}`),
+    build: (target, out, langs, playtest) => runTask('build', 'build', `&target=${target}&out=${encodeURIComponent(out)}${langQuery(langs)}${playtestQuery(playtest)}`),
     portable: 'vnStudio' in window, // studio/preload.cjs
   });
   gitPanel = new GitPanel($('sbGit'), document.body, { saveAll, done: setStatus });

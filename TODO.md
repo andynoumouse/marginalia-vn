@@ -183,8 +183,6 @@ Nothing open right now; pick from the topic sections below.
 - [ ] Brand icon in the editor header in place of the "Marginalia VN" text (the page title stays text).
 - [ ] Spell check for dialogue and menu text only (not ids, tags, `[variables]` or commands), as Monaco warnings with
   "add to project dictionary" (a word list in the project); a dictionary per locale is a later step.
-- [ ] Playtest bot in the Build dialog: its findings (unreachable labels, stuck loops, unused variables and assets) as an
-  `info` check with a level in `build.checks`, since today they show only after running the bot by hand.
 - [ ] Consider pipeline settings for asset preprocessing (a project-level resize/compression/format config per asset type).
 - [x] Project templates for different game styles. Plan: a template is an overlay on the base starter, pure data in
   `engine/src/templates.ts` (id, title, description, optional stage, a game.json patch, theme tokens, extra script files,
@@ -314,5 +312,3 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
   playthrough, with jumps to chapter starts), so that finding the last ending is not guesswork. Opt-in in game.json.
 - [ ] As a writer, I want to check a route without clicking through it: "play to here" with chosen answers (the playtest
   bot already walks every route; let the author pick one and land in the preview at its end).
-- [x] As a user, I want to get back to project selection screen in the online standalone editor. (A "‹ Projects" button
-  at the left of the editor's top bar, online only; it saves first.)

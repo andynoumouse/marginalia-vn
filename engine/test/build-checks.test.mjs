@@ -115,3 +115,26 @@ test('bad build.checks settings are reported by checkGame and ignored', () => {
   assert.deepEqual(buildCheckSettings({}).problems, []);
   assert.equal(buildCheckSettings({ build: { checks: [] } }).problems.length, 1);
 });
+
+test('playtest: the bot\'s findings are notes, absent without a report, and build.checks can change or switch them off', () => {
+  const report = {
+    complete: true, notes: [], choices: 1, steps: 1, endings: [],
+    unreachableLines: [{ file: 't.vn', from: 3, to: 4 }, { file: 't.vn', from: 9, to: 9 }],
+    unreachableLabels: ['a', 'b', 'c', 'd'],
+    loops: [{ file: 't.vn', line: 2 }], stuck: [],
+    unusedVariables: [{ name: 'x', src: { file: 't.vn', line: 5 } }], unsetVariables: [], unusedFlags: [], unusedAssets: ['bg/old.png'],
+  };
+  assert.deepEqual(only(checks(), 'playtest'), []);
+  const r = checks({ playtest: report });
+  const found = only(r, 'playtest');
+  assert.ok(found.every(f => f.severity === 'info'));
+  assert.equal(found.length, 5);
+  assert.equal(found[0].count, 3);
+  assert.deepEqual([found[0].file, found[0].line], ['t.vn', 3]);
+  assert.match(found[1].message, /4 labels no route reaches \(a, b, c, and 1 more\)/);
+  assert.equal(r.errors, 0);
+  const hedged = only(checks({ playtest: { ...report, complete: false } }), 'playtest');
+  assert.match(hedged[0].message, /may be wrong/);
+  assert.deepEqual(only(checks({ playtest: report, game: { build: { checks: { playtest: 'off' } } } }), 'playtest'), []);
+  assert.equal(only(checks({ playtest: report, game: { build: { checks: { playtest: 'warning' } } } }), 'playtest')[0].severity, 'warning');
+});

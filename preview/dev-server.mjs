@@ -535,7 +535,8 @@ function taskArgs(url) {
   const langs = langParams(url);
   if (!langs) return undefined;
   return ['tools/export-web.mjs', '--no-build', ...(target === 'desktop' ? ['--desktop'] : target === 'portable' ? ['--desktop', '--portable'] : []), '--out', out,
-    ...(langs.text ? ['--locales', langs.text.join(',')] : []), ...(langs.voice ? ['--voice', langs.voice.join(',')] : [])];
+    ...(langs.text ? ['--locales', langs.text.join(',')] : []), ...(langs.voice ? ['--voice', langs.voice.join(',')] : []),
+    ...(url.searchParams.get('playtest') === 'off' ? ['--no-playtest'] : [])];
 }
 // `locales=fi,ja&voice=en` (present but empty = none): validated language codes, or null when one is malformed.
 function langParams(url) {
@@ -578,7 +579,7 @@ async function readBuildCheck(req, res, url) {
   if (!isLocalRequest(req) || !include) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
     const { runBuildChecks } = await import('../tools/build-checks.mjs');
-    const { report, languages } = runBuildChecks(project, undefined, include);
+    const { report, languages } = runBuildChecks(project, undefined, include, { playtest: url.searchParams.get('playtest') !== 'off' });
     const { findings, errors, warnings } = report;
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify({ findings, errors, warnings, languages }));

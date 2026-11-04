@@ -731,6 +731,7 @@ function fit() {
   const vw = window.innerWidth, vh = window.innerHeight - (devMode && studioChar === null ? 44 : 0);
   const s = Math.min(vw / W, vh / H);
   stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+  document.documentElement.dataset.fitted = '';
 }
 window.addEventListener('resize', fit);
 fit();

@@ -31,6 +31,8 @@
   #viewport { position: absolute; inset: 44px 0 0 0; overflow: hidden; background: #06080b; }
   #stage { position: absolute; left: 50%; top: 50%; width: var(--stage-w, 1920px); height: var(--stage-h, 1080px); overflow: hidden;
     background: #000; transform-origin: center; user-select: none; cursor: pointer; color: var(--vn-text); }
+  /* Until fit() (preview.ts) has centred and scaled the stage, its corner sits at the viewport centre: keep it unseen. */
+  html:not([data-fitted]) #stage { visibility: hidden; }
   /* Theme tokens (docs/design/theming.md). Stage rules read these, never the page's own --accent and friends, so a game
      theme leaves the preview bar alone. `surface` and `line` are base colors that each rule mixes with transparency.
      Component properties (--vn-button-bg, ...) are not set here: a rule reads them with the token mix as fallback, so a

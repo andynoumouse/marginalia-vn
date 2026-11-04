@@ -266,3 +266,61 @@ test('the sample game: park.vn plays to its endings and town.vn has its known de
   assert.deepEqual(all.unreachableLines.map(l => `${l.file}:${l.from}`), ['screens.vn:61', 'town.vn:139']);
   assert.ok(playtestDiagnostics(all).every(d => d.severity === 'warning'));
 });
+
+// A variable that is overwritten before anything reads it again must not split the situations at a menu.
+const lastScript = (reads) => [
+  'label start:',
+  '  set last = "none"',
+  'label hub:',
+  ...(reads ? ['  if last == "p3":', '    "Three."'] : []),
+  '  menu:',
+  ...[0, 1, 2, 3, 4, 5, 6, 7].flatMap(i => [`    "Pick ${i}":`, `      set last = "p${i}"`, '      jump hub']),
+  '    "Peek":',
+  '      jump hub',
+  '    "Done":',
+  '      end',
+].join('\n');
+
+test('a variable overwritten before it is read again is left out of the state', () => {
+  const dead = run([
+    'label start:',
+    '  set last = "none"',
+    'label hub:',
+    '  menu:',
+    ...[0, 1, 2, 3, 4, 5, 6, 7].flatMap(i => [`    "Pick ${i}":`, `      set last = "p${i}"`, '      if last == "p3":', '        "Three."', '      jump hub']),
+    '    "Done":',
+    '      end',
+  ].join('\n'), { maxPerChoice: 3 });
+  assert.equal(dead.complete, true); // `last` is read right after it is set, never across the menu
+  const live = run(lastScript(true), { maxPerChoice: 3 });
+  assert.equal(live.complete, false); // read at the top of the loop: the value at the menu matters
+});
+
+test('only lists read by position are compared in order', () => {
+  const r = run([
+    'set a = []',
+    'set b = []',
+    'label start:',
+    '  menu:',
+    '    "x":',
+    '      set a += "x"',
+    '      set b += "x"',
+    '    "y":',
+    '      set a += "y"',
+    '      set b += "y"',
+    '  menu:',
+    '    "x":',
+    '      set a += "x"',
+    '      set b += "x"',
+    '    "y":',
+    '      set a += "y"',
+    '      set b += "y"',
+    '  if item(a, 0) == "x":',
+    '    "First x."',
+    '  if contains(b, "y"):',
+    '    "Has y."',
+    '  end',
+  ].join('\n'));
+  assert.equal(r.complete, true);
+  assert.equal(r.endings.length, 1);
+});

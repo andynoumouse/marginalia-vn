@@ -32,13 +32,19 @@ function checkIcon(root, project) {
 /**
  * Compiles the project and runs every check. Returns `{ project, program, report, languages }`; nothing is written. `include` is
  * `{ text?: string[], voice?: string[] }`: the languages the build ships (missing = all), the others are not checked.
+ * `{ playtest: false }` skips the playtest bot for this run, whatever game.json says.
  */
-export function runBuildChecks(root, project = projectData(root), include = undefined) {
-  const { compile, checkAssets, checkGame, namedPositions, namedAnchors, stageSize, stringRows, sourceLanguage, buildChecks, buildLanguages } = engine;
+export function runBuildChecks(root, project = projectData(root), include = undefined, { playtest: botAllowed = true } = {}) {
+  const { compile, checkAssets, checkGame, namedPositions, namedAnchors, stageSize, stringRows, sourceLanguage, buildChecks, buildCheckSettings, buildLanguages, DEFAULT_LEVELS, playtest } = engine;
   const program = compile(project.scripts, namedPositions(project.game), namedAnchors(project.game), stageSize(project.game));
   const index = assetIndex(project);
   const diagnostics = [...program.diagnostics, ...checkAssets(program, index), ...checkGame(project.game, index, project.gameText ?? ''), ...checkIcon(root, project)];
   const source = sourceLanguage(project.game);
+  // The bot is the slow check, so it plays only when the check is on and the scripts compile (it refuses a program with errors).
+  const botOn = botAllowed && (buildCheckSettings(project.game).levels.playtest ?? DEFAULT_LEVELS.playtest) !== 'off';
+  const playtestReport = botOn && !program.diagnostics.some(d => d.severity === 'error')
+    ? playtest(program, { game: project.game, assets: index })
+    : undefined;
   const locale = readLocale(root);
   const recordings = readRecordings(root);
   const report = buildChecks({
@@ -52,6 +58,7 @@ export function runBuildChecks(root, project = projectData(root), include = unde
     lock: readLock(root),
     game: project.game,
     include,
+    playtest: playtestReport,
   });
   return { project, program, report, languages: { source, ...buildLanguages(project.game, source, Object.keys(locale), Object.keys(recordings)) } };
 }

@@ -102,6 +102,7 @@ and `off` hides it. `build.checks` changes the defaults:
 | `voice-missing` | info | Spoken lines with no recording, in each language that has any recordings. |
 | `unused-locale` | info | Locale entries that match no line. |
 | `unmatched-voice` | info | Files in `assets/voice` whose id matches no line. |
+| `playtest` | info | What the playtest bot finds by playing every route: lines and labels no route reaches, endless loops, screens with nothing to pick, variables set but never read (or read but never set), flags nothing checks, unused assets. The bot runs only when the check is not `off` and the scripts have no errors; set it to `off` to skip it on a very large game. The Build dialog's "Playtest bot" tick (remembered per browser) and `vn export --no-playtest` skip it for one run. |
 
 ## positions
 

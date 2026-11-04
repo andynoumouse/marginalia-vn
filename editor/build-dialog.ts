@@ -12,7 +12,7 @@ export interface BuildHost {
   /** Write the unsaved tabs to disk: the checks and the export read the project folder. */
   saveAll(): Promise<void>;
   /** Run the export through the dev server's task stream; `output` is everything it printed. */
-  build(target: BuildTarget, out: string, langs: BuildLanguages): Promise<{ ok: boolean; output: string }>;
+  build(target: BuildTarget, out: string, langs: BuildLanguages, playtest: boolean): Promise<{ ok: boolean; output: string }>;
   /** Inside Marginalia Studio: the desktop app can be built ready to run, on the Studio's own Electron runtime. */
   portable?: boolean;
 }
@@ -26,6 +26,13 @@ interface CheckReport { findings: BuildFinding[]; errors: number; warnings: numb
 export function langQuery(l: BuildLanguages): string {
   return (l.text ? `&locales=${encodeURIComponent(l.text.join(','))}` : '') + (l.voice ? `&voice=${encodeURIComponent(l.voice.join(','))}` : '');
 }
+
+/** `&playtest=off` when the author turned the playtest bot off in the dialog (the dev server then skips it). */
+export function playtestQuery(on: boolean): string {
+  return on ? '' : '&playtest=off';
+}
+
+const BOT_KEY = 'vn.build.playtest';
 
 const LEVELS: CheckLevel[] = ['error', 'warning', 'info'];
 const HEADINGS: Record<CheckLevel, string> = { error: 'Errors (the build refuses)', warning: 'Warnings', info: 'Notes' };
@@ -51,6 +58,7 @@ export class BuildDialog {
   private readonly ack: HTMLInputElement;
   private readonly buildBtn: HTMLButtonElement;
   private readonly rerun: HTMLButtonElement;
+  private readonly bot: HTMLInputElement;
   private readonly result: HTMLElement;
   private report: CheckReport | null = null;
   private off = { text: new Set<string>(), voice: new Set<string>() }; // languages the author unticked: kept across re-runs
@@ -73,6 +81,7 @@ export class BuildDialog {
             <option value="portable">Desktop app (ready to run, zipped)</option>
             <option value="desktop">Desktop npm folder (Electron, for installers)</option></select></label>
           <label>Folder <input class="bd-folder" type="text" spellcheck="false" aria-label="Output folder"></label>
+          <label title="Plays every route to find dead lines, loops and unused variables. Turn it off if it is slow on a big game."><input type="checkbox" class="bd-bot" checked> Playtest bot</label>
           <button type="button" class="bd-rerun">Re-run checks</button>
         </div>
         <div class="bd-langs" hidden>
@@ -92,7 +101,12 @@ export class BuildDialog {
     const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
     this.targetSel = q('.bd-target'); this.folder = q('.bd-folder'); this.folderNote = q('.bd-note'); this.summary = q('.bd-summary');
     this.rows = q('.bd-rows'); this.langBox = q('.bd-langs'); this.ackLabel = q('.bd-ack'); this.ack = q('.bd-ack-box'); this.buildBtn = q('.bd-go');
-    this.rerun = q('.bd-rerun'); this.result = q('.bd-result');
+    this.rerun = q('.bd-rerun'); this.result = q('.bd-result'); this.bot = q('.bd-bot');
+    try { this.bot.checked = localStorage.getItem(BOT_KEY) !== 'off'; } catch { /* storage blocked: the bot stays on */ }
+    this.bot.addEventListener('change', () => {
+      try { localStorage.setItem(BOT_KEY, this.bot.checked ? 'on' : 'off'); } catch { /* the choice lasts until the page reloads */ }
+      void this.check();
+    });
     // Outside the Studio there is no Electron runtime to copy: the npm folder downloads its own.
     if (!h.portable) this.targetSel.querySelector('option[value=portable]')!.remove();
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
@@ -137,7 +151,7 @@ export class BuildDialog {
     this.update();
     try {
       await this.h.saveAll();
-      const q = langQuery(this.selection());
+      const q = langQuery(this.selection()) + playtestQuery(this.bot.checked);
       const r = await fetch(`/api/build-check${q && '?' + q.slice(1)}`, { headers: { 'X-VN-Editor': '1' }, cache: 'no-store' });
       if (!r.ok) throw new Error(await r.text());
       this.report = await r.json() as CheckReport;
@@ -228,6 +242,7 @@ export class BuildDialog {
     this.buildBtn.disabled = this.building || !r || r.errors > 0 || !ok || (r.warnings > 0 && !this.ack.checked);
     this.buildBtn.title = !r ? 'Waiting for the checks' : r.errors ? 'Fix the errors first' : r.warnings && !this.ack.checked ? 'Tick "I\'ve seen these warnings"' : '';
     this.rerun.disabled = this.building;
+    this.bot.disabled = this.building;
   }
 
   private async build() {
@@ -239,7 +254,7 @@ export class BuildDialog {
     const out = this.folder.value;
     const target = this.target;
     let res: { ok: boolean; output: string };
-    try { res = await this.h.build(target, out, this.selection()); } catch { res = { ok: false, output: 'Could not reach the dev server.' }; }
+    try { res = await this.h.build(target, out, this.selection(), this.bot.checked); } catch { res = { ok: false, output: 'Could not reach the dev server.' }; }
     this.building = false;
     this.update();
     const m = SUMMARY.exec(res.output);
