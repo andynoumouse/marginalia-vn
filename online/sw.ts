@@ -85,19 +85,22 @@ function inProject(url: URL): { id: string; rest: string } | null {
 const notFound = (what = 'Not found') => new Response(what, { status: 404, headers: { 'Content-Type': 'text/plain' } });
 const html = (text: string) => new Response(text, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
 
+// GitHub Pages lets browsers reuse a file for ten minutes; revalidate (a cheap 304) so a new release shows at once.
+const fresh = (url: URL) => fetch(url, { cache: 'no-cache' });
+
 async function serveProject(id: string, rest: string): Promise<Response> {
   if (!(await getProject(id))) return Response.redirect(new URL(`./?missing=${encodeURIComponent(id)}`, scope).href, 302);
-  if (rest === '' || rest === 'index.html') return fetch(new URL('preview/index.html', scope));
+  if (rest === '' || rest === 'index.html') return fresh(new URL('preview/index.html', scope));
   if (rest === 'editor') return Response.redirect(new URL(`p/${id}/editor/`, scope).href, 302);
   if (rest === 'editor/' || rest === 'editor/index.html') {
     const meta = await getProject(id);
     if (meta) void putProject({ ...meta, opened: Date.now() });
     // The page's code and Monaco from the root, so the editor's Monaco worker (a blob: worker) finds them without this worker.
-    const page = await (await fetch(new URL('editor/index.html', scope))).text();
+    const page = await (await fresh(new URL('editor/index.html', scope))).text();
     return html(page.replaceAll('"../vendor/', `"${scope.href}vendor/`).replaceAll('"../dist/', `"${scope.href}dist/`));
   }
-  if (/^(dist|vendor|docs)\//.test(rest)) return fetch(new URL(rest, scope));
-  if (rest === 'editor/help.html' || rest === 'editor/help.css') return fetch(new URL(rest, scope)); // F1 help's own window
+  if (/^(dist|vendor|docs)\//.test(rest)) return fresh(new URL(rest, scope));
+  if (rest === 'editor/help.html' || rest === 'editor/help.css') return fresh(new URL(rest, scope)); // F1 help's own window
   if (rest === 'project.zip') return zip(id);
   if (/^(assets|locale|masters|script)\//.test(rest)) {
     const bytes = await projectStore(id).read(rest);

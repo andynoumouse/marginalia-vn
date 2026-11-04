@@ -70,6 +70,11 @@ for (const g of GAMES) {
   count += tracked.length;
 }
 fs.writeFileSync(path.join(out, 'seed', 'index.json'), JSON.stringify({ engine: pkg.version, games }, null, 2) + '\n');
+// The pages' own script URLs carry the version, so a new release is never served from the browser's cache of the old one.
+for (const f of ['index.html', 'editor/index.html', 'preview/index.html']) {
+  const target = path.join(out, f);
+  fs.writeFileSync(target, fs.readFileSync(target, 'utf8').replace(/(src="(?:\.\.\/)?dist\/[\w/-]+\.js)"/g, `$1?v=${pkg.version}"`));
+}
 fs.writeFileSync(path.join(out, '.nojekyll'), ''); // GitHub Pages: serve the folder as it is
 
 const size = dir => fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile())
