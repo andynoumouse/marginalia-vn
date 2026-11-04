@@ -51,11 +51,15 @@ export function assignIds(text: string, taken: Set<string>, rng: () => number = 
     }
     throw new Error('assignIds: could not find a free id');
   };
+  let narrIndent = -1; // indent of the narration line above, while quoted lines indented deeper continue it
   const out = text.split(/\r?\n/).map(line => {
     const t = line.trim();
     if (!t || t.startsWith('#')) return line;
     const indent = line.slice(0, line.length - line.trimStart().length);
     let m: RegExpExecArray | null;
+    const continued = narrIndent >= 0 && indent.length > narrIndent && RE_NARR.test(t);
+    narrIndent = RE_NARR.test(t) ? (continued ? narrIndent : indent.length) : -1;
+    if (continued) return line;
     if ((m = RE_MENU.exec(t))) {
       if (m[1] === undefined || m[2]) return line;
       added++;

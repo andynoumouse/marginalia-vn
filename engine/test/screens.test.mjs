@@ -800,3 +800,42 @@ label start:
   assert.equal(r.screens[1].hideBox, undefined);
   assert.match(build('screen s:\n  textbox maybe\n  button x at 0,0 "x"\n').diagnostics.map(d => d.message).join(), /Use: textbox off/);
 });
+
+test('a hotspot or button ending in a colon owns child elements: stage coordinates, parent ids, conditions', () => {
+  const src = `
+set open = false
+screen bar:
+  hotspot strip at 0,0 size 1920,40 hover none on focus o on blur c:
+    button key at 100,60 size 200,80 "Key" if open
+    button coin at 300,60 size 200,80 "Coin":
+      hotspot tip at 300,160 size 50,50 "Tip"
+label o:
+  set open = true
+  return
+label c:
+  set open = false
+  return
+label start:
+  hud on bar
+  end
+`;
+  const p = build(src);
+  assert.deepEqual(errors(p), []);
+  const closed = view(p, 'bar').parts;
+  assert.deepEqual(closed.map(x => x.id), ['strip', 'coin', 'tip']);
+  const open = view(p, 'bar', { open: true }).parts;
+  assert.deepEqual(open.map(x => [x.id, x.parent]), [['strip', undefined], ['key', 'strip'], ['coin', 'strip'], ['tip', 'coin']]);
+  assert.deepEqual(open[1].bounds, { x: 100, y: 60, w: 200, h: 80 }); // not shifted by the parent
+  assert.equal(open[0].on.focus, 'o');
+  // a handler label that does not exist inside a child is still found
+  assert.match(errors(build('screen s:\n  hotspot a at 0,0 size 9,9:\n    button b at 0,0 "b" on click nope\n')).join(), /Unknown label "nope"/);
+});
+
+test('nested elements: a trailing colon needs a body, ids stay unique, and an each cannot repeat a group', () => {
+  assert.match(errors(build('screen s:\n  hotspot a at 0,0 size 9,9:\n  button b at 0,0 "b"\n')).join(), /Expected an indented block/);
+  assert.match(errors(build('screen s:\n  hotspot a at 0,0 size 9,9:\n    button a at 0,0 "b"\n')).join(), /Duplicate element id "a"/);
+  assert.match(errors(build('set xs = ["a"]\nscreen s:\n  each xs as x:\n    button x at 0,0 "b":\n      button y at 0,0 "c"\n')).join(), /cannot repeat/);
+  // localization ids are written for a child's label as for any other
+  const r = assignIds('screen s:\n  hotspot a at 0,0 size 9,9 "A":\n    button b at 0,0 "B"\n', new Set(), rngFrom(1));
+  assert.equal(r.added, 2);
+});

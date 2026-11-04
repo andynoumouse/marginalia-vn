@@ -17,7 +17,8 @@ const NAME = new RegExp(`^${ID}$`);
 const KEYWORDS = new Set(['and', 'or', 'not', 'true', 'false']);
 const RESERVED = new Set([...KEYWORDS, ...Object.keys(FUNCTIONS), 'persistent', 'unlocked', 'screen']);
 const SHELL_VARS = new Set([OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
-const ELEMENT = /^\s*(?:image|hotspot|button|text|slider|bar|panel|each|scroll|row|column|grid)\b/;
+// an element line, or a clause continuation line (`if` ones are scanned like a story `if`) of one
+const ELEMENT = /^\s*(?:(?:image|hotspot|button|tab|radio|toggle|state|text|slider|bar|panel|each|scroll|row|column|grid)\b|on\s+(?:click|focus|blur)\s+set\b|enabled\b)/;
 
 /** The line with the inside of every "string" blanked (same length), so words in text are never taken for syntax. */
 function mask(line: string): string {
@@ -86,6 +87,7 @@ interface RawRef { file: string; line: number; col: number; name: string; persis
 function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
   const stack: Scope[] = [];
   let screenIndent: number | null = null;
+  let screenScope: Scope | null = null; // the screen being scanned: its parameters and `state`s are local to it
   const lines = text.split(/\r?\n/);
   lines.forEach((raw, i) => {
     const no = i + 1;
@@ -130,13 +132,17 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
       if (r[5]) add(at + r[4].length, r[5], false);
       return;
     }
-    if ((r = new RegExp(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter is local to its screen, like a label's
-      const ps = new RegExp(ID, 'g');
-      for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index, p[0], false, 'param');
+    if (/^\s*screen\s/.test(m)) { // the screen is a scope even without parameters: its states belong to it
+      screenScope = { id: `${file}#${no}`, file, start: no, end: lines.length, indent, names: new Set() };
+      stack.push(screenScope);
+      scopes.push(screenScope);
       screenIndent = indent;
+      if ((r = new RegExp(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter (an inout one too) is local to its screen, like a label's
+        const ps = new RegExp(`(?:\\binout\\s+)?(${ID})`, 'g');
+        for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index + p[0].length - p[1].length, p[1], false, 'param');
+      }
       return;
     }
-    if (/^\s*screen\s/.test(m)) { screenIndent = indent; return; }
     if (/^\s*menu\b/.test(m)) {
       const t = /\stimeout\s+/.exec(m);
       if (t) exprRefs(raw, t.index + t[0].length, end, add);
@@ -155,7 +161,22 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
     if (screenIndent !== null && ELEMENT.test(m)) {
       const cuts = [...m.matchAll(/\s(?:if|enabled)\s+/g)];
       if (cuts.length) cuts.forEach((c, k) => exprRefs(raw, c.index! + c[0].length, k + 1 < cuts.length ? cuts[k + 1].index! : end, add));
-      strings(cuts[0]?.index);
+      const setAt = m.search(/\bon\s+(?:click|focus|blur)\s+set\s/); // the strings of the label come before the clauses
+      const clauses = Math.min(cuts[0]?.index ?? Infinity, setAt < 0 ? Infinity : setAt);
+      strings(clauses === Infinity ? undefined : clauses);
+      // local state: a declaration, the state a toggle, radio or tab is bound to, and the states an "on ... set" changes (with the value it computes)
+      if ((r = new RegExp(`^(\\s*state\\s+)(${ID})\\s*=\\s*`).exec(m))) {
+        add(r[1].length, r[2], false);
+        screenScope?.names.add(r[2]);
+        exprRefs(raw, r[0].length, end, add);
+      }
+      if ((r = new RegExp(`^\\s*(?:toggle\\s+${ID}\\s+|(?:radio|tab)\\s+${ID}\\s+)(${ID})`).exec(m))) add(r[0].length - r[1].length, r[1], false);
+      const sets = [...m.matchAll(new RegExp(`\\bon\\s+(?:click|focus|blur)\\s+set\\s+(${ID})\\s*=\\s*`, 'g'))];
+      sets.forEach((st, k) => {
+        add(st.index! + st[0].indexOf(st[1], st[0].indexOf('set') + 3), st[1], false);
+        const stop = [...(sets[k + 1] ? [sets[k + 1].index!] : []), ...cuts.map(c => c.index!).filter(c => c > st.index!)];
+        exprRefs(raw, st.index! + st[0].length, stop.length ? Math.min(...stop) : end, add);
+      });
       if ((r = new RegExp(`^(\\s*each\\s+)(${ID})(\\s+as\\s+)(${ID})`).exec(m))) {
         add(r[1].length, r[2], false, 'outer');
         add(r[1].length + r[2].length + r[3].length, r[4], false, 'each');

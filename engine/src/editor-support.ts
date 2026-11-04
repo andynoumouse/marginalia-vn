@@ -6,6 +6,7 @@ import { TRANSITIONS, type Program } from './types.js';
 import { childNodes, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
 import { ANCHORS } from './anchor.js';
 import { FUNCTIONS } from './expr.js';
+import { SCREEN_CLAUSE_WORDS, startsWithClause } from './screen-syntax.js';
 
 /** Editor-agnostic completion item; the Monaco glue maps `kind` to its own enum. */
 export interface Suggestion {
@@ -29,9 +30,9 @@ const COMMANDS: [string, string][] = [
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
   ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera reset'],
   ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
-   ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['wait', 'wait <seconds>'],
+   ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
-  ['screen', 'screen name:  or  screen name(a, b):  (a page of hotspots and buttons; show it with show screen name or name(1, 2))'],
+  ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ];
 // Text tags, offered right after a "{" (which is not part of the typed word, so labels leave it out).
@@ -40,7 +41,8 @@ const TEXT_TAGS: Suggestion[] = ([
   ['i', '{i}..{/i}  italic', 'i}$0{/i}'], ['b', '{b}..{/b}  bold', 'b}$0{/b}'],
   ['color', '{color=#rrggbb}..{/color}', 'color=#ff6fa5}$0{/color}'], ['size', '{size=1.5}..{/size}  size multiplier', 'size=1.5}$0{/size}'],
   ['wave', '{wave}..{/wave}  wavy text', 'wave}$0{/wave}'], ['shake', '{shake}..{/shake}  shaky text', 'shake}$0{/shake}'],
-  ['ruby', '{ruby=reading}base{/ruby}', 'ruby=}$0{/ruby}'], ['pause', '{pause=0.5}  pause typing (seconds)', 'pause=0.5}'],
+  ['ruby', '{ruby=reading}base{/ruby}', 'ruby=}$0{/ruby}'], ['speed', '{speed=0.5}..{/speed}  typing speed multiplier', 'speed=0.5}$0{/speed}'],
+  ['pause', '{pause=0.5}  pause typing (seconds)', 'pause=0.5}'],
   ['wait', '{wait}  stop until a click, then continue the line', 'wait}'], ['nw', '{nw}  go on to the next line without a click', 'nw}'],
 ] as [string, string, string][]).map(([label, detail, insertText]) => ({ label, kind: 'keyword' as const, detail, insertText }));
 // Formats after `[variable:` in text (`formatValue` in text.ts).
@@ -52,16 +54,20 @@ const TEXT_FORMATS: Suggestion[] = ([
 ] as [string, string, string][]).map(([label, detail, insertText]) => ({ label, kind: 'keyword' as const, detail, insertText }));
 // Elements of a `screen` block (offered on any new line: the completion does not know the block).
 const SCREEN_ELEMENTS: [string, string][] = [
-  ['image', 'image "file.png" [at x,y] [size w,h]'], ['hotspot', 'hotspot <id> at x,y size w,h | ellipse ... | poly x,y x,y x,y | mask "file.png"  "Label"'],
-  ['button', 'button <id> at x,y [size w,h] "Label"'], ['slider', 'slider <setting> at x,y [size w,h] [readout]  (options screen: master, music, sound, voice, text_speed, text_size, box_opacity)'], ['text', 'text at x,y "Text with [variables]"'],
+  ['image', 'image "file.png" [at x,y] [size w,h]'], ['hotspot', 'hotspot <id> at x,y size w,h | ellipse ... | poly x,y x,y x,y | mask "file.png"  "Label"  (end the line with : to give it child elements that share its focus)'],
+  ['button', 'button <id> at x,y [size w,h] "Label"  (end the line with : to give it child elements that share its focus)'], ['slider', 'slider <setting> at x,y [size w,h] [readout]  (options screen: master, music, sound, voice, text_speed, text_size, box_opacity)'], ['text', 'text at x,y "Text with [variables]"'],
   ['row', 'row [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end]:  (children need no "at")'], ['column', 'column [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end]:'],
   ['grid', 'grid <columns> [at x,y | anchor <place>] [gap n] [cell w,h] [align a]:'],
   ['scroll', 'scroll at x,y size w,h [start top|bottom] [bar off]:  (a box that scrolls its children; they are placed from its top left)'],
   ['panel', 'panel [at x,y] [size w,h] [image "frame.png" slice 32] [padding p]:  (a framed box; its children are placed from its top left plus the padding)'],
   ['bar', 'bar <variable> [max n] at x,y [size w,h] [back "file.png"] [fill "file.png"] [slice s] [color c] [readout]'],
-  ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel  (the cancel key answers "")'], ['textbox', 'textbox off  (hide the text box while the screen is up)'],
+  ['tab', 'tab <id> <state>=<word> at x,y [size w,h] "Label"  (sets a local state of the screen and stays up; lit while the state holds the word)'],
+  ['radio', 'radio <id> <state>=<word> at x,y [size w,h] "Label"  (a tab drawn as a radio mark: sets the state to the word, lit while it holds it; the state is a state or an inout parameter)'],
+  ['toggle', 'toggle <id> <state> at x,y [size w,h] "Label"  (flips a true/false state or inout parameter; drawn as a checkbox)'],
+  ['state', 'state <name> = <value or expression>  (local to the screen while it is up; a parameter or story variable can start it)'],
+  ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel [keep]  (the cancel key answers "" and drops the inout changes; cancel keep applies them)'], ['textbox', 'textbox off  (hide the text box while the screen is up)'],
 ];
-const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (n.kind === 'hotspot' || n.kind === 'button' ? [n.id] : childNodes(n).length ? elementIds(childNodes(n)) : []));
+const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (n.kind === 'hotspot' || n.kind === 'button' ? [n.id, ...elementIds(childNodes(n))] : childNodes(n).length ? elementIds(childNodes(n)) : []));
 const DIRECTIONS = ['left', 'right', 'up', 'down'];
 const EASES = EASE_NAMES.map(n => `ease=${n}`);
 
@@ -69,16 +75,46 @@ const kw = (labels: string[]): Suggestion[] => labels.map(label => ({ label, kin
 const assets = (labels: Iterable<string>, detail: string): Suggestion[] =>
   [...new Set(labels)].map(label => ({ label, kind: 'asset', detail }));
 
+const CLAUSE_OWNER = /^(?:hotspot|button|tab|radio|toggle|text|image|slider|bar|panel|each|scroll|row|column|grid)\b/;
+
+/** The screen element line that a new indented line would continue if it starts with a clause word, found from the lines above it. */
+function continuationOwner(indent: number, above: string[]): string | null {
+  for (let k = above.length - 1; k >= 0; k--) {
+    const t = above[k].trim();
+    if (!t || t.startsWith('#')) continue;
+    const ai = above[k].length - above[k].trimStart().length;
+    if (ai < indent) return CLAUSE_OWNER.test(t) ? t : null;
+    if (ai === indent && startsWithClause(t)) continue; // another continuation line: its element is further up
+    return null;
+  }
+  return null;
+}
+
 /**
  * Suggestions for the text on the current line before the cursor.
  * Names (backgrounds, poses, tracks) come from what the project already uses,
  * until asset manifests exist to supply them.
+ * `above` is the text of the lines above the cursor's (nearest last): an indented line under a screen element
+ * offers that element's clause words, which continue its line.
  */
-export function getCompletions(program: Program, linePrefix: string, rigs: Record<string, RigManifest> = {}): Suggestion[] {
+export function getCompletions(program: Program, linePrefix: string, rigs: Record<string, RigManifest> = {}, above: string[] = []): Suggestion[] {
   const trimmed = linePrefix.trimStart();
   if (trimmed.startsWith('#')) return [];
+  const owner = trimmed === linePrefix ? null : continuationOwner(linePrefix.length - trimmed.length, above);
+  if (owner) {
+    const first = /^\S*/.exec(trimmed)![0];
+    if (first === trimmed) { // still typing the first word: the clauses, then the usual choices (a child element, if the line above ends in `:`)
+      const clauses = SCREEN_CLAUSE_WORDS.map(label => ({ label, kind: 'keyword' as const, detail: `continues the element line above (${owner.split(/\s+/)[0]})` }));
+      return [...clauses, ...getCompletions(program, linePrefix, rigs)];
+    }
+    if (startsWithClause(first)) { // inside a clause: complete it as if the line were written on the owner's line
+      const placement = ['at', 'size', 'ellipse', 'poly', 'mask']; // these belong on the first line
+      return getCompletions(program, `${owner.split(/\s+/)[0]} _ _ ${trimmed}`, rigs).filter(s => !placement.includes(s.label));
+    }
+  }
   const assigned = program.ops.flatMap(o => (o.op === 'set' && !o.name.startsWith('persistent.') ? [o.name] : o.op === 'input' ? [o.name] : o.op === 'screen' && o.as ? [o.as] : []));
-  const variables: Suggestion[] = [...new Set([...assigned, ...Object.values(program.params ?? {}).flat()])]
+  const states = [...new Set(Object.values(program.screens ?? {}).flatMap(sc => [...(sc.states ?? []).map(d => d.name), ...(sc.inout ?? [])]))];
+  const variables: Suggestion[] = [...new Set([...assigned, ...Object.values(program.params ?? {}).flat(), ...states])]
     .map(label => ({ label, kind: 'variable' }));
   const flags: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'unlock' ? [o.name] : [])))]
     .map(name => ({ label: `unlocked.${name}`, kind: 'variable', detail: 'persistent flag' }));
@@ -179,6 +215,11 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (arg === 1) return [...(prev[1] === 'stop' ? kw(['fade', 'nowait']) : []), ...assets(program.ops.flatMap(o => (o.op === 'sound' && o.name ? [o.name] : [])), 'sound')];
       return kw(prev[1] === 'play' ? ['duck', 'nowait'] : ['fade', 'nowait']);
     }
+    case 'movie': {
+      if (arg === 0) return kw(['play']);
+      if (arg === 1) return assets(program.ops.flatMap(o => (o.op === 'movie' ? [o.name] : [])), 'movie');
+      return arg === 2 ? kw(['noskip']) : [];
+    }
     case 'define':
       if (arg === 0) return [{ label: 'item', kind: 'keyword', detail: 'define item <id> "Name" [image=file.png]' }];
       if (prev[1] === 'item') return arg >= 3 ? kw(['image=']) : [];
@@ -189,11 +230,15 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (arg === 0) return kw(['on', 'off']);
       if (arg === 1) return Object.keys(program.screens ?? {}).map(label => ({ label, kind: 'keyword' as const, detail: 'screen' }));
       return prev[1] === 'on' ? kw(['keep']) : [];
-    case 'hotspot': case 'button':
+    case 'cancel': return arg === 0 ? kw(['keep']) : [];
+    case 'hotspot': case 'button': case 'tab': case 'radio': case 'toggle':
       if (arg === 0) return [];
+      if (cmd === 'toggle' && arg === 1) return states.map(label => ({ label, kind: 'variable' as const, detail: 'screen state' }));
+      const bound = cmd === 'tab' || cmd === 'radio' ? (arg === 1 ? states.map(label => ({ label: `${label}=`, kind: 'variable' as const, detail: 'screen state' })) : []) : [];
       if (last === 'on') return kw(['click', 'focus', 'blur']);
-      if (prev[prev.length - 2] === 'on') return labels;
-      return kw(cmd === 'button' ? ['at', 'size', 'style=', 'hover', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled']);
+      if (prev[prev.length - 2] === 'on') return [...kw(['set']), ...labels];
+      if (last === 'set' && prev[prev.length - 3] === 'on') return states.map(label => ({ label, kind: 'variable' as const, detail: 'screen state' }));
+      return [...bound, ...kw(cmd !== 'hotspot' ? ['at', 'size', 'style=', 'hover', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'action', 'if', 'enabled'])];
     case 'image': return kw(['at', 'size']);
     case 'slider': return arg === 0 ? kw(Object.keys(SLIDER_SETTINGS)) : kw(['at', 'size', 'readout', 'if']);
     case 'text': return kw(['at', 'style=', 'if']);

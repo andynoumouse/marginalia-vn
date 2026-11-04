@@ -78,7 +78,7 @@ const sliders = {
   textSize: $<HTMLInputElement>('optSize'),
   boxOpacity: $<HTMLInputElement>('optBox'),
 };
-const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), themeEl = $<HTMLSelectElement>('optTheme'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
+const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), announceEl = $<HTMLSelectElement>('optAnnounce'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), themeEl = $<HTMLSelectElement>('optTheme'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
 const optTabs = [...document.querySelectorAll<HTMLButtonElement>('.opt-tabs [data-tab]')];
 const optPages = [...document.querySelectorAll<HTMLElement>('.opt-page')];
 const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesTitle'), savesNote = $('savesNote');
@@ -176,6 +176,8 @@ export class Menus {
     motionEl.addEventListener('change', () => { settings.reduceMotion = motionEl.value === 'on'; this.commit(false); });
     captionsEl.value = settings.captions ? 'on' : 'off';
     captionsEl.addEventListener('change', () => { settings.captions = captionsEl.value === 'on'; this.commit(false); });
+    announceEl.value = settings.announceLines ? 'on' : 'off';
+    announceEl.addEventListener('change', () => { settings.announceLines = announceEl.value === 'on'; this.commit(false); });
     focusEl.value = settings.speakerFocus ? 'on' : 'off';
     focusEl.addEventListener('change', () => { settings.speakerFocus = focusEl.value === 'on'; this.commit(false); });
     timedEl.value = settings.timedChoices;

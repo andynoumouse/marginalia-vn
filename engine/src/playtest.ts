@@ -10,7 +10,7 @@
 
 import { arith, collectVars, evalExpr, usesRandom, type Expr, type Value } from './expr.js';
 import { randomStep, type Rng } from './random.js';
-import { blocks, enabledItems, hudLabels, resolveScreen, screenParams, shellEntryFields, shellVars, type ScreenNode, type ScreenView } from './screens.js';
+import { blocks, enabledItems, hudLabels, initialState, pickables, resolveScreen, screenParams, shellEntryFields, shellVars, type ScreenNode, type ScreenView } from './screens.js';
 import { interpolate } from './text.js';
 import { assetContext, bgKey, imageKey, opAssets, screenAssets, type AssetIndex } from './assets.js';
 import type { Diagnostic, Op, Program, Src, Vars } from './types.js';
@@ -94,7 +94,7 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
     switch (op.op) {
       case 'say': text(op.text, op.src); break;
       case 'input': write(op.name, op.src); text(op.prompt, op.src); break;
-      case 'screen': write(op.as, op.src); for (const a of op.args ?? []) expr(a, op.src); break;
+      case 'screen': write(op.as, op.src); for (const a of op.args ?? []) expr(a, op.src); for (const o of op.outs ?? []) if (o) write(o, op.src); break;
       case 'set': write(op.name, op.src); expr(op.expr, op.src); break;
       case 'call': // the arguments are read at the call, the parameters are written by it
         for (const a of op.args ?? []) expr(a, op.src);
@@ -113,7 +113,7 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
   const walk = (nodes: ScreenNode[], local: Set<string>) => {
     for (const n of nodes) {
       expr(n.cond, n.src, local);
-      if (n.kind === 'hotspot' || n.kind === 'button') { expr(n.enabled, n.src, local); text(n.label, n.src, local); }
+      if (n.kind === 'hotspot' || n.kind === 'button') { expr(n.enabled, n.src, local); text(n.label, n.src, local); for (const h of Object.values(n.sets ?? {})) expr(h.expr, n.src, local); if (n.body) walk(n.body, local); }
       else if (n.kind === 'text') text(n.text, n.src, local);
       else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body, local);
       else if (n.kind === 'bar') { expr(n.value, n.src, local); expr(n.min, n.src, local); expr(n.max, n.src, local); }
@@ -126,7 +126,8 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
   for (const def of Object.values(program.screens ?? {})) {
     // the shell fills these in on the options and saves screens: they are not story variables
     screen = def.name;
-    walk(def.body, new Set([...shellVars(def.name), ...(def.params ?? [])]));
+    for (const d of def.states ?? []) expr(d.expr, d.src, new Set([...shellVars(def.name), ...(def.params ?? []), ...(def.states ?? []).map(o => o.name)]));
+    walk(def.body, new Set([...shellVars(def.name), ...(def.params ?? []), ...(def.states ?? []).map(d => d.name)]));
   }
   return { reads, exprReads, writes, unlocks };
 }
@@ -173,6 +174,7 @@ export function unusedAssets(program: Program, index: AssetIndex, game: unknown 
       if (n.kind === 'bar') { if (n.back) addFile(n.back); if (n.fill) addFile(n.fill); }
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.fx.sound && ctx.has(`sound/${n.fx.sound}`)) used.add(`sound/${n.fx.sound}`);
       if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
+      else if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
     }
   };
   for (const def of Object.values(program.screens ?? {})) walk(def.body);
@@ -231,6 +233,7 @@ function abstraction(program: Program): Abstraction {
       if (n.kind === 'each') lists.add(n.list);
       if (n.kind === 'bar') conds.push(n.value, n.min, n.max);
       if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
+      else if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
     }
   };
   for (const def of Object.values(program.screens ?? {})) walk(def.body);
@@ -381,12 +384,44 @@ class Bot {
           return { kind: 'choice', at: here, key: this.key(s), choices };
         }
         case 'screen': {
+          const def = this.program.screens[op.name];
           const scope = this.scope(s, base);
-          const view = this.view(op.name, { ...scope, ...screenParams(this.program.screens[op.name], op.args, scope) });
-          if (!blocks(view)) { s.vars[op.as] = ''; s.pc++; break; }
-          const items = enabledItems(view).filter(p => !p.act);
-          const choices: Choice[] = items.map(p => ({ label: `${op.name}: ${p.id}`, apply: t => { t.vars[op.as] = p.id; t.pc = here + 1; } }));
-          if (view.cancel) choices.push({ label: `${op.name}: cancel`, apply: t => { t.vars[op.as] = ''; t.pc = here + 1; } });
+          const params = screenParams(def, op.args, scope);
+          const init: Vars = { ...params, ...initialState(def, { ...scope, ...params }) };
+          const view0 = this.view(op.name, { ...scope, ...init });
+          if (!blocks(view0)) { s.vars[op.as] = ''; s.pc++; break; }
+          const inout = def?.inout ?? [];
+          // The screen's local state is explored as the initial state plus one change per toggle or radio (not their product);
+          // a numeric inout stays at its initial value.
+          const variants: Vars[] = [init];
+          for (const p of pickables(view0)) {
+            const set = p.enabled && (p.role === 'toggle' || p.role === 'radio') ? p.sets?.click : undefined;
+            if (set && set[0] in init && init[set[0]] !== set[1]) variants.push({ ...init, [set[0]]: set[1] });
+          }
+          const seen = new Set<string>();
+          const choices: Choice[] = [];
+          const answer = (local: Vars, id: string, label: string) => {
+            const kept = id === '' && def?.cancel && !def.cancelKeep ? init : local; // bare cancel drops the inout changes
+            const key = JSON.stringify([id, inout.map(p => kept[p])]);
+            if (seen.has(key)) return;
+            seen.add(key);
+            choices.push({ label, apply: t => {
+              t.vars[op.as] = id;
+              inout.forEach((p, i) => {
+                const to = op.outs?.[i];
+                if (!to) return;
+                if (to.startsWith('persistent.')) t.persistent[to.slice('persistent.'.length)] = kept[p]; else t.vars[to] = kept[p];
+              });
+              t.pc = here + 1;
+            } });
+          };
+          for (const local of variants) {
+            const view = local === init ? view0 : this.view(op.name, { ...scope, ...local });
+            const changed = inout.filter(p => local[p] !== init[p]).map(p => `${p}=${String(local[p])}`).join(', ');
+            const tag = local === init ? '' : ` (${changed || 'state changed'})`;
+            for (const p of enabledItems(view).filter(p => !p.act)) answer(local, p.id, `${op.name}: ${p.id}${tag}`);
+            if (view.cancel) answer(local, '', `${op.name}: cancel${tag}`);
+          }
           if (!choices.length) return { kind: 'stuck', at: here };
           return { kind: 'choice', at: here, key: this.key(s), choices };
         }

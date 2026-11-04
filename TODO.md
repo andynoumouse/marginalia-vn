@@ -37,9 +37,20 @@ Nothing open right now; pick from the topic sections below.
 - [~] Screen UI elements missing from `screen` blocks. `panel` (a 9-slice framed container) and `bar` (a stat bar) are in
   (docs/commands.md); left of them: `style=` from the theme on both, a vertical or right-to-left bar, an eased fill, and no
   browser test yet (checked by hand in the preview). Still missing, roughly by payoff; when one is picked up, move it to "Next up":
-  - [ ] Tabs / tab bar for custom screens (a journal with Items / Notes / Map pages); only the options tabs exist, as a theme
-    component.
-  - [ ] Toggle / checkbox and radio group (today a boolean needs a jump per click through the answer loop).
+  - [x] Tabs / tab bar for custom screens (a journal with Items / Notes / Map pages): `tab` on a blocking screen with local
+    `state` (docs/commands.md, "state / tab / toggle / radio / inout"). Not yet on a HUD or the built-in screens (step 4 of the design note).
+  - [x] Toggle / checkbox and radio group: `toggle` / `radio` bound to local state or an `inout` parameter, written back when the
+    screen answers (docs/commands.md, "state / tab / toggle / radio / inout"). A slider on a numeric `inout` is not built.
+  - [x] Clause continuation lines: a long element line goes on over deeper-indented lines that start with a clause word
+    (docs/commands.md, "continuation"; the demo's settings.vn uses it).
+  - [ ] **NEEDS PLANNING** Make screen elements behave the same in every context (blocking screen, HUD, built-in-replacement
+    screens), as a screen with its own local state, inputs and outputs. It would also deliver the two items above (and the
+    dialog, tooltip and hover-reveal items). Design notes in [docs/design/screen-contexts.md](docs/design/screen-contexts.md).
+    Staged: first local `state` with no outputs (tabs, tooltips, hover-reveal, in-screen dialogs; small, no recording),
+    then `inout` outputs for toggle / radio, then shell screens. Steps 2 and 3 are built for blocking screens: `state`, `tab`,
+    `on click|focus|blur set`, `toggle`, `radio`, `inout` parameters with one recorded entry per screen and `cancel keep`.
+    Left of them: step 4 (shell screens), `slider` on a numeric `inout`, list editing, the `modal` flag for a panel dialog, a
+    playtest bot that follows tab changes, and local state on a HUD.
   - [ ] Text input field inside a screen (documented out of scope; use `input`), and a dropdown / select (the theme has
     `select`, screens can't declare one).
   - [ ] Modal / popup dialog over a screen, without leaving it.
@@ -82,8 +93,9 @@ Nothing open right now; pick from the topic sections below.
 - [~] Voice lines. Left: not tried with real recordings or a large project; no completions, music ducking or per-character
   volume; NVL voices each line as it is added; no browser test of the prefetch and auto-advance wait.
 - [ ] Replace the generated placeholder sample art (simple shapes) with real art when there is some.
-- [-] **DEFERRED (later)** Video: a `movie` command for cutscenes and animated backgrounds (format support, skipping,
-  captions, preload and desktop pak handling).
+- [~] Video: `movie play <name> [noskip]` plays a fullscreen cutscene (webm/mp4; skip by click, look-ahead buffering,
+  desktop pak already serves ranges). Open: a browser test with a generated clip, captions (.vtt), and animated
+  backgrounds (`scene` with a looping video), deliberately left out of the first version.
 
 ## Player experience
 
@@ -98,9 +110,11 @@ Nothing open right now; pick from the topic sections below.
 
 - [~] Keyboard and gamepad navigation. Left: a real gamepad (only a simulated one is tested); non-standard pad mappings; the
   on-screen keyboard is Latin + å ö ä only.
-- [-] **DEFERRED (much later)** Screen readers hear the dialogue: the text box is not a live region (only menus, captions
-  and toasts are), so a blind player hears the choices but not the story. Announce each line once it is shown in full
-  (speaker, then text, tags stripped), not letter by letter; an Accessibility option to turn it off; a browser test.
+- [~] Screen readers hear the dialogue (Options, Accessibility, "Screen reader reads dialogue"; docs/game-json.md): a live region
+  gets each line once it is shown in full. Known faults with Windows Narrator: when a screen closes with focus on a button,
+  focus falls to the page and Narrator reads the page title; and with Narrator on, key and focus navigation break (arrows,
+  Space, Enter, numbers). Left: find out why (try NVDA and a plain browser window first); the option has no `screen options`
+  cycle setting and no localized label; NVL pages and history are not announced separately.
 - [-] **DEFERRED (much later)** A high-contrast theme, a dyslexia-friendly font option and text-to-speech (self-voicing).
 
 ## Tooling
@@ -211,9 +225,12 @@ Nothing open right now; pick from the topic sections below.
   - [ ] Cursor changes: today a hotspot only takes a CSS cursor name (`cursor help`). Wanted: a custom cursor image (with
     a hotspot offset), a script command to set it (e.g. the held item or the active verb, kept in saves and replay), and
     a per-element override. Keep the touch/pad fallback (no cursor there: show the held item as text or an icon).
-  - [ ] Hover-reveal zones: an element that shows or hides other elements while hovered or focused (an edge strip that
-    slides the item bar in). Today `hover` only restyles the element itself and screen conditions are evaluated on redraw,
-    not on hover; the workaround is a click-toggled variable. Needs a keyboard/pad equivalent (focus counts as hover).
+  - [x] Hover-reveal zones: an edge strip that shows the item bar while hovered or focused. A `hotspot` / `button` line ending
+    in `:` takes child elements (stage coordinates), and `ScreenLayer.setActive` works on the chain of ancestors: moving onto a
+    child fires `focus` for the child only, `blur` fires only for elements left entirely, and arrows, Tab and the pad count as
+    staying in the group; `hover` styling follows the chain. A quiet `on focus` / `on blur` handler plus `if` does the reveal
+    (docs/commands.md, "Groups"). Children cannot be inside an `each`. Independent of the local-state work in
+    docs/design/screen-contexts.md.
   - [ ] Popup next to the click: a verb/item menu placed where the player clicked. Today `at x,y` takes literal numbers
     and a screen answers only with an element id, so a popup can only sit at a fixed position per spot (one `if spot ==`
     group each). Needs the click position stored in variables (recorded like the answer, so replay and saves keep it) and

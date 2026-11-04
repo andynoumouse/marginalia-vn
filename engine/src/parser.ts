@@ -1,12 +1,12 @@
 import { ANCHORS, parseAnchor, type Anchor, type Anchors } from './anchor.js';
 import { ANIM_NAMES, DEFAULT_EASE, EASE_NAMES } from './anim.js';
 import { BUILTIN_POSITIONS, type Position, type Positions } from './positions.js';
-import { parseExpr, parseExprList, ExprError, type Expr } from './expr.js';
+import { parseExpr, parseExprList, usesRandom, ExprError, type Expr } from './expr.js';
 import { FILTER_NAMES, WEATHER_NAMES, isFilterName, isWeatherName, type FilterName, type WeatherName } from './fx.js';
-import type { ScreenDef, ScreenNode } from './screens.js';
+import type { LocalSets, ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import { withFix } from './suggest.js';
-import { ElementSyntaxError, parseEachHeader, parseElementLine, parseLayoutHeader, parsePanelHeader, parseScrollHeader } from './screen-syntax.js';
+import { ElementSyntaxError, startsWithClause, parseEachHeader, parseElementLine, parseLayoutHeader, parsePanelHeader, parseScrollHeader } from './screen-syntax.js';
 import { TRANSITIONS, type CharacterDef, type Diagnostic, type ItemDef, type OpBody, type Src, type Transition, type VisualBody } from './types.js';
 
 // Line shapes shared with the id tool (ids.ts).
@@ -52,9 +52,10 @@ class UnknownCommand extends ParseError {
 }
 /** Every word a statement can start with (for "did you mean" on an unknown one). */
 export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
-  'animate', 'hop', 'flash', 'tint', 'focus', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'wait', 'call', 'jump', 'nvl',
+  'animate', 'hop', 'flash', 'tint', 'focus', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
   'unlock', 'input', 'return', 'end'];
-interface RawLine { no: number; indent: number; text: string }
+/** `parts`: the physical lines of a screen element written over several (this line first, then its clause continuations); `text` is then all of them joined. */
+interface RawLine { no: number; indent: number; text: string; parts?: RawLine[] }
 
 export function unescapeText(s: string): string {
   return s.replace(/\\(["\\n])/g, (_, c: string) => (c === 'n' ? '\n' : c));
@@ -116,6 +117,12 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
   if (a.includes('nowait')) { nowait = true; a = a.filter(t => t !== 'nowait'); }
   const visual = <T extends VisualBody>(b: T): OpBody => (nowait ? { ...b, nowait: true } : b);
   const need = (i: number, what: string) => { if (a[i] === undefined) throw new ParseError(`"${cmd}" needs ${what}`); return a[i]; };
+  /** The command takes `n` arguments (and nowait): anything after them is a mistake, not something to ignore. */
+  const extra = (n: number, hint = '') => { if (a.length > n) throw new ParseError(`Unexpected "${a[n]}" in ${cmd}${hint ? ` (${hint})` : ''}`); };
+  /** Optional trailing numbers (`[strength] [seconds]`) at `from`: at most `max`, each a number. */
+  const numbers = (from: number, max: number, usage: string) => {
+    if (a.length > from + max || a.slice(from).some(t => !isNum(t))) throw new ParseError(usage);
+  };
 
   switch (cmd) {
     case 'scene': {
@@ -125,6 +132,8 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       if (TRANSITIONS.includes(a[i] as Transition)) transition = a[i++] as Transition;
       if (transition === 'wipe') dir = !isNum(a[i]) && a[i] !== undefined ? a[i++] : 'left';
       const dur = isNum(a[i]) ? Number(a[i]) : transition === 'cut' ? 0 : 0.5;
+      if (isNum(a[i])) i++;
+      extra(i, `transitions: ${TRANSITIONS.join(', ')}`);
       return visual({ op: 'scene', bg, transition, dir, dur });
     }
     case 'show': {
@@ -174,6 +183,7 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     case 'hide': {
       const char = need(0, 'a character');
       const fade = a[1] === 'fade' ? num(a[2], 'fade duration') : 0;
+      extra(a[1] === 'fade' ? 3 : 1, 'use: hide <char> [fade seconds]');
       return visual({ op: 'hide', char, fade });
     }
     case 'move': {
@@ -209,9 +219,15 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     }
     case 'shake': {
       const target = need(0, 'a character or "screen"');
-      const dur = isNum(a[1]) ? Number(a[1]) : 0.3;
-      const s = a.find(t => t.startsWith('strength='));
-      return visual({ op: 'shake', target, dur, strength: s ? num(s.slice(9), 'strength') : 8 });
+      let dur = 0.3, strength = 8, gotDur = false;
+      for (const t of a.slice(1)) {
+        if (t.startsWith('strength=')) strength = num(t.slice(9), 'strength');
+        else if (isNum(t) && !gotDur) { dur = Number(t); gotDur = true; }
+        else throw new ParseError(t === 'loop'
+          ? 'shake is a single shake and has no loop: use animate <char> shake loop for a continuous one'
+          : 'Use: shake <char|screen> [seconds] [strength=8]');
+      }
+      return visual({ op: 'shake', target, dur, strength });
     }
     case 'animate': {
       const char = need(0, 'a character');
@@ -230,17 +246,21 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     }
     case 'hop': {
       const char = need(0, 'a character');
+      numbers(1, 1, 'Use: hop <char> [seconds]');
       return visual({ op: 'hop', char, dur: isNum(a[1]) ? Number(a[1]) : 0.25 });
     }
     case 'flash': {
       const color = a.find(t => COLOR.test(t)) ?? '#ffffff';
       const rest = a.filter(t => t !== color);
+      if (rest.length > 1) throw new ParseError('Use: flash [#rrggbb] [seconds]');
       return visual({ op: 'flash', color, dur: rest.length ? num(rest[0], 'duration') : 0.4 });
     }
     case 'tint': {
-      if (a[0] === 'off') return visual({ op: 'tint', color: null, strength: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 });
+      const usage = 'Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]';
+      if (a[0] === 'off') { numbers(1, 1, usage); return visual({ op: 'tint', color: null, strength: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 }); }
       const color = need(0, 'a color like #203060, or "off"');
-      if (!COLOR.test(color)) throw new ParseError('Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]');
+      if (!COLOR.test(color)) throw new ParseError(usage);
+      numbers(1, 2, usage);
       const strength = isNum(a[1]) ? Number(a[1]) : 0.4;
       if (strength < 0 || strength > 1) throw new ParseError('Tint strength is 0 to 1');
       return visual({ op: 'tint', color, strength, dur: isNum(a[2]) ? Number(a[2]) : 0 });
@@ -254,11 +274,13 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       const rest = a.filter(t => !t.startsWith('ease=') && !t.startsWith('y='));
       const ease = easeArg ? easeArg.slice(5) : 'inout';
       const usage = 'Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]';
-      if (rest[0] === 'reset') return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, dur: isNum(rest[1]) ? Number(rest[1]) : 0, ease });
+      const tail = (from: number) => { if (rest.length > from + 1 || (rest[from] !== undefined && !isNum(rest[from]))) throw new ParseError(usage); };
+      if (rest[0] === 'reset') { tail(1); return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, dur: isNum(rest[1]) ? Number(rest[1]) : 0, ease }); }
       if (rest[0] === 'pan') {
         // Moves the point the zoom is about, keeping the zoom: only visible while zoomed in.
         const x = parsePos(rest[1], positions).x;
         const y = yArg ? num(yArg.slice(2), 'y') : 0.5;
+        tail(2);
         return visual({ op: 'camera', zoom: null, x, y, dur: isNum(rest[2]) ? Number(rest[2]) : 0, ease });
       }
       if (rest[0] !== 'zoom') throw new ParseError(usage);
@@ -267,20 +289,23 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       let i = 2, x = 0.5;
       const y = yArg ? num(yArg.slice(2), 'y') : 0.5;
       if (rest[i] === 'at') { x = parsePos(rest[i + 1], positions).x; i += 2; }
+      tail(i);
       return visual({ op: 'camera', zoom, x, y, dur: isNum(rest[i]) ? Number(rest[i]) : 0, ease });
     }
     case 'weather': {
       const usage = `Use: weather <${WEATHER_NAMES.join('|')}> [intensity 0-1] [seconds], or weather off [seconds]`;
-      if (a[0] === 'off') return visual({ op: 'weather', kind: null, intensity: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 });
+      if (a[0] === 'off') { numbers(1, 1, usage); return visual({ op: 'weather', kind: null, intensity: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 }); }
       if (!isWeatherName(a[0] ?? '')) throw new ParseError(usage);
+      numbers(1, 2, usage);
       const intensity = isNum(a[1]) ? Number(a[1]) : 0.6;
       if (intensity < 0 || intensity > 1) throw new ParseError('Weather intensity is 0 to 1');
       return visual({ op: 'weather', kind: a[0] as WeatherName, intensity, dur: isNum(a[2]) ? Number(a[2]) : 0 });
     }
     case 'filter': {
       const usage = `Use: filter <${FILTER_NAMES.join('|')}> [strength 0-1] [seconds], or filter off [seconds]`;
-      if (a[0] === 'off') return visual({ op: 'filter', name: null, strength: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 });
+      if (a[0] === 'off') { numbers(1, 1, usage); return visual({ op: 'filter', name: null, strength: 0, dur: isNum(a[1]) ? Number(a[1]) : 0 }); }
       if (!isFilterName(a[0] ?? '')) throw new ParseError(usage);
+      numbers(1, 2, usage);
       const strength = isNum(a[1]) ? Number(a[1]) : 1;
       if (strength < 0 || strength > 1) throw new ParseError('Filter strength is 0 to 1');
       return visual({ op: 'filter', name: a[0] as FilterName, strength, dur: isNum(a[2]) ? Number(a[2]) : 0 });
@@ -352,8 +377,14 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       if (action !== 'play' && action !== 'stop' && action !== 'pause' && action !== 'resume') throw new ParseError('Use: music play <name> [loop] [fade n], music stop [fade n], music pause [fade n] or music resume [fade n]');
       const fi = a.indexOf('fade');
       const fade = fi >= 0 ? num(a[fi + 1], 'fade duration') : 0;
-      if (action !== 'play') return visual({ op: 'music', action, name: null, loop: false, fade });
-      return visual({ op: 'music', action, name: need(1, 'a track name'), loop: a.includes('loop'), fade });
+      const rest = fi >= 0 ? [...a.slice(0, fi), ...a.slice(fi + 2)] : a;
+      if (action !== 'play') {
+        if (rest.length > 1) throw new ParseError(`Unexpected "${rest[1]}" in music ${action} (use: music ${action} [fade seconds])`);
+        return visual({ op: 'music', action, name: null, loop: false, fade });
+      }
+      const name = need(1, 'a track name');
+      if (rest.length > 3 || (rest[2] !== undefined && rest[2] !== 'loop')) throw new ParseError(`Unexpected "${rest[2] === 'loop' ? rest[3] : rest[2]}" in music play (use: music play <name> [loop] [fade seconds])`);
+      return visual({ op: 'music', action, name, loop: rest[2] === 'loop', fade });
     }
     case 'sound': {
       const usage = 'Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]';
@@ -369,8 +400,17 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       if (!names[0]) throw new ParseError(usage);
       return visual({ op: 'sound', action, name: names[0], fade, ...(duck ? { duck } : {}) });
     }
-    case 'wait':
-      return visual({ op: 'wait', dur: num(a[0], 'seconds') });
+    case 'movie': {
+      const usage = 'Use: movie play <name> [noskip]';
+      if (nowait) throw new ParseError('A movie always plays to its end (or until the player skips it), so it has no nowait');
+      if (a[0] !== 'play' || !a[1] || a.length > 3 || (a[2] !== undefined && a[2] !== 'noskip')) throw new ParseError(usage);
+      return visual({ op: 'movie', name: a[1], noskip: a[2] === 'noskip' });
+    }
+    case 'wait': {
+      const dur = num(a[0], 'seconds');
+      extra(1, 'use: wait <seconds>');
+      return visual({ op: 'wait', dur });
+    }
     case 'call': {
       // call label  |  call label(expr, expr, ...): the arguments are expressions, bound to the label's parameters
       const m = RE_CALL.exec(text.trim());
@@ -381,6 +421,7 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
     }
     case 'jump': {
       const label = need(0, 'a label name');
+      extra(1, 'use: jump <label>');
       return { op: 'jump', label, target: -1 };
     }
     case 'nvl': {
@@ -407,8 +448,8 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       if (id && !prompt) throw new ParseError('An input id needs a prompt to translate');
       return { op: 'input', name, prompt, id, default: def, max: Math.floor(max) };
     }
-    case 'return': return { op: 'ret' };
-    case 'end': return { op: 'end' };
+    case 'return': extra(0); return { op: 'ret' };
+    case 'end': extra(0); return { op: 'end' };
     default:
       throw new UnknownCommand(cmd);
   }
@@ -468,23 +509,49 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     const first = lines[i];
     if (!first || first.indent <= header.indent) { err(header, 'Expected an indented block after this line'); return []; }
     const indent = first.indent, nodes: ScreenNode[] = [];
-    const cond = (l: RawLine, e: string | null) => (e === null ? null : exprOf(l, e));
+    /** The physical line of a multi-line element that holds `frag`, for a diagnostic. */
+    const part = (l: RawLine, frag: string | null) => (l.parts && frag ? l.parts.find(p => p.text.includes(frag)) ?? l : l);
+    const cond = (l: RawLine, e: string | null) => (e === null ? null : exprOf(part(l, e), e));
     while (i < lines.length && lines[i].indent >= indent) {
-      const l = lines[i++];
+      let l = lines[i++];
       if (l.indent > indent) { // reported once for the whole run of lines indented too far
         err(l, 'Unexpected indentation');
         while (i < lines.length && lines[i].indent > indent) i++;
         continue;
       }
+      // indented lines that start with a clause word (on, if, enabled, ...) continue this element's line
+      const conts: RawLine[] = [];
+      while (i < lines.length && lines[i].indent > l.indent && startsWithClause(lines[i].text)) {
+        const c = lines[i++];
+        if (conts.length && c.indent !== conts[0].indent) err(c, 'The continuation lines of one element must be indented the same');
+        else conts.push(c);
+      }
+      if (conts.length && /:[ \t]*$/.test(l.text)) err(l, 'An element written over several lines ends with ":" on its last line (the one that owns child elements), not on the first');
+      if (conts.length) l = { ...l, text: [l, ...conts].map(p => p.text).join(' '), parts: [l, ...conts] };
       try {
         const word = /^[^\s:]+/.exec(l.text)?.[0] ?? '';
+        if (startsWithClause(l.text)) throw new ElementSyntaxError(`"${word}" continues the element line above it: indent it deeper than that element, before any child lines`);
+        if (l.parts && ['default', 'cancel', 'state', 'textbox'].includes(word)) { err(l.parts[1], `"${word}" is a single line: it takes no continuation lines`); continue; }
         if (word === 'default' || word === 'cancel') {
           if (inEach || inLayout) throw new ElementSyntaxError(`"${word}" belongs directly in the screen, not inside each, row, column or grid`);
           if (word === 'cancel') {
-            if (l.text !== 'cancel') throw new ElementSyntaxError('Use: cancel');
+            if (l.text !== 'cancel' && l.text !== 'cancel keep') throw new ElementSyntaxError('Use: cancel  (Esc answers "" and discards the inout changes)  or  cancel keep  (Esc answers "" and keeps them)');
             def.cancel = true;
+            if (l.text === 'cancel keep') def.cancelKeep = true;
           } else if (!/^default[ \t]+[A-Za-z_]\w*$/.test(l.text)) throw new ElementSyntaxError('Use: default <element id>');
           else def.default = l.text.split(/\s+/)[1];
+          continue;
+        }
+        if (word === 'state') {
+          if (inEach || inLayout || !RE_SCREEN.test(header.text)) throw new ElementSyntaxError('"state" belongs directly in the screen, not inside each, row, column, grid or an element');
+          const m = /^state[ \t]+([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S.*)$/.exec(l.text);
+          if (!m) throw new ElementSyntaxError('Use: state <name> = <value or expression>');
+          if (RESERVED_WORDS.includes(m[1])) throw new ElementSyntaxError(`"${m[1]}" is not a valid state name`);
+          if (def.params?.includes(m[1])) throw new ElementSyntaxError(`"${m[1]}" is already a parameter of this screen`);
+          if (def.states?.some(d => d.name === m[1])) throw new ElementSyntaxError(`state ${m[1]} is declared twice`);
+          const e = exprOf(l, m[2]);
+          if (e && usesRandom(e)) throw new ElementSyntaxError('A state cannot use random(): a screen redraws and replays, and would draw again');
+          if (e) (def.states ??= []).push({ name: m[1], expr: e, src: src(l) });
           continue;
         }
         if (word === 'textbox') {
@@ -523,31 +590,69 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
           nodes.push({ kind: 'panel', x: h.x, y: h.y, w: h.w, h: h.h, file: h.file, slice: h.slice, edge: h.edge, padding: h.padding, body, src: src(l), cond: cond(l, h.cond) });
           continue;
         }
-        const p = parseElementLine(l.text, inLayout, stage);
+        // a hotspot or button ending in `:` owns the indented lines below it, placed in stage coordinates like its siblings
+        const owns = (word === 'hotspot' || word === 'button') && /:[ \t]*$/.test(l.text);
+        const p = parseElementLine(owns ? l.text.replace(/[ \t]*:[ \t]*$/, '') : l.text, inLayout, stage);
         if (p.el.kind === 'bar') {
           const { value, min, max, ...rest } = p.el;
-          const [v, lo, hi] = [exprOf(l, value), exprOf(l, min), exprOf(l, max)];
+          const [v, lo, hi] = [exprOf(part(l, value), value), exprOf(part(l, min), min), exprOf(part(l, max), max)];
           if (v && lo && hi) nodes.push({ ...rest, value: v, min: lo, max: hi, src: src(l), cond: cond(l, p.cond) });
           continue;
         }
         const node = { ...p.el, src: src(l), cond: cond(l, p.cond) } as ScreenNode;
-        if (node.kind === 'hotspot' || node.kind === 'button') node.enabled = cond(l, p.enabled);
+        if (node.kind === 'hotspot' || node.kind === 'button') {
+          node.enabled = cond(l, p.enabled);
+          const at = (name: string, message: string) => Object.assign(new ElementSyntaxError(message), { line: part(l, `set ${name}`) });
+          const declared = (name: string) => {
+            if (def.params?.includes(name) && !def.inout?.includes(name)) throw at(name, `${name} is a read-only parameter: declare it  inout ${name}  to change it here`);
+            if (!def.states?.some(d => d.name === name) && !def.inout?.includes(name)) throw at(name, `${name} is not a state of this screen: declare it above with  state ${name} = ...  (or as an inout parameter)`);
+          };
+          const sets: LocalSets = {};
+          for (const [event, h] of Object.entries(p.sets)) {
+            declared(h.name);
+            const e = exprOf(part(l, h.expr), h.expr);
+            if (e && usesRandom(e)) throw new ElementSyntaxError('on ... set cannot use random(): it is worked out whenever the screen redraws');
+            if (e) sets[event as keyof LocalSets] = { name: h.name, expr: e };
+          }
+          if (Object.keys(sets).length) node.sets = sets;
+          if (p.bind && node.kind === 'button') { declared(p.bind.name); node.bind = p.bind; }
+          if (owns) node.body = parseScreenBody(l, def, inEach, false);
+        }
         nodes.push(node);
       } catch (e) {
-        err(l, e instanceof ElementSyntaxError || e instanceof ParseError ? e.message : String(e));
+        err((e as { line?: RawLine }).line ?? (e instanceof ElementSyntaxError ? failLine(l, inLayout) : l), e instanceof ElementSyntaxError || e instanceof ParseError ? e.message : String(e));
         while (i < lines.length && lines[i].indent > l.indent) i++; // the body of a bad each
       }
     }
     return nodes;
   }
 
+  /** The physical line of a multi-line element whose clause is the first to fail when the lines are read one more at a time. */
+  function failLine(l: RawLine, inLayout: boolean): RawLine {
+    if (!l.parts) return l;
+    for (let k = 0; k < l.parts.length; k++) {
+      const t = l.parts.slice(0, k + 1).map(p => p.text).join(' ').replace(/[ \t]*:[ \t]*$/, '');
+      try {
+        const word = /^[^\s:]+/.exec(t)?.[0] ?? '';
+        if (word === 'each') parseEachHeader(t);
+        else if (word === 'scroll') parseScrollHeader(t);
+        else if (word === 'row' || word === 'column' || word === 'grid') parseLayoutHeader(t, inLayout);
+        else if (word === 'panel') parsePanelHeader(t, inLayout);
+        else parseElementLine(t, inLayout, stage);
+      } catch { return l.parts[k]; }
+    }
+    return l;
+  }
+
   function parseScreen(ln: RawLine, name: string, paramText: string | undefined): ScreenDef {
-    const params = (paramText ?? '').split(',').map(s => s.trim()).filter((s, idx, all) => s !== '' || all.length > 1);
+    const written = (paramText ?? '').split(',').map(s => s.trim()).filter((s, idx, all) => s !== '' || all.length > 1);
+    const inout: string[] = [];
+    const params = written.map(s => { const m = /^inout[ \t]+(\S.*)$/.exec(s); if (m) inout.push(m[1].trim()); return m ? m[1].trim() : s; });
     for (const [idx, p] of params.entries()) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p) || RESERVED_WORDS.includes(p)) err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
       else if (params.indexOf(p) !== idx) err(ln, `Parameter "${p}" is listed twice`);
     }
-    const def: ScreenDef = { name, src: src(ln), body: [], default: null, cancel: false, ...(params.length ? { params } : {}) };
+    const def: ScreenDef = { name, src: src(ln), body: [], default: null, cancel: false, ...(params.length ? { params } : {}), ...(inout.length ? { inout } : {}) };
     def.body = parseScreenBody(ln, def, false);
     return def;
   }
@@ -626,7 +731,16 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
     if (RE_OPT.test(t)) { err(ln, 'Options only belong inside a "menu:" block'); return null; }
 
     if ((m = RE_NARR.exec(t))) {
-      return { k: 'op', src: src(ln), body: { op: 'say', who: null, text: unescapeText(m[1]), id: m[3] ?? null, ...(m[2] ? { look: m[2] } : {}) } };
+      // indented lines that are a bare quoted string continue the narration: each starts a new line of the text
+      let text = unescapeText(m[1]);
+      while (i < lines.length && lines[i].indent > ln.indent) {
+        const c = RE_NARR.exec(lines[i].text);
+        if (!c) break;
+        if (c[2] || c[3]) err(lines[i], 'Put style= and the #id on the first line of narration written over several lines');
+        text += `\n${unescapeText(c[1])}`;
+        i++;
+      }
+      return { k: 'op', src: src(ln), body: { op: 'say', who: null, text, id: m[3] ?? null, ...(m[2] ? { look: m[2] } : {}) } };
     }
     if ((m = RE_SAY.exec(t))) {
       return { k: 'op', src: src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[4] ?? null, ...(m[3] ? { look: m[3] } : {}) } };

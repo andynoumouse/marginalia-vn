@@ -39,6 +39,7 @@ const mime = {
   '.css': 'text/css', '.map': 'application/json', '.png': 'image/png', '.webp': 'image/webp',
   '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav',
   '.m4a': 'audio/mp4', '.flac': 'audio/flac', '.opus': 'audio/ogg', '.avif': 'image/avif',
+  '.webm': 'video/webm', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.ogv': 'video/ogg',
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf',
 };
 
@@ -628,7 +629,7 @@ http.createServer((req, res) => {
   }
   let rel = decodeURIComponent(url.pathname);
   if (rel === '/') rel = '/preview/index.html';
-  if (rel === '/editor') rel = '/editor/';
+  if (rel === '/editor') { res.writeHead(302, { Location: '/editor/' + url.search }); res.end(); return; } // the page's relative URLs (help.css, ../docs/) need the slash
   if (rel.endsWith('/')) rel += 'index.html'; // folders: /editor/, /build/web/
   let full, top;
   const vendor = /^\/vendor\/(\w+)\//.exec(rel);

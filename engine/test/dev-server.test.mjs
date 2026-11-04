@@ -41,6 +41,12 @@ const editor = { 'X-VN-Editor': '1' };
 const post = (route, params, headers = editor) => fetch(`${base}/api/${route}?${new URLSearchParams(params)}`, { method: 'POST', headers });
 const at = rel => path.join(project, ...rel.split('/'));
 
+test('/editor redirects to /editor/, so the page\'s relative URLs resolve', async () => {
+  const r = await fetch(`${base}/editor`, { redirect: 'manual' });
+  assert.equal(r.status, 302);
+  assert.equal(r.headers.get('location'), '/editor/');
+});
+
 test('a script moves into a new folder, and a folder moves with its files', async () => {
   let r = await post('move', { from: 'script/demo.vn', to: 'script/extra/demo2' });
   assert.equal(r.status, 200);

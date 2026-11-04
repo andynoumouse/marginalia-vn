@@ -14,3 +14,5 @@ npm run strings    # write locale/en.json
 Content: script/ (scenes), game.json (title screen, menus, theme, gallery), locale/ (translations),
 masters/ (layered PSDs: bg/, char/, ui/), assets/ (game-ready art and audio: bg/, char/, music/, sound/, fonts/).
 See the engine README for the script language and the art pipeline.
+
+The map's "Reading preferences" button opens `script/settings.vn`: a settings-style screen with a tab, a toggle, a radio group and two `inout` parameters (Done keeps the changes, Backspace or the pad B button discards them).

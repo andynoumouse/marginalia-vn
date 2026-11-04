@@ -156,7 +156,7 @@ async function capture(): Promise<SaveData | null> {
   const at = runtime?.current;
   if (!runtime || !at) return null;
   const data: SaveData = {
-    at, choices: [...runtime.choices], name: lastLine.name, text: lastLine.text, time: Date.now(),
+    at, choices: [...runtime.choices], ...(runtime.screenSnapshot() ? { screen: runtime.screenSnapshot()! } : {}), name: lastLine.name, text: lastLine.text, time: Date.now(),
     base: [...runtime.unlockedBase], persistentBase: { ...runtime.persistentBase }, seed: runtime.seed, version: scriptVersion, saveVersion, history: timeline.recent(),
   };
   return { ...data, thumb: await renderer.snapshot() };
@@ -185,6 +185,7 @@ function applySettings() {
   renderer.blips.enabled = settings.textSounds;
   renderer.reduceMotion = settings.reduceMotion;
   renderer.captions = settings.captions;
+  renderer.announceLines = settings.announceLines;
   renderer.focusOn = settings.speakerFocus;
   renderer.timedChoices = settings.timedChoices;
   stage.style.setProperty('--text-scale', String(settings.textSize));
@@ -430,7 +431,7 @@ const menus = new Menus(settings, {
   newGame: () => void enterGame(rt => rt.start()),
   continueGame: () => {
     const s = newestSave();
-    if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices), s));
+    if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s));
   },
   toTitle: () => void showTitle(),
   isPlaying: () => playing,
@@ -440,7 +441,7 @@ const menus = new Menus(settings, {
   },
   load: slot => {
     const s = readSave(slot);
-    if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices), s));
+    if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s));
   },
   rollbackTo: n => rollbackTo(n),
   galleryItems,
@@ -526,7 +527,7 @@ function quickLoad() {
   if (!canAct()) return;
   const s = readSave('quick');
   if (!s) { toast('toast_no_qsave'); return; }
-  menus.confirm('confirm_qload', () => resumeSave(s, () => play(rt => rt.restore(s.at, s.choices), s)));
+  menus.confirm('confirm_qload', () => resumeSave(s, () => play(rt => rt.restore(s.at, s.choices, s.screen), s)));
 }
 
 function toggleSkip(on = !renderer.skipping) {
@@ -577,7 +578,7 @@ function syncTitle() {
 new MutationObserver(syncTitle).observe(titleEl, { attributes: true, attributeFilter: ['hidden'] });
 const titleActions: Record<string, () => void> = {
   start: () => void enterGame(rt => rt.start()),
-  continue: () => { const s = newestSave(); if (s) void enterGame(rt => rt.restore(s.at, s.choices), s); },
+  continue: () => { const s = newestSave(); if (s) void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s); },
   load: () => menus.openSaves('load'),
   options: () => menus.openOptions(),
   gallery: () => menus.showGallery(),
@@ -870,9 +871,9 @@ async function load() {
   syncAchievements();
   if (playing) {
     timeline.clear(); // step numbers may have shifted with the edit
-    const pos = runtime.current;
+    const pos = runtime.current, open = runtime.screenSnapshot(); // a screen that is up keeps its local state through the reload
     await renderer.prepare(runtime.state); // edited images load now, so the restore below draws without a gap
-    void (pos ? runtime.restore(pos) : runtime.start());
+    void (pos ? runtime.restore(pos, undefined, open) : runtime.start());
   } else if (!introRunning) {
     await renderer.prepare(titleState());
     renderer.sync(titleState()); // refresh art/music behind the title; leave the menus as they are

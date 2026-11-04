@@ -51,12 +51,17 @@ export class AudioSystem {
     this.buses = { master, music, sound, voice };
   }
 
+  private levels: Record<Bus, number> = { master: 1, music: 1, sound: 1, voice: 1 };
+  /** Volume for a movie's own sound track (a media element, outside the buses): the master and sound sliders together. */
+  mediaVolume() { return (this.levels.master * this.levels.sound) ** 2; }
+
   unlock() {
     if (this.ctx.state === 'suspended') void this.ctx.resume();
   }
 
   /** 0..1 slider value; squared so the slider feels even to the ear. */
   setVolume(bus: Bus, value: number) {
+    this.levels[bus] = value;
     this.buses[bus].gain.setTargetAtTime(value * value, this.ctx.currentTime, 0.02);
   }
 

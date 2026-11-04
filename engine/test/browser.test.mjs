@@ -133,6 +133,20 @@ play('a click finishes the typing, the next click advances to the next line', as
 
 // ---- a line longer than the text box holds is split into pages of three lines ----
 const LONG_LINE = Array.from({ length: 90 }, (_, i) => `word${i + 1}`).join(' ');
+play('screen readers: a finished line is put into the polite live region as speaker and text', async page => {
+  const live = () => page.locator('#lineLive').textContent();
+  await newGame(page);
+  await textDone(page);
+  await until(page, () => document.getElementById('lineLive').textContent !== '');
+  assert.equal(await live(), (await page.locator('#name').innerText()).trim() ? `${(await page.locator('#name').innerText()).trim()}: ${(await text(page)).replace(/\s+/g, ' ').trim()}` : (await text(page)).replace(/\s+/g, ' ').trim());
+  assert.equal(await page.locator('#lineLive').getAttribute('aria-live'), 'polite');
+  await page.evaluate(() => { document.getElementById('lineLive').textContent = ''; });
+  await page.keyboard.press('Space');
+  await textDone(page);
+  await until(page, () => document.getElementById('lineLive').textContent !== '');
+  assert.notEqual(await live(), '');
+});
+
 play('a long line is split into pages: each fits the box, a click turns the page, the last click moves on', async page => {
   await newGame(page);
   const pages = [];
@@ -1504,6 +1518,239 @@ play('hud: pointing at a HUD button with `on focus` runs its label, leaving it r
   await page.mouse.move(640, 400);
   await until(page, () => !/just a demo/.test(document.querySelector('#hudui')?.textContent ?? ''));
 });
+
+// A quiet `on blur` that hides an element (a bar that closes when the pointer leaves the strip) redraws the HUD under the pointer.
+const HUD_REVEAL = `screen edge:
+  hotspot strip at 0,400 size 40,300 "Items" on focus edge_open on blur edge_close
+  button b1 at 40,400 size 240,80 "Key" if reveal
+  button b2 at 40,500 size 240,80 "Coin" if reveal
+label edge_demo:
+  set reveal = false
+  hud on edge
+  alice: One. #e001
+  alice: Two. #e002
+  end
+label edge_open:
+  set reveal = true
+  return
+label edge_close:
+  set reveal = false
+  return
+`;
+play('hud: an element that a blur handler removes does not break the pointer tracking', async page => {
+  await page.evaluate(l => window.postMessage({ type: 'goto', file: 'edge.vn', line: l }, location.origin), HUD_REVEAL.split('\n').findIndex(l => l.startsWith('label edge_demo')) + 1);
+  await hudUp(page);
+  await until(page, () => /One/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  const ids = () => page.evaluate(() => [...document.querySelectorAll('#hudui [data-id]')].map(e => e.dataset.id));
+  const at = async (x, y) => page.evaluate(([x, y]) => { const r = document.getElementById('hudui').getBoundingClientRect(); return [r.left + r.width * x / 1920, r.top + r.height * y / 1080]; }, [x, y]);
+  await page.mouse.move(...await at(20, 550));
+  await until(page, () => document.querySelectorAll('#hudui [data-id]').length === 3); // the strip reveals the bar
+  await page.mouse.move(...await at(100, 440), { steps: 8 }); // into the bar: the strip's blur closes it
+  await until(page, () => document.querySelectorAll('#hudui [data-id]').length === 1);
+  await page.mouse.move(...await at(900, 100), { steps: 4 });
+  assert.deepEqual(await ids(), ['strip']);
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'edge.vn', text: HUD_REVEAL });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// The same strip with the bar nested in it: moving onto a bar button is still inside the group, so the strip does not blur.
+const HUD_NEST = HUD_REVEAL.replace('on blur edge_close\n', 'on blur edge_close:\n').replace(/\n  button (b[12]) (.*)/g, '\n    button $1 $2');
+play('hud: a bar nested in the hover strip stays open while the pointer is on the strip or a bar button, and closes on leaving the group', async page => {
+  await page.evaluate(l => window.postMessage({ type: 'goto', file: 'edge.vn', line: l }, location.origin), HUD_NEST.split('\n').findIndex(l => l.startsWith('label edge_demo')) + 1);
+  await hudUp(page);
+  await until(page, () => /One/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  const ids = () => page.evaluate(() => [...document.querySelectorAll('#hudui [data-id]')].map(e => e.dataset.id));
+  const at = async (x, y) => page.evaluate(([x, y]) => { const r = document.getElementById('hudui').getBoundingClientRect(); return [r.left + r.width * x / 1920, r.top + r.height * y / 1080]; }, [x, y]);
+  await page.mouse.move(...await at(20, 440));
+  await until(page, () => document.querySelectorAll('#hudui [data-id]').length === 3);
+  await page.mouse.move(...await at(100, 440), { steps: 8 }); // strip -> bar button: the bar stays
+  await until(page, () => document.querySelector('#hudui [data-id="b1"]')?.dataset.active === 'true');
+  assert.deepEqual(await ids(), ['strip', 'b1', 'b2']);
+  assert.equal(await page.locator('#hudui [data-id="strip"]').getAttribute('data-active'), 'true', 'the group stays highlighted');
+  await page.mouse.move(...await at(100, 540), { steps: 1 }); // jump to the second button
+  await until(page, () => document.querySelector('#hudui [data-id="b2"]')?.dataset.active === 'true');
+  assert.deepEqual(await ids(), ['strip', 'b1', 'b2']);
+  await page.mouse.move(...await at(20, 440), { steps: 8 }); // back onto the strip
+  await until(page, () => document.querySelector('#hudui [data-id="strip"]')?.dataset.active === 'true' && document.querySelector('#hudui [data-id="b2"]')?.dataset.active === 'false');
+  assert.deepEqual(await ids(), ['strip', 'b1', 'b2']);
+  await page.mouse.move(...await at(900, 100), { steps: 4 }); // out of the group
+  await until(page, () => document.querySelectorAll('#hudui [data-id]').length === 1);
+  assert.deepEqual(await ids(), ['strip']);
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'edge.vn', text: HUD_NEST });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// A blocking screen with local state: tabs and a hover tooltip redraw it without losing the focused element or the scroll position.
+const STATE_SCREEN = `screen shop:
+  state page = "items"
+  state tip = ""
+  tab items page=items at 80,60 "Items"
+  tab notes page=notes at 400,60 "Notes"
+  scroll at 80,200 size 500,200
+    column at 0,0 gap 10
+      button a1 size 300,60 "One" on focus set tip = "First" on blur set tip = "" if page == "items"
+      button a2 size 300,60 "Two" on focus set tip = "Second" on blur set tip = "" if page == "items"
+      button a3 size 300,60 "Three" if page == "items"
+      button a4 size 300,60 "Four" if page == "items"
+      button a5 size 300,60 "Five" if page == "items"
+      button a6 size 300,60 "Six" if page == "items"
+      text "Nothing written." if page == "notes"
+  text at 80,500 "Tip: [tip]"
+  button done at 1500,900 "Done"
+label state_demo:
+  show screen shop as pick
+  alice: Picked [pick]. #s0001
+  end
+`;
+play('screen state: a tab click and hover handlers redraw a blocking screen in place, keeping focus and scroll', async page => {
+  await page.evaluate(l => window.postMessage({ type: 'goto', file: 'state.vn', line: l }, location.origin), STATE_SCREEN.split('\n').findIndex(l => l.startsWith('label state_demo')) + 1);
+  await screenUp(page);
+  const tip = () => page.locator('#screenui .sc-text').innerText();
+  const checked = id => page.locator(`#screenui [data-id="${id}"]`).getAttribute('data-checked');
+  assert.equal(await checked('items'), 'true');
+  assert.equal(await checked('notes'), 'false');
+  await page.locator('#screenui [data-id="a1"]').hover(); // pointer: focus handler sets the tip
+  await until(page, () => [...document.querySelectorAll('#screenui .sc-text')].some(e => e.textContent === 'Tip: First'));
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.id), 'a1', 'the hovered element keeps focus through the redraw');
+  await page.evaluate(() => { document.querySelector('#screenui .sc-scroll').scrollTop = 40; });
+  await page.locator('#screenui [data-id="a2"]').hover();
+  await until(page, () => [...document.querySelectorAll('#screenui .sc-text')].some(e => e.textContent === 'Tip: Second'));
+  assert.ok(await page.evaluate(() => document.querySelector('#screenui .sc-scroll').scrollTop) >= 30, 'scroll position kept');
+  await page.locator('#screenui [data-id="notes"]').click(); // sets the page: the items go, the notes appear, the screen stays up
+  await until(page, () => !document.querySelector('#screenui [data-id="a1"]') && [...document.querySelectorAll('#screenui .sc-text')].some(e => e.textContent === 'Nothing written.'));
+  assert.equal(await checked('notes'), 'true');
+  assert.equal(await checked('items'), 'false');
+  assert.equal(await page.locator('#screenui').getAttribute('data-visible'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.id), 'notes', 'the clicked tab keeps focus');
+  await page.keyboard.press('Tab'); // keyboard focus counts like hovering: Tab moves native focus to the next element
+  await page.locator('#screenui [data-id="items"]').click();
+  await until(page, () => !!document.querySelector('#screenui [data-id="a1"]'));
+  await page.keyboard.press('Tab');
+  await page.locator('#screenui [data-id="done"]').click(); // a normal button still answers the screen
+  await screenGone(page);
+  await until(page, () => /Picked done/.test(document.getElementById('text').textContent));
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'state.vn', text: STATE_SCREEN });
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// Blocking screens with `inout` parameters: toggle and radio redraw in place, keyboard and pointer operate them, Done writes the values back,
+// and the cancel key discards them (`cancel`), keeps them (`cancel keep`) or does nothing (no `cancel`).
+const INOUT_SCREEN = `screen prefs(inout lamp, inout paper):
+  state tip = ""
+  toggle lamp_t lamp at 80,100 "Lamp" on focus set tip = "Warm" on blur set tip = ""
+  text at 80,500 "Tip: [tip]"
+  radio cream paper=cream at 80,200 "Cream"
+  radio dark paper=dark at 80,300 "Dark"
+  button done at 1500,900 "Done"
+  cancel
+screen prefs_keep(inout lamp, inout paper):
+  toggle lamp_t lamp at 80,100 "Lamp"
+  radio dark paper=dark at 80,300 "Dark"
+  button done at 1500,900 "Done"
+  cancel keep
+screen prefs_none(inout lamp, inout paper):
+  toggle lamp_t lamp at 80,100 "Lamp"
+  button done at 1500,900 "Done"
+label inout_demo:
+  set lamp = false
+  set paper = "cream"
+  show screen prefs(lamp, paper) as pick
+  alice: Result <[pick]> [lamp] [paper]. #s0002
+  end
+label inout_keep:
+  set lamp = false
+  set paper = "cream"
+  show screen prefs_keep(lamp, paper) as pick
+  alice: Kept <[pick]> [lamp] [paper]. #s0003
+  end
+label inout_none:
+  set lamp = false
+  set paper = "cream"
+  show screen prefs_none(lamp, paper) as pick
+  alice: Done <[pick]> [lamp]. #s0004
+  end
+`;
+const inoutRoutes = async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.scripts.push({ file: 'inout.vn', text: INOUT_SCREEN });
+    await route.fulfill({ response: res, json: proj });
+  });
+};
+const gotoInout = async (page, label) => {
+  await page.evaluate(l => window.postMessage({ type: 'goto', file: 'inout.vn', line: l }, location.origin), INOUT_SCREEN.split('\n').findIndex(l => l.startsWith(`label ${label}`)) + 1);
+  await screenUp(page);
+};
+const saidText = (page, re) => until(page, r => new RegExp(r).test(document.getElementById('text').textContent), re.source);
+play('screen inout: toggle and radio are operable by pointer and keyboard, show their state, and Done writes the values back', async page => {
+  await gotoInout(page, 'inout_demo');
+  const attr = (id, a) => page.locator(`#screenui [data-id="${id}"]`).getAttribute(a);
+  assert.equal(await attr('lamp_t', 'role'), 'checkbox');
+  assert.equal(await attr('lamp_t', 'aria-checked'), 'false');
+  assert.equal(await attr('cream', 'role'), 'radio');
+  assert.equal(await attr('cream', 'aria-checked'), 'true');
+  assert.equal(await attr('dark', 'aria-checked'), 'false');
+  await page.locator('#screenui [data-id="lamp_t"]').click(); // pointer
+  await until(page, () => document.querySelector('#screenui [data-id="lamp_t"]')?.getAttribute('aria-checked') === 'true');
+  assert.equal(await attr('lamp_t', 'data-checked'), 'true');
+  assert.equal(await page.locator('#screenui').getAttribute('data-visible'), 'true', 'a toggle does not end the screen');
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.id), 'lamp_t', 'the toggle keeps focus through the redraw');
+  await page.keyboard.press('Enter'); // keyboard: the focused toggle flips back
+  await until(page, () => document.querySelector('#screenui [data-id="lamp_t"]')?.getAttribute('aria-checked') === 'false');
+  await page.keyboard.press('Enter');
+  await until(page, () => document.querySelector('#screenui [data-id="lamp_t"]')?.getAttribute('aria-checked') === 'true');
+  await page.keyboard.press('ArrowDown'); // to the first radio, then the second: Enter picks it
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await until(page, () => document.querySelector('#screenui [data-id="dark"]')?.getAttribute('aria-checked') === 'true');
+  assert.equal(await attr('cream', 'aria-checked'), 'false', 'a radio group has one lit member');
+  await page.locator('#screenui [data-id="done"]').click();
+  await screenGone(page);
+  await saidText(page, /Result <done> true dark\./);
+}, inoutRoutes);
+play('screen inout: cancel discards the changes, cancel keep applies them, a screen without cancel ignores the cancel key', async page => {
+  await gotoInout(page, 'inout_demo');
+  await page.locator('#screenui [data-id="lamp_t"]').click();
+  await page.locator('#screenui [data-id="dark"]').click();
+  await until(page, () => document.querySelector('#screenui [data-id="dark"]')?.getAttribute('aria-checked') === 'true');
+  await page.keyboard.press('Backspace');
+  await screenGone(page);
+  await saidText(page, /Result <> false cream\./);
+  await gotoInout(page, 'inout_keep');
+  await page.locator('#screenui [data-id="lamp_t"]').click();
+  await page.locator('#screenui [data-id="dark"]').click();
+  await until(page, () => document.querySelector('#screenui [data-id="dark"]')?.getAttribute('aria-checked') === 'true');
+  await page.keyboard.press('Backspace');
+  await screenGone(page);
+  await saidText(page, /Kept <> true dark\./);
+  await gotoInout(page, 'inout_none');
+  await page.locator('#screenui [data-id="lamp_t"]').click();
+  await until(page, () => document.querySelector('#screenui [data-id="lamp_t"]')?.getAttribute('aria-checked') === 'true');
+  await page.keyboard.press('Backspace');
+  await page.waitForTimeout(150);
+  assert.equal(await page.locator('#screenui').getAttribute('data-visible'), 'true', 'no cancel declared: the key does nothing');
+  await page.locator('#screenui [data-id="done"]').click();
+  await screenGone(page);
+  await saidText(page, /Done <done> true\./);
+}, inoutRoutes);
 
 play('hud: a mask hotspot in a HUD hits only its opaque pixels and lets other clicks through to the story', async page => {
   await gotoScreens(page, 'hud_demo');

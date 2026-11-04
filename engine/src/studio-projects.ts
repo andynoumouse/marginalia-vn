@@ -69,6 +69,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'textbox off hides the text box while a blocking screen is up.',
     'New projects start from a template (Blank, Classic ADV, Portrait, Kinetic/NVL, Branching, Mystery) with a shared asset pool.',
   ],
+  '0.6': [
+    'Blocking screens can keep local state (state, tab, on click/focus/blur set), take inout parameters, and have toggle and radio elements.',
+    'Screen hotspots and buttons can hold child elements; the active state follows the ancestor chain.',
+    'movie play shows a fullscreen cutscene; multi-line narration and the {speed=} text tag are new. Command arguments are now checked strictly, so a misspelled argument is an error.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

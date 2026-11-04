@@ -36,6 +36,7 @@ const MIME: Record<string, string> = {
   '.json': 'application/json', '.vn': 'text/plain; charset=utf-8', '.src': 'application/json', '.png': 'image/png', '.webp': 'image/webp',
   '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.gif': 'image/gif',
   '.ogg': 'audio/ogg', '.opus': 'audio/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.flac': 'audio/flac',
+  '.webm': 'video/webm', '.mp4': 'video/mp4', '.m4v': 'video/mp4', '.ogv': 'video/ogg',
   '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf', '.psd': 'image/vnd.adobe.photoshop',
 };
 const mimeOf = (p: string) => MIME[/\.[^./]*$/.exec(p)?.[0].toLowerCase() ?? ''] ?? 'application/octet-stream';

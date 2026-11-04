@@ -59,6 +59,7 @@ export const BLIP_PRESETS = ['high', 'mid', 'low', 'soft', 'typewriter', 'robot'
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
+const MOVIE = /\.(webm|mp4|m4v|ogv)$/i;
 
 export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   const out: Diagnostic[] = [];
@@ -78,7 +79,7 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   }));
   const bgs = names('bg', IMAGE);
   for (const f of index.files) if (!f.includes('/') && IMAGE.test(f)) bgs.add(f.replace(/\.[^.]+$/, ''));
-  const music = names('music', AUDIO), sounds = names('sound', AUDIO);
+  const music = names('music', AUDIO), sounds = names('sound', AUDIO), movies = names('movie', MOVIE);
   const charImages = (char: string) => new Set(index.files.flatMap(f => {
     const parts = f.split('/');
     return parts.length === 3 && parts[0] === 'char' && parts[1] === char && IMAGE.test(f) ? [parts[2].replace(/\.[^.]+$/, '')] : [];
@@ -136,6 +137,9 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
       case 'sound':
         if (op.name && !sounds.has(op.name)) warn(op.src, `No sound "${op.name}" in assets/sound`, op.name, sounds);
         break;
+      case 'movie':
+        if (!movies.has(op.name)) warn(op.src, `No movie "${op.name}" in assets/movie`, op.name, movies);
+        break;
     }
   }
 
@@ -175,6 +179,7 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
         if ((n.kind === 'hotspot' || n.kind === 'button') && n.fx.sound && !sounds.has(n.fx.sound)) warn(n.src, `No sound "${n.fx.sound}" in assets/sound (hover sound of ${n.id})`);
         if ((n.kind === 'button' || n.kind === 'text') && n.style) styleProblem(n.src, n.style);
         if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
+        else if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
       }
     };
     walk(def.body);
@@ -329,6 +334,7 @@ export function assetContext(index: AssetIndex): AssetContext {
   for (const f of index.files) {
     if (IMAGE.test(f)) keys.add(f.replace(IMAGE, ''));
     else if (AUDIO.test(f) && f.split('/').length === 2) keys.add(f.replace(AUDIO, ''));
+    else if (MOVIE.test(f) && f.split('/').length === 2) keys.add(f.replace(MOVIE, ''));
     const v = voiceId(f);
     if (v) voices.add(v);
   }
@@ -423,7 +429,8 @@ export function screenAssets(program: Pick<Program, 'screens' | 'items'>, name: 
       else if (n.kind === 'panel') add(n.file);
       else if (n.kind === 'bar') { add(n.back); add(n.fill); }
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.hover) add(n.hover);
-      else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
+      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
+      if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
       else if (n.kind === 'each') { lists = true; walk(n.body); }
     }
   };
@@ -461,6 +468,7 @@ export function opAssets(op: Op, ctx: AssetContext, program?: Pick<Program, 'scr
     case 'say': return op.id && ctx.hasVoice(op.id) ? [VOICE_KEY + op.id] : [];
     case 'music': return op.action === 'play' && op.name && ctx.has(`music/${op.name}`) ? [`music/${op.name}`] : [];
     case 'sound': return op.name && op.action !== 'stop' && ctx.has(`sound/${op.name}`) ? [`sound/${op.name}`] : [];
+    case 'movie': return ctx.has(`movie/${op.name}`) ? [`movie/${op.name}`] : [];
     default: return [];
   }
 }

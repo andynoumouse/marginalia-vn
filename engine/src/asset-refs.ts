@@ -12,18 +12,20 @@ import { movedPath } from './file-ops.js';
  * How a mention names its file: `bg` a background name (`assets/bg/<name>`, or a path from assets/), `image` a path
  * under assets/ with optional extension, `music`/`sound`/`ui` a bare name in that folder.
  */
-export type AssetRefKind = 'bg' | 'image' | 'music' | 'sound' | 'ui';
+export type AssetRefKind = 'bg' | 'image' | 'music' | 'sound' | 'movie' | 'ui';
 
 /** A mention of an asset: 1-based line, 0-based column and length of the name as written, and the key it resolves to. */
 export interface AssetRef { file: string; line: number; col: number; length: number; text: string; kind: AssetRefKind; key: string }
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
+const MOVIE = /\.(webm|mp4|m4v|ogv)$/i;
 const NAME = String.raw`[\w\-.\/]+(?=\s|$)`;
 const RE_SCENE = new RegExp(String.raw`^(\s*scene\s+)(${NAME})`);
 const RE_IMAGE_SHOW = new RegExp(String.raw`^(\s*image\s+show\s+[\w\-]+\s+)(${NAME})`);
 const RE_MUSIC = new RegExp(String.raw`^(\s*music\s+play\s+)(${NAME})`);
 const RE_SOUND = new RegExp(String.raw`^(\s*sound\s+(?:play|loop|stop)\s+)(${NAME})`);
+const RE_MOVIE = new RegExp(String.raw`^(\s*movie\s+play\s+)(${NAME})`);
 // A `define` option naming a file: `image=` of an item (bare or quoted), `blip=` of a character (a sound sample or a voice).
 const RE_OPTION = /(?<![\w])(image|blip)=/g;
 // Screen elements that take a file in quotes: `image "..."`, `mask "..."`, `hover "..."` and `hover sound "..."`.
@@ -56,7 +58,7 @@ function scriptRefs(file: string, text: string, assetFiles?: Set<string>): Asset
       if (m && m[2] !== skip) at(m[1].length, m[2], kind);
       return !!m;
     };
-    if (first(RE_SCENE, 'bg') || first(RE_IMAGE_SHOW, 'image') || first(RE_MUSIC, 'music') || first(RE_SOUND, 'sound', 'fade')) return;
+    if (first(RE_SCENE, 'bg') || first(RE_IMAGE_SHOW, 'image') || first(RE_MUSIC, 'music') || first(RE_SOUND, 'sound', 'fade') || first(RE_MOVIE, 'movie', 'noskip')) return;
     if (/^\s*define\s/.test(code)) {
       RE_OPTION.lastIndex = 0;
       for (let m = RE_OPTION.exec(code); m; m = RE_OPTION.exec(code)) {
@@ -118,7 +120,7 @@ function gameRefs(file: string, text: string, assetFiles?: Set<string>): AssetRe
  * under assets/ (`bg/park.png`); without them a background name is taken to be in bg/.
  */
 export function assetRefs(files: ProjectFile[], assetFiles?: string[]): AssetRef[] {
-  const keys = assetFiles && new Set(assetFiles.map(f => stemOf(stemOf(f, IMAGE), AUDIO)));
+  const keys = assetFiles && new Set(assetFiles.map(f => stemOf(stemOf(stemOf(f, IMAGE), AUDIO), MOVIE)));
   return files.flatMap(f => f.name.endsWith('.vn') ? scriptRefs(f.name, f.text, keys)
     : f.name === 'game.json' || f.name.endsWith('/game.json') || isThemeFile(f.name) ? gameRefs(f.name, f.text, keys) : []);
 }
@@ -149,7 +151,7 @@ export function renameAssetRefs(files: ProjectFile[], from: string, to: string, 
   const out: AssetRename = { edits: [], stranded: [] };
   if (!from.startsWith('assets/') || !to.startsWith('assets/')) return out;
   const rel = (p: string) => p.slice('assets/'.length);
-  const strip = (p: string) => isDir ? p : stemOf(stemOf(p, IMAGE), AUDIO);
+  const strip = (p: string) => isDir ? p : stemOf(stemOf(stemOf(p, IMAGE), AUDIO), MOVIE);
   const a = strip(rel(from)), b = strip(rel(to));
   if (a === b) return out;
   for (const r of assetRefs(files, assetFiles)) {

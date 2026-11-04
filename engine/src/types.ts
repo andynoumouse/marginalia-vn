@@ -80,12 +80,13 @@ export type VisualBody =
   | { op: 'image'; action: 'move'; name: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
   | { op: 'music'; action: 'play' | 'stop' | 'pause' | 'resume'; name: string | null; loop: boolean; fade: number }
   | { op: 'sound'; action: 'play' | 'loop' | 'stop'; name: string | null; fade: number; duck?: boolean }
+  | { op: 'movie'; name: string; noskip: boolean }
   | { op: 'wait'; dur: number };
 
 export type ControlBody =
   | { op: 'say'; who: string | null; text: string; id: string | null; /** `style=<name>` on the line: a theme style for it alone */ look?: string }
   | { op: 'menu'; prompt: string | null; promptId: string | null; look?: string; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: number }
-  | { op: 'screen'; name: string; as: string; /** values for the screen's parameters, evaluated each time the screen is drawn */ args?: Expr[] } // show a declared screen and store the id of the element the player chose
+  | { op: 'screen'; name: string; as: string; /** values for the screen's parameters, evaluated each time the screen is drawn */ args?: Expr[]; /** per parameter, the story variable an \`inout\` parameter is written back to (set by compile) */ outs?: (string | null)[] } // show a declared screen and store the id of the element the player chose
   | { op: 'input'; name: string; prompt: string; id: string | null; default: string; max: number } // ask the player for text, stored in a variable
   | { op: 'set'; name: string /* or persistent.<name> */; assign: '=' | '+=' | '-=' | '*=' | '/='; expr: Expr }
   | { op: 'jump'; label: string; target: number }
@@ -227,12 +228,21 @@ export interface Renderer {
   menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<number>;
   /** Ask for a line of text; resolve with the answer. */
   input(prompt: string, def: string, max: number, src: Src): Promise<string>;
-  /** Show a screen and wait; resolve with the id of the chosen element ("" = cancelled). */
-  screen(view: ScreenView, src: Src): Promise<string>;
+  /**
+   * Show a screen and wait; resolve with the id of the chosen element ("" = cancelled). A screen with local `state` gets `live`: an element's
+   * `on click|focus|blur set` handler (ViewItem.sets) calls `live.set(name, value)` and the screen is drawn again from the view it returns.
+   */
+  screen(view: ScreenView, src: Src, live?: ScreenLive): Promise<string>;
   end(): void;
 }
 
 /** What the player answered at a menu (option index), an input (text) or a screen (element id), or the HUD event taken at a safe point; replayed in order by restore(). */
-export type Answer = number | string | { hud: string; on: string }; // a HUD event is recorded where it was taken, in order with the other answers
+export type Answer = number | string | Value[] | { hud: string; on: string }; // a HUD event is recorded where it was taken, in order with the other answers; a screen with inout parameters records [answer, ...returned values]
+
+/** The local state of a blocking screen that is up, kept in a save (and a reload) so that restoring reopens it as the player left it: its `state`s and inout values. */
+export interface ScreenSnap { at: Src; name: string; local: Vars }
+
+/** What a renderer calls when a handler changes the local state of the screen it shows; returns the screen as it looks now. */
+export interface ScreenLive { set(name: string, value: Value): ScreenView }
 
 export type Vars = Record<string, Value>;

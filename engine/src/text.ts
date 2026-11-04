@@ -2,7 +2,7 @@ import type { Value } from './expr.js';
 
 export type TextFx = 'shake' | 'wave';
 export type Segment =
-  | { kind: 'text'; text: string; italic: boolean; bold: boolean; color?: string; size?: number; fx?: TextFx; ruby?: string }
+  | { kind: 'text'; text: string; italic: boolean; bold: boolean; color?: string; size?: number; fx?: TextFx; ruby?: string; speed?: number }
   | { kind: 'pause'; seconds: number }
   | { kind: 'wait' }  // {wait}: stop typing until the player clicks
   | { kind: 'next' }; // {nw}: go on to the next line by itself once the text is shown
@@ -63,13 +63,14 @@ const COLOR = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
 /**
  * Split text into styled runs and timing marks:
  *   {i}{/i} {b}{/b} {color=#ff6fa5}{/color} {size=1.4}{/size} {shake}{/shake} {wave}{/wave} {ruby=reading}base{/ruby}
+ *   {speed=0.5}{/speed} (typing speed multiplier)
  *   {pause=0.5} {wait} (until click) {nw} (continue without a click)
  * Anything else in braces is shown as written.
  */
 export function parseRich(text: string): Segment[] {
   const segs: Segment[] = [];
   let italic = false, bold = false, buf = '', last = 0;
-  let color: string | undefined, size: number | undefined, fx: TextFx | undefined, ruby: string | undefined;
+  let color: string | undefined, size: number | undefined, fx: TextFx | undefined, ruby: string | undefined, speed: number | undefined;
   const flush = () => {
     if (!buf) return;
     const seg: Segment = { kind: 'text', text: buf, italic, bold };
@@ -77,14 +78,15 @@ export function parseRich(text: string): Segment[] {
     if (size) seg.size = size;
     if (fx) seg.fx = fx;
     if (ruby) seg.ruby = ruby;
+    if (speed) seg.speed = speed;
     segs.push(seg);
     buf = '';
   };
-  const re = /\{(?:(\/?)(i|b|color|size|shake|wave|ruby)(?:=([^{}]*))?|pause=([0-9]*\.?[0-9]+)|(wait|nw))\}/g;
+  const re = /\{(?:(\/?)(i|b|color|size|shake|wave|ruby|speed)(?:=([^{}]*))?|pause=([0-9]*\.?[0-9]+)|(wait|nw))\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const [all, close, tag, arg, pause, mark] = m;
-    const bad = tag && !close && (tag === 'color' ? !COLOR.test(arg ?? '') : tag === 'size' ? !(Number(arg) > 0) : tag === 'ruby' ? !arg : arg !== undefined);
+    const bad = tag && !close && (tag === 'color' ? !COLOR.test(arg ?? '') : tag === 'size' || tag === 'speed' ? !(Number(arg) > 0) : tag === 'ruby' ? !arg : arg !== undefined);
     const stray = tag && close && arg !== undefined;
     if (bad || stray) continue; // not a tag we know: stays in the text
     buf += text.slice(last, m.index);
@@ -97,6 +99,7 @@ export function parseRich(text: string): Segment[] {
     else if (tag === 'color') color = close ? undefined : arg;
     else if (tag === 'size') size = close ? undefined : Number(arg);
     else if (tag === 'ruby') ruby = close ? undefined : arg;
+    else if (tag === 'speed') speed = close ? undefined : Number(arg);
     else fx = close ? undefined : (tag as TextFx);
   }
   buf += text.slice(last);

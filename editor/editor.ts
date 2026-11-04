@@ -178,8 +178,9 @@ function registerLanguage() {
         startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
         startColumn: word.startColumn, endColumn: word.endColumn,
       };
+      const above = model.getLinesContent().slice(Math.max(0, position.lineNumber - 13), position.lineNumber - 1);
       return {
-        suggestions: getCompletions(program, prefix, liveRigs()).map((s, i) => ({
+        suggestions: getCompletions(program, prefix, liveRigs(), above).map((s, i) => ({
           label: s.label,
           kind: kinds[s.kind] ?? K.Text,
           detail: s.detail,

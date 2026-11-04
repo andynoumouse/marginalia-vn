@@ -105,8 +105,8 @@ export type ScreenNode = Common & (
   | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string }
   /** A range input bound to a player setting (options screen). */
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
-  | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; enabled: Expr | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null }
-  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string }
+  | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; enabled: Expr | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null; sets?: LocalSets; /** elements shown with it, in stage coordinates: the group stays active while any of them is */ body?: ScreenNode[] }
+  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string; sets?: LocalSets; bind?: Bind; body?: ScreenNode[] }
   /** One copy of the body per entry of the list variable; offsets are `at` plus the entry's number times `step`. */
   | { kind: 'each'; list: string; as: string; x: number; y: number; dx: number; dy: number; /** at most this many entries are drawn */ limit: number | null; body: ScreenNode[] }
   /** A clipped box that scrolls its children, placed relative to its top left (so they need no stage coordinates). */
@@ -122,8 +122,17 @@ export type ScreenNode = Common & (
   | { kind: 'bar'; x: number; y: number; w: number; h: number; value: Expr; min: Expr; max: Expr; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; readout: boolean }
 );
 
+/** What a `tab`, `toggle` or `radio` sets: the local state it is bound to and, for a tab or radio, the word it sets (a toggle flips the state). */
+export interface Bind { role: 'tab' | 'toggle' | 'radio'; name: string; value: Value | null }
+
 /** The nodes inside an `each`, a layout, a scroll area or a panel. */
-export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel' ? n.body : []);
+export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel' ? n.body : n.kind === 'hotspot' || n.kind === 'button' ? n.body ?? [] : []);
+/** Inline handlers of an element, `on click set tip = "x"`: a change to the screen's local state, per event. */
+export type LocalSets = Partial<Record<HudEvent, { name: string; expr: Expr }>>;
+/** The same handlers resolved against the current state: the state to set and the value it gets. */
+export type ViewSets = Partial<Record<HudEvent, [string, Value]>>;
+/** A `state <name> = <expr>` declaration of a screen. */
+export interface StateDecl { name: string; expr: Expr; src: Src }
 export interface ScreenDef {
   name: string;
   src: Src;
@@ -136,6 +145,19 @@ export interface ScreenDef {
   hideBox?: boolean;
   /** `screen room(name, floor):` parameter names; `show screen room("hall", 2)` binds them for that showing. */
   params?: string[];
+  /** Names of the parameters declared `inout` (a subset of `params`): copied in from the story variable the call names, written back when the screen answers. */
+  inout?: string[];
+  /** Declared `cancel keep`: the cancel key answers "" but the `inout` changes are applied (bare `cancel` discards them). */
+  cancelKeep?: boolean;
+  /** `state` declarations in order: the local state the screen starts with (a blocking screen only keeps it while it is up). */
+  states?: StateDecl[];
+}
+
+/** The local state a screen starts with: each `state` evaluated in order, with the story variables, the parameters and the earlier states in scope. */
+export function initialState(def: ScreenDef | undefined, vars: Vars): Vars {
+  const out: Vars = {};
+  for (const d of def?.states ?? []) out[d.name] = evalExpr(d.expr, { ...vars, ...out });
+  return out;
 }
 
 /** The parameters of `def` bound to the values of the `show screen` arguments, as extra variables for drawing it. */
@@ -154,7 +176,7 @@ export type ViewPart = (
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number }
   | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge }
   | { kind: 'bar'; x: number; y: number; w: number; h: number; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; value: number; min: number; max: number; /** 0..1 */ fraction: number; /** "37 / 100" with `readout` */ readout: string | null }
-  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null }
+  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null; /** `on click|focus|blur set`: the local state each event sets (the screen redraws; a click here does not answer the screen) */ sets?: ViewSets; /** a `tab`, `toggle` or `radio`: lit (`checked`) while its state holds its word (a toggle: while it is true) */ role?: 'tab' | 'toggle' | 'radio'; checked?: boolean; /** id of the element this one is a child of (`hotspot ...:` with a body), else absent */ parent?: string }
 ) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number };
 export type ViewItem = Extract<ViewPart, { id: string }>;
 export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean; /** `textbox off`: the shell hides the text box while the screen is up */ hideBox?: true }
@@ -275,7 +297,7 @@ export function hudLabels(def: ScreenDef | undefined): string[] {
   const walk = (nodes: ScreenNode[]) => {
     for (const n of nodes) {
       if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
-      else if (n.kind === 'hotspot' || n.kind === 'button') for (const l of Object.values(n.on)) out.add(l);
+      else if (n.kind === 'hotspot' || n.kind === 'button') { for (const l of Object.values(n.on)) out.add(l); if (n.body) walk(n.body); }
     }
   };
   if (def) walk(def.body);
@@ -354,7 +376,8 @@ function layoutGroups(n: Extract<ScreenNode, { kind: 'layout' }>, groups: ViewPa
 // ---- resolution ----
 
 export const pickables = (view: ScreenView): ViewItem[] => view.parts.filter((p): p is ViewItem => 'id' in p);
-export const enabledItems = (view: ScreenView): ViewItem[] => pickables(view).filter(p => p.enabled);
+/** The enabled elements that answer the screen when chosen (an element with `on click set` only changes local state). */
+export const enabledItems = (view: ScreenView): ViewItem[] => pickables(view).filter(p => p.enabled && !p.sets?.click);
 
 /** Whether the screen waits for the player: something can be chosen, or the player can cancel out. */
 export const blocks = (view: ScreenView) => view.cancel || enabledItems(view).length > 0;
@@ -371,6 +394,20 @@ export function replayAnswer(view: ScreenView, recorded: Value | undefined): str
   const id = String(recorded);
   if (id === '' ? view.cancel : enabledItems(view).some(p => p.id === id)) return id;
   return defaultAnswer(view);
+}
+
+/** Whether a value recorded for `inout` parameter `name` still fits the screen: the type of its current value, and a word one of its radios sets. */
+export function fitsInout(def: ScreenDef, name: string, recorded: Value | undefined, current: Value): boolean {
+  if (recorded === undefined || Array.isArray(recorded) !== Array.isArray(current) || typeof recorded !== typeof current) return false;
+  const words: Value[] = [];
+  const find = (nodes: ScreenNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === 'button' && n.bind?.role === 'radio' && n.bind.name === name) words.push(n.bind.value!);
+      find(childNodes(n));
+    }
+  };
+  find(def.body);
+  return !words.length || words.includes(recorded);
 }
 
 /** Evaluates the screen's conditions and fills in its text for the current variables. Never draws and never changes anything. */
@@ -398,6 +435,24 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
     }
     return groups;
   };
+  /** The body of a hotspot or button that was just pushed as the last part: drawn after it, in the same coordinates, each child marked with its parent's id. */
+  const children = (n: ScreenNode, vars: Vars, ox: number, oy: number, loop: string | null, parts: ViewPart[]) => {
+    if ((n.kind !== 'hotspot' && n.kind !== 'button') || !n.body?.length) return;
+    const owner = parts[parts.length - 1] as ViewItem;
+    const inner: ViewPart[] = [];
+    walk(n.body, vars, ox, oy, loop, inner);
+    for (const p of inner) parts.push('id' in p && p.parent === undefined ? { ...p, parent: owner.id } : p);
+  };
+  /** What an element adds to its part for local state: its handlers evaluated now, and a tab's lit state. */
+  const local = (n: Extract<ScreenNode, { kind: 'hotspot' | 'button' }>, vars: Vars) => {
+    const sets: ViewSets = {};
+    for (const [e, h] of Object.entries(n.sets ?? {})) sets[e as HudEvent] = [h.name, evalExpr(h.expr, vars)];
+    const bind = n.kind === 'button' ? n.bind : undefined;
+    if (!bind) return Object.keys(sets).length ? { sets } : {};
+    const checked = bind.role === 'toggle' ? truthy(vars[bind.name] ?? false) : vars[bind.name] === bind.value;
+    sets.click = [bind.name, bind.role === 'toggle' ? !checked : bind.value!];
+    return { sets, role: bind.role, checked };
+  };
   const walk = (nodes: ScreenNode[], vars: Vars, ox: number, oy: number, loop: string | null, parts: ViewPart[]) => {
     /** Inside `each`, an element named like the loop variable stands for the entry itself. */
     const elementId = (id: string) => (id === loop ? String(vars[loop]) : id);
@@ -421,8 +476,9 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           const shape = translate(n.shape, ox, oy);
           parts.push({
             kind: 'hotspot', id: elementId(n.id), shape, label: env.text(n.labelId, n.label, vars),
-            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: n.cursor, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: n.tip, bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act,
+            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: n.cursor, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: n.tip, bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act, ...local(n, vars),
           });
+          children(n, vars, ox, oy, loop, parts);
           break;
         }
         case 'button': {
@@ -431,8 +487,9 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           const shape: Shape = { k: 'rect', x: n.x + ox, y: n.y + oy, w: n.w ?? size.w, h: n.h ?? size.h };
           parts.push({
             kind: 'button', id: elementId(n.id), shape, label,
-            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, ...(n.style ? { style: n.style } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act,
+            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, ...(n.style ? { style: n.style } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act, ...local(n, vars),
           });
+          children(n, vars, ox, oy, loop, parts);
           break;
         }
         case 'each': {
@@ -521,6 +578,7 @@ export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE)
       }
       if (area && n.kind === 'hotspot' && (n.shape.k === 'poly' || n.shape.k === 'mask')) problem(n.src, 'error', 'A poly or mask hotspot cannot be inside a scroll area (use a rect or ellipse)');
       if (area && n.kind === 'slider') problem(n.src, 'error', 'A slider cannot be inside a scroll area');
+      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body?.length && loop !== null) problem(n.src, 'error', `"${n.id}" has child elements, which "each" cannot repeat (every copy would share the children's ids); put the group outside the each`);
       if (n.kind === 'hotspot' || n.kind === 'button') {
         interactive++;
         if (loop !== null && n.id !== loop) problem(n.src, 'error', `Inside "each", the element id must be "${loop}" (the entry), or every copy would share one id`);
@@ -540,6 +598,7 @@ export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE)
       if (n.kind === 'button' && loop === null && (n.x < 0 || n.y < 0 || n.x > stage.width || n.y > stage.height)) {
         problem(n.src, 'warning', `Button "${n.id}" is outside the ${stageLabel(stage)} stage (coordinates are stage pixels)`);
       }
+      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body?.length) walk(n.body, loop, area, nested);
     }
   };
   walk(def.body, null);

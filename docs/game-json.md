@@ -143,6 +143,13 @@ for a moment at the top of the stage. The text is the entry for that sound name 
 made readable (`glass_break` shows `[glass break]`). An empty string gives that sound no caption. Entries that are not
 text are ignored with a warning. Only `sound play` is captioned, not music or text blips.
 
+## Screen reader dialogue
+
+Options, Accessibility, "Screen reader reads dialogue" (on by default; needs nothing in game.json). Each dialogue line
+is put into a polite live region once it is shown in full, as the speaker's name, a colon and the text without tags
+(`Mina: Hello there.`), not letter by letter. A line that runs over several pages is read whole when its first page is
+complete. Lines passed by skipping are not read.
+
 ## intro
 
 `"intro": "opening"` plays `label opening:` from your scripts as a cutscene when the game starts, then the title screen

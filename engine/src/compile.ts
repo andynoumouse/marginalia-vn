@@ -34,6 +34,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
   const maybeList = new Set<string>(); // set to something that is not a plain number, string or boolean
   /** `local` is a loop variable of a screen's `each` (and its `.name`, `.image`, `.index`): not a story variable. */
   const exprs: { e: Expr; src: Src; local?: Set<string> }[] = [];
+  const stateDecls: { name: string; src: Src }[] = [];
   const eachLists: { list: string; src: Src }[] = [];
 
   const diag = (src: Src, severity: 'error' | 'warning', message: string) =>
@@ -156,8 +157,12 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
             exprs.push({ e, src: n.src, local });
             if (usesRandom(e)) diag(n.src, 'error', 'random(), pick() and chance() cannot be used in a screen condition (set a variable first)');
           }
-          if (n.kind === 'hotspot' || n.kind === 'button') registerString(n.src, n.labelId, n.label);
-          else if (n.kind === 'text') registerString(n.src, n.id, n.text);
+          if (n.kind === 'hotspot' || n.kind === 'button') {
+            registerString(n.src, n.labelId, n.label);
+            for (const h of Object.values(n.sets ?? {})) exprs.push({ e: h.expr, src: n.src, local });
+          }
+          if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body, local);
+          if (n.kind === 'text') registerString(n.src, n.id, n.text);
           else if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body, local);
           else if (n.kind === 'bar') for (const e of [n.value, n.min, n.max]) exprs.push({ e, src: n.src, local });
           else if (n.kind === 'each') {
@@ -168,7 +173,11 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
       };
       // the shell fills these in on the options and saves screens: they are not story variables
       // (and its parameters, bound by `show screen name(...)`)
-      walk(sc.body, new Set([...shellVars(sc.name), ...(sc.params ?? [])]));
+      // a local `state` is read inside the screen, and hides a story variable of the same name
+      const names = new Set([...shellVars(sc.name), ...(sc.params ?? []), ...(sc.states ?? []).map(d => d.name)]);
+      for (const d of sc.states ?? []) exprs.push({ e: d.expr, src: d.src, local: new Set([...shellVars(sc.name), ...(sc.params ?? []), ...(sc.states ?? []).filter(o => o !== d).map(o => o.name)]) });
+      stateDecls.push(...(sc.states ?? []));
+      walk(sc.body, names);
     }
   }
 
@@ -207,6 +216,8 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
       }
     } else if (op.op === 'hud' && !(op.name in screens)) {
       diagnostics.push(withFix(op.src, 'error', `Unknown screen "${op.name}"`, op.name, Object.keys(screens), ` (declare it with "screen ${op.name}:")`));
+    } else if (op.op === 'hud' && op.mode === 'on' && screens[op.name].states?.length) {
+      diag(op.src, 'error', `"${op.name}" declares local state, which only a blocking "show screen" keeps; a HUD cannot use it`);
     } else if (op.op === 'hud' && op.mode === 'on' && screens[op.name].params?.length) {
       diag(op.src, 'error', `"${op.name}" takes parameters (${screens[op.name].params!.join(', ')}), and a HUD has no arguments to give them; show it with "show screen"`);
     } else if (op.op === 'screen' && !(op.name in screens)) {
@@ -214,6 +225,15 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
     } else if (op.op === 'screen') {
       const want = screens[op.name].params ?? [], got = op.args?.length ?? 0;
       if (got !== want.length) diag(op.src, 'error', `Screen "${op.name}" takes ${want.length} argument${want.length === 1 ? '' : 's'}${want.length ? ` (${want.join(', ')})` : ''}, but show screen gives ${got}`);
+      else if (screens[op.name].inout?.length) {
+        op.outs = want.map((p, i) => {
+          if (!screens[op.name].inout!.includes(p)) return null;
+          const a = op.args![i];
+          if (a.t !== 'var' || a.name.startsWith('unlocked.')) { diag(op.src, 'error', `"${p}" is an inout parameter of screen ${op.name}: the argument must be a plain variable name (or a persistent. one), which the screen writes back to`); return null; }
+          if (a.name.startsWith('persistent.')) persisted.add(a.name.slice('persistent.'.length)); else assigned.add(a.name);
+          return a.name;
+        });
+      }
     }
   }
 
@@ -222,6 +242,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
     for (const n of nodes) {
       if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') checkHandlers(n.body);
       else if (n.kind === 'hotspot' || n.kind === 'button') {
+        if (n.body) checkHandlers(n.body);
         for (const [event, label] of Object.entries(n.on)) if (!(label in labels)) diagnostics.push(withFix(n.src, 'error', `Unknown label "${label}" (on ${event} of ${n.id})`, label, Object.keys(labels)));
       }
     }
@@ -232,6 +253,7 @@ export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSI
   diagnostics.push(...stackedShows(ops, Object.keys(characters)));
 
   // 4. variable sanity check
+  for (const d of stateDecls) if (assigned.has(d.name)) diag(d.src, 'warning', `state ${d.name} hides the story variable ${d.name} inside this screen`);
   for (const { list, src } of eachLists) {
     if (!maybeList.has(list)) diag(src, 'warning', `"${list}" is used as a list but never set to one (add "set ${list} = []" somewhere)`);
   }

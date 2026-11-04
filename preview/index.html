@@ -104,6 +104,11 @@
     border-radius: var(--vn-radius, 8px); color: inherit; font-family: var(--vn-font); cursor: pointer; }
   #screenui .sc-btn:hover, #screenui .sc-btn[data-active="true"] { border-color: var(--vn-accent); }
   #screenui .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
+  #screenui .sc-btn[data-checked="true"] { border-color: var(--vn-accent); background: color-mix(in srgb, var(--vn-accent) 22%, var(--vn-surface)); }
+  #screenui .sc-btn[data-bind="toggle"]::before, #screenui .sc-btn[data-bind="radio"]::before { content: "\2610"; margin-right: .4em; }
+  #screenui .sc-btn[data-bind="toggle"][data-checked="true"]::before { content: "\2611"; }
+  #screenui .sc-btn[data-bind="radio"]::before { content: "\25CB"; }
+  #screenui .sc-btn[data-bind="radio"][data-checked="true"]::before { content: "\25C9"; }
   #screenui .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
   #screenui .sc-hover[hidden] { display: none; }
   #screenui [data-hover][data-active="true"], #screenui .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
@@ -200,6 +205,9 @@
   #splashImg[hidden] { display: none; }
   #splashText { margin: 0; padding: 0 120px; font: 600 64px/1.2 var(--vn-font); color: #fff; text-align: center; }
   #splashText:empty { display: none; }
+  #movie { position: absolute; inset: 0; background: #000; z-index: 45; display: none; }
+  #movie[data-show="true"] { display: block; }
+  #movie video { width: 100%; height: 100%; object-fit: contain; }
   #curtain { position: absolute; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 40; transition: opacity .4s; }
   #curtain[data-show="true"] { opacity: 1; pointer-events: auto; }
   .screen.dim { background: rgba(4,6,10,.62); }
@@ -438,8 +446,10 @@
       <div id="achToast" role="status" data-position="topright"><div class="ach-icon"></div><div><div id="achToastHead"></div><div id="achToastTitle"></div><div id="achToastText"></div></div></div>
       <div id="achtoastui" data-visible="false"></div>
       <div id="menuLive" class="sr-only" role="status"></div>
+      <div id="lineLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="caption" role="status" aria-live="polite"></div>
       <div id="loading" role="progressbar" aria-label="Loading"><i></i></div>
+      <div id="movie" data-show="false"></div>
       <div id="curtain" aria-hidden="true"></div>
       <div id="splash" hidden aria-label="Splash"><div id="splashImg"></div><p id="splashText"></p></div>
 
@@ -525,6 +535,10 @@
               <label for="optCaptions" data-ui="sound_captions">Sound captions</label>
               <select id="optCaptions">
                 <option value="off" data-ui="off">Off</option><option value="on" data-ui="on">On</option>
+              </select><span></span>
+              <label for="optAnnounce" data-ui="announce_lines">Screen reader reads dialogue</label>
+              <select id="optAnnounce">
+                <option value="on" data-ui="on">On</option><option value="off" data-ui="off">Off</option>
               </select><span></span>
               <label for="optTimed" data-ui="timed_choices">Timed choices</label>
               <select id="optTimed">

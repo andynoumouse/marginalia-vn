@@ -4,7 +4,7 @@
 // "active" element; directional focus uses the engine's focusMove on the shapes' centres.
 
 import { W, H } from './stage-size.js';
-import { focusMove, parseRich, sliderReadout, sliceDecls, pickables, defaultAnswer, shiftPart, type FrameEdge, type ScreenView, type Sides, type ViewItem, type ViewPart } from '../engine/src/index.js';
+import { focusMove, parseRich, sliderReadout, sliceDecls, pickables, defaultAnswer, shiftPart, type FrameEdge, type ScreenLive, type ScreenView, type Sides, type ViewItem, type ViewPart } from '../engine/src/index.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const px = (n: number) => `${n}px`;
@@ -17,6 +17,8 @@ function frame(el: HTMLElement, url: string, slice: Sides, edge: FrameEdge) {
 /** Alpha channel of a mask image, as a lookup by stage point; null while it can't be read (the box is used then). */
 interface Mask { w: number; h: number; alpha: Uint8ClampedArray }
 const masks = new Map<string, Promise<Mask | null>>();
+/** Masks that have been read (null: unreadable), for a redraw that needs them at once. */
+const masksRead = new Map<string, Mask | null>();
 function loadMask(url: string): Promise<Mask | null> {
   let p = masks.get(url);
   if (!p) {
@@ -38,6 +40,7 @@ function loadMask(url: string): Promise<Mask | null> {
       img.src = url;
     });
     masks.set(url, p);
+    void p.then(m => masksRead.set(url, m));
   }
   return p;
 }
@@ -50,17 +53,44 @@ export class ScreenLayer {
   private hovers: (HTMLImageElement | null)[] = [];
   private maskData = new Map<number, Mask | null>();
   private cur = -1;
+  /** The element the last pointer press landed on (see the pointerup listener of the root). */
+  private down: { id: string | null; el: Node | null } = { id: null, el: null };
+  /** Set by a redraw: the pointerenter the browser sends for the element now under a resting mouse is not the player's move (it would take focus back from the keyboard); a real one has some movement. */
+  private quiet = false;
   private done: ((id: string) => void) | null = null;
   /** Set for a HUD (`mount`): choosing an element reports it here and the screen stays up. */
   private onChoose: ((id: string, on: string) => void) | null = null;
   private tip = document.createElement('div');
+  /** A screen with local `state`: a handler's change goes through here and the screen is drawn again from the view it returns (`show`). */
+  private live: ScreenLive | null = null;
+  private urlOf: (file: string) => string | null = () => null;
+  private viewKey = '';
+  /** True while a redraw replaces the elements: the focus and blur that causes are not the player's. */
+  private redrawing = false;
   /** A `slider` was moved (options screen): the setting it is bound to and its new value. */
   onSlider: (setting: string, value: number) => void = () => {};
 
   constructor(readonly root: HTMLElement, private playSound: (name: string) => void = () => {}) {
     this.tip.className = 'sc-tip';
+    root.addEventListener('pointerdown', e => { this.down = { id: (e.target as Element | null)?.closest?.<HTMLElement>('[data-id]')?.dataset.id ?? null, el: e.target as Node }; }, true);
+    // A press can focus an element whose `on focus set` handler redraws the screen: the pressed element is replaced, so the browser sends
+    // no click. The release over the new copy of the same element counts as the click.
+    root.addEventListener('pointerup', e => {
+      const { id, el } = this.down;
+      this.down = { id: null, el: null };
+      if (!this.live || id === null || !el || el.isConnected) return;
+      const i = this.itemAt(e.target);
+      if (i >= 0 && this.items[i].id === id && this.items[i].enabled) this.pick(i);
+    }, true);
     root.addEventListener('click', e => { e.stopPropagation(); const i = this.hoverMask; if (i >= 0) this.pick(i); });
-    root.addEventListener('pointermove', e => this.moveMask(e));
+    root.addEventListener('pointermove', e => {
+      if (this.quiet && (e.movementX !== 0 || e.movementY !== 0)) { // a real move after a redraw: hover what the pointer is on now
+        this.quiet = false;
+        const i = this.itemAt(e.target);
+        if (i >= 0 && i !== this.cur && this.items[i].enabled) this.setActive(i);
+      }
+      this.moveMask(e);
+    });
     root.addEventListener('pointerleave', () => { if (this.hoverMask >= 0) { this.hoverMask = -1; this.setActive(-1); } });
   }
 
@@ -68,7 +98,7 @@ export class ScreenLayer {
   private hoverMask = -1;
 
   /** Show the screen and resolve with the id of the element picked ("" for cancel). `urlOf` maps an image file to a URL (null: not there). */
-  async show(view: ScreenView, urlOf: (file: string) => string | null): Promise<string> {
+  async show(view: ScreenView, urlOf: (file: string) => string | null, live?: ScreenLive): Promise<string> {
     this.close();
     this.items = pickables(view);
     // Mask images are read before the screen appears, so the first pointer move can already be tested.
@@ -76,6 +106,9 @@ export class ScreenLayer {
     const loaded = await Promise.all(maskUrls.map(u => (u ? loadMask(u) : Promise.resolve(null))));
     return new Promise<string>(resolve => {
       this.view = view;
+      this.live = live ?? null;
+      this.urlOf = urlOf;
+      this.viewKey = live ? JSON.stringify(view) : '';
       this.done = resolve;
       this.cur = -1;
       this.hoverMask = -1;
@@ -104,7 +137,7 @@ export class ScreenLayer {
     this.root.dataset.visible = 'true';
     this.tip.dataset.show = 'false';
     this.placeScroll(view, scrolled);
-    if (this.cur >= 0) this.els[this.cur].dataset.active = 'true';
+    this.paint();
     // Mask images are read in the background; until one is there it hits nothing. data-masks says when all are in (tests wait on it).
     const reads = this.items.map((it, i) => {
       const u = it.shape.k === 'mask' ? urlOf(it.shape.file) : null;
@@ -132,8 +165,8 @@ export class ScreenLayer {
    */
   pointerOver(target: EventTarget | null) {
     if (this.cur < 0 || this.hoverMask >= 0) return;
-    const el = this.els[this.cur];
-    if (!el.contains(target as Node) && document.activeElement !== el) this.setActive(-1);
+    const group = this.chainOf(this.cur).map(k => this.els[k]);
+    if (!group.some(el => el.contains(target as Node)) && !group.includes(document.activeElement as HTMLElement)) this.setActive(-1);
   }
 
   /** HUD: a click at this stage point lands on a `mask` hotspot with `on click`: choose it and say so. */
@@ -152,11 +185,56 @@ export class ScreenLayer {
     return -1;
   }
 
+  /** The pictures a handler's new state needs have loaded: draw the screen once more. */
+  refresh() {
+    if (this.view && this.live) this.redraw(this.view);
+  }
+
+  /** The screen as it looks after local state changed. The active element, DOM focus and scroll positions stay where they were. */
+  private redraw(view: ScreenView) {
+    const kept = this.items[this.cur]?.id, hovered = this.items[this.hoverMask]?.id;
+    const focused = this.root.contains(document.activeElement);
+    const scrolled = this.scrollSnapshot();
+    this.redrawing = true;
+    this.quiet = true;
+    try {
+      this.view = view;
+      this.viewKey = JSON.stringify(view);
+      this.items = pickables(view);
+      this.els = [];
+      this.hovers = [];
+      this.cur = this.items.findIndex(it => it.id === kept && it.enabled);
+      this.hoverMask = hovered === undefined ? -1 : this.items.findIndex(it => it.id === hovered);
+      this.maskData.clear();
+      this.items.forEach((it, i) => {
+        const u = it.shape.k === 'mask' ? this.urlOf(it.shape.file) : null;
+        if (!u) return;
+        if (masksRead.has(u)) this.maskData.set(i, masksRead.get(u)!);
+        else void loadMask(u).then(m => { if (this.view === view) this.maskData.set(i, m); });
+      });
+      this.root.replaceChildren(...this.draw(view, this.urlOf), this.tip);
+      this.placeScroll(view, scrolled);
+      this.paint();
+      if (focused && this.cur >= 0) this.els[this.cur].focus({ preventScroll: true });
+    } finally {
+      this.redrawing = false;
+    }
+  }
+
+  /** An element's inline handler for `on` ran: set the local state and draw again if the screen came out different. */
+  private local(id: string, on: string) {
+    const set = this.items.find(it => it.id === id)?.sets?.[on as 'click' | 'focus' | 'blur'];
+    if (!set || !this.live || this.redrawing) return;
+    const next = this.live.set(set[0], set[1]);
+    if (JSON.stringify(next) !== this.viewKey) this.redraw(next);
+  }
+
   /** Remove the screen without answering (a restore, a load, a rollback replaced what is on screen). */
   close() {
     this.view = null;
     this.done = null;
     this.onChoose = null;
+    this.live = null;
     this.items = [];
     this.els = [];
     this.hovers = [];
@@ -340,6 +418,12 @@ export class ScreenLayer {
     el.dataset.id = it.id;
     el.dataset.kind = it.kind;
     if (it.act) el.dataset.act = it.act;
+    if (it.role) { // a tab, toggle or radio: announced as what it is, lit while its state says so
+      el.setAttribute('role', it.role === 'toggle' ? 'checkbox' : it.role === 'radio' ? 'radio' : 'tab');
+      el.setAttribute(it.role === 'tab' ? 'aria-selected' : 'aria-checked', String(!!it.checked));
+      el.dataset.bind = it.role;
+      el.dataset.checked = String(!!it.checked);
+    }
     if (!it.enabled) {
       el.setAttribute('aria-disabled', 'true');
       if (el instanceof HTMLButtonElement) el.tabIndex = -1;
@@ -356,7 +440,7 @@ export class ScreenLayer {
       hover.draggable = false;
       hover.src = hoverUrl;
       hover.style.left = px(it.bounds.x); hover.style.top = px(it.bounds.y); hover.style.width = px(it.bounds.w); hover.style.height = px(it.bounds.h);
-      hover.hidden = this.cur !== i;
+      hover.hidden = true; // paint() shows it while the element is in the active chain
       el.dataset.hover = 'true'; // the image is the look: the stock highlight steps aside
     }
     if (it.plain) el.dataset.hover = 'none'; // no highlight at all
@@ -365,11 +449,12 @@ export class ScreenLayer {
     this.hovers[i] = hover;
     if (s.k !== 'mask') {
       el.addEventListener('click', e => { e.stopPropagation(); if (it.enabled) this.pick(i); });
-      el.addEventListener('pointerenter', () => { if (it.enabled) this.setActive(i); });
-      el.addEventListener('pointerleave', () => { if (this.cur === i) this.setActive(-1); });
-      if (this.onChoose) { // a HUD: keyboard focus (Tab) counts like hovering
-        el.addEventListener('focus', () => { if (it.enabled) this.setActive(i); });
-        el.addEventListener('blur', () => { if (this.cur === i) this.setActive(-1); });
+      el.addEventListener('pointerenter', e => { if (it.enabled && !(this.quiet && (e as PointerEvent).movementX === 0 && (e as PointerEvent).movementY === 0)) this.setActive(i); });
+      // moving onto another element of this screen (a child of the group, say) is not leaving: that element's pointerenter follows at once
+      el.addEventListener('pointerleave', e => { if (this.cur === i && this.itemAt((e as PointerEvent).relatedTarget) < 0) this.setActive(-1); });
+      if (this.onChoose || this.live) { // a HUD, or a screen with local state: keyboard focus (Tab) counts like hovering
+        el.addEventListener('focus', () => { if (it.enabled && !this.redrawing) this.setActive(i); });
+        el.addEventListener('blur', e => { if (!this.redrawing && this.cur === i && this.itemAt((e as FocusEvent).relatedTarget) < 0) this.setActive(-1); });
       }
     }
     return hover ? this.pair(hover, host) : host;
@@ -409,19 +494,53 @@ export class ScreenLayer {
     this.setActive(hit);
   }
 
-  private setActive(i: number) {
-    const was = this.items[this.cur];
-    const before = this.cur;
-    this.cur = i;
-    if (i !== before && this.items[i]?.enabled && this.items[i].fx.sound) this.playSound(this.items[i].fx.sound!);
-    if (this.onChoose && was?.id !== this.items[i]?.id) { // a HUD: report the move as blur, then focus
-      if (was?.on.blur) this.onChoose(was.id, 'blur');
-      if (this.items[i]?.on.focus) this.onChoose(this.items[i].id, 'focus');
+  /** The item whose element holds `node`, or -1. */
+  private itemAt(node: EventTarget | null): number {
+    return node instanceof Node ? this.els.findIndex(el => el.contains(node)) : -1;
+  }
+
+  /** Item `i` and its ancestors (a child of a `hotspot ...:` group), outermost first; empty for -1. */
+  private chainOf(i: number): number[] {
+    const out: number[] = [];
+    while (i >= 0 && i < this.items.length && !out.includes(i)) {
+      out.unshift(i);
+      const parent = this.items[i].parent;
+      i = parent === undefined ? -1 : this.items.findIndex(it => it.id === parent);
     }
-    this.els.forEach((el, k) => { el.dataset.active = String(k === i); const h = this.hovers[k]; if (h) h.hidden = k !== i; });
-    const it = this.items[i];
+    return out;
+  }
+
+  /** Mark the active chain (the item and its ancestors) and show their hover images. */
+  private paint() {
+    const on = new Set(this.chainOf(this.cur));
+    this.els.forEach((el, k) => { el.dataset.active = String(on.has(k)); const h = this.hovers[k]; if (h) h.hidden = !on.has(k); });
+  }
+
+  /**
+   * Make `i` the active item. The active state is the chain from its outermost group to it: a HUD hears `focus` for the
+   * elements that join the chain (outermost first) and `blur` for those that leave it (innermost first), so moving from a
+   * group onto one of its children blurs nothing.
+   */
+  private setActive(i: number) {
+    const items = this.items;
+    const before = this.cur;
+    if (i >= items.length) i = -1;
+    const was = this.chainOf(before).map(k => items[k]);
+    this.cur = i;
+    if (i !== before && items[i]?.enabled && items[i].fx.sound) this.playSound(items[i].fx.sound!);
+    if (this.onChoose || this.live) {
+      const now = this.chainOf(i).map(k => items[k]);
+      const has = (it: ViewItem, on: 'focus' | 'blur') => !!(it.on[on] || it.sets?.[on]);
+      const events: [string, string][] = [
+        ...was.filter(it => !now.some(n => n.id === it.id) && has(it, 'blur')).reverse().map(it => [it.id, 'blur'] as [string, string]),
+        ...now.filter(it => !was.some(w => w.id === it.id) && has(it, 'focus')).map(it => [it.id, 'focus'] as [string, string]),
+      ];
+      for (const [id, on] of events) { if (this.onChoose) this.onChoose(id, on); else this.local(id, on); } // by id: a handler may redraw the screen (a bar that closes), which replaces the indices
+    }
+    this.paint();
+    const it = this.items[this.cur];
     if (!it) { this.tip.dataset.show = 'false'; return; }
-    const el = this.els[i];
+    const el = this.els[this.cur];
     if (!this.onChoose && document.activeElement !== el && it.enabled) (el as HTMLElement).focus({ preventScroll: true }); // a HUD is only hovered: focus stays with the story
     if (it.kind === 'hotspot' && it.label && it.tip) {
       const b = it.bounds, below = b.y < 90;
@@ -437,6 +556,7 @@ export class ScreenLayer {
     const it = this.items[i];
     if (!it?.enabled) return;
     if (this.onChoose) { if (it.on.click || it.act) this.onChoose(it.id, 'click'); return; } // a HUD: report it, stay up
+    if (this.live && it.sets?.click) { this.local(it.id, 'click'); return; } // sets local state: the screen stays up
     this.finish(it.id);
   }
   private finish(id: string) {

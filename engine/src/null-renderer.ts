@@ -1,5 +1,5 @@
 import { defaultAnswer, type ScreenView } from './screens.js';
-import type { DisplayState, MenuItem, Renderer, SayEvent, Src, VisualOp } from './types.js';
+import type { DisplayState, MenuItem, Renderer, SayEvent, ScreenLive, Src, VisualOp } from './types.js';
 
 /** Headless renderer for tests and tools: records everything and never waits. */
 export class NullRenderer implements Renderer {
@@ -34,9 +34,9 @@ export class NullRenderer implements Renderer {
   answerer: (prompt: string, def: string) => string = (_p, def) => def;
   async input(prompt: string, def: string, _max: number, _src: Src) { this.inputs.push(prompt); return this.answerer(prompt, def); }
   screens: ScreenView[] = [];
-  /** Decide which element a screen returns; defaults to its default answer. */
-  picker: (view: ScreenView) => string = defaultAnswer;
-  async screen(view: ScreenView, _src: Src) { this.screens.push(view); return this.picker(view); }
+  /** Decide which element a screen returns; defaults to its default answer. A screen with local state also gets its `live`, to change that state before answering. */
+  picker: (view: ScreenView, live?: ScreenLive) => string = defaultAnswer;
+  async screen(view: ScreenView, _src: Src, live?: ScreenLive) { this.screens.push(view); return this.picker(view, live); }
   /** The HUD screens as the runtime last pushed them. */
   huds: ScreenView[][] = [];
   hud(views: ScreenView[]) { this.huds.push(views); }

@@ -1,9 +1,9 @@
 import { arith, evalExpr, type Value } from './expr.js';
 import { Locale } from './locale.js';
-import { blocks, pickables, replayAnswer, firstTab, ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, screenParams, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
+import { blocks, fitsInout, initialState, pickables, replayAnswer, firstTab, ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, HISTORY_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, resolveScreen, SAVES_SCREEN, screenParams, TITLE_SCREEN, VIEWER_SCREEN, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
 import { newSeed, randomStep, type Rng } from './random.js';
 import { interpolate, parseRich } from './text.js';
-import type { Answer, DisplayState, MenuOption, Op, Program, Renderer, SayEvent, Src, VisualOp, Vars } from './types.js';
+import type { Answer, ScreenSnap, DisplayState, MenuOption, Op, Program, Renderer, SayEvent, Src, VisualOp, Vars } from './types.js';
 
 export interface SaveData {
   pc: number;
@@ -147,7 +147,7 @@ export function applyToState(state: DisplayState, op: VisualOp): void {
     case 'focus':
       if (op.on) delete state.focus; else state.focus = false;
       break;
-    // flash, shake, hop, one-shot animate, sound play, wait leave no lasting state
+    // flash, shake, hop, one-shot animate, sound play, movie, wait leave no lasting state
   }
 }
 
@@ -232,6 +232,10 @@ export class Runtime {
   private instant = false;
   private target: RestoreTarget | null = null;
   private replay: Answer[] = [];
+  /** The blocking screen waiting for the player: its op and its local variables (parameters, `state`s), which `live.set` changes. */
+  private open: { op: Extract<Op, { op: 'screen' }>; local: Vars } | null = null;
+  /** Local state a restore() hands back to the screen it reopens (see screenSnapshot); used once, by the first live showing of that screen. */
+  private resume: ScreenSnap | null = null;
   /** Set while a restore() to a source line the story never reaches is rerun to enter that label body directly. */
   private forced = false;
   private triedForce = false;
@@ -380,10 +384,11 @@ export class Runtime {
    *    survives script edits;
    *  - `{ step }` stops at exactly that line or choice (rollback within one version of the script).
    */
-  restore(target: RestoreTarget, choices: Answer[] = this.choices): Promise<void> {
+  restore(target: RestoreTarget, choices: Answer[] = this.choices, screen?: ScreenSnap | null): Promise<void> {
     const replay = [...choices];
     this.stop();
     this.reset();
+    this.resume = screen ?? null;
     this.instant = true;
     this.target = target;
     this.replay = replay;
@@ -396,6 +401,15 @@ export class Runtime {
     this.jumpedFrom = null;
     this.syncRenderer();
     return this.run();
+  }
+
+  /** The blocking screen that is up, with the local state it has now (null when none): a save keeps it, and restore() can hand it back. */
+  screenSnapshot(): ScreenSnap | null {
+    const o = this.open;
+    if (!o) return null;
+    const def = this.program.screens[o.op.name];
+    const keep = [...(def?.inout ?? []), ...(def?.states ?? []).map(d => d.name)];
+    return { at: o.op.src, name: o.op.name, local: Object.fromEntries(keep.map(k => [k, o.local[k]])) };
   }
 
   save(): SaveData {
@@ -479,8 +493,15 @@ export class Runtime {
   }
 
   /** What the screen of a `show screen` op looks like with the variables as they are now. */
-  private screenView(op: Extract<Op, { op: 'screen' }>): ScreenView {
-    return this.viewOf(op.name, screenParams(this.program.screens[op.name], op.args, this.scope()));
+  private screenView(op: Extract<Op, { op: 'screen' }>, local = this.screenLocal(op)): ScreenView {
+    return this.viewOf(op.name, local);
+  }
+
+  /** The variables a `show screen` adds to the story's: its parameters and its `state`s at their initial values (the screen's own, gone when it closes). */
+  private screenLocal(op: Extract<Op, { op: 'screen' }>): Vars {
+    const def = this.program.screens[op.name];
+    const params = screenParams(def, op.args, this.scope());
+    return { ...params, ...initialState(def, { ...this.scope(), ...params }) };
   }
 
   private viewOf(name: string, extra: Vars = {}, entries?: ScreenEnv['entries']): ScreenView {
@@ -642,7 +663,7 @@ export class Runtime {
     let ev: { hud: string; on: string } | undefined;
     if (this.instant) {
       const next = this.replay[0];
-      if (typeof next === 'object' && next !== null) ev = this.replay.shift() as { hud: string; on: string };
+      if (typeof next === 'object' && next !== null && !Array.isArray(next)) ev = this.replay.shift() as { hud: string; on: string };
     } else ev = this.queued.shift();
     if (!ev) return false;
     const label = this.hudHandler(ev.hud, ev.on);
@@ -654,21 +675,25 @@ export class Runtime {
     return true;
   }
 
+  /** Writes a story variable (or a `persistent.` one, stored for good right away). */
+  private assign(name: string, v: Value) {
+    if (name.startsWith('persistent.')) {
+      const key = name.slice('persistent.'.length);
+      this.persistent[key] = v;
+      this.onPersist(key, v);
+    } else this.vars[name] = v;
+  }
+
   /** The ops that change state and show nothing (the only ones a quiet HUD handler may hold). */
   private applyQuiet(op: Extract<Op, { op: 'set' | 'unlock' | 'hud' }>) {
     switch (op.op) {
       case 'set': {
         const scope = this.scope();
         const v = evalExpr(op.expr, scope, this.draw);
-        const persist = op.name.startsWith('persistent.') ? op.name.slice('persistent.'.length) : null;
         const cur = (scope[op.name] ?? 0) as Value;
         let next: Value = v;
         if (op.assign !== '=') next = arith(op.assign[0], cur, v);
-        if (persist === null) this.vars[op.name] = next;
-        else {
-          this.persistent[persist] = next;
-          this.onPersist(persist, next); // also during replay: the value is recomputed from the same start, so storing it again is harmless
-        }
+        this.assign(op.name, next); // also during replay: the value is recomputed from the same start, so storing a persistent one again is harmless
         break;
       }
       case 'unlock':
@@ -882,21 +907,43 @@ export class Runtime {
           break;
         }
         case 'screen': {
-          const view = this.screenView(op);
+          const def = this.program.screens[op.name];
+          const initial = this.screenLocal(op);
+          const local: Vars = { ...initial };
+          const view = this.screenView(op, local);
           if (!blocks(view)) { this.vars[op.as] = ''; break; } // nothing to choose: returns at once, records nothing
           this.step++;
+          const inout = def?.inout ?? [];
           let id: string;
           if (this.instant) {
             if (this.replay.length === 0) this.guessed++;
-            id = replayAnswer(view, this.replay.shift() as Value | undefined);
+            const rec = this.replay.shift();
+            const ret = Array.isArray(rec) ? rec : undefined;
+            id = replayAnswer(view, ret ? ret[0] : rec as Value | undefined);
+            // a returned value that no longer fits (another type, a word no radio sets) stays as the story had it
+            inout.forEach((p, i) => { if (ret && fitsInout(def, p, ret[1 + i], initial[p])) local[p] = ret[1 + i]; });
           } else {
             this.pending = 'modal';
             this.queued = [];
-            id = await this.renderer.screen(view, op.src);
+            const snap = this.resume;
+            this.resume = null;
+            if (snap && snap.name === op.name && snap.at.file === op.src.file && snap.at.line === op.src.line) {
+              for (const [k, v] of Object.entries(snap.local)) if (k in local && (k in initial) && v !== undefined) local[k] = v;
+            }
+            this.open = { op, local };
+            // a screen with `state`s or `inout` redraws when a handler sets one; the local state is kept here, not in the story, so nothing is recorded until it answers
+            const live = def?.states?.length || inout.length
+              ? { set: (name: string, value: Value) => { if (name in local) local[name] = value; return this.screenView(op, local); } }
+              : undefined;
+            id = await this.renderer.screen(live ? this.screenView(op, local) : view, op.src, live);
+            this.open = null;
             this.pending = null;
             if (gen !== this.gen) return;
           }
-          this.choices.push(id);
+          // bare `cancel` answers "" and drops the inout changes; `cancel keep` and every other answer keep them
+          if (id === '' && def?.cancel && !def.cancelKeep) for (const p of inout) local[p] = initial[p];
+          inout.forEach((p, i) => { const to = op.outs?.[i]; if (to) this.assign(to, local[p]); });
+          this.choices.push(inout.length ? [id, ...inout.map(p => local[p])] : id);
           this.vars[op.as] = id;
           // Still guessing after this many answers: a screen loop that never leaves (see the menu case).
           if (this.instant && this.target && 'file' in this.target && (!this.triedForce || this.forceLabel) && this.guessed > RESTORE_GUESS_LIMIT) this.pc = ops.length;

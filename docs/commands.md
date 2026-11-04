@@ -68,6 +68,16 @@ alice: Hello, [name]. #a3f9
 alice: Shh. style=whisper #b7d1          # a theme style for this line alone
 ```
 
+Narration can run over several lines: quoted lines indented deeper than the first continue it, and each starts a new
+line of the text (the same as writing `\n`). The `style=` and `#id` go on the first line; the whole thing is one
+localizable string.
+
+```
+"The park was nearly empty." #joce
+  "A single bench sat by the pond."
+  "Nobody came."
+```
+
 `style=<name>` at the end of a line (before the `#id`) shows that line with the theme's `styles.<name>` instead of the
 speaker's own style (`define ... style=`). It changes appearance only (colors, borders, text color and size); a style
 that is not in the theme is a warning and the stock look is used.
@@ -156,6 +166,7 @@ Used inside dialogue and narration text.
 | `{size=1.5}..{/size}` | size multiplier |
 | `{wave}..{/wave}`, `{shake}..{/shake}` | animated text (still under Reduce motion) |
 | `{ruby=reading}base{/ruby}` | small reading above the base text |
+| `{speed=0.5}..{/speed}` | typing speed multiplier for the text inside (on top of the character's `speed=` and the player's setting) |
 | `{pause=0.5}` | pause typing for that many seconds |
 | `{wait}` | stop until the player clicks, then continue the same line |
 | `{nw}` | go on to the next line without a click once the text is shown |
@@ -163,6 +174,7 @@ Used inside dialogue and narration text.
 ```
 alice: A pause{pause=0.6} in the middle.
 alice: {color=#ff6fa5}Pink{/color}, {size=1.5}big{/size}, {ruby=kan}漢{/ruby}.
+alice: Wait for it... {speed=0.4}slowly{/speed} now.
 alice: Wait for it...{wait} there.
 alice: This line moves on by itself.{nw}
 ```
@@ -238,7 +250,10 @@ shake alice 0.3 strength=6
 hop alice 0.25
 ```
 
-On a character both are the `shake` and `hop` animations below.
+On a character both are the `shake` and `hop` animations below. `shake` happens once and takes no `loop`; for a
+continuous shake use `animate <char> shake loop`.
+
+Commands refuse arguments they do not know (`shake iris loop`, `scene bg fadee`) with an error rather than ignoring them.
 
 ### animate
 `animate <char> <name> [seconds] [loop] [strength=1] [part=<part>]` plays a named animation on a character (a preset below, or a
@@ -417,6 +432,21 @@ sound play thunder duck
 sound stop rain fade 3
 ```
 
+### movie
+`movie play <name> [noskip]` plays `assets/movie/<name>.webm|mp4|m4v|ogv` fullscreen over the stage and carries on when it
+ends. A click or Space skips it unless `noskip` is given. While the player is skipping text, a movie is not shown at all, and rollback or
+loading a save cuts one that is playing. The music pauses while it plays and resumes after; the movie's own sound follows the Master and Sound sliders.
+A movie without a file shows `movie: <name>` in the corner for a moment, so a script can be written before the footage exists.
+It leaves no state behind and has no `nowait`.
+
+The engine looks a few lines ahead and starts buffering the next `movie play`, and playback begins only once the browser can play
+without stalling, so a movie needs no loading screen. Encode for streaming: mp4 (H.264/AAC) with `-movflags +faststart`, or webm
+(VP9/Opus). The player's browser decides which formats play, so use one format everywhere.
+
+```
+movie play opening noskip
+```
+
 ## Logic
 
 ### set
@@ -573,7 +603,7 @@ screen map:
   each bag as item at 120,200 step 0,130         # one copy of the body per list entry, moved by `step` each time (`limit n` draws at most n)
     button item at 200,0 size 640,100 "[item.name]"   # inside each, the id `item` stands for the entry
   default cafe                                   # answer when a replay has none (else the first enabled element)
-  cancel                                         # the cancel key (Backspace, pad B) answers ""
+  cancel                                         # the cancel key (Backspace, pad B) answers ""; `cancel keep` too, but see inout below
 ```
 
 While a blocking screen is up, the line that came before it stays in the text box: that suits a screen that answers a
@@ -665,7 +695,7 @@ The settings are the screen's variables, so labels and conditions can show them:
   `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do) and `theme` (the next of game.json `themes`; does nothing with fewer than two).
   The button id names the setting, and `[text_sounds]` in the label is its current word.
 - `button <name> ... action tab` selects a tab: the variable `tab` becomes the button id (the first `action tab` button until one is picked), so
-  `if tab == "audio"` shows an element on that tab only.
+  `if page == "audio"` shows an element on that tab only.
 - `action close` goes back (the same as Esc) and `action fullscreen` toggles fullscreen.
 
 ```
@@ -674,10 +704,10 @@ screen options:
     button audio "Audio" action tab
     button game "Game" action tab
     button done "Back" action close
-  slider master at 700,300 if tab == "audio"
-  slider music at 700,380 if tab == "audio"
-  button text_sounds at 700,300 "Text sounds: [text_sounds]" action cycle if tab == "game"
-  button auto_speed at 700,400 "Auto: [auto_speed]" action cycle if tab == "game"
+  slider master at 700,300 if page == "audio"
+  slider music at 700,380 if page == "audio"
+  button text_sounds at 700,300 "Text sounds: [text_sounds]" action cycle if page == "game"
+  button auto_speed at 700,400 "Auto: [auto_speed]" action cycle if page == "game"
 ```
 
 A screen named `saves` replaces the stock save and load screen (Esc still closes it; opened from the title, the pause menu or the quick menu).
@@ -897,6 +927,112 @@ Sizes: a button is its `size` or fits its label; `text` is guessed at 24px a cha
 little extra room around long text; an `image` and a `hotspot` need `size w,h` (a hotspot may be a rectangle or an ellipse;
 `poly` and `mask` keep absolute coordinates, so use them outside a container).
 
+### state / tab / toggle / radio / inout
+`state <name> = <value or expression>` gives a screen a local variable that lives exactly as long as the screen is up. It
+goes directly in the screen (not inside `each`, a layout or an element), the value is worked out when the screen opens from
+the story variables, the parameters and the states above it (`random()` is not allowed), and the screen always opens at that
+initial value: a rollback, a replay or showing it again starts over. Nothing is recorded and the story never sees it; only
+the answer comes back, as before. A state with the name of a story variable hides it inside the screen (the editor warns).
+
+A `hotspot`, `button` or `tab` can change a state with an inline handler at the end of its line, before any `if` /
+`enabled`: `on click set <state> = <expression>`, and the same for `on focus` and `on blur` (one `set` per event). The
+change happens at once, on the state only; it cannot jump, call, show a line or touch a story variable. The screen then
+redraws with the new value, keeping the focused element and the scroll position, so `if` / `enabled` conditions and `[state]`
+in text follow it. The expression is read when the screen is drawn, so a handler inside `each` can use the entry.
+
+An element with `on click set` does not answer the screen: the click sets the state and the screen stays up (an element
+that only has `on focus` / `on blur` handlers still answers on a click). Such an element is not a choice, so a screen that
+has nothing else to pick (and no `cancel`) does not wait. `focus` and `blur` fire for hover, arrows, Tab and the pad alike,
+and follow the same group rule as nested elements.
+
+`tab <id> <state>=<word> at x,y [size w,h] "Label"` is a button that sets the state to the word when clicked, and is drawn lit
+(`aria-selected`) while the state holds it, so a row of tabs shows the current page by itself. The word is one value: a
+number, `true`, `false` or text. It takes `if`, `enabled`, `hover` and `style=` like a button, but no `action` or `on click`.
+
+```
+screen journal(first):
+  state page = first
+  state tip = ""
+  tab items page=items at 80,60 "Items"
+  tab notes page=notes at 400,60 "Notes"
+  each bag as item at 80,200 step 0,110 if page == "items"
+    button item at 0,0 "[item.name]" on focus set tip = "Look closely" on blur set tip = ""
+  text at 80,200 "Nothing written yet." if page == "notes"
+  text at 80,900 "[tip]" if page == "items"
+  button done at 1600,900 "Done"
+label start:
+  show screen journal("items") as pick
+```
+
+`toggle <id> <state> at x,y [size w,h] "Label"` flips a true/false state when clicked and is drawn as a checkbox, ticked while
+the state is true (`aria-checked`, role `checkbox`). `radio <id> <state>=<word> at x,y [size w,h] "Label"` is a `tab` drawn as a
+radio mark: it sets the state to the word and is lit (`aria-checked`, role `radio`) while the state holds it, so several
+radios on one state make a group. The state is a `state` of the screen or an `inout` parameter (below). All of them are buttons:
+Enter, Space, the pad and the pointer work, and they take `if`, `enabled`, `hover` and `style=`. The marks come from the
+stylesheet (`#screenui .sc-btn[data-bind="toggle"]`, `[data-checked="true"]`), so a theme can restyle them.
+
+**inout parameters** are how a screen hands a result back. `screen settings(inout sound, inout mode):` declares them; the call
+`show screen settings(sound, mode) as pick` must give a plain story variable name for each (a `persistent.` one is allowed, a
+literal or an expression is an error). The values are copied in as the screen's initial local state, so `toggle` / `radio` /
+`tab` / `on click set` can change them, and they are written back to those variables when the screen ends with an answer. Until
+then the story does not see them. A parameter without `inout` stays read-only.
+
+```
+set sound = true
+set mode = "easy"
+screen settings(inout sound, inout mode):
+  state page = "audio"
+  tab audio page=audio at 80,60 "Audio"
+  tab game page=game at 400,60 "Game"
+  toggle snd sound at 80,200 "Sound" if page == "audio"
+  radio easy mode=easy at 80,200 "Easy" if page == "game"
+  radio hard mode=hard at 80,300 "Hard" if page == "game"
+  button done at 1500,900 "Done"
+  cancel
+label start:
+  show screen settings(sound, mode) as pick
+  if pick == "done":
+    "Sound [sound], mode [mode]."
+```
+
+What the cancel key (Backspace, pad B; Esc opens the pause menu instead) does is up to the screen. Without `cancel` it does nothing, and only its buttons end it (their
+`inout` changes are kept). A bare `cancel` answers `""` and **discards** the `inout` changes, so the screen is one transaction.
+`cancel keep` answers `""` too (the story can tell it was cancelled) but **applies** the changes, for a screen where cancel just closes it.
+`keep` is the only argument `cancel` takes.
+
+Recording: a screen with `inout` parameters is one entry in the save, the answer followed by the returned values in
+parameter order (`["done", true, "hard"]`); an ordinary screen still records just its answer. Replaying past the screen applies
+that return without showing it, and a rollback to the screen opens it again at its initial state. A recorded value that no
+longer fits (another type, or a word no `radio` sets any more) falls back to the story's value, and an element that is gone
+falls back to `default`, as before. A save made while the screen is up, and a language change or hot reload, keep its local
+state; only a rollback starts it over.
+
+Which pattern to use: a self-contained screen (settings, an equipment arranger) edits copies through `inout` and returns them. A
+click that must make the story react (a line, a sound, an unlock, `random()`) still ends the screen and shows it again. List
+editing (adding to a bag) is not covered: handlers only `set`. Blocking screens only for now: a `hud on` screen cannot declare
+`state` or `inout` (an error), and the built-in screens (`title`, `options` ...) do not run `on ... set`. The playtest bot tries
+the screen at its initial state plus one change per `toggle` / `radio` (not every combination), each followed by the elements
+that answer it; a numeric `inout` stays at its initial value, and elements shown only on another tab are not explored yet.
+
+### continuation
+A long element line can go on over the next lines. A line indented deeper than the element and starting with a clause word
+(`on`, `if`, `enabled`, `hover`, `tooltip`, `cursor`, `up`, `down`, `left`, `right`, `action`, `style=`) continues the
+element's line: the lines are joined with a single space and read as one, so this is the same toggle as the one-line form:
+
+```
+  toggle lamp_on lamp at 420,380 "Reading lamp" #hgir
+    if page == "light"
+    on focus set tip = "A warm lamp for a rainy day."
+    on blur set tip = ""
+```
+
+- The continuation lines of one element share one indent, deeper than the element's. Errors point at the line with the bad clause.
+- The clauses keep the order rules of the one-line form (`on click <label>` and `on ... set` before `if` / `enabled`),
+  and the position, size, label and `#id` stay on the first line. `npm run ids` puts a missing id there.
+- A line indented deeper that starts with an element (`text`, `button`, ...) is a child instead, and is only allowed under a
+  line ending in `:`. For an element with children the `:` goes on the last continuation line, before the children.
+- `default`, `cancel`, `state` and `textbox` are one line each and take no continuation.
+
 ### hud
 `hud on <screen> [keep]` puts a declared screen up beside the story, and `hud off <screen>` takes it down. It stays while
 lines, effects and `scene`s go by (a `scene` clears it unless it was shown with `keep`), is redrawn before every line so
@@ -941,6 +1077,23 @@ back to the story after a click is not a `blur`, and a redraw (a changed `[varia
 ```
 button purse at 1620,30 size 260,80 "Purse" on click open_purse on focus purse_hint
 ```
+
+**Groups.** A `hotspot` or `button` line that ends in `:` takes an indented body of child elements (any element, `each`
+and `scroll` included, but not inside an `each`). The children are placed in stage coordinates like their siblings (unlike a
+`panel`, nothing is shifted), and a child can be anywhere on the stage. The group is active while the pointer, Tab, the arrows or the pad is on the element
+or on any of its children: moving onto a child gives `focus` to the child only, and `blur` fires only for elements left
+entirely (leaving the whole group blurs the children, then the element). `hover` styling follows the same chain, so the
+parent stays highlighted while a child is. That is how a hover-reveal strip works:
+
+```
+screen bar:
+  hotspot strip at 0,0 size 1920,40 hover none on focus bar_open on blur bar_close:
+    button purse at 1620,60 size 260,80 "Purse" on click open_purse if open
+    button map at 1340,60 size 260,80 "Map" on click open_map if open
+```
+
+`bar_open` sets `open` to true and `bar_close` to false; the buttons only exist while `open` holds, and moving from the strip
+onto a button does not close them.
 
 ## Persistent flags and data
 

@@ -3,6 +3,10 @@
 //   hotspot <id> at x,y size w,h | ellipse at x,y size w,h | poly x,y x,y x,y... | mask "file" [at x,y] [size w,h]
 //            ["Label"] [#id] [cursor <name>] [hover "file"|none|tint <color>|scale <n>|sound "name"] [tooltip off] [up|down|left|right <id>]... [on click <label>] [action <name>] [if <expr>] [enabled <expr>]
 //   button <id> at x,y [size w,h] "Label" [#id] [hover "file"|none] [up|down|left|right <id>]... [on click <label>] [action <name>] [if <expr>] [enabled <expr>]
+//   tab <id> <state>=<word> at x,y [size w,h] "Label" [#id] [hover ...] [if <expr>] [enabled <expr>]      (sets a local state and keeps the screen up; lit while the state holds the word)
+//   radio <id> <state>=<word> at x,y [size w,h] "Label" [#id] [hover ...] [if <expr>] [enabled <expr>]      (like tab, drawn as a radio mark)
+//   toggle <id> <state> at x,y [size w,h] "Label" [#id] [hover ...] [if <expr>] [enabled <expr>]      (flips a true/false state; drawn as a checkbox)
+//   a hotspot, button, tab, radio or toggle may end with  on click|focus|blur set <state> = <expr>  (one per event, before any `if` / `enabled`)
 //   slider <setting> at x,y [size w,h] [readout]      (options screen: a range bound to a player setting)
 //   text at x,y "Text with [variables]" [#id] [if <expr>]
 //   bar <value> [max <n>] [min <n>] [at x,y] [size w,h] [back "file"] [fill "file"] [slice s] [edge e] [padding p] [color c] [readout] [if <expr>]
@@ -11,39 +15,62 @@
 //   scroll at x,y size w,h [start top|bottom] [bar off] [if <expr>]:      (a clipped box that scrolls its children, placed relative to its top left)
 //   row|column|grid <columns> [at x,y | anchor <place> [margin m]] [padding m] [gap n] [align start|center|end] [cell w,h] [if <expr>]:
 //        (children of a row, column or grid omit `at`; a hotspot there is `rect`/`ellipse` with `size`, an image needs `size`)
-//   default <id>   cancel   textbox off
+//   default <id>   cancel [keep]   textbox off   state <name> = <expr>
 
+import type { Value } from './expr.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
-import { CYCLE_SETTINGS, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
+import { CYCLE_SETTINGS, type Bind, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
 
 export class ElementSyntaxError extends Error {}
 
+/**
+ * Words that start a clause of an element line (`on click|focus|blur ...`, `if`, `enabled`, `hover`, `tooltip`, `cursor`,
+ * `up|down|left|right`, `action`, `style=name`). A deeper-indented line under an element that starts with one continues
+ * the element's line instead of being a child of it.
+ */
+export const SCREEN_CLAUSE_WORDS = ['on', 'if', 'enabled', 'hover', 'tooltip', 'cursor', 'up', 'down', 'left', 'right', 'action', 'style='] as const;
+
+/** Whether a (trimmed) screen body line starts with a clause word, i.e. continues the element line above it. */
+export function startsWithClause(t: string): boolean {
+  const w = /^[^\s:]+/.exec(t)?.[0] ?? '';
+  return w.startsWith('style=') || (SCREEN_CLAUSE_WORDS as readonly string[]).includes(w);
+}
+
 /** Lines of an element that carry a localizable string (the label or text), as ids.ts and the parser see them. */
-export const RE_ELEMENT = /^(hotspot|button|text)[ \t]/;
+export const RE_ELEMENT = /^(hotspot|button|tab|radio|toggle|text)[ \t]/;
 const RE_ID = /^#[A-Za-z0-9]{4,8}$/;
 const NAME = /^[A-Za-z_]\w*$/;
 const TINT = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([\d.,%/-]+\))$/i;
 const unescapeText = (s: string) => s.replace(/\\(["\\n])/g, (_, c: string) => (c === 'n' ? '\n' : c));
 
-export interface ElementLine { head: string; cond: string | null; enabled: string | null }
+/** `on click set tip = "x"` as written: the state name and the expression text. */
+export interface SetText { name: string; expr: string }
+export interface ElementLine { head: string; cond: string | null; enabled: string | null; sets: Partial<Record<HudEvent, SetText>> }
 
-/** Cuts a trailing ` if <expr>` and ` enabled <expr>` off an element line (only outside quotes). */
+/** Cuts the trailing ` on <event> set <state> = <expr>`, ` if <expr>` and ` enabled <expr>` clauses off an element line (only outside quotes). */
 export function splitElementLine(t: string): ElementLine {
-  const cuts: { at: number; key: 'if' | 'enabled'; skip: number }[] = [];
+  const cuts: { at: number; key: 'if' | 'enabled' | HudEvent; skip: number }[] = [];
   let quoted = false;
   for (let i = 0; i < t.length; i++) {
     const c = t[i];
     if (quoted) { if (c === '\\') i++; else if (c === '"') quoted = false; continue; }
     if (c === '"') { quoted = true; continue; }
     if (i > 0 && /\s/.test(t[i - 1])) {
-      const m = /^(if|enabled)[ \t]+/.exec(t.slice(i));
-      if (m) cuts.push({ at: i, key: m[1] as 'if' | 'enabled', skip: m[0].length });
+      const m = /^(?:(if|enabled)|on[ \t]+(click|focus|blur)[ \t]+set)[ \t]+/.exec(t.slice(i));
+      if (m) cuts.push({ at: i, key: (m[1] ?? m[2]) as 'if' | 'enabled' | HudEvent, skip: m[0].length });
     }
   }
-  const out: ElementLine = { head: (cuts.length ? t.slice(0, cuts[0].at) : t).trim(), cond: null, enabled: null };
+  const out: ElementLine = { head: (cuts.length ? t.slice(0, cuts[0].at) : t).trim(), cond: null, enabled: null, sets: {} };
   cuts.forEach((c, k) => {
     const part = t.slice(c.at + c.skip, k + 1 < cuts.length ? cuts[k + 1].at : undefined).trim();
-    if (c.key === 'if') out.cond = part; else out.enabled = part;
+    if (c.key === 'if') out.cond = part;
+    else if (c.key === 'enabled') out.enabled = part;
+    else {
+      const m = /^([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S[\s\S]*)$/.exec(part);
+      if (!m) throw new ElementSyntaxError(`on ${c.key} set needs a state and a value: on ${c.key} set <state> = <expr>`);
+      if (out.sets[c.key]) throw new ElementSyntaxError(`on ${c.key} set appears twice`);
+      out.sets[c.key] = { name: m[1], expr: m[2] };
+    }
   });
   return out;
 }
@@ -78,19 +105,28 @@ export type ElementSyntax =
   | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null }
   | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string };
 
-export interface ParsedElement { el: ElementSyntax; cond: string | null; enabled: string | null }
+export interface ParsedElement {
+  el: ElementSyntax; cond: string | null; enabled: string | null;
+  /** inline handlers on the screen's local state, as written (the parser checks the state and parses the expression) */
+  sets: Partial<Record<HudEvent, SetText>>;
+  /** `tab` / `radio <id> <state>=<word>` or `toggle <id> <state>`: the state it sets and the value */
+  bind?: Bind;
+}
 
 /** `inLayout`: the element sits in a row, column or grid, which places it, so `at` is left out. */
 export function parseElementLine(t: string, inLayout = false, stage: StageSize = DEFAULT_STAGE): ParsedElement {
-  const { head, cond, enabled } = splitElementLine(t);
-  const kind = /^\S+/.exec(head)?.[0] ?? '';
+  const { head, cond, enabled, sets } = splitElementLine(t);
+  const word = /^\S+/.exec(head)?.[0] ?? '';
+  const role = word === 'tab' || word === 'radio' || word === 'toggle' ? word : null; // a button that also sets a local state; the rest of the line reads as a button's
+  const kind = role ? 'button' : word;
   if (kind === 'bar') {
     if (enabled !== null) throw new ElementSyntaxError('A bar cannot be disabled: remove "enabled"');
-    return { el: parseBar(head, inLayout), cond, enabled };
+    return { el: parseBar(head, inLayout), cond, enabled, sets };
   }
+  if (Object.keys(sets).length && kind !== 'hotspot' && kind !== 'button') throw new ElementSyntaxError(`on ... set goes on a hotspot, button, tab, radio or toggle, not on ${kind}`);
   const str = kind === 'image' ? null : elementString(head);
   // the label (and its id) is cut out whole, wherever it stands among the other words
-  let rest = str ? head.slice(kind.length, str.start) + ' ' + head.slice(str.end) : head.slice(kind.length);
+  let rest = str ? head.slice(word.length, str.start) + ' ' + head.slice(str.end) : head.slice(word.length);
   let maskFile: string | null = null;
   const mm = /\bmask[ \t]+"((?:[^"\\]|\\.)*)"/.exec(rest);
   if (mm) { maskFile = unescapeText(mm[1]); rest = rest.replace(mm[0], 'mask'); }
@@ -157,9 +193,16 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
   const focus: FocusHints = {};
   const on: HudHandlers = {};
   let act: ShellAction | null = null;
+  let bind: Bind | undefined, idAt = -1;
   for (let i = 0; i < toks.length; i++) {
     const w = toks[i];
-    if (w === 'at') at = pair(toks[++i], '"at"');
+    if (role && role !== 'toggle' && id && !bind && /^[A-Za-z_]\w*=/.test(w)) {
+      const eq = w.indexOf('='), raw = w.slice(eq + 1);
+      if (raw === '') throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y "Label" (the word is one value: a number, true, false or text)`);
+      bind = { role, name: w.slice(0, eq), value: raw === 'true' ? true : raw === 'false' ? false : /^-?\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : raw };
+    }
+    else if (role === 'toggle' && id && !bind && i === idAt + 1 && NAME.test(w) && w !== 'at') bind = { role, name: w, value: null };
+    else if (w === 'at') at = pair(toks[++i], '"at"');
     else if (id && (kind === 'hotspot' || kind === 'button') && w === 'action') {
       const name = toks[++i] ?? '';
       if (!(SHELL_ACTIONS as readonly string[]).includes(name)) throw new ElementSyntaxError(`Unknown action "${name}" (actions: ${SHELL_ACTIONS.join(', ')}): action <name>`);
@@ -188,10 +231,12 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
       if (!/^style=\w+$/.test(w)) throw new ElementSyntaxError('style= needs a style name from the theme: style=urgent');
       style = w.slice(6);
     }
-    else if (kind !== 'text' && kind !== 'image' && !id && NAME.test(w)) id = w;
+    else if (kind !== 'text' && kind !== 'image' && !id && NAME.test(w)) { id = w; idAt = i; }
     else if (RE_ID.test(w)) continue;
+    else if (role && role !== 'toggle' && id && !bind && NAME.test(w)) throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y [size w,h] "Label"`);
     else throw new ElementSyntaxError(`Unexpected "${w}" in ${kind}`);
   }
+  for (const e of Object.keys(sets)) if (on[e as HudEvent]) throw new ElementSyntaxError(`on ${e} is both a label and a set: use one`);
   if (inLayout) {
     if (at) throw new ElementSyntaxError(`Inside a row, column or grid the container places the ${kind}: remove "at"`);
     if (kind === 'image' && !size) throw new ElementSyntaxError('An image inside a row, column or grid needs size w,h (its natural size is not known here)');
@@ -201,20 +246,23 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
   }
   switch (kind) {
     case 'image':
-      return { el: { kind, file: imageFile!, x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? null, h: size?.[1] ?? null }, cond, enabled };
+      return { el: { kind, file: imageFile!, x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? null, h: size?.[1] ?? null }, cond, enabled, sets };
     case 'text':
       if (!str) throw new ElementSyntaxError('Use: text at x,y "Text"');
       if (!at) throw new ElementSyntaxError('text needs a position: text at x,y "Text"');
-      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}) }, cond, enabled };
+      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}) }, cond, enabled, sets };
     case 'slider':
       if (!(id in SLIDER_SETTINGS)) throw new ElementSyntaxError(`slider needs a setting (${Object.keys(SLIDER_SETTINGS).join(', ')}): slider <setting> at x,y [size w,h]`);
       if (!at) throw new ElementSyntaxError(`slider ${id} needs a position: at x,y`);
-      return { el: { kind, setting: id, x: at[0], y: at[1], w: size?.[0] ?? 400, h: size?.[1] ?? 48, readout }, cond, enabled };
+      return { el: { kind, setting: id, x: at[0], y: at[1], w: size?.[0] ?? 400, h: size?.[1] ?? 48, readout }, cond, enabled, sets };
     case 'button':
+      if (role === 'toggle' && (!id || !bind)) throw new ElementSyntaxError('Use: toggle <id> <state> at x,y [size w,h] "Label"');
+      if (role && role !== 'toggle' && (!id || !bind)) throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y [size w,h] "Label"`);
+      if (bind && (act || on.click || sets.click)) throw new ElementSyntaxError(`A ${bind.role} sets its state itself: remove "action" and "on click"`);
       if (!id) throw new ElementSyntaxError('Use: button <id> at x,y [size w,h] "Label"');
       if (act === 'cycle' && !(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`action cycle steps a player setting, so the id must be one of: ${CYCLE_SETTINGS.join(', ')}`);
       if (!at) throw new ElementSyntaxError(`button ${id} needs a position: at x,y`);
-      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act, ...(style ? { style } : {}) }, cond, enabled };
+      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act, ...(style ? { style } : {}) }, cond, enabled, sets, ...(bind ? { bind } : {}) };
     case 'hotspot': {
       if (!id) throw new ElementSyntaxError('Use: hotspot <id> at x,y size w,h "Label"');
       let s: Shape;
@@ -227,10 +275,10 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
         if (!at || !size) throw new ElementSyntaxError(`hotspot ${id} needs a shape: at x,y size w,h  |  ellipse at x,y size w,h  |  poly x,y x,y x,y  |  mask "file.png"`);
         s = { k: shape, x: at[0], y: at[1], w: size[0], h: size[1] };
       }
-      return { el: { kind, id, shape: s, label: str?.text ?? '', labelId: str?.id ?? null, cursor, hover, plain, fx, tip, focus, on, act }, cond, enabled };
+      return { el: { kind, id, shape: s, label: str?.text ?? '', labelId: str?.id ?? null, cursor, hover, plain, fx, tip, focus, on, act }, cond, enabled, sets };
     }
   }
-  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, slider, text, bar, panel, scroll, row, column, grid, each, default, cancel)`);
+  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, tab, radio, toggle, slider, text, bar, panel, scroll, row, column, grid, each, default, cancel)`);
 }
 
 /** `n` (all sides), `v,h` or `t,r,b,l` slice or padding, in pixels with no spaces; what a frame's `slice` and `padding` take. */

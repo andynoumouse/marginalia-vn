@@ -1,0 +1,37 @@
+# settings.vn - a settings-style screen with its own local state. It shows: `inout` parameters (the screen works on copies of
+# `lamp` and `paper` and writes them back when Done is pressed), `toggle`, `radio`, `tab`, `on focus set` for a tooltip, and
+# `cancel` (Backspace throws the changes away). The lamp toggle's long line is continued on indented lines that start with a
+# clause word (`if`, `on focus set`, ...). See docs/commands.md, "state / tab / toggle / radio / inout".
+
+set lamp = false
+set paper = "cream"
+
+screen reading_prefs(inout lamp, inout paper):
+  state page = "light"
+  state tip = ""
+  image "bg/bg_library.png" size 1920,1080
+  panel at 360,120 size 1200,760
+  text at 420,160 "{b}Reading preferences{/b}" #rlns
+  tab tab_light page=light at 420,250 "Light" #grls
+  tab tab_paper page=paper at 700,250 "Paper" #tm6b
+  toggle lamp_on lamp at 420,380 "Reading lamp" #hgir
+    if page == "light"
+    on focus set tip = "A warm lamp for a rainy day."
+    on blur set tip = ""
+  radio cream paper=cream at 420,380 "Cream" #fklg if page == "paper"
+  radio white paper=white at 420,480 "White" #jgrn if page == "paper"
+  radio dark paper=dark at 420,580 "Dark" #t0st if page == "paper"
+  text at 420,720 "[tip]" #dyoi
+  text at 420,790 "Lamp: [lamp]   Paper: [paper]" #af1y
+  button done at 1260,780 "Done" #ect5
+  default done
+  cancel
+
+label prefs:
+  iris: Reading preferences? Of course. Done keeps your changes; Backspace puts everything back. #ls3g
+  show screen reading_prefs(lamp, paper) as pick
+  if pick == "done":
+    iris: Saved: lamp [lamp], [paper] paper. #rawa
+  else:
+    iris: Nothing changed: lamp [lamp], [paper] paper. #p28t
+  jump hub

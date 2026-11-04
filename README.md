@@ -1,4 +1,4 @@
-# Marginalia VN Engine (v0.4)
+# Marginalia VN Engine (v0.6)
 
 - These couple of paragraphs are the only content I type manually in to this project:
 - This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
@@ -128,6 +128,7 @@ label start:                            # entry point is "start" (or the first l
   move alice scale=1.2 rot=-5 y=-0.03 0.4   # size, tilt, lift, alpha=, flip=on|off, anchor=feet|center|head|0.5,0.3 (the pivot)
   shake alice 0.3 strength=6   hop alice 0.25   wait 0.5   sound play door duck   # duck: the music dips under it
   sound loop rain fade 2  /  sound stop rain fade 3   # looping ambience on its own channel (`sound stop` alone ends all)
+  movie play opening noskip                           # a fullscreen cutscene, assets/movie/opening.webm|mp4
   animate alice breathe loop  /  animate alice nod  /  animate alice stop   # breathe bob sway nod shiver pulse bounce hop shake, or a rig.json animation; part=hair moves one part
   flash [#ffffff] [0.4]                 # screen flash that fades out
   tint #203060 0.4 1.5  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
@@ -151,10 +152,14 @@ label start:                            # entry point is "start" (or the first l
   input name "What's your name?" default="Alex" max=16   # asks the player; stores text in [name]
   screen map:  /  hotspot cafe at 300,300 size 360,200 "Cafe"  /  button back at 80,940 "Back"   # declare a page
   column at 80,200 gap 20: / row anchor topright: / grid 3:   # inside a screen: place buttons without pixel maths
+  toggle lamp_on lamp at 420,380 "Lamp"  /    if page == "light"  /    on focus set tip = "Warm"   # a long element line goes on over deeper-indented lines that start with a clause word (on, if, enabled, hover, ...)
+  hotspot strip at 0,0 size 1920,40 on focus bar_open on blur bar_close:  # a trailing colon gives it child elements (stage coordinates) that share its focus: strip -> child is no blur
   panel at 560,200 padding 48 image "ui/frame.png" slice 40:   # a 9-slice framed box; its children sit inside it (no size: it fits them)
   bar hp max 100 at 80,90 size 480,44 back "ui/back.png" fill "ui/fill.png" readout   # a stat bar that follows a variable
   show screen map as place              # waits; the chosen element's id is stored in [place] (screens take parameters: show screen room("hall") as place)
   screen options:  /  slider master at 700,300  /  button text_sounds at 700,400 "Sounds: [text_sounds]" action cycle   # replaces the stock options (also `screen title`, `pause`, `quickmenu`); `action tab` switches the variable `tab`
+  state page = "items"  /  tab items page=items at 80,60 "Items"  /  button tip at 80,200 "?" on focus set page = "help"   # local screen state (gone when the screen closes) that tabs and hover handlers change; the screen redraws
+  screen settings(inout sound, inout mode):  /  toggle snd sound at 80,100 "Sound"  /  radio easy mode=easy at 80,200 "Easy"  /  cancel [keep]   # inout copies story variables in and writes them back on an answer: show screen settings(sound, mode) as pick
   hud on status  /  hud off status      # a screen that stays up while the story runs; its `on click label` elements call that label; `hover "img.png"` on a hotspot swaps in art while it is hovered
   define item key "Brass key"           # name for list entries (set bag += "key")
   call helper  /  return  /  jump label  /  end
@@ -239,7 +244,7 @@ Main menu); Esc and Back always return to the previous screen.
   Continue loads the newest save of any kind. A save stores the source position and the choices made, not
   engine internals, so saves keep working after the script is edited (preview/saves.ts).
 - Options: master/music/sound volume, text speed (up to instant), auto speed, text sounds, skip read/all text,
-  text size, text box opacity, reduce motion, language, fullscreen, grouped in Audio, Game and Accessibility tabs. Saved per browser in localStorage.
+  text size, text box opacity, reduce motion, sound captions, screen reader dialogue, language, fullscreen, grouped in Audio, Game and Accessibility tabs. Saved per browser in localStorage.
   Reduce motion (on by default when the system asks for it) drops shake, hop, flash and weather, makes wipes, iris, blinds and pixelate dissolves,
   snaps `camera` and stops wavy/shaking text. Box opacity fades the default box; a `theme` background or
   image keeps its own look.

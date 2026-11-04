@@ -263,6 +263,45 @@ test('ids: assigned once, stable on rerun, unique', () => {
   assert.equal(Object.keys(p.strings).length, a.added);
 });
 
+test('narration over several lines: indented quoted lines continue it, one id for the whole', () => {
+  const text = 'label start:\n  "The park was empty."\n    "A bench sat by the pond."\n    "Nobody came."\n  "Next."\n  end\n';
+  const { text: withIds, added } = assignIds(text, new Set());
+  assert.equal(added, 2);
+  assert.match(withIds, /^ {2}"The park was empty\." #\w{4}\n {4}"A bench sat by the pond\."\n {4}"Nobody came\."\n {2}"Next\." #\w{4}$/m);
+  assert.equal(assignIds(withIds, existingIds([withIds])).added, 0);
+  const p = compile([{ file: 'a.vn', text: withIds }]);
+  assert.deepEqual(errors(p), []);
+  assert.deepEqual(Object.values(p.strings), ['The park was empty.\nA bench sat by the pond.\nNobody came.', 'Next.']);
+  const bad = compile([{ file: 'a.vn', text: 'label start:\n  "One."\n    "Two." style=x #abcd\n  end\n' }]);
+  assert.ok(errors(bad).some(e => /first line/.test(e.message)));
+});
+
+test('{speed=} scales typing speed for the text inside; bad values stay as text', () => {
+  const segs = parseRich('a{speed=0.5}b{/speed}c');
+  assert.deepEqual(segs.map(s => [s.text, s.speed]), [['a', undefined], ['b', 0.5], ['c', undefined]]);
+  assert.equal(parseRich('{speed=0}x{speed}').map(s => s.text).join(''), '{speed=0}x{speed}');
+});
+
+test('commands refuse words they do not know instead of ignoring them', () => {
+  const bad = [
+    'shake iris strength=8 loop', 'shake iris 1 2', 'scene bg fadee', 'scene bg fade 1 2', 'hide iris fade 1 2', 'hide iris now', 'hop iris 1 2',
+    'flash #fff 1 2', 'tint #123456 0.5 1 2', 'tint off x', 'camera reset 1 2', 'camera zoom 2 at center 1 2', 'camera pan center 1 2',
+    'weather rain 0.5 1 2', 'weather off x', 'filter sepia 1 1 2', 'music play a loop x', 'music stop fade 1 x', 'wait 1 2', 'jump a b', 'end now', 'return x',
+  ];
+  for (const line of bad) {
+    const p = compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\nlabel a:\n  end\n` }]);
+    assert.ok(errors(p).length > 0, `${line} should be an error`);
+  }
+  assert.match(errors(compile([{ file: 't.vn', text: 'label start:\n  shake iris loop\n  end\n' }]))[0].message, /animate <char> shake loop/);
+  const good = ['shake iris', 'shake iris 1 strength=4', 'shake screen strength=2 0.5', 'scene bg', 'scene bg wipe right 1', 'hide iris fade 1', 'hop iris 0.5',
+    'flash', 'flash #fff 1', 'tint #123456', 'tint #123456 0.5 1', 'tint off 1', 'camera reset 1', 'camera zoom 2 at center 1', 'camera pan center 1',
+    'weather rain 0.5 1', 'weather off 1', 'filter sepia 1 1', 'music play a loop fade 1', 'music stop fade 1', 'wait 1', 'jump a'];
+  for (const line of good) {
+    const p = compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\nlabel a:\n  end\n` }]);
+    assert.deepEqual(errors(p).map(d => d.message), [], line);
+  }
+});
+
 test('localization with fallback and missing report', async () => {
   const text = assignIds(sample, new Set()).text;
   const p = compile([{ file: 'park.vn', text }]);
@@ -471,7 +510,7 @@ test('a run of lines indented too far is one error, and the code after it still 
   assert.deepEqual(errors(deep).map(d => [d.line, d.message]), [[3, 'Unexpected indentation']]);
   assert.ok(deep.labels.next !== undefined);
   // a menu option body and a screen with one stray line each
-  const menu = compile([{ file: 't.vn', text: 'label start:\n  menu:\n    "x":\n      "a"\n        "b"\n        "c"\n    "y":\n        "d"\n          "e"\n' }]);
+  const menu = compile([{ file: 't.vn', text: 'label start:\n  menu:\n    "x":\n      "a"\n        set b = 1\n        set c = 1\n    "y":\n        "d"\n          set e = 1\n' }]);
   assert.deepEqual(errors(menu).map(d => d.line), [5, 9]);
   const screen = compile([{ file: 't.vn', text: 'screen s:\n  text "a" at 10,10\n    text "b" at 10,10\n    text "c" at 10,10\n  text "d" at 10,10\nlabel start:\n  end\n' }]);
   assert.deepEqual(errors(screen).map(d => d.line), [3]);

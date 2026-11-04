@@ -1,7 +1,7 @@
 // Shared by the preview renderers: the text box, choice menu, HUD and audio live here (DOM over the
 // stage: crisp text, real buttons, any language), so a renderer subclass only draws the world.
 
-import { assetContext, captionFor, sideImageKey, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type Renderer, type Resident, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type SideImages, type SpeakerFocus, type Src, type VisualOp } from '../engine/src/index.js';
+import { announceLine, assetContext, captionFor, sideImageKey, stateAssets, VOICE_KEY, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type ScreenLive, type Renderer, type Resident, type ScreenView, type ViewItem, type RigManifest, type SayEvent, type SideImages, type SpeakerFocus, type Src, type VisualOp } from '../engine/src/index.js';
 import { AudioSystem } from './audio.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
 import { Blips } from './blips.js';
@@ -11,7 +11,7 @@ import { TEXT_INSTANT } from './settings.js';
 export { W, H } from './stage-size.js';
 
 /** Visual ops that change the picture; music, sound and wait are handled here. */
-export type WorldOp = Exclude<VisualOp, { op: 'music' | 'sound' | 'wait' }>;
+export type WorldOp = Exclude<VisualOp, { op: 'music' | 'sound' | 'movie' | 'wait' }>;
 /** A file under assets/ as listed by the dev server; `v` changes when the file does. */
 export interface AssetFile { file: string; v: number }
 
@@ -82,8 +82,12 @@ const LOADING_BAR_MS = 250; // a wait for files shows the loading bar only after
 const PREFETCH_PARALLEL = 4;   // files fetched ahead at once (8 while skipping); a file the story is waiting for never queues
 const HOLD_MAX_MS = 20000;  // a wait never lasts longer than this; the placeholder is drawn instead
 const IMAGE_FILE = /\.(png|webp|jpe?g|avif)$/i;
+const MOVIE_FILE = /^movie\/[^/]+\.(webm|mp4|m4v|ogv)$/i;
 const assetKey = (file: string) => file.replace(/\.[^./]+$/, '');
 const loadingEl = $('loading');
+const movieEl = $('movie');
+/** Movies warmed up ahead of `movie play` (each buffers a few seconds, so only the nearest few are kept). */
+const WARM_MOVIES = 2;
 /** How many lines ahead voice recordings are decoded (the cache holds a dozen; the rest of the lookahead is only for images and audio files). */
 const VOICE_AHEAD = 4;
 
@@ -120,6 +124,19 @@ export abstract class StageRenderer implements Renderer {
   captions = false;
   captionTexts: CaptionTable = {};
   private captionTimer = 0;
+  /** Accessibility: tell screen readers each line once it is shown in full (a live region, not the typing box). */
+  announceLines = true;
+  private announceTimer = 0;
+
+  /** Put a line into the live region; cleared first so an identical line is read again. */
+  private announce(name: string | null | undefined, text: string) {
+    const el = document.getElementById('lineLive');
+    const said = this.announceLines ? announceLine(name, text) : null;
+    if (!el || !said) return;
+    el.textContent = '';
+    clearTimeout(this.announceTimer);
+    this.announceTimer = window.setTimeout(() => { el.textContent = said; }, 60);
+  }
   /** True while a menu screen covers the game: auto-advance and skipping hold. */
   paused = false;
   /** Read tracking, supplied by the shell. `seen` is asked before `markSeen` for the same line. */
@@ -205,6 +222,10 @@ export abstract class StageRenderer implements Renderer {
   /** `hover sound "name"` on a screen or HUD element; a sound that is not there is silent. */
   private hoverSound(name: string) { if (this.audio.has('sound', name)) void this.audio.sound(name); }
   private endLine: (() => void) | null = null;
+  private movieUrls = new Map<string, string>();        // movie name -> URL of the video file
+  private warm = new Map<string, HTMLVideoElement>();    // asset key -> video element buffering ahead of its `movie play`
+  private movieEnd: (() => void) | null = null;         // ends the movie on screen (skip, rollback, load); null when none plays
+  private movieSkippable = false;
   private imageUrls = new Map<string, string>();        // asset key -> URL of the image file, for the DOM layers
   private versions = new Map<string, number>();     // asset key -> file version it was loaded from
   private ready = new Set<string>();                // asset keys that are loaded
@@ -233,6 +254,8 @@ export abstract class StageRenderer implements Renderer {
     }
     this.versions = versions;
     this.imageUrls = new Map(assets.filter(a => IMAGE_FILE.test(a.file)).map(a => [assetKey(a.file), `assets/${a.file}?v=${a.v}`] as const));
+    this.movieUrls = new Map(assets.filter(a => MOVIE_FILE.test(a.file)).map(a => [assetKey(a.file).slice(6), `assets/${a.file}?v=${a.v}`] as const));
+    for (const [key, video] of this.warm) if (video.getAttribute('src') !== this.movieUrls.get(key.slice(6))) { this.dropVideo(video); this.warm.delete(key); }
     // Portraits are small and appear without warning (any line), so the browser fetches them all up front.
     if (this.sideImages) for (const [key, url] of this.imageUrls) if (key.startsWith('side/')) new Image().src = url;
     this.indexArt(assets);
@@ -265,11 +288,65 @@ export abstract class StageRenderer implements Renderer {
       }
     });
   }
+  private makeVideo(url: string): HTMLVideoElement {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.playsInline = true;
+    video.src = url;
+    return video;
+  }
+  private dropVideo(video: HTMLVideoElement) { video.pause(); video.removeAttribute('src'); video.load(); }
+  /** Start buffering a movie the story is about to reach; it is not waited for here (a movie is too big to hold the story for). */
+  private async warmMovie(key: string): Promise<void> {
+    const url = this.movieUrls.get(key.slice(6));
+    if (!url || this.warm.has(key)) return;
+    this.warm.set(key, this.makeVideo(url));
+    while (this.warm.size > WARM_MOVIES) { // the oldest goes first
+      const [oldest] = this.warm.keys();
+      this.dropVideo(this.warm.get(oldest)!);
+      this.warm.delete(oldest);
+    }
+  }
+  /** Play a movie over the stage and resolve when it ends or is skipped; starts once the browser can play it without stalling. */
+  private async playMovie(name: string, noskip: boolean, ep: number): Promise<void> {
+    const url = this.movieUrls.get(name);
+    if (!url) { // no file yet: a text cue, so the script can be followed before the footage exists
+      hud.textContent = `movie: ${name}`;
+      await sleep(900);
+      if (ep === this.epoch && this.onStage) this.showMusic(this.onStage);
+      return;
+    }
+    const key = `movie/${name}`;
+    const warmed = this.warm.get(key);
+    this.warm.delete(key);
+    const video = warmed ?? this.makeVideo(url);
+    video.volume = this.audio.mediaVolume();
+    video.className = '';
+    movieEl.replaceChildren(video);
+    movieEl.dataset.show = 'true';
+    this.movieSkippable = !noskip;
+    const musicWas = this.onStage?.music && !this.onStage.musicPaused;
+    if (musicWas) this.audio.pauseMusic(0.3);
+    await new Promise<void>(resolve => {
+      const end = () => { video.removeEventListener('ended', end); video.removeEventListener('error', end); this.movieEnd = null; resolve(); };
+      this.movieEnd = end;
+      video.addEventListener('ended', end);
+      video.addEventListener('error', end);
+      // An autoplay block (no click yet) or a decode failure skips the movie rather than stalling the story.
+      const start = () => { void video.play().catch(end); };
+      if (video.readyState >= 3) start(); else video.addEventListener('canplay', start, { once: true });
+    });
+    this.dropVideo(video);
+    movieEl.replaceChildren();
+    movieEl.dataset.show = 'false';
+    if (musicWas && ep === this.epoch) this.audio.resumeMusic(0.3);
+  }
+
   private fetchKey(key: string): Promise<void> {
     let p = this.loading.get(key);
     if (!p) {
       const m = /^(music|sound)\/(.+)$/.exec(key);
-      p = (m ? this.audio.prefetch(m[1] as 'music' | 'sound', m[2]) : this.loadImage(key)).then(() => { this.ready.add(key); });
+      p = (key.startsWith('movie/') ? this.warmMovie(key) : m ? this.audio.prefetch(m[1] as 'music' | 'sound', m[2]) : this.loadImage(key)).then(() => { this.ready.add(key); });
       this.loading.set(key, p);
     }
     return p;
@@ -321,6 +398,7 @@ export abstract class StageRenderer implements Renderer {
   /** Player input (click, Space...): finish the line, or go to the next one. A click while skipping stops skipping. */
   advance() {
     if (this.menuOpen) return;
+    if (this.movieEnd) { if (this.movieSkippable) this.movieEnd(); return; }
     if (this.skipping) { this.setSkipping(false); return; }
     this.advanceFn?.();
   }
@@ -353,6 +431,7 @@ export abstract class StageRenderer implements Renderer {
   // ---- Renderer ----
   sync(state: DisplayState) {
     this.epoch++;
+    this.movieEnd?.();
     clearTimeout(this.typeTimer);
     clearTimeout(this.settleTimer);
     clearTimeout(this.sfxTimer);
@@ -419,6 +498,9 @@ export abstract class StageRenderer implements Renderer {
         hud.textContent = `sound: ${op.name}`;
         clearTimeout(this.sfxTimer);
         this.sfxTimer = window.setTimeout(() => this.showMusic(state), 900);
+        return;
+      case 'movie':
+        if (!this.skipping) await this.playMovie(op.name, op.noskip, ep);
         return;
       case 'wait':
         if (!this.skipping) await sleep(op.dur * 1000);
@@ -509,8 +591,7 @@ export abstract class StageRenderer implements Renderer {
       const blip = this.blips.forLine(st.blip);
 
       type Run = Extract<SayEvent['segments'][number], { kind: 'text' }>;
-      type Item = { ch: string; run: Run } | { pause: number } | { wait: true };
-      const items: Item[] = [];
+      type Item = { ch: string; run: Run } | { pause: number } | { wait: true };      const items: Item[] = [];
       for (const seg of ev.segments) {
         if (seg.kind === 'pause') items.push({ pause: seg.seconds });
         else if (seg.kind === 'wait') items.push({ wait: true });
@@ -523,7 +604,9 @@ export abstract class StageRenderer implements Renderer {
       const autoNext = ev.segments.some(s => s.kind === 'next');
       const isText = (it: Item): it is { ch: string; run: Run } => 'ch' in it;
 
-      let idx = 0, done = false, waiting = false, span: HTMLSpanElement | null = null, key = '';
+      let idx = 0, done = false, waiting = false, told = false, span: HTMLSpanElement | null = null, key = '';
+      // The whole line is read once, when its first page is complete (a long line is not held back until its last page).
+      const tell = () => { if (!told && !(this.skipping && skippable())) { told = true; this.announce(ev.name, plain); } };
       /** Show one character (or ruby piece); returns where it landed, for measuring pages. */
       const put = (it: { ch: string; run: Run }): Spot => {
         const r = it.run;
@@ -592,6 +675,7 @@ export abstract class StageRenderer implements Renderer {
         clearTimeout(this.settleTimer);
         this.speakTick(null);
         frame.dataset.done = 'true';
+        tell();
         waiting = true;
         const turn = () => {
           if (!waiting) return;
@@ -621,6 +705,7 @@ export abstract class StageRenderer implements Renderer {
         this.advanceFn = () => (done ? next() : finishTyping());
         done = true;
         frame.dataset.done = 'true';
+        tell();
         settle();
       };
       const instant = this.textSpeed >= TEXT_INSTANT;
@@ -648,7 +733,7 @@ export abstract class StageRenderer implements Renderer {
         if (instant) { step(); return; } // pauses still wait
         blip?.(it.ch);
         this.speakTick(ev.who);
-        this.typeTimer = window.setTimeout(step, 1000 / cps);
+        this.typeTimer = window.setTimeout(step, 1000 / (cps * (it.run.speed ?? 1))); // {speed=} scales this run
       };
       this.endLine = () => { clearTimeout(this.typeTimer); next(); };
       this.lineKick = () => {
@@ -904,7 +989,7 @@ export abstract class StageRenderer implements Renderer {
   }
 
   /** Show a custom screen: its images are loaded first, then it waits for the player to pick an element. */
-  async screen(view: ScreenView, src: Src): Promise<string> {
+  async screen(view: ScreenView, src: Src, live?: ScreenLive): Promise<string> {
     this.onPosition(src);
     this.lineSpeaker = null;
     if (this.skipping) { this.skipping = false; this.onModeChange(); } // screens are always the player's
@@ -915,7 +1000,14 @@ export abstract class StageRenderer implements Renderer {
     this.menuOpen = true;
     // `textbox off` on the screen: the last line must not stay under it; the next line shows the box again. (An NVL page is not the box and stays.)
     if (view.hideBox) { box.dataset.visible = 'false'; delete box.dataset.side; }
-    const id = await this.screens.show(view, file => this.imageUrls.get(key(file)) ?? null);
+    const id = await this.screens.show(view, file => this.imageUrls.get(key(file)) ?? null, live && {
+      set: (name, value) => { // a page that shows new pictures: they load, then the screen is drawn once more with them
+        const next = live.set(name, value);
+        const missing = next.parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : [])).filter(k => !this.ready.has(k));
+        if (missing.length) void this.ensure(missing).then(() => { if (ep === this.epoch) this.screens.refresh(); });
+        return next;
+      },
+    });
     if (ep === this.epoch) this.menuOpen = false;
     return id;
   }

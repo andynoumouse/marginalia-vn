@@ -18,7 +18,7 @@ if (!fs.existsSync(path.join(dir, 'index.html'))) { console.error(`${dir} has no
 const mime = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.json': 'application/json',
   '.css': 'text/css', '.map': 'application/json', '.md': 'text/markdown; charset=utf-8', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg',
-  '.svg': 'image/svg+xml', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.vn': 'text/plain; charset=utf-8',
+  '.svg': 'image/svg+xml', '.ogg': 'audio/ogg', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.webm': 'video/webm', '.mp4': 'video/mp4', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.vn': 'text/plain; charset=utf-8',
 };
 
 http.createServer((req, res) => {

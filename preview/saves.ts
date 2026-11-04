@@ -6,7 +6,7 @@
 //   slots "1".."N"   manual saves from the Save screen
 // Also what persists across playthroughs: read lines (Skip), unlock flags and images seen (gallery).
 
-import { valuesEqual, type Answer, type Scalar, type Src, type Value } from '../engine/src/index.js';
+import { valuesEqual, type Answer, type ScreenSnap, type Scalar, type Src, type Value } from '../engine/src/index.js';
 import type { LineInfo } from './stage-ui.js';
 import { getItem, keysWith, removeItem, setItem } from './storage.js';
 
@@ -22,6 +22,7 @@ export interface SaveData {
   seed?: number;       // random seed of this playthrough (Runtime.seed)
   version?: string;    // script version; rollback history is only reused when it matches
   saveVersion?: number; // game.json "saveVersion" when saved (none: 0); see isOutdatedSave
+  screen?: ScreenSnap; // the blocking screen that was up, with its local state (Runtime.screenSnapshot)
   history?: Moment[];  // rollback history up to this point
   label?: string;      // the name the player gave it (game.json "saveNames"; manual slots only)
 }
