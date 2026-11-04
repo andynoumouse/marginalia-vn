@@ -39,7 +39,7 @@ export function titleFromFolder(folder: string): string {
  */
 export const PROJECT_FOLDERS = [
   'script', 'locale', 'themes',
-  'assets/bg', 'assets/char', 'assets/music', 'assets/sound', 'assets/fonts', 'assets/ui',
+  'assets/bg', 'assets/char', 'assets/music', 'assets/sound', 'assets/fonts', 'assets/ui', 'assets/movie',
   'masters/bg', 'masters/char', 'masters/ui',
 ];
 /** The ones a new project leaves empty (script/ and themes/ get a first file). */

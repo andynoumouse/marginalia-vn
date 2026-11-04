@@ -3,7 +3,7 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
+  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, PROJECT_FOLDERS, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
   UI_COMPONENTS, BUILTIN_THEMES, moveInlineTheme, themeCss, themeStylesheet, resolveTheme, type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
@@ -1181,7 +1181,7 @@ function setAssets(proj: Project) {
   scriptDirs = proj.scriptDirs ?? [];
   renderSidebarFiles();
   const assetFiles = proj.assets.map(a => a.file);
-  projectAssets = { files: assetFiles, rigs: proj.rigs ?? {}, rigTexts: proj.rigTexts ?? {}, masters: matchMasters(proj.masters ?? [], assetFiles), dirs: proj.assetDirs ?? [] };
+  projectAssets = { files: assetFiles, rigs: proj.rigs ?? {}, rigTexts: proj.rigTexts ?? {}, masters: matchMasters(proj.masters ?? [], assetFiles), dirs: [...new Set([...(proj.assetDirs ?? []), ...PROJECT_FOLDERS.filter(d => d.startsWith('assets/')).map(d => d.slice('assets/'.length))])] };
   renderSidebarAssets();
   const assets = proj.assets;
   const pick = (dir: string) => assets.flatMap(a => {

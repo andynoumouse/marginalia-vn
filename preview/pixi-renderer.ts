@@ -4,7 +4,7 @@
 //                assets/char/<char>/<pose>.(png|webp)     one image per pose ("default" when none is given)
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
-import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture, VideoSource } from 'pixi.js';
 import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, focusLevels, raisedSpeaker, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
 import { $, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
@@ -43,6 +43,8 @@ export class PixiRenderer extends StageRenderer {
   private imagesFront = new Container();
   private imagesFixed = new Container();
   private pictures = new Map<string, Sprite>();
+  private videoTextures = new Map<Texture, HTMLVideoElement>(); // the textures of looping movie pictures, with the video each plays
+  private videoWanted = new WeakMap<Sprite, HTMLVideoElement>(); // a movie picture whose video has not loaded yet
   private shaker = new Container(); // screen shake moves this; the camera moves `world`
   private scene = new Container();  // the world and the weather: `filter` applies to this
   private weatherLayer = new Container();
@@ -517,6 +519,44 @@ export class PixiRenderer extends StageRenderer {
       g.fillText(img.file, 20, 20);
     });
   }
+  /** Stop and free the video behind a picture's texture, if it has one. */
+  private freeVideo(tex: Texture) {
+    const video = this.videoTextures.get(tex);
+    if (!video) return;
+    this.videoTextures.delete(tex);
+    tex.destroy(true);
+    this.releaseVideo(video);
+  }
+  /** Destroy a picture that is no longer drawn, freeing its video (also one that is still loading). */
+  private destroyPicture(sp: Sprite) {
+    const tex = sp.texture;
+    this.videoWanted.delete(sp);
+    sp.destroy();
+    this.freeVideo(tex);
+  }
+  /**
+   * Give a picture the texture of its file. A movie is empty until its video has loaded: a video texture made
+   * earlier would be 1x1 and the frames would not fit into it.
+   */
+  private setPictureTexture(sp: Sprite, img: ImageState) {
+    const old = sp.texture;
+    const key = imageKey(img.file, this.files);
+    const video = key?.startsWith('movie/') ? this.takeLoopVideo(key) : null;
+    this.videoWanted.delete(sp);
+    if (!video) { sp.texture = this.pictureTexture(img); this.freeVideo(old); return; }
+    sp.texture = Texture.EMPTY;
+    this.freeVideo(old);
+    this.videoWanted.set(sp, video);
+    // takeLoopVideo plays the video (with its sound), so the source does not try to start it itself
+    const source = new VideoSource({ resource: video, autoPlay: false, loop: true });
+    void source.load().then(() => {
+      if (sp.destroyed || this.videoWanted.get(sp) !== video) { source.destroy(); this.releaseVideo(video); return; }
+      this.videoWanted.delete(sp);
+      const tex = new Texture({ source });
+      this.videoTextures.set(tex, video);
+      sp.texture = tex;
+    }, () => { source.destroy(); this.releaseVideo(video); });
+  }
   private placePicture(sp: Sprite, img: ImageState) {
     sp.anchor.set(img.anchor[0], img.anchor[1]);
     sp.position.set(img.x, img.y);
@@ -528,7 +568,8 @@ export class PixiRenderer extends StageRenderer {
     return img.fixed ? this.imagesFixed : img.layer < 0 ? this.imagesBehind : this.imagesFront;
   }
   private makePicture(img: ImageState): Sprite {
-    const sp = new Sprite(this.pictureTexture(img));
+    const sp = new Sprite(Texture.EMPTY);
+    this.setPictureTexture(sp, img);
     sp.label = img.name;
     this.placePicture(sp, img);
     sp.alpha = img.alpha;
@@ -537,7 +578,7 @@ export class PixiRenderer extends StageRenderer {
     return sp;
   }
   private rebuildPictures(state: DisplayState) {
-    for (const layer of [this.imagesBehind, this.imagesFront, this.imagesFixed]) for (const c of layer.removeChildren()) c.destroy();
+    for (const layer of [this.imagesBehind, this.imagesFront, this.imagesFixed]) for (const c of layer.removeChildren()) this.destroyPicture(c as Sprite);
     this.pictures.clear();
     for (const img of state.images ?? []) this.makePicture(img);
   }
@@ -789,7 +830,7 @@ export class PixiRenderer extends StageRenderer {
           this.pictures.delete(op.name);
           const from = sp.alpha;
           if (op.fade > 0) { await this.tween(op.fade, k => { sp.alpha = from * (1 - k); }); if (!alive()) return; }
-          sp.destroy();
+          this.destroyPicture(sp);
           return;
         }
         const img = (state.images ?? []).find(i => i.name === op.name);
@@ -798,7 +839,7 @@ export class PixiRenderer extends StageRenderer {
         if (op.action === 'show') {
           const fresh = !sp;
           if (sp) { // an existing picture takes the new file and fields at once
-            sp.texture = this.pictureTexture(img);
+            this.setPictureTexture(sp, img);
             this.pictureLayer(img).addChild(sp);
             this.placePicture(sp, img);
             sp.alpha = img.alpha;

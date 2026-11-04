@@ -2609,7 +2609,7 @@ inEditor('art drop: files dropped on an asset folder go there, elsewhere the ser
   assert.match(await folder.getAttribute('class') ?? '', /\bdrop\b/, 'the folder under the pointer is marked');
   await drag('drop', true, ['new_bg.png', 'bg_park_night.png']);
   await until(page, () => /added/.test(document.getElementById('status').textContent));
-  assert.equal(await page.locator('#status').innerText(), 'added assets/bg/new_bg.png; assets/bg/bg_park_night.png exists');
+  assert.equal(await page.locator('#status').innerText(), 'added assets/bg/new_bg.png not added: assets/bg/bg_park_night.png exists');
   assert.deepEqual(uploads, [{ name: 'new_bg.png', folder: 'bg' }, { name: 'bg_park_night.png', folder: 'bg' }]);
   assert.equal(await page.locator('#sbList .drop').count(), 0, 'the mark is gone after the drop');
   await drag('drop', false, ['loose.png']);

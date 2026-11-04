@@ -37,7 +37,7 @@ const stemOf = (name: string, ext: RegExp) => name.replace(ext, '');
 function keyOf(kind: AssetRefKind, text: string, assetFiles?: Set<string>): string {
   switch (kind) {
     case 'bg': return assetFiles && !assetFiles.has(`bg/${text}`) && assetFiles.has(text) ? text : `bg/${text}`;
-    case 'image': return stemOf(text, IMAGE);
+    case 'image': return stemOf(stemOf(text, IMAGE), MOVIE);
     default: return `${kind}/${text}`;
   }
 }

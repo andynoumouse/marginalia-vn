@@ -94,8 +94,10 @@ Nothing open right now; pick from the topic sections below.
   volume; NVL voices each line as it is added; no browser test of the prefetch and auto-advance wait.
 - [ ] Replace the generated placeholder sample art (simple shapes) with real art when there is some.
 - [~] Video: `movie play <name> [noskip]` plays a fullscreen cutscene (webm/mp4; skip by click, look-ahead buffering,
-  desktop pak already serves ranges). Open: a browser test with a generated clip, captions (.vtt), and animated
-  backgrounds (`scene` with a looping video), deliberately left out of the first version.
+  desktop pak already serves ranges). `image show <name> movie/<file> layer=-1` keeps a looping video (with its
+  sound) under the dialogue (a moving backdrop). Open: a browser test with a generated clip, captions (.vtt), ducking
+  or muting it under dialogue or music, a video that survives `scene`/rollback without restarting, and custom text boxes placed around a video
+  (a separate display element, instead of the say screen).
 
 ## Player experience
 

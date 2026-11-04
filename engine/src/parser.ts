@@ -401,10 +401,13 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       return visual({ op: 'sound', action, name: names[0], fade, ...(duck ? { duck } : {}) });
     }
     case 'movie': {
-      const usage = 'Use: movie play <name> [noskip]';
+      const usage = 'Use: movie play <name> [noskip | loop]';
       if (nowait) throw new ParseError('A movie always plays to its end (or until the player skips it), so it has no nowait');
-      if (a[0] !== 'play' || !a[1] || a.length > 3 || (a[2] !== undefined && a[2] !== 'noskip')) throw new ParseError(usage);
-      return visual({ op: 'movie', name: a[1], noskip: a[2] === 'noskip' });
+      const flags = a.slice(2);
+      if (a[0] !== 'play' || !a[1] || flags.some((f, i) => (f !== 'noskip' && f !== 'loop') || flags.indexOf(f) !== i)) throw new ParseError(usage);
+      const noskip = flags.includes('noskip'), loop = flags.includes('loop');
+      if (noskip && loop) throw new ParseError('A looping movie only ends when the player skips it, so loop cannot be combined with noskip');
+      return visual({ op: 'movie', name: a[1], noskip, loop });
     }
     case 'wait': {
       const dur = num(a[0], 'seconds');

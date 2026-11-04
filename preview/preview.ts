@@ -178,6 +178,7 @@ function applySettings() {
   renderer.audio.setVolume('music', settings.music);
   renderer.audio.setVolume('sound', settings.sound);
   renderer.audio.setVolume('voice', settings.voice);
+  renderer.syncMediaVolume();
   renderer.lang = resolveVoiceLanguage(settings.voiceLang, settings.lang, voiceAvailable);
   renderer.textSpeed = settings.textSpeed;
   renderer.autoDelay = settings.autoDelay;

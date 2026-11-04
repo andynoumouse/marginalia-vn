@@ -335,6 +335,12 @@ that is already up changes that picture (new file, and only the fields you name)
 the one shown last). The picture follows the camera and `filter` like the scene; `fixed` keeps it still on the screen.
 Pictures disappear on `scene` unless shown with `keep`. They are kept in saves and rollback.
 
+A file under `assets/movie` works as `<file>` too (`movie/rain_window`): the picture is then a video that loops for
+as long as it is shown, drawn at the `layer=` you give it, so dialogue plays on top of it and a click advances the story as
+usual. Use `layer=-1` for a moving backdrop behind the characters, and `fixed` to keep it still under camera moves.
+`image hide` stops it. The video restarts from the beginning after a `scene` (when shown with `keep`), a rollback or a load.
+Its own sound plays, following the Master and Sound sliders, and the music is left alone. Unlike `movie play` it cannot be skipped.
+
 `image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=...]` slides and fades like `move`;
 `image hide <name> [fade s]` removes it. (Inside a `screen:` block, `image` is the screen element instead.)
 
@@ -433,8 +439,9 @@ sound stop rain fade 3
 ```
 
 ### movie
-`movie play <name> [noskip]` plays `assets/movie/<name>.webm|mp4|m4v|ogv` fullscreen over the stage and carries on when it
-ends. A click or Space skips it unless `noskip` is given. While the player is skipping text, a movie is not shown at all, and rollback or
+`movie play <name> [noskip | loop]` plays `assets/movie/<name>.webm|mp4|m4v|ogv` fullscreen over the stage and carries on when it
+ends. A click or Space skips it unless `noskip` is given. With `loop` the movie repeats and ends only when the player skips it,
+so `loop` cannot be combined with `noskip`. While the player is skipping text, a movie is not shown at all, and rollback or
 loading a save cuts one that is playing. The music pauses while it plays and resumes after; the movie's own sound follows the Master and Sound sliders.
 A movie without a file shows `movie: <name>` in the corner for a moment, so a script can be written before the footage exists.
 It leaves no state behind and has no `nowait`.
@@ -445,6 +452,7 @@ without stalling, so a movie needs no loading screen. Encode for streaming: mp4 
 
 ```
 movie play opening noskip
+movie play rain_window loop
 ```
 
 ## Logic

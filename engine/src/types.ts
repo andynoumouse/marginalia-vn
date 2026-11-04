@@ -80,7 +80,7 @@ export type VisualBody =
   | { op: 'image'; action: 'move'; name: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
   | { op: 'music'; action: 'play' | 'stop' | 'pause' | 'resume'; name: string | null; loop: boolean; fade: number }
   | { op: 'sound'; action: 'play' | 'loop' | 'stop'; name: string | null; fade: number; duck?: boolean }
-  | { op: 'movie'; name: string; noskip: boolean }
+  | { op: 'movie'; name: string; noskip: boolean; loop: boolean }
   | { op: 'wait'; dur: number };
 
 export type ControlBody =

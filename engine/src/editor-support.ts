@@ -30,7 +30,7 @@ const COMMANDS: [string, string][] = [
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
   ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera reset'],
   ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
-   ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip]'], ['wait', 'wait <seconds>'],
+   ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
@@ -218,7 +218,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
     case 'movie': {
       if (arg === 0) return kw(['play']);
       if (arg === 1) return assets(program.ops.flatMap(o => (o.op === 'movie' ? [o.name] : [])), 'movie');
-      return arg === 2 ? kw(['noskip']) : [];
+      return arg === 2 ? kw(['noskip', 'loop']) : [];
     }
     case 'define':
       if (arg === 0) return [{ label: 'item', kind: 'keyword', detail: 'define item <id> "Name" [image=file.png]' }];

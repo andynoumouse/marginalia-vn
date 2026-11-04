@@ -307,8 +307,32 @@ export abstract class StageRenderer implements Renderer {
       this.warm.delete(oldest);
     }
   }
+  private loopVideos = new Set<HTMLVideoElement>(); // videos of looping overlay pictures, which follow the volume sliders
+  /** A looping video of `movie/<name>` for an overlay picture (the warmed one when the story looked ahead); null without a file. */
+  protected takeLoopVideo(key: string): HTMLVideoElement | null {
+    const url = this.movieUrls.get(key.slice(6));
+    if (!url) return null;
+    const video = this.warm.get(key) ?? this.makeVideo(url);
+    this.warm.delete(key);
+    video.loop = true;
+    video.volume = this.audio.mediaVolume();
+    this.loopVideos.add(video);
+    // The browser refuses sound before the player has clicked anything: play muted then, and turn the sound on at the first click or key.
+    const start = () => { void video.play().catch(() => {
+      video.muted = true;
+      void video.play().catch(() => {});
+      const unmute = () => { video.muted = false; };
+      addEventListener('pointerdown', unmute, { once: true, capture: true });
+      addEventListener('keydown', unmute, { once: true, capture: true });
+    }); };
+    if (video.readyState >= 3) start(); else video.addEventListener('canplay', start, { once: true });
+    return video;
+  }
+  protected releaseVideo(video: HTMLVideoElement) { this.loopVideos.delete(video); this.dropVideo(video); }
+  /** The volume sliders changed: the videos of looping pictures follow them. */
+  syncMediaVolume() { for (const v of this.loopVideos) v.volume = this.audio.mediaVolume(); }
   /** Play a movie over the stage and resolve when it ends or is skipped; starts once the browser can play it without stalling. */
-  private async playMovie(name: string, noskip: boolean, ep: number): Promise<void> {
+  private async playMovie(name: string, noskip: boolean, loop: boolean, ep: number): Promise<void> {
     const url = this.movieUrls.get(name);
     if (!url) { // no file yet: a text cue, so the script can be followed before the footage exists
       hud.textContent = `movie: ${name}`;
@@ -321,6 +345,7 @@ export abstract class StageRenderer implements Renderer {
     this.warm.delete(key);
     const video = warmed ?? this.makeVideo(url);
     video.volume = this.audio.mediaVolume();
+    video.loop = loop; // a looping movie ends only when the player skips it
     video.className = '';
     movieEl.replaceChildren(video);
     movieEl.dataset.show = 'true';
@@ -500,7 +525,7 @@ export abstract class StageRenderer implements Renderer {
         this.sfxTimer = window.setTimeout(() => this.showMusic(state), 900);
         return;
       case 'movie':
-        if (!this.skipping) await this.playMovie(op.name, op.noskip, ep);
+        if (!this.skipping) await this.playMovie(op.name, op.noskip, op.loop, ep);
         return;
       case 'wait':
         if (!this.skipping) await sleep(op.dur * 1000);

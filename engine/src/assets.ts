@@ -160,8 +160,9 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
     if (lacking.length) warn(src, `Style "${style}" is missing from the selectable theme${lacking.length > 1 ? 's' : ''} ${lacking.join(', ')}`);
   };
   const imageKeys = new Set(index.files.filter(f => IMAGE.test(f)).map(f => f.replace(IMAGE, '')));
+  for (const f of index.files) if (MOVIE.test(f) && f.split('/').length === 2) imageKeys.add(f.replace(MOVIE, ''));
   const imageProblem = (src: Src, file: string, what: string) => {
-    if (imageKeys.size && !file.includes('[') && !imageKeys.has(file.replace(IMAGE, ''))) warn(src, `No image "${file}" in assets (${what})`);
+    if (imageKeys.size && !file.includes('[') && !imageKeys.has(file.replace(IMAGE, '').replace(MOVIE, ''))) warn(src, `No image "${file}" in assets (${what})`);
   };
   for (const op of program.ops) if (op.op === 'image' && op.action === 'show') imageProblem(op.src, op.file, `image ${op.name}`);
   for (const it of Object.values(program.items ?? {})) if (it.image) imageProblem(it.src, it.image, `image of item ${it.id}`);
@@ -356,7 +357,7 @@ export const bgKey = (name: string, ctx: AssetContext): string | null =>
 
 /** The image an overlay `image show` draws: its path under assets/ (extension optional); null when there is none (a placeholder is drawn). */
 export const imageKey = (file: string, ctx: AssetContext): string | null => {
-  const k = file.replace(IMAGE, '');
+  const k = file.replace(IMAGE, '').replace(MOVIE, ''); // a movie (`movie/<name>`) is an overlay picture that plays on a loop
   return ctx.has(k) ? k : null;
 };
 
