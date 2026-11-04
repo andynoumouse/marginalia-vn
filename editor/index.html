@@ -125,6 +125,9 @@
     max-width: calc(100% - 24px); padding: 6px 8px 6px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
   #toast[hidden] { display: none; }
   #toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #toast[data-kind="error"] { border-color: var(--bad); width: max-content; max-width: min(480px, calc(100% - 24px)); }
+  #toast[data-kind="error"] span { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #toast[data-kind="error"] button { border-color: var(--bad); color: var(--bad); }
   #toast button { flex: none; border-color: var(--accent); color: var(--accent); }
   #palette { position: absolute; top: 40px; left: 50%; translate: -50% 0; width: min(620px, calc(100% - 24px)); z-index: 20;
     background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); padding: 6px; }

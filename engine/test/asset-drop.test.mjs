@@ -6,6 +6,9 @@ test('files without a folder are routed by type', () => {
   assert.deepEqual(planDrop('rain.PNG'), { dest: 'assets/bg/rain.png' });
   assert.deepEqual(planDrop('theme.ogg'), { dest: 'assets/music/theme.ogg' });
   assert.deepEqual(planDrop('Fancy.woff2'), { dest: 'assets/fonts/Fancy.woff2' });
+  assert.deepEqual(planDrop('intro.MP4'), { dest: 'assets/movie/intro.mp4' });
+  assert.deepEqual(planDrop('intro.webm', 'cutscenes'), { dest: 'assets/cutscenes/intro.webm' });
+  assert.ok('error' in planDrop('blink.gif')); // not an engine image format
 });
 
 test('a folder wins over the type, and PSDs go to masters', () => {

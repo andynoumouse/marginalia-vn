@@ -87,7 +87,8 @@ export function runDebugCommand(cmd: DebugCommand, ctx: DebugContext): Line[] | 
 }
 
 /** Wires the drawer: `button` toggles `panel`; the panel fills itself with a log, an input and quick buttons. */
-export function initDebug(button: HTMLElement, panel: HTMLElement, ctx: DebugContext) {
+/** Returns a function that appends a line to the log (the editor reports refused file actions this way). */
+export function initDebug(button: HTMLElement, panel: HTMLElement, ctx: DebugContext): (text: string, kind: 'out' | 'err') => void {
   const log = document.createElement('div'); log.className = 'log'; log.setAttribute('role', 'log');
   const form = document.createElement('form');
   const input = document.createElement('input');
@@ -142,4 +143,5 @@ export function initDebug(button: HTMLElement, panel: HTMLElement, ctx: DebugCon
     panel.dataset.visible = String(open);
     if (open) input.focus();
   });
+  return (text, kind) => print(text.split('\n').map(t => ({ text: t, kind })));
 }

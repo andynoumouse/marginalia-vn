@@ -1045,8 +1045,9 @@ window.addEventListener('blur', endCtrlSkip);
 $('restart').addEventListener('click', () => { if (embedded) play(rt => rt.start()); else void showTitle(); });
 const debugEl = $('debug');
 diagBtn.addEventListener('click', () => { debugEl.dataset.visible = 'false'; diagEl.dataset.visible = diagEl.dataset.visible === 'true' ? 'false' : 'true'; });
+let debugLog: ((text: string, kind: 'out' | 'err') => void) | null = null;
 if (devMode) {
-  initDebug($('debugBtn'), debugEl, {
+  debugLog = initDebug($('debugBtn'), debugEl, {
     runtime: () => runtime,
     jump: label => void enterGame(rt => rt.startAt(label).then(() => {})),
     sets: { gallery: imagesSeen, music: tracksHeard, chapters: labelsReached, flags: unlocked, options: optionsTaken },
@@ -1083,7 +1084,8 @@ async function previewScreen(name: string) {
 // { type: 'title' } opens the title screen, { type: 'screen', name } any built-in screen, { type: 'restart' } starts a new game.
 window.addEventListener('message', e => {
   if (e.origin !== location.origin) return;
-  const m = e.data as { type?: string; file?: string; line?: number; name?: string; value?: unknown } | null;
+  const m = e.data as { type?: string; file?: string; line?: number; name?: string; value?: unknown; text?: unknown; kind?: unknown } | null;
+  if (m?.type === 'log' && typeof m.text === 'string') { debugLog?.(m.text, m.kind === 'err' ? 'err' : 'out'); return; }
   if (m?.type === 'setVar' && runtime && typeof m.name === 'string' && /^(persistent\.)?[A-Za-z_]\w*$/.test(m.name)
     && (typeof m.value === 'number' || typeof m.value === 'string' || typeof m.value === 'boolean')) {
     if (m.name.startsWith('persistent.')) { // stored for good, and read by this playthrough from now on

@@ -1,13 +1,14 @@
 /**
  * Where a file dropped on the editor's Assets panel goes. `folder` is the asset folder it was dropped on ('music', 'bg', ...),
  * absent when it landed on the panel itself. Images, sounds and fonts go to `assets/<folder>/`; a PSD goes to `masters/<folder>/`
- * (only bg, char and ui have a converter). Without a folder the file type picks one: images -> bg, sounds -> music, fonts -> fonts.
+ * (only bg, char and ui have a converter). Without a folder the file type picks one: images -> bg, sounds -> music, fonts -> fonts, movies -> movie.
  * Returns a project-relative path, or why the file is refused.
  */
 
 const IMAGE = ['png', 'webp', 'jpg', 'jpeg', 'avif', 'svg'];
 const AUDIO = ['ogg', 'mp3', 'wav', 'm4a', 'flac', 'opus'];
 const FONT = ['woff2', 'woff', 'ttf', 'otf'];
+const MOVIE = ['webm', 'mp4', 'm4v', 'ogv'];
 const MASTER_FOLDERS = ['bg', 'char', 'ui'];
 
 export type DropPlan = { dest: string } | { error: string };
@@ -24,8 +25,8 @@ export function planDrop(fileName: string, folder = ''): DropPlan {
     if (!MASTER_FOLDERS.includes(folder)) return { error: `${name}: drop a PSD on the bg, char or ui folder` };
     return { dest: `masters/${folder}/${name}` };
   }
-  const fallback = IMAGE.includes(ext) ? 'bg' : AUDIO.includes(ext) ? 'music' : FONT.includes(ext) ? 'fonts' : '';
-  if (!fallback) return { error: `${name}: unsupported file type` };
+  const fallback = IMAGE.includes(ext) ? 'bg' : AUDIO.includes(ext) ? 'music' : FONT.includes(ext) ? 'fonts' : MOVIE.includes(ext) ? 'movie' : '';
+  if (!fallback) return { error: `${name}: unsupported file type (images ${IMAGE.join(', ')}; sounds ${AUDIO.join(', ')}; fonts ${FONT.join(', ')}; movies ${MOVIE.join(', ')})` };
   return { dest: `assets/${folder || fallback}/${name}` };
 }
 

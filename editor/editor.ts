@@ -693,8 +693,8 @@ async function fileRequest(url: string, fail: string): Promise<Response | null> 
     const r = await fetch(url, { method: 'POST', headers: { 'X-VN-Editor': '1' } });
     if (r.ok) return r;
     const text = await r.text();
-    setStatus(text === 'Not found' ? 'the dev server is older than the editor: restart it to rename or delete files' : `${fail}: ${text}`);
-  } catch { setStatus(fail); }
+    toastError(text === 'Not found' ? 'the dev server is older than the editor: restart it to rename or delete files' : `${fail}: ${text}`);
+  } catch { toastError(fail); }
   return null;
 }
 
@@ -702,13 +702,26 @@ async function fileRequest(url: string, fail: string): Promise<Response | null> 
 // for a while; Restore from Trash (palette, or the Project heading's menu) lists everything still there.
 let toastTimer = 0;
 function toast(text: string, undo?: () => void) {
+  showToast(text, undo ? { label: 'Undo', run: undo } : undefined);
+}
+
+/** A refused action: red, wraps instead of cutting off, and stays until dismissed; also logged to the preview's debug console. */
+function toastError(text: string) {
+  postPreview({ type: 'log', kind: 'err', text });
+  showToast(text, { label: 'Dismiss', run: () => {} }, true);
+}
+
+function showToast(text: string, action?: { label: string; run(): void }, error = false) {
   const el = $('toast'), button = el.querySelector('button')!;
   el.querySelector('span')!.textContent = text;
-  button.hidden = !undo;
-  button.onclick = () => { el.hidden = true; undo?.(); };
+  if (error) el.dataset.kind = 'error'; else delete el.dataset.kind;
+  el.setAttribute('role', error ? 'alert' : 'status');
+  button.hidden = !action;
+  button.textContent = action?.label ?? '';
+  button.onclick = () => { el.hidden = true; action?.run(); };
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => { el.hidden = true; }, 12_000);
+  if (!error) toastTimer = window.setTimeout(() => { el.hidden = true; }, 12_000);
   setStatus(text);
 }
 
@@ -831,10 +844,10 @@ function replaceFile(rel: string) {
     setStatus(`replacing ${rel}...`);
     try {
       const r = await fetch(`/api/asset?replace=${encodeURIComponent(rel)}&name=${encodeURIComponent(f.name)}`, { method: 'PUT', headers: { 'X-VN-Editor': '1' }, body: f });
-      if (!r.ok) { setStatus(`could not replace ${rel}: ${await r.text()}`); return; }
+      if (!r.ok) { toastError(`could not replace ${rel}: ${await r.text()}`); return; }
       const { trash } = await r.json() as { trash?: string };
       toast(`replaced ${rel}`, trash ? () => void restoreTrash(trash) : undefined);
-    } catch { setStatus(`could not replace ${rel}`); }
+    } catch { toastError(`could not replace ${rel}`); }
   });
   input.click();
 }
@@ -851,8 +864,10 @@ function pickAssets(folder: string, accept = '') {
   input.addEventListener('change', () => { if (input.files?.length) void addAssets([...input.files], folder); });
   input.click();
 }
-const ART = 'image/*,.png,.webp,.jpg,.jpeg,.avif,.svg';
-const acceptFor = (dir: string) => ['bg', 'char', 'ui'].includes(dir) ? `${ART},.psd` : '';
+const ART = '.png,.webp,.jpg,.jpeg,.avif,.svg';
+const SOUND = '.ogg,.mp3,.wav,.m4a,.flac,.opus';
+const MOVIE = '.webm,.mp4,.m4v,.ogv';
+const acceptFor = (dir: string) => ['bg', 'char', 'ui'].includes(dir) ? `${ART},.psd` : dir === 'movie' ? MOVIE : ['music', 'sound', 'sfx', 'voice'].includes(dir) ? SOUND : '';
 const masterOf = (asset: string) => projectAssets.masters.find(m => m.output === asset)?.master;
 
 /** The focused row's key in `section`, and after a redraw, puts the focus back on the row with that key. */
@@ -1136,7 +1151,8 @@ async function addAssets(dropped: File[], folder: string) {
       else skipped.push(await r.text());
     } catch { skipped.push(`${f.name}: upload failed`); }
   }
-  setStatus([done.length ? `added ${done.join(', ')}` : '', ...skipped].filter(Boolean).join('; '));
+  if (skipped.length) toastError([done.length ? `added ${done.join(', ')}` : '', ...skipped.map(s => `not added: ${s}`)].filter(Boolean).join('\n'));
+  else toast(`added ${done.join(', ')}`);
 }
 
 let assetViewer: AssetViewer;
