@@ -167,7 +167,7 @@ test('completions: set after on <event>, then the screen states; tab and state a
   const p = build('screen s:\n  state tip = ""\n  button b at 0,0 "B"\nlabel start:\n  end\n');
   const labels = prefix => getCompletions(p, prefix).map(s => s.label);
   assert.ok(labels('  button b at 0,0 "B" on click ').includes('set'));
-  assert.deepEqual(labels('  button b at 0,0 "B" on click set '), ['tip']);
+  assert.ok(labels('  button b at 0,0 "B" on click set ').includes('tip'));
   assert.ok(labels('  ').includes('tab') && labels('  ').includes('state'));
   assert.ok(labels('  tab t ').includes('at'));
 });

@@ -5,6 +5,7 @@ import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import { shellEntryFields, shellVars, validateScreen, type ScreenDef, type ScreenNode } from './screens.js';
 import { withFix } from './suggest.js';
+import { defaultScreenFiles } from './ui-screens.js';
 import { stackedShows } from './stacking.js';
 import type { CharacterDef, Diagnostic, ItemDef, MenuOption, Op, OpBody, Program, Src } from './types.js';
 
@@ -17,7 +18,7 @@ export interface SourceFile { file: string; text: string }
  */
 export function compile(files: SourceFile[], positions: Positions = BUILTIN_POSITIONS, anchors: Anchors = ANCHORS, stage: StageSize = DEFAULT_STAGE): Program {
   const diagnostics: Diagnostic[] = [];
-  const parsed = files.map(f => parseFile(f.file, f.text, diagnostics, positions, anchors, stage));
+  const parsed = [...files, ...defaultScreenFiles(files)].map(f => parseFile(f.file, f.text, diagnostics, positions, anchors, stage));
 
   const characters: Record<string, CharacterDef> = {};
   for (const p of parsed) for (const c of p.characters) characters[c.id] = c;

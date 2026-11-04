@@ -3,7 +3,7 @@
 // The list is virtual (virtual-list.ts): projects can have tens of thousands of strings, so only the rows in (and just around)
 // the viewport exist in the DOM.
 
-import { translationStatus, translatorCsv, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
+import { translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
 
 export interface TranslationsHost {
@@ -17,13 +17,15 @@ export interface TranslationsHost {
   addIds(): number;
   /** The language the scripts are written in (game.json "language", default en). */
   source(): string;
+  /** game.json "labels": the menu labels in the source language that replace the built-in texts. */
+  labels(): Record<string, string>;
 }
 
 const ROW_HEIGHT = 88;
 const SAVE_DELAY = 500;
 const FILTER_DELAY = 150;
 const LANG = /^[A-Za-z]{2,3}([_-][A-Za-z0-9]+)?$/;
-const KIND: Record<StringRow['kind'], string> = { say: 'line', choice: 'choice', reason: 'disabled choice', prompt: 'menu prompt', input: 'input prompt', other: 'screen / item' };
+const KIND: Record<StringRow['kind'], string> = { say: 'line', choice: 'choice', reason: 'disabled choice', prompt: 'menu prompt', input: 'input prompt', other: 'screen / item', label: 'menu label' };
 
 export class TranslationsDialog {
   private readonly root: HTMLDivElement;
@@ -85,7 +87,7 @@ export class TranslationsDialog {
     this.idsBar = q('.tr-ids');
     q('.tr-ids-add').addEventListener('click', () => {
       this.h.addIds();
-      this.rows = this.h.rows();
+      this.rows = this.allRows();
       this.refilter();
     });
     this.list = new VirtualList(this.scroller, q('.tr-spacer'), ROW_HEIGHT, r => this.rowEl(r, this.tables[this.lang]));
@@ -96,10 +98,10 @@ export class TranslationsDialog {
   async open(returnFocus: () => void) {
     this.returnFocus = returnFocus;
     this.root.hidden = false;
-    this.rows = this.h.rows();
     this.summary.textContent = 'Loading...';
     this.tables = {};
     this.snaps = {};
+    this.rows = this.allRows(); // the labels are already known after the first open
     try {
       const all = await (await fetch('/api/locales')).json() as Record<string, string>;
       for (const [file, text] of Object.entries(all)) {
@@ -110,6 +112,7 @@ export class TranslationsDialog {
         } catch { /* a broken file is left alone */ }
       }
     } catch { /* no locale folder yet */ }
+    if (!Object.keys(this.uiDefaults).length) { this.uiDefaults = await this.loadUiDefaults(); this.rows = this.allRows(); } // read once: the page does not change while the editor is open
     delete this.tables[this.h.source()]; // <source>.json is only an export of the script, which is the source language
     const langs = Object.keys(this.tables).sort();
     if (!langs.includes(this.lang)) this.lang = langs[0] ?? '';
@@ -117,6 +120,23 @@ export class TranslationsDialog {
     this.refilter();
     (this.lang ? this.filter : this.newLang).focus();
   }
+
+  /** The script's strings, then the built-in menu labels (`ui.<key>`). */
+  private allRows(): StringRow[] { return [...this.h.rows(), ...uiLabelRows(this.uiDefaults, this.h.labels())]; }
+
+  /** The menu labels the game page ships (its `data-ui` elements, the page the preview shows) by key, with their built-in text. */
+  private async loadUiDefaults(): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    try {
+      const doc = new DOMParser().parseFromString(await (await fetch('../')).text(), 'text/html');
+      for (const e of doc.querySelectorAll<HTMLElement>('[data-ui]')) {
+        const key = e.dataset.ui!;
+        if (!(key in out)) out[key] = (e.textContent ?? '').trim();
+      }
+    } catch { /* no page to read: only the script's strings are listed */ }
+    return out;
+  }
+  private uiDefaults: Record<string, string> = {};
 
   close() {
     if (this.root.hidden) return;

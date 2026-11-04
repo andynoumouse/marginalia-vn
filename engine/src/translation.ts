@@ -6,7 +6,7 @@ import type { StringTable } from './locale.js';
  * language table has got. Pure: the editor's Translations dialog and the CSV export both draw on it.
  */
 
-export type StringKind = 'say' | 'choice' | 'reason' | 'prompt' | 'input' | 'other';
+export type StringKind = 'say' | 'choice' | 'reason' | 'prompt' | 'input' | 'other' | 'label';
 
 export interface StringRow {
   id: string;
@@ -48,6 +48,14 @@ export function stringRows(program: Pick<Program, 'ops' | 'labels' | 'strings'>)
   });
   for (const id of Object.keys(program.strings)) if (!seen.has(id)) rows.push({ id, source: program.strings[id], kind: 'other', who: null });
   return rows;
+}
+
+/**
+ * The built-in menu labels as translation rows (`ui.<key>`, the entries the player's menus read from the locale table). `defaults` are the
+ * texts the game's page ships by key (its `data-ui` elements); game.json `labels` replace them in the source language. Sorted by key.
+ */
+export function uiLabelRows(defaults: Record<string, string>, labels: Record<string, string> = {}): StringRow[] {
+  return Object.keys(defaults).sort().map(key => ({ id: `ui.${key}`, source: labels[key] || defaults[key], kind: 'label' as const, who: null }));
 }
 
 export interface TranslationStatus {

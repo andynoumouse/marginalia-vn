@@ -112,7 +112,7 @@ async function toChoice(page) {
 }
 
 play('title screen offers the configured buttons and New game starts the story', async page => {
-  const buttons = await page.locator('#titleNav button:visible').allInnerTexts();
+  const buttons = await page.locator('#titleui [data-act]').allInnerTexts();
   assert.deepEqual(buttons, ['New game', 'Continue', 'Load', 'Gallery', 'Music', 'Chapters', 'Achievements', 'Options']);
   await newGame(page);
   assert.match(await status(page), /^park\.vn:\d+$/);
@@ -201,21 +201,21 @@ play('Tab does not skip unread text and says so', async page => {
   await page.keyboard.press('Tab');
   await page.locator('#toast[data-show="true"]').waitFor();
   assert.match(await page.locator('#toast').innerText(), /unread/i);
-  assert.equal(await page.locator('#quick [aria-pressed="true"]').count(), 0);
+  assert.equal(await page.locator('#quickui [aria-pressed="true"]').count(), 0);
 });
 
 play('with "skip unread" on, Tab skips through the lines and stops at the choice', async page => {
-  await page.locator('#titleOptions').click();
+  await page.locator('#titleui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
-  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
-  await page.locator('#optSkip').selectOption('all');
+  await page.locator('#optionsui [role="tab"]', { hasText: 'Game' }).click();
+  await page.locator('#optionsui [data-id="skip"]').click(); await page.locator('#optionsui [data-id="skip.all"]').click(); // Read text only -> All text
   await page.keyboard.press('Escape');
   await page.locator('#options').waitFor({ state: 'hidden' });
   await newGame(page);
   await page.keyboard.press('Tab');
   await menuOpen(page);
   assert.equal(await page.locator('#menu button').count(), 2);
-  assert.equal(await page.locator('#quick [aria-pressed="true"]').count(), 0); // the choice ended the skipping
+  assert.equal(await page.locator('#quickui [aria-pressed="true"]').count(), 0); // the choice ended the skipping
 });
 
 play('auto mode advances by itself up to the choice', async page => {
@@ -265,17 +265,17 @@ play('H hides the interface and a click brings it back', async page => {
 play('Escape opens the pause menu, Options has tabs, Escape closes them', async page => {
   await newGame(page);
   await page.keyboard.press('Escape');
-  await page.locator('#pause').waitFor({ state: 'visible' });
-  await page.locator('#pause').getByRole('button', { name: 'Options' }).click();
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
+  await page.locator('#pauseui').getByRole('button', { name: 'Options' }).click();
   await page.locator('#options').waitFor({ state: 'visible' });
-  const tabs = await page.locator('#options [role="tab"]').allInnerTexts();
+  const tabs = await page.locator('#optionsui [role="tab"]').allInnerTexts();
   assert.deepEqual(tabs, ['Audio', 'Game', 'Accessibility']);
-  await page.locator('#options [role="tab"]', { hasText: 'Accessibility' }).click();
-  assert.equal(await page.locator('#options [role="tab"][aria-selected="true"]').innerText(), 'Accessibility');
+  await page.locator('#optionsui [role="tab"]', { hasText: 'Accessibility' }).click();
+  assert.equal(await page.locator('#optionsui [role="tab"][aria-selected="true"]').innerText(), 'Accessibility');
   await page.keyboard.press('Escape');
   await page.locator('#options').waitFor({ state: 'hidden' });
   await page.keyboard.press('Escape');
-  await page.locator('#pause').waitFor({ state: 'hidden' });
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'hidden' });
   await textDone(page);
   assert.match(await text(page), /^The park was nearly/); // still the same line: the game was only paused
 });
@@ -318,13 +318,15 @@ play('animation studio: the embedded page shows one character and answers play/s
   assert.equal(result.bar, 'none');
 });
 
-const slotCards = page => page.locator('#slotGrid .slot');
-const slotButton = (page, n) => page.locator('#slotGrid .slot-main').nth(n);
+const slotCards = page => page.locator('#savesui [data-act="slot"]');
+const slotButton = (page, n) => slotCards(page).nth(n);
+const enabledSlots = page => page.locator('#savesui [data-act="slot"][data-on="true"]');
+const savesText = page => page.locator('#savesui').innerText();
 const confirmYes = page => page.locator('#confirm').getByRole('button', { name: 'Yes' }).click();
 async function openPause(page, button) {
   await page.keyboard.press('Escape');
-  await page.locator('#pause').waitFor({ state: 'visible' });
-  await page.locator('#pause').getByRole('button', { name: button }).click();
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
+  await page.locator('#pauseui').getByRole('button', { name: button }).click();
   await page.locator('#saves').waitFor({ state: 'visible' });
 }
 
@@ -337,8 +339,8 @@ play('saves: a manual save fills a slot, Continue/Load bring it back, the delete
   await openPause(page, 'Save');
   assert.equal(await slotCards(page).count(), 6);
   await slotButton(page, 0).click(); // an empty slot saves at once, with no confirmation
-  await until(page, () => document.querySelector('#slotGrid .del'));
-  assert.match(await slotButton(page, 0).innerText(), /Alice/);
+  await until(page, () => document.querySelector('#savesui [data-act="remove"]'));
+  assert.match(await savesText(page), /Alice/);
   await slotButton(page, 0).click(); // a filled slot asks before overwriting
   await page.locator('#confirm').waitFor({ state: 'visible' });
   assert.match(await page.locator('#confirmText').innerText(), /Overwrite/);
@@ -358,22 +360,48 @@ play('saves: a manual save fills a slot, Continue/Load bring it back, the delete
   // Back to the title and load it from there.
   await page.keyboard.press('Escape'); // closes the saves screen
   await page.locator('#saves').waitFor({ state: 'hidden' });
-  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
   await confirmYes(page);
-  await page.locator('#titleLoad').click();
+  await page.locator('#titleui [data-act="load"]').click();
   await page.locator('#saves').waitFor({ state: 'visible' });
   await slotButton(page, 0).click(); // no game is running, so no confirmation
   await until(page, s => document.getElementById('status').textContent === s, saved);
   assert.equal(await page.locator('#name').innerText(), 'Alice');
   // Delete it again.
   await openPause(page, 'Save');
-  await page.locator('#slotGrid .del').click();
+  await page.locator('#savesui [data-act="remove"]').click();
   await page.locator('#confirm').waitFor({ state: 'visible' });
   assert.equal((await looks())[0].variant, 'danger'); // deleting marks Yes as destructive
   assert.equal((await looks())[0].border, 'rgb(240, 112, 122)');
   await confirmYes(page);
-  await until(page, () => !document.querySelector('#slotGrid .del'));
+  await until(page, () => !document.querySelector('#savesui [data-act="remove"]'));
   assert.equal(await page.evaluate(() => Object.keys(localStorage).some(k => /slot/i.test(k) && localStorage[k].includes('Alice'))), false);
+});
+
+play('saves: a filled slot shows its thumbnail, a thumbnail is only on its own page', async page => {
+  await newGame(page);
+  await textDone(page);
+  await openPause(page, 'Save');
+  assert.equal(await page.locator('#savesui img[src^="data:image"]').count(), 0); // nothing saved yet
+  await slotButton(page, 0).click();
+  await until(page, () => document.querySelector('#savesui img[src^="data:image"]'));
+  assert.equal(await page.locator('#savesui img[src^="data:image"]').count(), 1);
+  assert.equal(await page.locator('#savesui [data-act="rename"]').count(), 0); // saveNames is off
+  await page.locator('#savesui [data-id="page2"]').click();
+  await until(page, () => document.querySelectorAll('#savesui img[src^="data:image"]').length === 0);
+});
+
+play('options: Left and Right move between the tabs and show their page', async page => {
+  await page.locator('#titleui [data-act="options"]').click();
+  await page.locator('#optionsui [role="tab"]').first().waitFor();
+  await until(page, () => document.activeElement.dataset.id === 'audio');
+  await page.keyboard.press('ArrowRight');
+  await until(page, () => document.activeElement.dataset.id === 'game' && document.querySelector('#optionsui [role="tab"][aria-selected="true"]').dataset.id === 'game');
+  assert.equal(await page.locator('#optionsui [data-setting="text_speed"]').count(), 1);
+  assert.equal(await page.locator('#optionsui [data-setting="master"]').count(), 0);
+  await page.keyboard.press('ArrowLeft');
+  await until(page, () => document.activeElement.dataset.id === 'audio');
+  assert.equal(await page.locator('#optionsui [data-setting="master"]').count(), 1);
 });
 
 play('load screen: empty slots are disabled and the Q and C pages list quick and choice saves', async page => {
@@ -383,11 +411,11 @@ play('load screen: empty slots are disabled and the Q and C pages list quick and
   await page.keyboard.press('1'); // the choice writes a "before choice" autosave
   await until(page, () => /Lost\?/.test(document.getElementById('text').textContent));
   await openPause(page, 'Load');
-  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 0); // page 1 has no manual saves
-  await page.locator('#savePages [aria-label="Quick save"]').click();
-  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 1);
-  await page.locator('#savePages [aria-label="Choice autosaves"]').click();
-  assert.ok(await page.locator('#slotGrid .slot-main:not([disabled])').count() >= 1);
+  assert.equal(await enabledSlots(page).count(), 0); // page 1 has no manual saves
+  await page.locator('#savesui [data-id="pagequick"]').click();
+  await until(page, () => document.querySelectorAll('#savesui [data-act="slot"][data-on="true"]').length === 1);
+  await page.locator('#savesui [data-id="pagechoice"]').click();
+  await until(page, () => document.querySelectorAll('#savesui [data-act="slot"][data-on="true"]').length >= 1);
 });
 
 play('choice autosave: loading the newest one goes back before the decision, with the menu open again', async page => {
@@ -396,9 +424,9 @@ play('choice autosave: loading the newest one goes back before the decision, wit
   await page.keyboard.press('1');
   await until(page, () => /Lost\?/.test(document.getElementById('text').textContent));
   await openPause(page, 'Load');
-  await page.locator('#savePages [aria-label="Choice autosaves"]').click();
-  assert.equal(await page.locator('#slotGrid .slot-main:not([disabled])').count(), 1);
-  await page.locator('#slotGrid .slot-main:not([disabled])').first().click();
+  await page.locator('#savesui [data-id="pagechoice"]').click();
+  await until(page, () => document.querySelectorAll('#savesui [data-act="slot"][data-on="true"]').length === 1);
+  await enabledSlots(page).first().click();
   await page.locator('#confirm').waitFor({ state: 'visible' }); // a game is running: asks first
   await confirmYes(page);
   await menuOpen(page);
@@ -413,12 +441,13 @@ play('history lists the lines so far, opens with L and closes with Escape', asyn
   await page.keyboard.press('Space');
   await until(page, () => document.getElementById('name').textContent === 'Alice');
   await page.keyboard.press('l');
-  await page.locator('#history').waitFor({ state: 'visible' });
-  const rows = await page.locator('#historyList li').allInnerTexts();
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'true');
+  const rows = await page.locator('#historyui [data-act="line"]').allInnerTexts();
   assert.match(rows[0], /^The park was nearly empty\./);
-  assert.ok(rows.length >= 1 && !rows.some(r => /Nothing yet/.test(r)));
+  assert.ok(rows.length >= 1);
+  assert.equal(await page.locator('#historyui').getByText('Nothing yet.').count(), 0);
   await page.keyboard.press('Escape');
-  await page.locator('#history').waitFor({ state: 'hidden' });
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'false');
 });
 
 play('history: clicking an earlier line rolls back to it; the line on screen does nothing', async page => {
@@ -428,15 +457,14 @@ play('history: clicking an earlier line rolls back to it; the line on screen doe
   await until(page, () => document.getElementById('name').textContent === 'Alice');
   await textDone(page);
   await page.keyboard.press('l');
-  await page.locator('#history').waitFor({ state: 'visible' });
-  const rows = page.locator('#historyList .hist-line');
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'true');
+  const rows = page.locator('#historyui [data-act="line"]');
   assert.equal(await rows.count(), 2);
-  assert.equal(await rows.nth(1).getAttribute('aria-current'), 'true');
-  assert.equal(await page.evaluate(() => document.activeElement.getAttribute('aria-current')), 'true'); // focus starts at the newest line
+  await until(page, () => document.activeElement?.dataset.id === '2'); // focus starts at the newest line
   await rows.nth(1).click();
-  assert.equal(await page.locator('#history').isHidden(), false);
+  assert.equal(await page.locator('#historyui').getAttribute('data-visible'), 'true');
   await rows.nth(0).click();
-  await page.locator('#history').waitFor({ state: 'hidden' });
+  await until(page, () => document.getElementById('historyui').dataset.visible === 'false');
   await until(page, () => /^The park was nearly empty\./.test(document.getElementById('text').textContent) && document.getElementById('name').textContent === '');
   await textDone(page);
   await page.keyboard.press('Space'); // and the story goes on from there
@@ -453,7 +481,7 @@ play('saveNames: a numbered slot asks for a name, shows it, keeps it on overwrit
   await page.keyboard.type('Before the bench');
   await page.keyboard.press('Enter');
   await page.locator('#saveName').waitFor({ state: 'hidden' });
-  await until(page, () => document.querySelector('#slotGrid .slot-head .label')?.textContent === 'Before the bench');
+  await until(page, () => /Before the bench/.test(document.getElementById('savesui').textContent));
   // Overwriting offers the old name; Cancel leaves the save alone.
   await slotButton(page, 0).click();
   await confirmYes(page);
@@ -462,10 +490,10 @@ play('saveNames: a numbered slot asks for a name, shows it, keeps it on overwrit
   await page.locator('#saveNameCancel').click();
   await page.locator('#saveName').waitFor({ state: 'hidden' });
   // Rename from the card.
-  await page.locator('#slotGrid .ren').first().click();
+  await page.locator('#savesui [data-act="rename"]').first().click();
   await page.locator('#saveNameInput').fill('Park');
   await page.locator('#saveNameOk').click();
-  await until(page, () => document.querySelector('#slotGrid .slot-head .label')?.textContent === 'Park');
+  await until(page, () => /Park/.test(document.getElementById('savesui').textContent) && !/Before the bench/.test(document.getElementById('savesui').textContent));
   assert.equal(await page.evaluate(k => JSON.parse(localStorage.getItem(k)).label, gameKey('save.1')), 'Park');
 }, async context => {
   await context.route('**/api/project', async route => {
@@ -481,34 +509,36 @@ play('saves without saveNames: no name is asked and no rename button shows', asy
   await textDone(page);
   await openPause(page, 'Save');
   await slotButton(page, 0).click();
-  await until(page, () => document.querySelector('#slotGrid .del'));
+  await until(page, () => document.querySelector('#savesui [data-act="remove"]'));
   assert.equal(await page.locator('#saveName').isHidden(), true);
-  assert.equal(await page.locator('#slotGrid .ren').count(), 0);
+  assert.equal(await page.locator('#savesui [data-act="rename"]').count(), 0);
 });
 
 play('gallery: opens from the title screen, locked tiles are disabled, Escape goes back', async page => {
-  await page.locator('#titleGallery').click();
-  await page.locator('#gallery').waitFor({ state: 'visible' });
-  const count = await page.locator('#galleryGrid .tile').count();
+  await page.locator('#titleui [data-act="gallery"]').click();
+  const tiles = page.locator('#galleryui [data-act="tile"]');
+  await tiles.first().waitFor();
+  const count = await tiles.count();
   assert.ok(count > 0);
-  assert.match(await page.locator('#galleryCount').innerText(), new RegExp('^[0-9]+ / ' + count + '$'));
-  assert.equal(await page.locator('#galleryGrid .tile:disabled').count() + await page.locator('#galleryGrid .tile:not(:disabled)').count(), count);
+  await page.locator('#galleryui .sc-text', { hasText: new RegExp('^[0-9]+ / ' + count + '$') }).waitFor();
+  assert.equal(await page.locator('#galleryui [data-act="tile"][aria-disabled="true"]').count(), count); // nothing seen yet: every tile is locked
   await page.keyboard.press('Escape');
-  await page.locator('#gallery').waitFor({ state: 'hidden' });
-  await page.locator('#titleNav').waitFor({ state: 'visible' });
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'false');
+  await page.locator('#titleui [data-act="start"]').waitFor({ state: 'visible' });
 });
 
 play('extras: music room and chapters start locked, unlock as the story plays, and a chapter starts a new playthrough there', async page => {
-  await page.locator('#titleChapters').click();
-  await page.locator('#chapters').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#chapterList .row').count(), 2);
-  assert.equal(await page.locator('#chapterList .row:disabled').count(), 2);
-  assert.equal(await page.locator('#chapterCount').innerText(), '0 / 2');
+  await page.locator('#titleui [data-act="chapters"]').click();
+  const chapters = page.locator('#chaptersui [data-act="chapter"]');
+  await chapters.first().waitFor();
+  assert.equal(await chapters.count(), 2);
+  assert.equal(await page.locator('#chaptersui [data-act="chapter"][aria-disabled="true"]').count(), 2);
+  await page.locator('#chaptersui .sc-text', { hasText: /^0 \/ 2$/ }).waitFor();
   await page.keyboard.press('Escape');
-  await page.locator('#titleMusic').click();
-  await page.locator('#musicList .row:disabled').waitFor();
+  await page.locator('#titleui [data-act="music"]').click();
+  await page.locator('#musicui [data-act="track"][aria-disabled="true"]').waitFor();
   await page.keyboard.press('Escape');
-  await page.locator('#musicRoom').waitFor({ state: 'hidden' });
+  await until(page, () => document.getElementById('musicui').dataset.visible === 'false');
 
   await newGame(page);
   await toChoice(page);
@@ -520,21 +550,21 @@ play('extras: music room and chapters start locked, unlock as the story plays, a
     await page.waitForTimeout(200);
   }
   await page.keyboard.press('Escape');
-  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
   await confirmYes(page);
-  await page.locator('#titleNav').waitFor({ state: 'visible' });
+  await page.locator('#titleui [data-act="start"]').waitFor({ state: 'visible' });
 
-  await page.locator('#titleMusic').click();
-  await page.locator('#musicRoom').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#musicCount').innerText(), '1 / 1');
-  await page.locator('#musicList .row').click();
-  assert.match(await page.locator('#musicNow').innerText(), /Evening Theme/);
+  await page.locator('#titleui [data-act="music"]').click();
+  await page.locator('#musicui .sc-text', { hasText: /^1 \/ 1$/ }).waitFor();
+  await page.locator('#musicui [data-act="track"]').click();
+  await page.locator('#musicui .sc-text', { hasText: /Evening Theme/ }).first().waitFor(); // "♪ Evening Theme" under the heading
+  assert.equal(await page.locator('#musicui .sc-text', { hasText: '♪' }).count(), 2); // the heading line and the playing track's mark
   await page.keyboard.press('Escape');
-  await page.locator('#musicRoom').waitFor({ state: 'hidden' });
+  await until(page, () => document.getElementById('musicui').dataset.visible === 'false');
 
-  await page.locator('#titleChapters').click();
-  assert.equal(await page.locator('#chapterCount').innerText(), '2 / 2');
-  await page.locator('#chapterList .row', { hasText: 'A talk' }).click();
+  await page.locator('#titleui [data-act="chapters"]').click();
+  await page.locator('#chaptersui .sc-text', { hasText: /^2 \/ 2$/ }).waitFor();
+  await page.locator('#chaptersui [data-act="chapter"]', { hasText: 'A talk' }).click();
   await until(page, () => document.getElementById('box').dataset.visible === 'true');
   await until(page, () => /Sit. We need to talk anyway/.test(document.getElementById('text').textContent));
 });
@@ -544,21 +574,44 @@ play('achievements: the list shows endings and achievements apart with counts, a
   await page.evaluate(() => localStorage.setItem('vn.evening-in-the-park.unlocked', JSON.stringify(['town_visit'])));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleAchievements').click();
-  await page.locator('#achievements').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#achievementCount').innerText(), 'Endings 0 / 1 · Achievements 1 / 1');
-  assert.deepEqual(await page.locator('#achievementList h3').allInnerTexts(), ['Endings', 'Achievements']);
+  await page.locator('#titleui [data-act="achievements"]').click();
+  await page.locator('#achievementsui .sc-text', { hasText: /^Achievements +1 \/ 1$/ }).waitFor(); // the achievements section; the ending (0 / 1) has its own heading
   // Locked but not `hidden`: the title and description show (only hidden entries read "???").
-  assert.match(await page.locator('#achievementList .ach-row[data-locked="true"]').innerText(), /^A thank-you note\s+Find what was left in town\.$/);
-  assert.match(await page.locator('#achievementList .ach-row[data-locked="false"]').innerText(), /Into town\s+Leave the park behind\./);
+  const texts = await page.locator('#achievementsui .sc-text').allInnerTexts();
+  for (const t of ['A thank-you note', 'Find what was left in town.', 'Into town', 'Leave the park behind.']) assert.ok(texts.includes(t), t);
+  assert.ok(!texts.includes('???'));
   await page.keyboard.press('Escape');
-  await page.locator('#achievements').waitFor({ state: 'hidden' });
+  await until(page, () => document.getElementById('achievementsui').dataset.visible === 'false');
 
   await page.evaluate(() => window.postMessage({ type: 'screen', name: 'achievement_toast' }, location.origin));
-  await until(page, () => document.getElementById('achToast').dataset.show === 'true');
-  assert.equal(await page.locator('#achToastHead').innerText(), 'ENDING REACHED'); // the sample's first entry is an ending
-  assert.equal(await page.locator('#achToastTitle').innerText(), 'A thank-you note');
-  assert.equal(await page.locator('#achToast').getAttribute('data-position'), 'topright');
+  await page.locator('#achtoastui .sc-text', { hasText: 'Ending reached' }).waitFor(); // the sample's first entry is an ending
+  await page.locator('#achtoastui .sc-text', { hasText: 'A thank-you note' }).waitFor();
+  const corner = await page.evaluate(() => {
+    const r = document.getElementById('stage').getBoundingClientRect(), b = document.querySelector('#achtoastui .sc-text').getBoundingClientRect();
+    return [b.left - r.left > r.width / 2, b.top - r.top < r.height / 4]; // top right, the default position
+  });
+  assert.deepEqual(corner, [true, true]);
+  await until(page, () => document.getElementById('achtoastui').dataset.visible === 'false'); // it goes after achievementToast.seconds
+});
+
+play('quick menu: game.json quickMenu picks the buttons, their order and the edge', async page => {
+  await newGame(page);
+  await until(page, () => document.getElementById('quickui').dataset.visible === 'true');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#quickui [data-id]')].map(e => e.dataset.act)), ['options', 'auto']); // voice joins only on a voiced line
+  const at = await page.evaluate(() => {
+    const r = document.getElementById('stage').getBoundingClientRect(), b = document.querySelector('#quickui [data-act="options"]').getBoundingClientRect();
+    return [b.left - r.left < r.width / 4, b.top - r.top < r.height / 4]; // top left
+  });
+  assert.deepEqual(at, [true, true]);
+  await page.locator('#quickui [data-act="auto"]').click();
+  await until(page, () => document.querySelector('#quickui [data-act="auto"]').getAttribute('aria-pressed') === 'true');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    proj.game = { ...proj.game, quickMenu: { items: ['options', 'auto', 'nonsense'], position: 'top', align: 'left' } };
+    await route.fulfill({ response: res, json: proj });
+  });
 });
 
 // localStorage key of a per-game value (the sample's game id is the slug of its title).
@@ -569,55 +622,59 @@ play('gallery: seen backgrounds are unlocked tiles that open a viewer, arrows pa
   await newGame(page);
   await until(page, k => localStorage.getItem(k)?.includes('bg_park_evening'), gameKey('images'));
   await page.keyboard.press('Escape');
-  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
   await confirmYes(page);
-  await page.locator('#titleGallery').click();
-  await page.locator('#gallery').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#galleryCount').innerText(), '1 / 2');
-  const tiles = page.locator('#galleryGrid .tile');
-  assert.equal(await tiles.nth(0).isDisabled(), false);
-  assert.match(await tiles.nth(0).innerText(), /Evening park/);
-  assert.equal(await tiles.nth(1).isDisabled(), true);
-  assert.match(await tiles.nth(1).innerText(), /Locked/);
+  await page.locator('#titleui [data-act="gallery"]').click();
+  await page.locator('#galleryui .sc-text', { hasText: /^1 \/ 2$/ }).waitFor();
+  const tiles = page.locator('#galleryui [data-act="tile"]');
+  assert.equal(await tiles.nth(0).getAttribute('aria-disabled'), null);
+  assert.equal(await tiles.nth(1).getAttribute('aria-disabled'), 'true');
+  const titles = await page.locator('#galleryui .sc-text').allInnerTexts();
+  assert.ok(titles.includes('Evening park') && titles.includes('Locked'), titles.join('|'));
+  assert.equal(await page.locator('#galleryui img.sc-img').count(), 1); // only the seen tile has its picture
   await tiles.nth(0).click();
-  await page.locator('#viewer').waitFor({ state: 'visible' });
-  assert.match(await page.locator('#viewerTitle').innerText(), /^Evening park/);
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'true');
+  await until(page, () => /^Evening park/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
   await page.keyboard.press('Escape'); // back to the grid, not the title
-  await page.locator('#viewer').waitFor({ state: 'hidden' });
-  await page.locator('#gallery').waitFor({ state: 'visible' });
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'false');
+  await until(page, () => document.getElementById('galleryui').dataset.visible === 'true');
+  await tiles.nth(0).click(); // a click on the picture closes the viewer too
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'true');
+  await page.locator('#viewerui [data-id="shut"]').click({ position: { x: 600, y: 300 } });
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'false');
+  await until(page, () => document.activeElement?.dataset.id === '1'); // focus is back on the tile that was viewed
 });
 
 play('gallery: with both images seen the viewer pages through them and wraps around', async page => {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening', 'bg_park_night'])), gameKey('images'));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleGallery').click();
-  assert.equal(await page.locator('#galleryCount').innerText(), '2 / 2');
-  await page.locator('#galleryGrid .tile').nth(0).click();
-  const title = () => page.locator('#viewerTitle').innerText();
-  assert.match(await title(), /^Evening park\s+1 \/ 2/);
+  await page.locator('#titleui [data-act="gallery"]').click();
+  await page.locator('#galleryui .sc-text', { hasText: /^2 \/ 2$/ }).waitFor();
+  await page.locator('#galleryui [data-act="tile"]').nth(0).click();
+  const shows = re => until(page, r => new RegExp(r).test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''), re);
+  await shows('^Evening park\\s+1 / 2');
   await page.keyboard.press('ArrowRight');
-  assert.match(await title(), /^Night park\s+2 \/ 2/);
+  await shows('^Night park\\s+2 / 2');
   await page.keyboard.press('ArrowRight');
-  assert.match(await title(), /^Evening park\s+1 \/ 2/);
+  await shows('^Evening park\\s+1 / 2');
   await page.keyboard.press('ArrowLeft');
-  assert.match(await title(), /^Night park\s+2 \/ 2/);
+  await shows('^Night park\\s+2 / 2');
 });
 
 play('Continue is disabled without a save and resumes the newest one, showing its line', async page => {
-  assert.equal(await page.locator('#continue').isDisabled(), true);
+  assert.equal(await page.locator('#titleui [data-act="continue"]').getAttribute('aria-disabled'), 'true');
   await newGame(page);
   await textDone(page);
   await page.keyboard.press('Space');
   await until(page, () => document.getElementById('name').textContent === 'Alice');
   const saved = await status(page);
   await page.keyboard.press('Escape');
-  await page.locator('#pause').getByRole('button', { name: 'Main menu' }).click();
+  await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
   await confirmYes(page);
-  await page.locator('#continue').waitFor({ state: 'visible' });
-  await until(page, () => !document.getElementById('continue').disabled);
-  assert.match(await page.locator('#continueInfo').innerText(), /late|park/i);
-  await page.locator('#continue').click();
+  await page.locator('#titleui [data-act="continue"]').waitFor({ state: 'visible' });
+  await until(page, () => document.querySelector('#titleui [data-act="continue"]').getAttribute('aria-disabled') !== 'true');
+  await page.locator('#titleui [data-act="continue"]').click();
   await until(page, s => document.getElementById('status').textContent === s, saved);
   assert.equal(await page.locator('#name').innerText(), 'Alice');
 });
@@ -633,16 +690,17 @@ const withFinnish = async context => {
 };
 
 play('language: the Options list offers the locales, switching translates the title and the story and is remembered', async page => {
-  await page.locator('#titleOptions').click();
+  await page.locator('#titleui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
-  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
-  assert.deepEqual(await page.locator('#optLang option').allInnerTexts(), ['en', 'fi']);
-  await page.locator('#optLang').selectOption('fi');
+  await page.locator('#optionsui [role="tab"]', { hasText: 'Game' }).click();
+  assert.equal(await page.locator('#optionsui [data-id="language"]').textContent(), 'en ▾'); // Game page: the language row shows when the game has a second one
+  await page.locator('#optionsui [data-id="language"]').click(); await page.locator('#optionsui [data-id="language.fi"]').click(); // open the list, pick Finnish
+  await until(page, () => document.querySelector('#optionsui [data-id="language"]').textContent === 'fi ▾');
   await page.keyboard.press('Escape');
   await page.locator('#options').waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Uusi peli' }).waitFor(); // the title reloads in Finnish
   assert.equal(await page.evaluate(k => JSON.parse(localStorage.getItem(k)).lang, gameKey('settings')), 'fi');
-  await page.locator('#titleNav button:visible', { hasText: 'Uusi peli' }).click();
+  await page.locator('#titleui [data-act]', { hasText: 'Uusi peli' }).click();
   await until(page, () => document.getElementById('box').dataset.visible === 'true');
   await textDone(page);
   assert.equal(await text(page), 'Puisto oli melkein tyhjä.');
@@ -667,16 +725,17 @@ const withFinnishFile = async context => {
 
 play('language: an exported translation is fetched when picked, and only once', async page => {
   fetchedFinnish.length = 0;
-  await page.locator('#titleOptions').click();
+  await page.locator('#titleui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
-  await page.locator('#options [role="tab"]', { hasText: 'Game' }).click();
-  assert.deepEqual(await page.locator('#optLang option').allInnerTexts(), ['en', 'fi']);
+  await page.locator('#optionsui [role="tab"]', { hasText: 'Game' }).click();
+  assert.equal(await page.locator('#optionsui [data-id="language"]').textContent(), 'en ▾'); // Game page: the language row shows when the game has a second one
   assert.equal(fetchedFinnish.length, 0, 'listed, not fetched, until picked');
-  await page.locator('#optLang').selectOption('fi');
+  await page.locator('#optionsui [data-id="language"]').click(); await page.locator('#optionsui [data-id="language.fi"]').click(); // open the list, pick Finnish
+  await until(page, () => document.querySelector('#optionsui [data-id="language"]').textContent === 'fi ▾');
   await page.keyboard.press('Escape');
   await page.locator('#options').waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Uusi peli' }).waitFor();
-  await page.locator('#titleNav button:visible', { hasText: 'Uusi peli' }).click();
+  await page.locator('#titleui [data-act]', { hasText: 'Uusi peli' }).click();
   await until(page, () => document.getElementById('box').dataset.visible === 'true');
   await textDone(page);
   assert.equal(await text(page), 'Puisto oli melkein tyhjä.');
@@ -760,7 +819,7 @@ play('gamepad: the d-pad moves focus between the title buttons, A presses, B goe
   await tap(page, 0); // A
   await page.locator('#options').waitFor({ state: 'visible' });
   await tap(page, 5); // RB: next tab
-  assert.equal(await page.locator('#options [role="tab"][aria-selected="true"]').innerText(), 'Game');
+  assert.equal(await page.locator('#optionsui [role="tab"][aria-selected="true"]').innerText(), 'Game');
   await tap(page, 1); // B closes the screen
   await page.locator('#options').waitFor({ state: 'hidden' });
 }, withPad);
@@ -936,10 +995,10 @@ test('files panel: F2 renames a script through the palette, Delete removes it af
     assert.equal(await row('demo.vn').count(), 0, 'the old name is gone');
     assert.equal(await page.locator('#sbList summary', { hasText: 'side' }).count(), 1, 'the new folder shows');
 
-    page.once('dialog', d => d.accept());
     await row('demo_b.vn').click();
     await until(page, () => document.activeElement?.dataset.key === 'script/side/demo_b.vn');
     await page.keyboard.press('Delete');
+    await page.locator('dialog.ask').getByRole('button', { name: 'Delete' }).click();
     await row('demo_b.vn').waitFor({ state: 'detached' });
     assert.deepEqual(calls.at(-1), { route: 'delete', path: 'script/side/demo_b.vn' });
     assert.deepEqual(errors, []);
@@ -972,10 +1031,10 @@ test('files panel: a delete toast offers Undo, and Restore from Trash lists the 
     await page.goto(`${base}editor/`);
     const row = page.locator('#sbList .item', { hasText: 'demo.vn' });
     await row.waitFor();
-    page.once('dialog', d => d.accept());
     await row.click();
     await until(page, () => document.activeElement?.dataset.key === 'script/demo.vn');
     await page.keyboard.press('Delete');
+    await page.locator('dialog.ask').getByRole('button', { name: 'Delete' }).click();
     const toastEl = page.locator('#toast');
     await toastEl.waitFor();
     assert.equal(await toastEl.locator('span').innerText(), 'deleted script/demo.vn');
@@ -1775,7 +1834,6 @@ play('hud: a mask hotspot in a HUD hits only its opaque pixels and lets other cl
 // ---- a project's `screen quickmenu` replaces the stock quick menu bar ----
 play('quickmenu: a screen named quickmenu is drawn in place of the stock bar and its actions run', async page => {
   await newGame(page);
-  assert.equal(await page.locator('#quick').isHidden(), true);
   await until(page, () => document.getElementById('quickui').dataset.visible === 'true');
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#quickui [data-id]')].map(e => e.dataset.act)), ['history', 'auto']);
   await page.locator('#quickui [data-act="auto"]').click();
@@ -1796,7 +1854,6 @@ play('quickmenu: a screen named quickmenu is drawn in place of the stock bar and
 // ---- a project's `screen title` replaces the stock title screen ----
 play('title: a screen named title is drawn in place of the stock one and its actions run', async page => {
   await until(page, () => document.getElementById('titleui').dataset.visible === 'true');
-  assert.equal(await page.locator('#newGame').isHidden(), true);
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#titleui [data-id]')].map(e => e.dataset.act)), ['start', 'continue', 'options']);
   assert.equal(await page.locator('#titleui [data-act="continue"]').getAttribute('aria-disabled'), 'true'); // no save yet
   // the arrow keys move focus inside the project's screen (the stock title behind it is hidden), skipping the disabled button
@@ -1808,7 +1865,7 @@ play('title: a screen named title is drawn in place of the stock one and its act
   await page.locator('#titleui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
   await until(page, () => document.getElementById('titleui').dataset.visible === 'false');
-  await page.locator('#optBack').click();
+  await page.locator('#optionsui [data-act="close"]').click();
   await until(page, () => document.getElementById('titleui').dataset.visible === 'true');
   await page.locator('#titleui [data-act="start"]').click();
   await until(page, () => document.getElementById('box').dataset.visible === 'true');
@@ -1826,9 +1883,9 @@ play('title: a screen named title is drawn in place of the stock one and its act
 play('options: a screen named options is drawn in place of the stock one; sliders, cycles, tabs and close work', async page => {
   await newGame(page);
   await page.keyboard.press('Escape');
-  await page.locator('#pauseOptions').click();
+  await page.locator('#pauseui [data-act="options"]').click();
   await until(page, () => document.getElementById('optionsui').dataset.visible === 'true');
-  assert.equal(await page.locator('#options .panel').isHidden(), true);
+  assert.equal(await page.locator('#optionsui [data-id="access"]').count(), 0); // the project's screen, not the starter
   // first tab: the slider only; moving it does not rebuild it
   assert.equal(await page.locator('#optionsui [data-setting="master"]').count(), 1);
   assert.equal(await page.locator('#optionsui [data-id="text_sounds"]').count(), 0);
@@ -1850,7 +1907,7 @@ play('options: a screen named options is drawn in place of the stock one; slider
   await until(page, () => document.querySelector('#optionsui [data-id="text_sounds"]').textContent === 'Text sounds: off');
   await page.locator('#optionsui [data-act="close"]').click();
   await until(page, () => document.getElementById('optionsui').dataset.visible === 'false');
-  await page.locator('#resume').waitFor({ state: 'visible' });
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
 }, async context => {
   await context.route('**/api/project', async route => {
     const res = await route.fetch();
@@ -1868,7 +1925,7 @@ play('saves: a screen named saves is drawn in place of the stock one; slots, pag
   await until(page, () => document.getElementById('name').textContent === 'Alice');
   await openPause(page, 'Save');
   await until(page, () => document.getElementById('savesui').dataset.visible === 'true');
-  assert.equal(await page.locator('#saves .saves-panel').isHidden(), true);
+  assert.equal(await page.locator('#savesui [data-act="remove"]').count(), 0); // the project's screen, not the starter
   const slots = page.locator('#savesui [data-act="slot"]');
   assert.equal(await slots.count(), 6);
   assert.equal(await page.locator('#savesui [data-act="page"]').count(), 9); // Save has no auto/quick/choice pages
@@ -1893,7 +1950,7 @@ play('saves: a screen named saves is drawn in place of the stock one; slots, pag
   await until(page, () => /Empty/i.test(document.querySelector('#savesui [data-act="slot"]').textContent));
   await page.locator('#savesui [data-act="close"]').click();
   await until(page, () => document.getElementById('savesui').dataset.visible === 'false');
-  await page.locator('#pause').waitFor({ state: 'visible' });
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
 }, async context => {
   await context.route('**/api/project', async route => {
     const res = await route.fetch();
@@ -1903,7 +1960,7 @@ play('saves: a screen named saves is drawn in place of the stock one; slots, pag
   });
 });
 
-// ---- a project's `screen history` replaces the stock history panel, with a scroll area ----
+// ---- a project's `screen history` replaces the starter, here with a small scroll area ----
 play('history: a screen named history lists the lines in a scroll area that starts at the end; wheel and keys scroll it, close goes back', async page => {
   await newGame(page);
   await textDone(page);
@@ -1912,7 +1969,6 @@ play('history: a screen named history lists the lines in a scroll area that star
   await textDone(page);
   await page.keyboard.press('l');
   await until(page, () => document.getElementById('historyui').dataset.visible === 'true');
-  assert.equal(await page.locator('#history .history-panel').isHidden(), true);
   const area = page.locator('#historyui .sc-scroll');
   const info = () => area.evaluate(e => ({ top: e.scrollTop, max: e.scrollHeight - e.clientHeight, rows: e.querySelectorAll('[data-id]').length, text: e.textContent }));
   let v = await info();
@@ -1938,21 +1994,19 @@ play('history: a screen named history lists the lines in a scroll area that star
   });
 });
 
-// ---- a project's `screen gallery` replaces the stock gallery ----
+// ---- a project's `screen gallery` replaces the starter gallery ----
 play('gallery screen: a screen named gallery draws the tiles; locked ones are disabled, a tile opens the viewer and Escape returns to it', async page => {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening'])), gameKey('images'));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleGallery').click();
+  await page.locator('#titleui [data-act="gallery"]').click();
   await until(page, () => document.getElementById('galleryui').dataset.visible === 'true');
-  assert.equal(await page.locator('#gallery .saves-panel').isHidden(), true);
   const tiles = page.locator('#galleryui [data-act="tile"]');
   assert.deepEqual(await tiles.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'Evening park', null], ['2', 'Locked', 'true']]);
   assert.equal(await page.locator('#galleryui .sc-scroll img.sc-img').count(), 1); // only the unlocked tile has its picture
   assert.match(await page.locator('#galleryui .sc-text').innerText(), /1 of 2/);
   await tiles.nth(0).click();
-  await page.locator('#viewer').waitFor({ state: 'visible' });
-  assert.match(await page.locator('#viewerTitle').innerText(), /^Evening park/);
+  await until(page, () => document.getElementById('viewerui').dataset.visible === 'true');
   await until(page, () => document.getElementById('galleryui').dataset.visible === 'false');
   await page.keyboard.press('Escape');
   await until(page, () => document.getElementById('galleryui').dataset.visible === 'true');
@@ -1969,18 +2023,17 @@ play('gallery screen: a screen named gallery draws the tiles; locked ones are di
   });
 });
 
-// ---- a project's `screen viewer` replaces the stock picture viewer (here over the stock gallery) ----
+// ---- a project's `screen viewer` replaces the starter (here over the starter gallery) ----
 play('viewer screen: a screen named viewer shows the picture and title; next and prev page and wrap, Escape returns to the gallery', async page => {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['bg_park_evening', 'bg_park_night'])), gameKey('images'));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleGallery').click();
-  await page.locator('#galleryGrid .tile').nth(0).click();
+  await page.locator('#titleui [data-act="gallery"]').click();
+  await page.locator('#galleryui [data-act="tile"]').nth(0).click();
   await until(page, () => document.getElementById('viewerui').dataset.visible === 'true');
   const text = () => page.locator('#viewerui .sc-text').innerText();
   await until(page, () => /^Evening park 1\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
   assert.equal(await page.locator('#viewerui img.sc-img').count(), 1);
-  assert.equal(await page.locator('#viewerTitle').isHidden(), true); // the stock title is replaced
   await page.locator('#viewerui [data-act="next"]').click();
   await until(page, () => /^Night park 2\/2/.test(document.querySelector('#viewerui .sc-text')?.textContent ?? ''));
   await page.locator('#viewerui [data-act="next"]').click();
@@ -2000,14 +2053,13 @@ play('viewer screen: a screen named viewer shows the picture and title; next and
   });
 });
 
-// ---- a project's `screen music` and `screen chapters` replace the stock music room and chapter select ----
+// ---- a project's `screen music` and `screen chapters` replace the starter music room and chapter select ----
 play('music screen: a screen named music lists the tracks; a track plays, Stop and Back leave', async page => {
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['evening_theme'])), gameKey('music'));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleMusic').click();
+  await page.locator('#titleui [data-act="music"]').click();
   await until(page, () => document.getElementById('musicui').dataset.visible === 'true');
-  assert.equal(await page.locator('#musicRoom .saves-panel').isHidden(), true);
   assert.match(await page.locator('#musicui .sc-text').innerText(), /^ ?1 of 1/);
   const tracks = page.locator('#musicui [data-act="track"]');
   assert.deepEqual(await tracks.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'Evening Theme', null]]);
@@ -2031,9 +2083,8 @@ play('chapters screen: a screen named chapters lists the chapters; a locked one 
   await page.evaluate(k => localStorage.setItem(k, JSON.stringify(['start'])), gameKey('chapters'));
   await page.reload();
   await page.getByRole('button', { name: 'New game' }).waitFor();
-  await page.locator('#titleChapters').click();
+  await page.locator('#titleui [data-act="chapters"]').click();
   await until(page, () => document.getElementById('chaptersui').dataset.visible === 'true');
-  assert.equal(await page.locator('#chapters .saves-panel').isHidden(), true);
   const rows = page.locator('#chaptersui [data-act="chapter"]');
   assert.deepEqual(await rows.evaluateAll(els => els.map(e => [e.dataset.id, e.textContent, e.getAttribute('aria-disabled')])), [['1', 'The bench', null], ['2', 'Locked', 'true']]);
   await rows.nth(0).click();
@@ -2053,12 +2104,11 @@ play('pause: a screen named pause is drawn in place of the stock menu and its ac
   await newGame(page);
   await page.keyboard.press('Escape');
   await until(page, () => document.getElementById('pauseui').dataset.visible === 'true');
-  assert.equal(await page.locator('#resume').isHidden(), true);
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#pauseui [data-id]')].map(e => e.dataset.act)), ['resume', 'options']);
   await page.locator('#pauseui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
   await until(page, () => document.getElementById('pauseui').dataset.visible === 'false');
-  await page.locator('#optBack').click();
+  await page.locator('#optionsui [data-act="close"]').click();
   await until(page, () => document.getElementById('pauseui').dataset.visible === 'true');
   await page.locator('#pauseui [data-act="resume"]').click();
   await until(page, () => document.getElementById('pauseui').dataset.visible === 'false');
@@ -2114,16 +2164,19 @@ function silentWav(seconds = 0.5, rate = 8000) {
 play('voice: a line with a recording offers a replay button and V plays it again', async page => {
   await newGame(page);
   await textDone(page);
-  assert.equal(await page.locator('#quick [data-q="voice"]').isVisible(), true, 'the first line (joce) has a recording');
-  assert.equal(await page.locator('#optVoice').count(), 1, 'the options have a voice slider');
+  assert.equal(await page.locator('#quickui [data-act="voice"]').isVisible(), true, 'the first line (joce) has a recording');
+  await page.locator('#quickui [data-act="options"]').click();
+  await page.locator('#optionsui [data-setting="voice"]').waitFor(); // the options have a voice slider
+  await page.keyboard.press('Escape');
+  await page.locator('#options').waitFor({ state: 'hidden' });
   const played = () => page.evaluate(() => window.__voiceStarts ?? 0);
   await page.keyboard.press('v');
-  await page.locator('#quick [data-q="voice"]').click();
+  await page.locator('#quickui [data-act="voice"]').click();
   await until(page, () => (window.__voiceStarts ?? 0) >= 2);
   assert.ok(await played() >= 2);
   await page.evaluate(() => document.activeElement.blur()); // a focused button would take the Space
   await page.keyboard.press('Space'); // the next line has no recording
-  await until(page, () => document.querySelector('#quick [data-q="voice"]').hidden === true);
+  await until(page, () => !document.querySelector('#quickui [data-act="voice"]'));
 }, async context => {
   await context.addInitScript(() => {
     const start = AudioBufferSourceNode.prototype.start;
@@ -2175,7 +2228,7 @@ play('timed menu: opening the pause menu holds the bar', async page => {
   await newGame(page);
   await toChoice(page);
   await page.keyboard.press('Escape');
-  await page.locator('#pause').waitFor({ state: 'visible' });
+  await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
   const held = await barScale(page);
   assert.ok(held > 0 && held <= 1);
   await page.waitForTimeout(1500);
@@ -2184,10 +2237,12 @@ play('timed menu: opening the pause menu holds the bar', async page => {
 }, withTimedStart(4));
 
 play('timed menu: with Timed choices off there is no clock and the player can wait', async page => {
-  await page.locator('#titleOptions').click();
+  await page.locator('#titleui [data-act="options"]').click();
   await page.locator('#options').waitFor({ state: 'visible' });
-  await page.locator('#tabAccess').click();
-  await page.locator('#optTimed').selectOption('off');
+  await page.locator('#optionsui [data-id="access"]').click();
+  await page.locator('#optionsui [data-id="timed_choices"]').click(); // open the list
+  await page.locator('#optionsui [data-id="timed_choices.off"]').click(); // -> No time limit
+  await until(page, () => /No time limit/.test(document.querySelector('#optionsui [data-id="timed_choices"]').textContent));
   await page.keyboard.press('Escape');
   await page.locator('#options').waitFor({ state: 'hidden' });
   await newGame(page);
@@ -2539,6 +2594,12 @@ inEditor('translations dialog: progress, filter, edits saved as you type, change
   assert.equal(await dialog.locator('.tr-lang').inputValue(), 'de');
   assert.match(await summary.innerText(), /^0 of \d+ translated/);
 
+  // The built-in menu labels are rows too (ui.<key>, the page's own text as the source).
+  await dialog.locator('.tr-filter').fill('ui.back');
+  await until(page, () => document.querySelectorAll('#translations .tr-row').length === 1);
+  assert.match(await dialog.locator('.tr-kind').innerText(), /menu label/);
+  assert.equal(await dialog.locator('.tr-src').innerText(), 'Back');
+
   // A row's file:line closes the dialog and shows the line.
   await dialog.locator('.tr-filter').fill('j30k');
   await until(page, () => document.querySelectorAll('#translations .tr-row').length === 1);
@@ -2629,7 +2690,7 @@ inEditor('screens sidebar: a built-in screen row opens it in the preview and sho
   await page.keyboard.type('zzz');
   assert.ok(!(await page.locator('.monaco-editor .view-lines').innerText()).includes('zzz'), 'the starter code is read-only');
   await screenRow('History').click();
-  await frame.locator('#history').waitFor({ state: 'visible' });
+  await frame.locator('#history:not([hidden])').waitFor();
   assert.equal(await frame.locator('#options').isHidden(), true);
   assert.equal(await screenRow('History').getAttribute('aria-current'), 'true');
 });

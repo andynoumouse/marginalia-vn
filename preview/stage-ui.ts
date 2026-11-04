@@ -172,50 +172,50 @@ export abstract class StageRenderer implements Renderer {
   /** Screens shown with `hud on`, over the scene and under the text box. A choice is reported to the runtime through `onHudEvent`. */
   readonly hudLayer = new HudLayer($('hudui'), (id, on) => this.onHudEvent(id, on), () => this.menuOpen || this.paused, n => this.hoverSound(n));
   onHudEvent: (id: string, on: string) => void = () => {};
-  /** The project's `screen quickmenu`, drawn like a HUD above the text box; its elements run built-in actions through `onQuickAction`. */
-  readonly quickLayer = new HudLayer($('quickui'), (id, on) => { if (on === 'click') this.onQuickAction(this.quickView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => this.menuOpen || this.paused, n => this.hoverSound(n));
+  /** The `quickmenu` screen (the project's, else the starter), drawn like a HUD above the text box; its elements run built-in actions through `onQuickAction`. */
+  readonly quickLayer = new HudLayer($('quickui'), (id, on) => { if (on === 'click') this.onQuickAction(this.quickView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => this.paused, n => this.hoverSound(n));
   onQuickAction: (item: ViewItem | undefined) => void = () => {};
-  /** The project's `screen title`, drawn over the stock title screen's place; its elements run built-in actions through `onTitleAction`. */
+  /** The project's `screen title`, drawn over the title screen's place; its elements run built-in actions through `onTitleAction`. */
   readonly titleLayer = new HudLayer($('titleui'), (id, on) => { if (on === 'click') this.onTitleAction(this.titleView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onTitleAction: (item: ViewItem | undefined) => void = () => {};
   private titleView: ScreenView | null = null;
-  /** The project's `screen pause`, drawn over the dimmed stage while the stock pause menu would be up; actions go to `onPauseAction`. */
+  /** The project's `screen pause`, drawn over the dimmed stage while the pause menu is up; actions go to `onPauseAction`. */
   readonly pauseLayer = new HudLayer($('pauseui'), (id, on) => { if (on === 'click') this.onPauseAction(this.pauseView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onPauseAction: (item: ViewItem | undefined) => void = () => {};
   private pauseView: ScreenView | null = null;
-  /** The project's `screen options`, drawn over the dimmed stage in place of the stock options; actions go to `onOptionsAction`, slider moves to `onSlider`. */
-  readonly optionsLayer = new HudLayer($('optionsui'), (id, on) => { if (on === 'click') this.onOptionsAction(this.optionsView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
+  /** The project's `screen options`, drawn over the dimmed stage in place of the default options; actions go to `onOptionsAction`, slider moves to `onSlider`. */
+  readonly optionsLayer = new HudLayer($('optionsui'), (id, on) => { if (on === 'click') this.onOptionsAction(this.optionsView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n), true);
   onOptionsAction: (item: ViewItem | undefined) => void = () => {};
   private optionsView: ScreenView | null = null;
-  /** The project's `screen saves`, drawn over the dimmed stage in place of the stock save/load screen; actions go to `onSavesAction`. */
+  /** The project's `screen saves`, drawn over the dimmed stage in place of the default save/load screen; actions go to `onSavesAction`. */
   readonly savesLayer = new HudLayer($('savesui'), (id, on) => { if (on === 'click') this.onSavesAction(this.savesView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onSavesAction: (item: ViewItem | undefined) => void = () => {};
   private savesView: ScreenView | null = null;
-  /** The project's `screen history`, drawn over the dimmed stage in place of the stock history panel; actions go to `onHistoryAction`. */
+  /** The project's `screen history`, drawn over the dimmed stage (the project's, else the starter); actions go to `onHistoryAction`. */
   readonly historyLayer = new HudLayer($('historyui'), (id, on) => { if (on === 'click') this.onHistoryAction(this.historyView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onHistoryAction: (item: ViewItem | undefined) => void = () => {};
   private historyView: ScreenView | null = null;
-  /** The project's `screen gallery`, drawn over the dimmed stage in place of the stock gallery; actions go to `onGalleryAction`. */
+  /** The project's `screen gallery`, drawn over the dimmed stage in place of the default gallery; actions go to `onGalleryAction`. */
   readonly galleryLayer = new HudLayer($('galleryui'), (id, on) => { if (on === 'click') this.onGalleryAction(this.galleryView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onGalleryAction: (item: ViewItem | undefined) => void = () => {};
   private galleryView: ScreenView | null = null;
-  /** The project's `screen viewer`, drawn over the black viewer backdrop in place of the stock picture and title; actions go to `onViewerAction`. */
+  /** The project's `screen viewer`, drawn over the black viewer backdrop (the project's, else the starter); actions go to `onViewerAction`. */
   readonly viewerLayer = new HudLayer($('viewerui'), (id, on) => { if (on === 'click') this.onViewerAction(this.viewerView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onViewerAction: (item: ViewItem | undefined) => void = () => {};
   private viewerView: ScreenView | null = null;
-  /** The project's `screen music`, drawn over the dimmed stage in place of the stock music room; actions go to `onMusicAction`. */
+  /** The project's `screen music`, drawn over the dimmed stage in place of the default music room; actions go to `onMusicAction`. */
   readonly musicLayer = new HudLayer($('musicui'), (id, on) => { if (on === 'click') this.onMusicAction(this.musicView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onMusicAction: (item: ViewItem | undefined) => void = () => {};
   private musicView: ScreenView | null = null;
-  /** The project's `screen chapters`, drawn over the dimmed stage in place of the stock chapter select; actions go to `onChaptersAction`. */
+  /** The project's `screen chapters`, drawn over the dimmed stage in place of the default chapter select; actions go to `onChaptersAction`. */
   readonly chaptersLayer = new HudLayer($('chaptersui'), (id, on) => { if (on === 'click') this.onChaptersAction(this.chaptersView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onChaptersAction: (item: ViewItem | undefined) => void = () => {};
   private chaptersView: ScreenView | null = null;
-  /** The project's `screen achievements`, drawn over the dimmed stage in place of the stock list; actions go to `onAchievementsAction`. */
+  /** The project's `screen achievements`, drawn over the dimmed stage in place of the default list; actions go to `onAchievementsAction`. */
   readonly achievementsLayer = new HudLayer($('achievementsui'), (id, on) => { if (on === 'click') this.onAchievementsAction(this.achievementsView?.parts.find(p => 'id' in p && p.id === id && p.act) as ViewItem | undefined); }, () => false, n => this.hoverSound(n));
   onAchievementsAction: (item: ViewItem | undefined) => void = () => {};
   private achievementsView: ScreenView | null = null;
-  /** The project's `screen achievement_toast`: shows one unlock, takes no input. */
+  /** The `achievement_toast` screen (the project's, else the starter): shows one unlock, takes no input. */
   readonly achToastLayer = new HudLayer($('achtoastui'), () => {}, () => true);
   private achToastView: ScreenView | null = null;
   private quickView: ScreenView | null = null;
@@ -265,6 +265,8 @@ export abstract class StageRenderer implements Renderer {
   /** Estimated memory of what is loaded: images from the renderer, decoded audio from the audio system. */
   resident(): Resident[] { return [...this.residentImages(), ...this.audio.resident()]; }
   protected residentImages(): Resident[] { return []; }
+  /** The URL of an image a screen names: an asset, or a picture the shell hands over as a data: URL (a save slot's thumbnail). */
+  private imageUrl(file: string): string | null { return file.startsWith('data:image/') ? file : this.imageUrls.get(file.replace(IMAGE_FILE, '')) ?? null; }
   /** The renderer learns which image files exist (and which changed). */
   protected indexArt(_assets: AssetFile[]): void {}
   /** Load one image into the renderer; never rejects (a missing or broken file is drawn as a placeholder). */
@@ -553,6 +555,12 @@ export abstract class StageRenderer implements Renderer {
     nvlEl.dataset.visible = 'false';
     nvlEl.dataset.done = 'false';
     nvlPage.replaceChildren();
+  }
+
+  /** `textbox hide`: the box goes away until the next line (say) shows it again. */
+  hideBox() {
+    box.dataset.visible = 'false';
+    delete box.dataset.side;
   }
 
   /** Fill the NVL page with the lines already on it, in full, and add a row for the new line; returns that row. */
@@ -870,10 +878,10 @@ export abstract class StageRenderer implements Renderer {
     const parts = views.flatMap(v => v.parts);
     const keys = parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.hudViews !== views) return; }
-    this.hudLayer.update(views, file => this.imageUrls.get(key(file)) ?? null);
+    this.hudLayer.update(views, file => this.imageUrl(file));
   }
 
-  /** Draw the project's quick menu screen (null: it declares none, or the stock bar is wanted). Its view is pushed again with the HUD. */
+  /** Draw the quick menu screen (null: hide it). Its view is pushed again with the HUD. */
   quickShown = true;
   async quick(view: ScreenView | null) {
     const shown = this.quickShown ? view : null;
@@ -882,7 +890,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (shown?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.quickView !== shown) return; }
-    this.quickLayer.update(shown ? [shown] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.quickLayer.update(shown ? [shown] : [], file => this.imageUrl(file));
     this.onModeChange(); // a redraw drops the pressed state of Auto and Skip
   }
 
@@ -893,7 +901,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.pauseView !== view) return; }
-    this.pauseLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.pauseLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (view) this.pauseLayer.focusFirst();
   }
 
@@ -905,7 +913,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.optionsView !== view) return; }
-    this.optionsLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.optionsLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.optionsLayer.focusFirst();
   }
 
@@ -917,7 +925,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.savesView !== view) return; }
-    this.savesLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.savesLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.savesLayer.focusFirst();
   }
 
@@ -929,7 +937,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.historyView !== view) return; }
-    this.historyLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.historyLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.historyLayer.focusFirst();
   }
 
@@ -941,7 +949,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.galleryView !== view) return; }
-    this.galleryLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.galleryLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.galleryLayer.focusFirst(focusId);
   }
 
@@ -953,7 +961,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.viewerView !== view) return; }
-    this.viewerLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.viewerLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.viewerLayer.focusFirst();
   }
 
@@ -965,7 +973,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.musicView !== view) return; }
-    this.musicLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.musicLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.musicLayer.focusFirst(focusId);
   }
 
@@ -977,7 +985,7 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.chaptersView !== view) return; }
-    this.chaptersLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.chaptersLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.chaptersLayer.focusFirst(focusId);
   }
 
@@ -989,27 +997,27 @@ export abstract class StageRenderer implements Renderer {
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.achievementsView !== view) return; }
-    this.achievementsLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.achievementsLayer.update(view ? [view] : [], file => this.imageUrl(file));
     if (fresh) this.achievementsLayer.focusFirst();
   }
 
-  /** Draw the project's achievement toast for one unlock (null: hide it). */
+  /** Draw the achievement toast for one unlock (null: hide it). */
   async achievementToast(view: ScreenView | null) {
     this.achToastView = view;
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' && p.file ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (this.achToastView !== view) return; }
-    this.achToastLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.achToastLayer.update(view ? [view] : [], file => this.imageUrl(file));
   }
 
-  /** Draw the project's title screen (null: hide it). */
-  async title(view: ScreenView | null) {
+  /** Draw the project's title screen (null: hide it; `instant`: without its `on exit`, for when the curtain hides the change). */
+  async title(view: ScreenView | null, instant = false) {
     this.titleView = view;
     const ep = this.epoch;
     const key = (file: string) => file.replace(IMAGE_FILE, '');
     const keys = (view?.parts ?? []).flatMap(p => (p.kind === 'image' ? [key(p.file)] : []));
     if (keys.some(k => !this.ready.has(k))) { await this.ensure(keys); if (ep !== this.epoch || this.titleView !== view) return; }
-    this.titleLayer.update(view ? [view] : [], file => this.imageUrls.get(key(file)) ?? null);
+    this.titleLayer.update(view ? [view] : [], file => this.imageUrl(file), !instant);
     if (view) this.titleLayer.focusFirst();
   }
 
@@ -1025,7 +1033,7 @@ export abstract class StageRenderer implements Renderer {
     this.menuOpen = true;
     // `textbox off` on the screen: the last line must not stay under it; the next line shows the box again. (An NVL page is not the box and stays.)
     if (view.hideBox) { box.dataset.visible = 'false'; delete box.dataset.side; }
-    const id = await this.screens.show(view, file => this.imageUrls.get(key(file)) ?? null, live && {
+    const id = await this.screens.show(view, file => this.imageUrl(file), live && {
       set: (name, value) => { // a page that shows new pictures: they load, then the screen is drawn once more with them
         const next = live.set(name, value);
         const missing = next.parts.flatMap(p => (p.kind === 'image' ? [key(p.file)] : [])).filter(k => !this.ready.has(k));

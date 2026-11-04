@@ -6,7 +6,7 @@
  */
 
 import { FUNCTIONS } from './expr.js';
-import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, VIEWER_SCREEN, shellVars } from './screens.js';
+import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN, shellVars } from './screens.js';
 import type { ProjectFile, RenameResult, TextEdit } from './refactor.js';
 
 /** A place a variable name appears: 1-based line, 0-based column of the name and its length. `scope` is null for a global, else the label or loop that declares it. */
@@ -16,9 +16,9 @@ const ID = '[A-Za-z_][A-Za-z0-9_]*';
 const NAME = new RegExp(`^${ID}$`);
 const KEYWORDS = new Set(['and', 'or', 'not', 'true', 'false']);
 const RESERVED = new Set([...KEYWORDS, ...Object.keys(FUNCTIONS), 'persistent', 'unlocked', 'screen']);
-const SHELL_VARS = new Set([OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
+const SHELL_VARS = new Set([TITLE_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
 // an element line, or a clause continuation line (`if` ones are scanned like a story `if`) of one
-const ELEMENT = /^\s*(?:(?:image|hotspot|button|tab|radio|toggle|state|text|slider|bar|panel|each|scroll|row|column|grid)\b|on\s+(?:click|focus|blur)\s+set\b|enabled\b)/;
+const ELEMENT = /^\s*(?:(?:image|hotspot|button|tab|radio|toggle|select|state|text|slider|bar|panel|each|scroll|row|column|grid)\b|on\s+(?:click|focus|blur)\s+set\b|enabled\b)/;
 
 /** The line with the inside of every "string" blanked (same length), so words in text are never taken for syntax. */
 function mask(line: string): string {

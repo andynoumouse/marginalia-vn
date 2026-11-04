@@ -1,4 +1,4 @@
-# Marginalia VN Engine (v0.6)
+# Marginalia VN Engine (v0.7)
 
 - These couple of paragraphs are the only content I type manually in to this project:
 - This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
@@ -65,7 +65,7 @@ with the game inside, the exe named after the game, and a zip to share (about 14
 ## Online demo (in the browser)
 
 [andynoumouse.github.io/marginalia-vn](https://andynoumouse.github.io/marginalia-vn/), rebuilt with each release.
-The editor as a static website that keeps its projects in the browser: a project list (the sample game, a blank
+The editor as a static website that keeps its projects in the browser: a project list (the Iris demo, a blank
 project, a `.zip` import), the full editor and live preview, PSD conversion on drop, and a zip download that opens in
 Marginalia Studio. git, the file manager and Build/Export need the desktop tools. `npm run build:online` writes it
 to `build/online/`, and `npm run serve:online` tries it locally. See [docs/online.md](docs/online.md).
@@ -97,7 +97,7 @@ engine/src/   expr, text, parser, compile, runtime, locale, ids, assets, theme (
 engine/test/  node:test suite
 preview/      dev-server.mjs (static + /api/project + live reload), index.html, preview.ts (game shell), saves.ts, blips.ts,
               stage-ui.ts (HTML text box, skip/auto), pixi-renderer.ts (world, WebGL), audio.ts (Web Audio),
-              menus.ts (title/pause/options/saves/history), settings.ts,
+              menus.ts (the menu stack and dialogs), settings.ts,
               storage.ts (per-game storage: browser or desktop files), input.ts (keyboard/gamepad navigation), timeline.ts (rollback history)
 editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts
 tools/        paths.mjs (engine vs project folder), vn-tool.mjs (ids, strings), psd-convert.mjs (art pipeline),
@@ -138,6 +138,7 @@ label start:                            # entry point is "start" (or the first l
   weather rain|snow|petals|embers [0.6] [1]  /  weather off      # falling particles: intensity 0-1, fade-in seconds
   filter blur|grayscale|sepia|night|vignette [1] [0.8]  /  filter off   # a look over the scene: strength 0-1, seconds
   nvl on  /  nvl clear  /  nvl off      # full-screen narration pages instead of the text box; a new page on clear or scene
+  textbox hide                          # hide the text box until the next line
   alice: Hello.{pause=0.4} [name]        # {i}{/i} {b}{/b} {pause=s}, [variable]
   alice: {color=#ff6fa5}Pink{/color}, {size=1.5}big{/size}, {wave}wavy{/wave}, {shake}shaky{/shake}, {ruby=kan}漢{/ruby}
   alice: Wait for it...{wait} there.{nw}   # {wait} stops until a click; {nw} goes on without one
@@ -157,7 +158,7 @@ label start:                            # entry point is "start" (or the first l
   panel at 560,200 padding 48 image "ui/frame.png" slice 40:   # a 9-slice framed box; its children sit inside it (no size: it fits them)
   bar hp max 100 at 80,90 size 480,44 back "ui/back.png" fill "ui/fill.png" readout   # a stat bar that follows a variable
   show screen map as place              # waits; the chosen element's id is stored in [place] (screens take parameters: show screen room("hall") as place)
-  screen options:  /  slider master at 700,300  /  button text_sounds at 700,400 "Sounds: [text_sounds]" action cycle   # replaces the stock options (also `screen title`, `pause`, `quickmenu`); `action tab` switches the variable `tab`
+  screen options:  /  slider master at 700,300  /  button text_sounds at 700,400 "Sounds: [text_sounds]" action cycle   # replaces the default options (also `saves`, `title`, `pause`, `history`, ... and `quickmenu`: the defaults are screens too); `action tab` switches the variable `tab`
   state page = "items"  /  tab items page=items at 80,60 "Items"  /  button tip at 80,200 "?" on focus set page = "help"   # local screen state (gone when the screen closes) that tabs and hover handlers change; the screen redraws
   screen settings(inout sound, inout mode):  /  toggle snd sound at 80,100 "Sound"  /  radio easy mode=easy at 80,200 "Easy"  /  cancel [keep]   # inout copies story variables in and writes them back on an answer: show screen settings(sound, mode) as pick
   hud on status  /  hud off status      # a screen that stays up while the story runs; its `on click label` elements call that label; `hover "img.png"` on a hotspot swaps in art while it is hovered
@@ -182,7 +183,7 @@ CSV with that context for translators. The list is virtual, so it stays fast wit
 - The runtime is a deterministic state machine (pc, call stack, variables, display state).
   Hot reload = replay in instant mode to the source line, then continue live.
 - `Renderer` (engine/src/types.ts) is the seam. The world (backgrounds, sprites, transitions, effects) is
-  drawn with PixiJS and needs WebGL; text, menus and the quick menu are HTML over the canvas (stage-ui.ts).
+  drawn with PixiJS and needs WebGL; text and the screens (menus, quick menu, achievement toast) are HTML over the canvas (stage-ui.ts, screen-ui.ts).
 - The stage is 1920x1080 unless game.json sets `"stage": {"width", "height"}` (e.g. 1080x1920 for a portrait game); see
   docs/game-json.md. The size is read from game.json on every run and is never stored in saves.
 - Art reaches the Pixi renderer through `assets/`; anything missing is drawn as a placeholder, and changed
@@ -295,12 +296,12 @@ game.json `"gallery"` lists images; a Gallery button appears on the title screen
 ]
 ```
 
-The viewer shows one image at a time (arrow keys to browse, click or Esc to close).
+The viewer shows one image at a time (arrow keys to browse, Back or Esc to close).
 
 Extras work the same way: `"musicRoom"` lists tracks (unlocked once they have played) and `"chapters"` lists script
 labels (unlocked once reached; picking one starts a new playthrough there). `"achievements"` lists achievements and
 endings unlocked by `unlock <flag>`, each popping up a toast (`"achievementToast"` sets its corner, time and sound; a
-`screen achievement_toast` or `screen achievements` replaces the stock look). Each gets a title-screen button
+the toast, quick menu, gallery, music room, chapters and achievements are default screens too: declare `screen achievement_toast`, `quickmenu`, `gallery`, `music`, `chapters` or `achievements` to change one). Each gets a title-screen button
 (`"music_room"`, `"chapters"` and `"achievements"` in `titleScreen.buttons`); see docs/game-json.md.
 
 ## Playtest bot
@@ -372,7 +373,7 @@ from its start, open a master in its default app (Photoshop), copy a path, revea
 on a script opens it and leaves the focus on the row; Enter or a double-click goes on to the editor. **Rename** (F2 on the
 row) takes a new path in the palette, so typing another folder moves the file or folder; **Delete** (the Delete key) asks
 first; **Replace** overwrites an asset or master with a file of the same type; an overridden built-in screen
-has **Revert to Stock**. Nothing these remove is lost: deleted files and the old version of a replaced one go to `.trash/` in
+has **Revert to Default**. Nothing these remove is lost: deleted files and the old version of a replaced one go to `.trash/` in
 the project folder, the message that follows has **Undo**, and **Restore from Trash** (the palette, or right-click the Project
 heading) lists everything still there. Entries older than 30 days, then the oldest past 2 GB, are emptied for good (Empty
 Trash does it at once). Converted art is changed through its master, not renamed. Renaming or moving an asset file or

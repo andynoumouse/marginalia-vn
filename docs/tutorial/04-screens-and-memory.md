@@ -138,6 +138,6 @@ screen pause:
     button leave size 440,90 "Leave the library" action title hover scale 1.06
 ```
 
-In the editor's Files panel, **Customize** next to a built-in screen writes such a starter for you.
+In the editor's Files panel, **Edit** next to a built-in screen copies the default screen's script into your project for you.
 
 You now have the main ideas. The details of every command are in [../commands.md](../commands.md).

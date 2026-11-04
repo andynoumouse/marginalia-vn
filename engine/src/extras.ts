@@ -133,3 +133,22 @@ export function achievementProblems(raw: unknown, toast: unknown, unlocks: Reado
   }
   return out;
 }
+
+export const QUICK_ITEMS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'voice', 'hide'] as const;
+export interface QuickMenuSettings {
+  /** The buttons in order (`voice` last unless listed; the shell shows it only on voiced lines). */
+  items: string[];
+  /** An anchor place for the bar (`bottom`, `topright`, ...). */
+  place: string;
+}
+
+/** game.json "quickMenu" with defaults: every button, along the bottom edge, centered. Unknown buttons are dropped, a repeated one is shown once. */
+export function quickMenuSettings(raw: unknown): QuickMenuSettings {
+  const o = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const known = (i: unknown): i is string => typeof i === 'string' && (QUICK_ITEMS as readonly string[]).includes(i);
+  const listed = Array.isArray(o.items) ? [...new Set(o.items.filter(known))] : null;
+  const items = listed ? [...listed, ...(listed.includes('voice') ? [] : ['voice'])] : [...QUICK_ITEMS];
+  const vertical = o.position === 'top' ? 'top' : 'bottom';
+  const align = o.align === 'left' || o.align === 'right' ? o.align : 'center';
+  return { items, place: align === 'center' ? vertical : vertical + align };
+}

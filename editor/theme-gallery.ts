@@ -29,26 +29,19 @@ const TILES: { id: string; label: string; fill(s: HTMLElement): void }[] = [
   } },
   { id: 'title', label: 'Title', fill(s) {
     show(s, 'title');
-    set(s, '#gameTitle', e => { e.textContent = 'Sample Game'; });
-    set(s, '#continueInfo', e => { e.textContent = ' Chapter 2'; });
+    mockScreen(s, 'titleui', [{ text: 'Sample Game', y: 60, font: 100 }, ...['New game', 'Continue', 'Load', 'Options'].map((label, i) => ({ label, y: 330 + i * 96 }))]);
   } },
-  { id: 'pause', label: 'Pause', fill: s => show(s, 'pause') },
+  { id: 'pause', label: 'Pause', fill(s) {
+    show(s, 'pause');
+    mockScreen(s, 'pauseui', ['Resume', 'Save', 'Load', 'Options', 'Main menu'].map((label, i) => ({ label, y: 300 + i * 96 })));
+  } },
   { id: 'options', label: 'Options', fill(s) {
     show(s, 'options');
-    set(s, '#tabAudio', e => e.setAttribute('aria-selected', 'true'));
-    for (const p of s.querySelectorAll<HTMLElement>('.opt-page')) p.hidden = p.dataset.page !== 'audio';
+    mockScreen(s, 'optionsui', [{ text: 'Options', y: 120, font: 52 }, ...['Audio', 'Game', 'Accessibility'].map((label, i) => ({ label, y: 210 + i * 96, tab: i === 0 })), { label: 'Back', y: 520 }]);
   } },
   { id: 'saves', label: 'Saves', fill(s) {
     show(s, 'saves');
-    set(s, '#savesTitle', e => { e.textContent = 'Save'; });
-    set(s, '#savePages', e => {
-      e.innerHTML = '<button type="button" aria-current="page">1</button><button type="button">2</button><button type="button">3</button>';
-    });
-    const slot = (label: string, when: string, line: string) => `<div class="slot"><button type="button" class="slot-main"><div class="thumb">${line ? '' : 'Empty'}</div>`
-      + `<div class="slot-head"><span class="label">${label}</span><span class="when">${when}</span></div><div class="line">${line}</div></button></div>`;
-    set(s, '#slotGrid', e => {
-      e.innerHTML = slot('Slot 1', '3/14/26, 9:41 PM', 'Alice: Let us go.') + slot('Slot 2', '', '') + slot('Slot 3', '3/12/26, 6:02 PM', 'The rain had stopped.') + slot('Slot 4', '', '');
-    });
+    mockScreen(s, 'savesui', [{ text: 'Save', y: 60, font: 52 }, ...['Slot 1', 'Slot 2', 'Slot 3'].map((label, i) => ({ label, y: 200 + i * 110 })), { label: 'Back', y: 540 }]);
   } },
   { id: 'confirm', label: 'Confirm dialog', fill(s) {
     show(s, 'confirm');
@@ -57,25 +50,19 @@ const TILES: { id: string; label: string; fill(s: HTMLElement): void }[] = [
   } },
   { id: 'history', label: 'History', fill(s) {
     show(s, 'history');
-    set(s, '#historyList', e => {
-      const line = (who: string, text: string, current = false) => `<li><button type="button" class="hist-line"${current ? ' aria-current="true"' : ''}>`
-        + `${who ? `<span class="who">${who}</span>` : ''}<span class="said">${text}</span></button></li>`;
-      e.innerHTML = line('Alice', 'Did you bring the umbrella?') + line('', 'The park was empty.') + line('Bob', 'It stopped raining.', true);
-    });
+    mockScreen(s, 'historyui', [{ text: 'History', y: 50, font: 52 }, ...['Alice: Did you bring the umbrella?', 'The park was empty.', 'Bob: It stopped raining.'].map((label, i) => ({ label, y: 200 + i * 110 }))]);
   } },
   { id: 'chapters', label: 'Chapters', fill(s) {
     show(s, 'chapters');
-    set(s, '#chapterList', e => {
-      e.innerHTML = '<button type="button" class="row">1. The park</button><button type="button" class="row" aria-current="true">2. The bridge</button><button type="button" class="row" disabled>???</button>';
-    });
+    mockScreen(s, 'chaptersui', [{ text: 'Chapters', y: 50, font: 52 }, ...['1. The park', '2. The bridge', '???'].map((label, i) => ({ label, y: 200 + i * 110 }))]);
   } },
   { id: 'quickmenu', label: 'Quick menu', fill(s) {
     set(s, '#box', e => { e.dataset.visible = 'true'; e.dataset.done = 'true'; });
     set(s, '#text', e => { e.textContent = 'The rain had stopped by the time we reached the park.'; });
-    set(s, '#quick', e => {
-      e.hidden = false;
-      e.innerHTML = '<button type="button">Save</button><button type="button">Load</button><button type="button" aria-pressed="true">Auto</button>'
-        + '<button type="button">Skip</button><button type="button">History</button>';
+    set(s, '#quickui', e => {
+      e.dataset.visible = 'true';
+      e.innerHTML = '<div>' + ['Save', 'Load', 'Auto', 'Skip', 'History'].map((label, i) =>
+        `<button type="button" class="sc-btn"${label === 'Auto' ? ' aria-pressed="true"' : ''} style="left:${480 + i * 190}px;top:1000px;width:170px;height:54px;font-size:24px">${label}</button>`).join('') + '</div>';
     });
   } },
   { id: 'hotspot', label: 'Hotspot and tooltip', fill(s) {
@@ -100,6 +87,22 @@ const TILES: { id: string; label: string; fill(s: HTMLElement): void }[] = [
 function set(root: HTMLElement, selector: string, fn: (e: HTMLElement) => void) {
   const e = root.querySelector<HTMLElement>(selector);
   if (e) fn(e);
+}
+/** The starter title and pause screens are drawn by script at run time; a tile gets a still of the same kinds of elements (centered buttons, a heading) in their layer. */
+function mockScreen(root: HTMLElement, layer: string, parts: { label?: string; text?: string; y: number; font?: number; tab?: boolean }[]) {
+  set(root, `#${layer}`, layerEl => {
+    layerEl.dataset.visible = 'true';
+    layerEl.replaceChildren(...parts.map(p => {
+      const e = document.createElement(p.text ? 'div' : 'button');
+      e.className = p.text ? 'sc-text' : 'sc-btn';
+      e.textContent = p.text ?? p.label ?? '';
+      const w = p.text ? STAGE_W : 288;
+      e.style.left = `${(STAGE_W - w) / 2}px`; e.style.top = `${p.y}px`; e.style.width = `${w}px`;
+      if (p.tab !== undefined) { e.setAttribute('role', 'tab'); e.setAttribute('aria-selected', String(p.tab)); }
+      if (p.text) { e.style.textAlign = 'center'; if (p.font) e.style.fontSize = `${p.font}px`; } else e.style.height = '84px';
+      return e;
+    }));
+  });
 }
 function show(root: HTMLElement, id: string) {
   set(root, `#${id}`, e => { e.hidden = false; });

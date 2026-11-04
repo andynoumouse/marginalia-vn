@@ -19,12 +19,13 @@ export { BUILTIN_POSITIONS, namedPositions, positionProblem, type Position, type
 export { Runtime, applyToState, emptyState, type RestoreTarget, type SaveData } from './runtime.js';
 export { Locale, type StringTable } from './locale.js';
 export { planDrop, masterOutput, matchMasters, type DropPlan } from './asset-drop.js';
-export { stringRows, translationStatus, translatorCsv, outdatedIds, type StringRow, type StringKind, type TranslationStatus, type SourceSnapshot } from './translation.js';
+export { stringRows, uiLabelRows, translationStatus, translatorCsv, outdatedIds, type StringRow, type StringKind, type TranslationStatus, type SourceSnapshot } from './translation.js';
 export { assignIds, existingIds } from './ids.js';
 export { SCREEN_CLAUSE_WORDS } from './screen-syntax.js';
+export { ENTER_EFFECTS, LOOP_EFFECTS, SLIDE_DIRS, type PartAnim, type ElementAnim } from './screen-anim.js';
 export { NullRenderer } from './null-renderer.js';
 export { sceneAt } from './scene-at.js';
-export { getCompletions, type Suggestion } from './editor-support.js';
+export { getCompletions, insideScreen, type Suggestion } from './editor-support.js';
 export { parseHelp, helpTopicAt, rigHelpTopicAt, type HelpDoc, type HelpHeading } from './help.js';
 export {
   checkAssets, checkGame, attachPreloads, assetContext, stateAssets, spriteKeys, bgKey, imageKey, opAssets, rigLayers, successors, BLIP_PRESETS, PRELOAD_LINES, VOICE_KEY,
@@ -37,7 +38,7 @@ export { buildOutline, outlineCrossings, backEdgeLanes, fitView, zoomAt, centerO
 export { normalizeSplash, titleFade, DEFAULT_SPLASH_DURATION, DEFAULT_SPLASH_FADE, DEFAULT_TITLE_FADE, type SplashCard } from './splash.js';
 export { sideImageSettings, sideImageProblems, sideImageKey, SIDE_PLACES, SIDE_WHEN, type SideImages, type SidePlace, type SideWhen } from './side.js';
 export { speakerFocusSettings, speakerFocusProblems, focusLevels, raisedSpeaker, OFFSTAGE_MODES, type SpeakerFocus, type OffstageMode } from './focus.js';
-export { normalizeMusicRoom, normalizeChapters, musicItems, chapterItems, chapterProblems, normalizeAchievements, achievementItems, achievementToToast, achievementToastSettings, achievementProblems, TOAST_POSITIONS, type MusicEntry, type ChapterEntry, type MusicItem, type ChapterItem, type AchievementEntry, type AchievementItem, type AchievementToastSettings, type ToastPosition } from './extras.js';
+export { normalizeMusicRoom, normalizeChapters, musicItems, chapterItems, chapterProblems, normalizeAchievements, achievementItems, achievementToToast, achievementToastSettings, achievementProblems, TOAST_POSITIONS, QUICK_ITEMS, quickMenuSettings, type QuickMenuSettings, type MusicEntry, type ChapterEntry, type MusicItem, type ChapterItem, type AchievementEntry, type AchievementItem, type AchievementToastSettings, type ToastPosition } from './extras.js';
 export { findColors, parseHex, formatHex, isCssColor, parseColor, contrast, type ColorRef } from './colors.js';
 export { sliceDecls, themeCss, themeStylesheet, resolveTheme, normalizeTheme, BUILTIN_THEMES, type ThemeFile, type Theme, type Skin, type BoxTheme, type TextTheme, type Tokens, type UiLook, type UiComponent, UI_COMPONENTS, SCREEN_IDS } from './theme.js';
 export { variableRefs, variableAt, variableUses, renameVariable, type VarRef } from './var-refactor.js';

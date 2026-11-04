@@ -2,18 +2,20 @@
 // makes, imports, renames, duplicates and deletes projects in IndexedDB (online/store.ts). The editor opens at p/<id>/editor/.
 
 import { newProjectFiles, templateAssets, TEMPLATES, DEFAULT_TEMPLATE, projectSlug, readZip, commonRoot } from '../engine/src/index.js';
+import { confirmAsk, promptAsk } from '../editor/ask.js';
 import { listProjects, putProject, deleteProject, freeId, projectStore, writeFiles, type ProjectMeta } from './store.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const listEl = $('list'), errorEl = $('error');
 const enc = new TextEncoder(), dec = new TextDecoder();
 
-/** seed/index.json (scripts/build-online.mjs): the engine version and the sample project's files under seed/. */
-interface Seed { engine: string; title: string; files: string[] }
+/** seed/index.json (scripts/build-online.mjs): the engine version and the bundled games, their files under seed/<id>/. */
+interface SeedGame { id: string; title: string; description: string; files: string[] }
+interface Seed { engine: string; games: SeedGame[] }
 let seed: Seed | null = null;
 const loadSeed = async () => (seed ??= await (await fetch('seed/index.json')).json() as Seed);
 
-const showError = (e: unknown) => { errorEl.textContent = e instanceof Error ? e.message : String(e); };
+const showError =(e: unknown) => { errorEl.textContent = e instanceof Error ? e.message : String(e); };
 async function busy<T>(work: () => Promise<T>): Promise<T | undefined> {
   document.body.classList.add('busy');
   errorEl.textContent = '';
@@ -45,14 +47,13 @@ async function create(title: string, files: { path: string; bytes: Uint8Array; m
   else await render();
 }
 
-async function newFromSample() {
-  const s = await loadSeed();
-  const files = await Promise.all(s.files.map(async path => {
-    const r = await fetch(`seed/${path.split('/').map(encodeURIComponent).join('/')}`);
-    if (!r.ok) throw new Error(`could not load the sample's ${path}`);
+async function newFromGame(g: SeedGame) {
+  const files = await Promise.all(g.files.map(async path => {
+    const r = await fetch(`seed/${g.id}/${path.split('/').map(encodeURIComponent).join('/')}`);
+    if (!r.ok) throw new Error(`could not load ${g.title}'s ${path}`);
     return { path, bytes: new Uint8Array(await r.arrayBuffer()) };
   }));
-  await create(s.title, files);
+  await create(g.title, files);
 }
 
 async function newEmpty() {
@@ -123,12 +124,12 @@ async function render() {
       button('Play', () => window.open(`p/${p.id}/`, '_blank', 'noopener'), 'Play the game in a new tab'),
       button('Download .zip', () => location.assign(`p/${p.id}/project.zip`), 'The project folder as a zip: for Marginalia Studio, vn dev, or a backup'),
       button('Rename…', () => busy(async () => {
-        const title = window.prompt('New name:', p.title)?.trim();
+        const title = (await promptAsk('New name:', p.title, 'Rename'))?.trim();
         if (title && title !== p.title) { await putProject({ ...p, title }); await render(); }
       })),
       button('Duplicate', () => busy(() => duplicate(p))),
       button('Delete…', () => busy(async () => {
-        if (!window.confirm(`Delete "${p.title}" from this browser? This cannot be undone. Download it as a zip first to keep a copy.`)) return;
+        if (!await confirmAsk(`Delete "${p.title}" from this browser? This cannot be undone. Download it as a zip first to keep a copy.`, 'Delete')) return;
         await deleteProject(p.id);
         await render();
       })),
@@ -148,7 +149,15 @@ async function main() {
   if (missing) $('note').textContent = `There is no project "${missing}" in this browser (it may have been deleted, or made in another browser).`;
   if (!(await startWorker())) { for (const b of document.querySelectorAll<HTMLButtonElement>('#actions button')) b.disabled = true; return; }
   void navigator.storage?.persist?.().catch(() => false);
-  void loadSeed().then(s => { $('version').textContent = `engine ${s.engine}`; }, () => {});
+  void loadSeed().then(s => {
+    $('version').textContent = `engine ${s.engine}`;
+    for (const g of s.games) {
+      const card = Object.assign(document.createElement('button'), { type: 'button' });
+      card.append(Object.assign(document.createElement('strong'), { textContent: g.title }), Object.assign(document.createElement('small'), { textContent: g.description }));
+      card.addEventListener('click', () => void busy(() => newFromGame(g)));
+      $('games').append(card);
+    }
+  }, () => {});
   for (const t of TEMPLATES) {
     const radio = Object.assign(document.createElement('input'), { type: 'radio', name: 'template', value: t.id, checked: t.id === DEFAULT_TEMPLATE });
     const title = Object.assign(document.createElement('strong'), { textContent: t.title });
@@ -157,7 +166,6 @@ async function main() {
     card.append(radio, title, text);
     $('template').append(card);
   }
-  $('newSample').addEventListener('click', () => void busy(newFromSample));
   $('newEmpty').addEventListener('click', () => void busy(newEmpty));
   const input = $<HTMLInputElement>('importFile');
   $('import').addEventListener('click', () => input.click());

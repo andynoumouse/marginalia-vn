@@ -92,16 +92,16 @@ const TOKEN_COLORS = ['text', 'muted', 'surface', 'line', 'danger', 'warn'] as c
 
 /** Components that style a stage element by selector. A key is `name` or `name.variant`. */
 export const UI_COMPONENTS: Record<string, { selector: string; variants?: Record<string, string>; selected?: string }> = {
-  button: { selector: '.screen button, .screen select', variants: { primary: '[data-variant="primary"]', danger: '[data-variant="danger"]' } },
-  panel: { selector: '.panel, .history-panel, .saves-panel' },
-  tab: { selector: '.opt-tabs button', selected: '[aria-selected="true"]' },
+  button: { selector: '.screen button, .screen select, .sc-btn:not(#quickui .sc-btn)', variants: { primary: '[data-variant="primary"]', danger: '[data-variant="danger"]' } },
+  panel: { selector: '.panel' },
+  tab: { selector: '.sc-btn[role="tab"]', selected: '[aria-selected="true"]' },
   row: { selector: '.screen .row-list .row, .ach-row', selected: '[aria-current]' },
   pager: { selector: '.screen .pages button', selected: '[aria-current="page"]' },
-  toast: { selector: '#toast, #achToast' },
+  toast: { selector: '#toast, #achtoastui .sc-panel' },
   field: { selector: '#menu input, .save-name input' },
-  quickmenu: { selector: '#quick button', selected: '[aria-pressed="true"]' },
-  slider: { selector: '.panel input[type=range], .sc-slider' },
-  title: { selector: '#gameTitle' },
+  quickmenu: { selector: '#quickui .sc-btn', selected: '[aria-pressed="true"]' },
+  slider: { selector: '.sc-slider' },
+  title: { selector: '.sc-text[data-style="title"]' },
 };
 const isUiKey = (k: string) => {
   const [base, variant, ...rest] = k.split('.');

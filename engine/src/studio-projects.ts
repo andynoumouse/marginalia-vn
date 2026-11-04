@@ -74,6 +74,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Screen hotspots and buttons can hold child elements; the active state follows the ancestor chain.',
     'movie play shows a fullscreen cutscene; multi-line narration and the {speed=} text tag are new. Command arguments are now checked strictly, so a misspelled argument is an error.',
   ],
+  '0.7': [
+    'Screen elements animate: on enter / on exit (fade, slide, pop, zoom) and loop (pulse, bob, sway, breathe, shiver, glow). The default screens use them.',
+    'Every built-in menu (title, pause, options, saves, history, gallery, music, chapters, achievements, quick menu) is a screen you can override; layout containers take align stretch and width/height, and select <setting> shows a dropdown for a player setting.',
+    'textbox hide takes the text box away until the next line. The Translations dialog lists the built-in menu labels (ui.<key>).',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

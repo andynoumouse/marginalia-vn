@@ -53,7 +53,7 @@ class UnknownCommand extends ParseError {
 /** Every word a statement can start with (for "did you mean" on an unknown one). */
 export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
   'animate', 'hop', 'flash', 'tint', 'focus', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
-  'unlock', 'input', 'return', 'end'];
+  'textbox', 'unlock', 'input', 'return', 'end'];
 /** `parts`: the physical lines of a screen element written over several (this line first, then its clause continuations); `text` is then all of them joined. */
 interface RawLine { no: number; indent: number; text: string; parts?: RawLine[] }
 
@@ -432,6 +432,10 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       if ((mode !== 'on' && mode !== 'off' && mode !== 'clear') || a.length > 1) throw new ParseError('Use: nvl on  |  nvl off  |  nvl clear');
       return { op: 'nvl', mode };
     }
+    case 'textbox': {
+      if (a[0] !== 'hide' || a.length > 1) throw new ParseError('Use: textbox hide  (the next line shows the text box again)');
+      return { op: 'textbox', mode: 'hide' };
+    }
     case 'unlock': {
       const name = need(0, 'a flag name');
       if (!/^[A-Za-z_]\w*$/.test(name) || a.length > 1) throw new ParseError('Use: unlock <name> (letters, digits, _)');
@@ -568,29 +572,29 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
           const h = parseEachHeader(l.text.replace(/[ \t]*:$/, ''));
           if (!h) continue;
           const body = parseScreenBody(l, def, true, inLayout);
-          nodes.push({ kind: 'each', list: h.list, as: h.as, x: h.x, y: h.y, dx: h.dx, dy: h.dy, limit: h.limit, body, src: src(l), cond: cond(l, h.cond) });
+          nodes.push({ kind: 'each', list: h.list, as: h.as, x: h.x, y: h.y, dx: h.dx, dy: h.dy, limit: h.limit, body, src: src(l), cond: cond(l, h.cond), ...(h.anim ? { anim: h.anim } : {}) });
           continue;
         }
         if (word === 'scroll') {
           const h = parseScrollHeader(l.text.replace(/[ \t]*:$/, ''));
           if (!h) continue;
           const body = parseScreenBody(l, def, inEach, inLayout);
-          nodes.push({ kind: 'scroll', x: h.x, y: h.y, w: h.w, h: h.h, start: h.start, bar: h.bar, body, src: src(l), cond: cond(l, h.cond) });
+          nodes.push({ kind: 'scroll', x: h.x, y: h.y, w: h.w, h: h.h, start: h.start, bar: h.bar, body, src: src(l), cond: cond(l, h.cond), ...(h.anim ? { anim: h.anim } : {}) });
           continue;
         }
         if (word === 'row' || word === 'column' || word === 'grid') {
           const h = parseLayoutHeader(l.text.replace(/[ \t]*:$/, ''), inLayout);
           if (!h) continue;
           const body = parseScreenBody(l, def, inEach, true);
-          nodes.push({ kind: 'layout', type: h.type, columns: h.columns, at: h.at, anchor: h.anchor, margin: h.margin, padding: h.padding, gap: h.gap, align: h.align, cell: h.cell, body, src: src(l), cond: cond(l, h.cond) });
+          nodes.push({ kind: 'layout', type: h.type, columns: h.columns, at: h.at, anchor: h.anchor, ...(h.anchorVar ? { anchorVar: h.anchorVar } : {}), margin: h.margin, padding: h.padding, gap: h.gap, align: h.align, cell: h.cell, ...(h.width ? { width: h.width } : {}), ...(h.height ? { height: h.height } : {}), body, src: src(l), cond: cond(l, h.cond), ...(h.anim ? { anim: h.anim } : {}) });
           continue;
         }
         if (word === 'panel') {
-          const h = parsePanelHeader(l.text.replace(/[ \t]*:$/, ''), inLayout);
+          const h = parsePanelHeader(l.text.replace(/[ \t]*:$/, ''), inLayout, stage);
           if (!h) continue;
           // a panel's children sit inside it, so `at` is relative to it; a bare frame (no colon) has none
           const body = /:[ \t]*$/.test(l.text) ? parseScreenBody(l, def, inEach, false) : [];
-          nodes.push({ kind: 'panel', x: h.x, y: h.y, w: h.w, h: h.h, file: h.file, slice: h.slice, edge: h.edge, padding: h.padding, body, src: src(l), cond: cond(l, h.cond) });
+          nodes.push({ kind: 'panel', x: h.x, y: h.y, w: h.w, h: h.h, file: h.file, slice: h.slice, edge: h.edge, padding: h.padding, ...(h.color ? { color: h.color } : {}), body, src: src(l), cond: cond(l, h.cond), ...(h.anim ? { anim: h.anim } : {}) });
           continue;
         }
         // a hotspot or button ending in `:` owns the indented lines below it, placed in stage coordinates like its siblings
@@ -599,10 +603,10 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
         if (p.el.kind === 'bar') {
           const { value, min, max, ...rest } = p.el;
           const [v, lo, hi] = [exprOf(part(l, value), value), exprOf(part(l, min), min), exprOf(part(l, max), max)];
-          if (v && lo && hi) nodes.push({ ...rest, value: v, min: lo, max: hi, src: src(l), cond: cond(l, p.cond) });
+          if (v && lo && hi) nodes.push({ ...rest, value: v, min: lo, max: hi, src: src(l), cond: cond(l, p.cond), ...(p.anim ? { anim: p.anim } : {}) });
           continue;
         }
-        const node = { ...p.el, src: src(l), cond: cond(l, p.cond) } as ScreenNode;
+        const node = { ...p.el, src: src(l), cond: cond(l, p.cond), ...(p.anim ? { anim: p.anim } : {}) } as ScreenNode;
         if (node.kind === 'hotspot' || node.kind === 'button') {
           node.enabled = cond(l, p.enabled);
           const at = (name: string, message: string) => Object.assign(new ElementSyntaxError(message), { line: part(l, `set ${name}`) });
@@ -640,7 +644,7 @@ export function parseFile(file: string, text: string, diags: Diagnostic[], posit
         if (word === 'each') parseEachHeader(t);
         else if (word === 'scroll') parseScrollHeader(t);
         else if (word === 'row' || word === 'column' || word === 'grid') parseLayoutHeader(t, inLayout);
-        else if (word === 'panel') parsePanelHeader(t, inLayout);
+        else if (word === 'panel') parsePanelHeader(t, inLayout, stage);
         else parseElementLine(t, inLayout, stage);
       } catch { return l.parts[k]; }
     }

@@ -95,6 +95,7 @@ export type ControlBody =
   | { op: 'end' }
   | { op: 'hud'; mode: 'on' | 'off'; name: string; keep: boolean } // put a screen up beside the story (`hud on <screen>`), or take it down
   | { op: 'nvl'; mode: 'on' | 'off' | 'clear' } // full-screen narration pages instead of the text box
+  | { op: 'textbox'; mode: 'hide' } // hide the text box until the next line shows it again
   | { op: 'unlock'; name: string } // persistent flag (endings, gallery, extras), read as unlocked.<name>
   | { op: 'branch'; cond: Expr; target: number } // jump to target when cond is false
   | { op: 'goto'; target: number };
@@ -213,12 +214,14 @@ export interface Renderer {
   apply(op: VisualOp, state: DisplayState): Promise<void>;
   /** The HUD screens as they look now (re-resolved before every line); the renderer redraws what changed. */
   hud?(views: ScreenView[]): void;
-  /** The project's `screen quickmenu` (null: none declared, keep the stock bar); pushed whenever the HUD is. */
+  /** The `quickmenu` screen (null: the program has none); pushed whenever the HUD is. */
   quick?(view: ScreenView | null): void;
   /** A HUD event is waiting: end the line on screen at once (the runtime shows it again afterwards). */
   interruptLine?(): void;
   /** Remove the NVL page from the screen (`nvl clear`/`off`, a new scene). */
   clearPage?(): void;
+  /** Hide the text box (`textbox hide`); the next line shows it again. */
+  hideBox?(): void;
   /** Show a line; resolve when the player advances. */
   say(ev: SayEvent): Promise<void>;
   /**

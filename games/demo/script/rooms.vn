@@ -11,15 +11,15 @@ set visits = 0
 set archive_open = 0
 
 screen library_map:
-  image "bg/bg_library.png" size 1920,1080
+  image "bg/bg_library_map.png" size 1920,1080
   text at 80,48 "{b}Rainy Day Library{/b}   Pages turned: [pages]   You carry: [bag]" #c2vc
   hotspot stacks at 160,300 size 420,380 "The stacks" #opma hover tint rgba(255,220,120,.30)
   hotspot desk ellipse at 800,640 size 460,220 "The front desk" #qlcp hover scale 1.06
   hotspot archive at 1300,280 size 420,360 "The archive" #rf5t hover tint rgba(120,200,255,.30)
   hotspot board at 1380,740 size 360,200 "The notice board" #swx9 hover tint rgba(255,220,120,.30)
   hotspot catalogue poly 680,220 1180,200 1220,480 660,500 "The card catalogue" #qe79 hover tint rgba(200,255,160,.30)
-  button leave at 80,940 "Find a seat" #g71l hover scale 1.08
-  button prefs at 80,860 "Reading preferences" #takj hover scale 1.08
+  button leave at 80,950 size 420,64 "Find a seat" #g71l hover scale 1.04
+  button prefs at 80,870 size 420,64 "Reading preferences" #takj hover scale 1.04
   default stacks
 
 # A HUD stays up beside the story. Clicking its button runs a label, then the story carries on.

@@ -155,6 +155,7 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   const skins = new Set(index.skins ?? []);
   /** A style the script uses that the theme, or a theme the player can pick, does not define. */
   const styleProblem = (src: Src, style: string) => {
+    if (style === 'title') return; // the default title screen's game name: the theme's `title` component reaches it
     if (!skins.has(style)) return warn(src, `No style "${style}" (add it to the theme's styles)`);
     const lacking = Object.entries(index.themeSkins ?? {}).filter(([, names]) => !names.includes(style)).map(([n]) => n);
     if (lacking.length) warn(src, `Style "${style}" is missing from the selectable theme${lacking.length > 1 ? 's' : ''} ${lacking.join(', ')}`);

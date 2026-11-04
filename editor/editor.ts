@@ -3,10 +3,11 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, PROJECT_FOLDERS, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
+  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, PROJECT_FOLDERS, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
   UI_COMPONENTS, BUILTIN_THEMES, moveInlineTheme, themeCss, themeStylesheet, resolveTheme, type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
+import { confirmAsk } from './ask.js';
 import { AnimStudio } from './anim-studio.js';
 import { HelpDialog } from './help-dialog.js';
 import { FindDialog } from './find-dialog.js';
@@ -178,16 +179,19 @@ function registerLanguage() {
         startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
         startColumn: word.startColumn, endColumn: word.endColumn,
       };
+      const typed = /[^\s"=]*$/.exec(prefix)![0].length;
+      const pathRange = { ...range, startColumn: position.column - typed };
       const above = model.getLinesContent().slice(Math.max(0, position.lineNumber - 13), position.lineNumber - 1);
+      const inScreen = insideScreen(model.getLinesContent().slice(0, position.lineNumber - 1), /^\s/.test(prefix));
       return {
-        suggestions: getCompletions(program, prefix, liveRigs(), above).map((s, i) => ({
+        suggestions: getCompletions(program, prefix, liveRigs(), above, inScreen, projectAssets.files).map((s, i) => ({
           label: s.label,
           kind: kinds[s.kind] ?? K.Text,
           detail: s.detail,
           insertText: s.insertText ?? s.label,
           insertTextRules: s.insertText?.includes('$0') ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
           sortText: String(i).padStart(3, '0'),
-          range,
+          range: s.path ? pathRange : range, // a path holds `/` and `.`, which end a word: replace everything typed since the quote, space or `=`
         })),
       };
     },
@@ -238,7 +242,7 @@ const isDirty = (f: FileState) => norm(f.model.getValue()) !== norm(f.saved);
 // Closing a tab only hides it: the file stays loaded (scripts compile together, rig edits keep counting).
 const openTabs: string[] = [];
 
-// A stock built-in screen shown read-only (its starter code): not a project file, so it is never saved or compiled.
+// A built-in screen's default shown read-only (its starter code): not a project file, so it is never saved or compiled.
 let stock: UiScreen | null = null;
 const stockModels = new Map<string, any>();
 
@@ -276,13 +280,13 @@ function renderTabs() {
     b.type = 'button';
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', 'true');
-    b.textContent = `${stock!.title} (stock, read-only)`;
-    b.title = 'The starter code of the stock screen. Customize it from the Files panel to edit a copy.';
+    b.textContent = `${stock!.title} (default, read-only)`;
+    b.title = "The default screen's code. Use Edit in the Files panel to get a copy you can change.";
     const x = document.createElement('button');
     x.type = 'button';
     x.className = 'close';
     x.textContent = '×';
-    x.setAttribute('aria-label', 'Close the stock screen');
+    x.setAttribute('aria-label', 'Close the default screen');
     x.addEventListener('click', closeStock);
     tab.append(b, x);
     return tab;
@@ -742,7 +746,7 @@ async function restoreTrash(id: string) {
 }
 
 async function emptyTrash() {
-  if (!window.confirm('Delete everything in the project trash for good? This cannot be undone.')) return;
+  if (!await confirmAsk('Delete everything in the project trash for good? This cannot be undone.', 'Delete')) return;
   const r = await fileRequest('/api/trash/empty', 'could not empty the trash');
   if (r) toast(`emptied the trash (${(await r.json() as { removed: number }).removed} entries)`);
 }
@@ -812,7 +816,7 @@ async function deletePath(rel: string, isDir = false, question?: string) {
     : rel.startsWith('masters/') ? projectAssets.masters.filter(m => isUnder(`masters/${m.master}`, rel)).length
     : projectAssets.files.filter(f => isUnder(`assets/${f}`, rel) && !f.endsWith('.gitkeep')).length;
   const what = isDir ? `the folder ${rel}/${count ? ` and the ${count} file${count === 1 ? '' : 's'} in it` : ''}` : rel;
-  if (!window.confirm(question ?? `Delete ${what}?\n\nIt goes to the project trash (.trash/): Undo, or Restore from Trash, brings it back.`)) return;
+  if (!await confirmAsk(question ?? `Delete ${what}?\n\nIt goes to the project trash (.trash/): Undo, or Restore from Trash, brings it back.`, 'Delete')) return;
   const r = await fileRequest(`/api/delete?path=${encodeURIComponent(rel)}${isDir ? '&dir=1' : ''}`, `could not delete ${rel}`);
   if (!r) return;
   const { trash } = await r.json() as { trash?: string };
@@ -868,6 +872,15 @@ const ART = '.png,.webp,.jpg,.jpeg,.avif,.svg';
 const SOUND = '.ogg,.mp3,.wav,.m4a,.flac,.opus';
 const MOVIE = '.webm,.mp4,.m4v,.ogv';
 const acceptFor = (dir: string) => ['bg', 'char', 'ui'].includes(dir) ? `${ART},.psd` : dir === 'movie' ? MOVIE : ['music', 'sound', 'sfx', 'voice'].includes(dir) ? SOUND : '';
+/**
+ * What a script wants for an asset file: `scene`, `music play`, `sound play` and `movie play` take the bare name (`park`), the
+ * parameters that name a file (`image "…"`, `mask`, `hover`) the path under assets/ with its extension (`ui/map.png`).
+ * Never the `assets/` prefix of a project path.
+ */
+const assetRef = (file: string): string => {
+  const m = /^(bg|music|sound|movie)\/([^/]+)\.[^./]+$/.exec(file);
+  return m ? m[2] : file;
+};
 const masterOf = (asset: string) => projectAssets.masters.find(m => m.output === asset)?.master;
 
 /** The focused row's key in `section`, and after a redraw, puts the focus back on the row with that key. */
@@ -969,25 +982,25 @@ function renderSidebarFiles() {
       ...(file ? [
         { label: `Open ${file.name}`, run: () => activate(file.name) },
         {
-          label: 'Revert to Stock', title: `Delete script/${file.name} so the stock screen is used again`,
-          run: () => void deletePath(`script/${file.name}`, false, `Delete script/${file.name} and go back to the stock ${u.title} screen?\n\nThe file goes to the project trash (.trash/).`),
+          label: 'Revert to Default', title: `Delete script/${file.name} so the default screen is used again`,
+          run: () => void deletePath(`script/${file.name}`, false, `Delete script/${file.name} and go back to the default ${u.title} screen?\n\nThe file goes to the project trash (.trash/).`),
         },
         null, copyItem('Copy Path', `script/${file.name}`), revealItem(`script/${file.name}`),
       ] : [
-        { label: 'Show Starter Code', run: () => showStock(u) },
-        { label: 'Customize', title: `Create script/${u.file} with the starter code`, run: () => void newFile(u.file, u.starter) },
+        { label: 'Show Default Code', run: () => showStock(u) },
+        { label: 'Edit This Screen', title: `Create script/${u.file} with the default screen's code`, run: () => void newFile(u.file, u.starter) },
       ]),
     ]);
     row.className = 'row';
     row.append(sbItem(u.title, {
-      title: file ? `Preview, and open ${file.name}, which overrides this screen (right-click, Revert to Stock, to get the stock one back)` : 'Preview the stock screen and show its starter code read-only',
+      title: file ? `Preview, and open ${file.name}, your edited copy of this screen (right-click, Revert to Default, to get the default back)` : 'Preview the default screen and show its code read-only',
       current: file ? file.name === active : stock?.name === u.name, errors: !!file && errorCount(file) > 0, problems: file ? problemCounts(file) : undefined,
-      meta: file ? [isDirty(file) ? '•' : '', file.name].filter(Boolean).join(' ') : 'stock',
+      meta: file ? [isDirty(file) ? '•' : '', file.name].filter(Boolean).join(' ') : 'default',
       run: () => { previewScreen(u.name); if (file) activate(file.name); else showStock(u); },
     }));
     if (!file) {
       const custom = Object.assign(document.createElement('button'), {
-        type: 'button', className: 'anim', textContent: 'Customize', title: `Create script/${u.file} with this screen's starter code to restyle it`,
+        type: 'button', className: 'anim', textContent: 'Edit', title: `Edit this screen: create script/${u.file} with the default screen's code to change it`,
       });
       custom.addEventListener('click', () => void newFile(u.file, u.starter));
       row.append(custom);
@@ -1041,6 +1054,7 @@ function renderSidebarAssets() {
         ...changeItems(`assets/${file}`, false, fixed),
         { label: 'Replace…', run: () => replaceFile(`assets/${file}`), disabled: !!fixed, title: fixed ?? `Overwrite ${file} with another ${file.slice(file.lastIndexOf('.'))} file` },
         null,
+        copyItem('Copy Name', assetRef(file)),
         copyItem('Copy Path', `assets/${file}`),
         revealItem(`assets/${file}`),
         ...(master ? [revealItem(`masters/${master}`, `${REVEAL} (Master)`)] : []),
@@ -1197,8 +1211,8 @@ const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume',
   'sound_volume', 'voice_volume', 'text_speed', 'auto_advance', 'skip_mode', 'skip_read', 'skip_all', 'language', 'fullscreen', 'back',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
   'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
-  'confirm_qload', 'history', 'history_empty', 'history_return', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
-  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'now_playing', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
+  'confirm_qload', 'history', 'history_empty', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
+  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
 
 function updateGameSchema() {
@@ -2231,6 +2245,8 @@ function showOutput(text: string) {
 
 /** Writes every open file now (pending autosaves included). */
 const saveAllNow = () => Promise.all([...files.values()].map(f => { clearTimeout(f.timer); return save(f); }));
+/** Online demo: save everything, then leave for the project list (the site's front page, three levels up from `p/<id>/editor/`). */
+async function backToProjects() { await saveAllNow(); location.assign('../../../'); }
 
 /** Run a dev-server task; its output streams in as NDJSON (`{"out"}` chunks, then `{"ok"}`), see runTask in preview/dev-server.mjs. */
 async function runTask(name: string, label: string, params = ''): Promise<{ ok: boolean; output: string }> {
@@ -2303,8 +2319,8 @@ function buildCommands(): Command[] {
     { title: 'Preview: Toggle Follow', run: () => { followEl.checked = !followEl.checked; showPreviewLine(); setStatus(`follow preview ${followEl.checked ? 'on' : 'off'}`); } },
     { title: 'Preview: Show or Hide Variables', run: () => { varsEl.hidden = !varsEl.hidden; if (!varsEl.hidden) showVars(lastVars); } },
     { title: 'Preview: Show or Hide Pane', run: () => { document.body.classList.toggle('no-preview'); } },
-    { title: 'Preview: Reset Player Data (saves, settings, unlocks, read text)', run: () => {
-      if (!window.confirm('Delete all saves, settings, unlocks and read-text records of the preview in this browser?')) return;
+    { title: 'Preview: Reset Player Data (saves, settings, unlocks, read text)', run: async () => {
+      if (!await confirmAsk('Delete all saves, settings, unlocks and read-text records of the preview in this browser?', 'Delete')) return;
       for (const k of Object.keys(localStorage)) if (k.startsWith('vn.') && !k.startsWith('vn.editor.')) localStorage.removeItem(k);
       preview.contentWindow?.location.reload();
       setStatus('player data reset');
@@ -2349,7 +2365,7 @@ function buildCommands(): Command[] {
     { title: 'Reconvert All Art (masters/ to assets/)', when: () => caps.tasks.includes('art'), run: () => runTask('art', 'art') },
     // The online demo keeps the project in this browser (online/sw.ts): a zip is the way to keep it or move it to the desktop tools.
     { title: 'Online: Download Project as .zip', when: () => caps.online, run: async () => { await saveAllNow(); location.assign('../project.zip'); } },
-    { title: 'Online: Back to the Project List', when: () => caps.online, run: async () => { await saveAllNow(); location.assign('../../../'); } },
+    { title: 'Online: Back to the Project List', when: () => caps.online, run: backToProjects },
   ];
 }
 
@@ -2594,6 +2610,10 @@ function setupPalette() {
     missingIds: missingIdCount,
     addIds: addIdsEverywhere,
     source: () => sourceLanguage(openGame() as { language?: unknown } | null),
+    labels: () => {
+      const l = (openGame() as { labels?: unknown } | null)?.labels;
+      return l && typeof l === 'object' ? Object.fromEntries(Object.entries(l).filter(([, v]) => typeof v === 'string')) as Record<string, string> : {};
+    },
   });
 
   // Ctrl+P, F1 and Alt+1/2/3 work wherever focus is (capture phase beats Monaco and the browser's print shortcut),
@@ -2773,6 +2793,8 @@ async function boot() {
   $('translateBtn').addEventListener('click', () => void translations.open(() => editor.focus()));
   $('buildBtn').addEventListener('click', () => void buildDialog.open(() => editor.focus()));
   $('buildBtn').hidden = !caps.tasks.includes('build');
+  $('projectsBtn').hidden = !caps.online;
+  $('projectsBtn').addEventListener('click', () => void backToProjects());
   $('voiceBtn').addEventListener('click', () => void voiceDialog.open(() => editor.focus()));
   $('varsBtn').addEventListener('click', () => { varsEl.hidden = !varsEl.hidden; if (!varsEl.hidden) showVars(lastVars); });
   $('varsClose').addEventListener('click', () => { varsEl.hidden = true; });

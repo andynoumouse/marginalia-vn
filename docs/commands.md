@@ -80,7 +80,7 @@ localizable string.
 
 `style=<name>` at the end of a line (before the `#id`) shows that line with the theme's `styles.<name>` instead of the
 speaker's own style (`define ... style=`). It changes appearance only (colors, borders, text color and size); a style
-that is not in the theme is a warning and the stock look is used.
+that is not in the theme is a warning and the default look is used.
 
 ### menu / on
 A choice. Each option is a quoted string ending in `:` with an indented body. Add `if <condition>` to show an
@@ -124,7 +124,7 @@ menu "What do you say?" #pr01:
       jump caught
   ```
 
-  The stock menu draws a bar under the options that empties over the time (it turns to the warning colour in the last
+  The default menu draws a bar under the options that empties over the time (it turns to the warning colour in the last
   quarter) and announces "N seconds to choose" once to screen readers. The clock pauses while the pause menu, options,
   history or a save dialog is open, while the interface is hidden and while the tab is in the background. Players can
   change it in Options, Timed choices: *Normal*, *Extended* (three times the time) or *No time limit* (the clock never
@@ -139,6 +139,18 @@ menu "What do you say?" #pr01:
   taken before are drawn dimmed with a check mark (`data-seen` on the button; `MenuItem.seen` for custom renderers). It is
   kept like unlock flags: it lasts across playthroughs, is saved with the save (`seenBase`/`seen`) and is rebuilt on
   rollback and load. Give options a stable `#id` so editing lines does not reset the marker.
+
+### textbox
+`textbox hide` takes the text box away, so the picture can be seen on its own (a reveal, a long look at the scene).
+The next line shows it again, so there is nothing to switch back on. (The player can also hide the interface with H or
+the middle mouse button.) Inside a `screen:` block, `textbox off` is the screen setting instead.
+
+```
+scene sunset fade 1
+textbox hide
+wait 3
+"We watched it go down."
+```
 
 ### nvl
 `nvl on` switches to full-screen narration: lines (spoken ones get the speaker's name in front) collect on one
@@ -601,6 +613,7 @@ Coordinates are **stage pixels**: 1920x1080 unless game.json `stage` sets anothe
 screen map:
   image "ui/map.png" at 0,0 size 1920,1080       # backdrop (omit to draw over the current scene); `at` and `size` are optional
   text at 80,48 "You carry: [bag]"               # [variables] work; lists show item names
+  text at 0,60 "Big" font 100 width full align center   # `font` is the size in pixels (default 40); `color c` tints it (`color #6b7385`, one word, or `[variable]` holding one) and `style=` takes the colour from the theme; `width` (pixels or `full`, the stage) gives it a box to `align` left, center or right in, and `lines n` cuts it after n lines
   hotspot cafe at 300,300 size 360,200 "The cafe"            # a rectangle; the label is the tooltip
   hotspot lake ellipse at 900,600 size 440,240 "The lake"
   hotspot station poly 1300,300 1600,260 1680,520 "The station" if visited > 0   # hidden unless the condition holds
@@ -609,7 +622,7 @@ screen map:
   button leave at 80,940 "Leave"                 # size is optional (fits the label)
   button flee at 400,940 "Flee" style=urgent     # a theme style: styles.urgent.button (a text takes style=, too: its text color and size)
   each bag as item at 120,200 step 0,130         # one copy of the body per list entry, moved by `step` each time (`limit n` draws at most n)
-    button item at 200,0 size 640,100 "[item.name]"   # inside each, the id `item` stands for the entry
+    button item at 200,0 size 640,100 "[item.name]"   # inside each, the id `item` stands for the entry (`item.second` for a second element per entry: the shell's save slots use that)
   default cafe                                   # answer when a replay has none (else the first enabled element)
   cancel                                         # the cancel key (Backspace, pad B) answers ""; `cancel keep` too, but see inout below
 ```
@@ -626,7 +639,7 @@ element (`button play at 100,100 "Play" down options`); when the target is disab
 `hover "file.png"` on a hotspot or button draws that image over the element while it is hovered or has focus (mouse, arrows,
 Tab and pad alike). It is stretched to the element's box, so for a `mask`, `poly` or `ellipse` hotspot give it a PNG the size
 of that box (a `poly`'s box is its bounding rectangle); put a transparent border around the glow if you want one. While a
-hover image is set, the stock highlight is not drawn, so the image is the whole look. It can use `[variables]` like an image
+hover image is set, the default highlight is not drawn, so the image is the whole look. It can use `[variables]` like an image
 path, and a missing file just draws nothing.
 
 ```
@@ -636,14 +649,17 @@ button play at 100,100 size 300,90 "Play" hover "ui/play_lit.png"
 
 `hover none` turns the highlight off for that element (it stays clickable and focusable; use it when the art already shows
 the state, or the element is meant to be invisible). `tooltip off` on a hotspot drops its tooltip; the label is still read by
-screen readers.
+screen readers. A button has no tooltip of its own; `tooltip "text"` gives it one (a hint like a hotkey, shown near the button while it is
+active; `[variables]` are filled in, and it is not translated).
+`sub "text"` on a button adds a smaller second line inside it, under the label (`[variables]` are filled in; empty text shows nothing; not translated). The default title screen uses it for the Continue button's save text.
 
 ```
 hotspot door at 800,300 size 200,300 "Door" hover none tooltip off
+button save at 80,900 "Save" tooltip "F5" action save
 ```
 
 Without art, `hover tint <color>` fills the element with that color while it is active (no spaces in the color: `#ffcc6666`,
-`gold`, `rgba(255,200,100,.35)`; it replaces the stock fill and border, and the theme's `hotFill`), and `hover scale <n>`
+`gold`, `rgba(255,200,100,.35)`; it replaces the default fill and border, and the theme's `hotFill`), and `hover scale <n>`
 grows it about its centre (`1.08`; reduced motion makes it instant). They go well on a `mask`, `ellipse` or `poly` hotspot
 and on a button, and cannot be combined with a `hover` image. `hover sound "name"` plays `assets/sound/<name>` when the
 element becomes active (mouse, arrows, Tab or pad; not while it is disabled).
@@ -653,13 +669,59 @@ button play at 100,100 size 300,90 "Play" hover scale 1.08 hover sound "tick"
 hotspot door mask "ui/door_mask.png" at 800,300 size 200,300 "Door" hover tint rgba(255,220,120,.35)
 ```
 
+**Animating elements.** Any element line (and the line of a `panel`, `each`, `scroll`, `row`, `column` or `grid`) can end with
+`on enter` and `loop` clauses:
+
+```
+on enter <effect> [seconds] [delay seconds] [stagger seconds]
+loop <effect> [seconds] [strength=1]
+```
+
+`on enter` plays when the element first appears: `fade`, `slide left|right|up|down` (it comes in from that side by
+`distance=80` pixels, `distance=200` for more), `pop` (grows from a little smaller, with a small overshoot) or `zoom`
+(settles down from a little larger). Seconds default to 0.3, 0.35, 0.25 and 0.4; `delay` holds the element invisible first.
+A redraw of the screen (a `state` changed, a HUD variable changed) does not play it again; an element that is hidden by its
+`if` and shown again does. `loop` repeats as long as the element is shown: `pulse`, `bob`, `sway`, `breathe`, `shiver` (the
+`animate` presets) or `glow` (a soft fade and brighten, for a "new" marker); the seconds are one cycle, `strength=` scales
+how far it moves. Looping elements that cycle at the same speed stay in step. With Reduce motion on, elements simply appear
+and loops do not run.
+
+A container hands its clauses to every element it holds, a child's own `on enter` or `loop` replaces the container's, and
+`stagger` goes on an `each` line only: the entries enter one after another, each `stagger` seconds after the one before.
+A `hotspot` does not move (its clickable area stays where the art is), so it can only `on enter fade` and `loop glow`.
+
+```
+panel at 400,200 size 1120,680 image "ui/frame.png" slice 40 on enter fade 0.3
+    text at 40,40 "Journal" on enter slide down 0.4 delay 0.1
+    each notes as n at 40,120 step 0,64 on enter slide right 0.25 stagger 0.06:
+        text at 0,0 "[n]"
+button close at 1500,60 "Close" on enter pop 0.2 delay 0.4
+image "ui/new.png" at 1700,90 loop pulse 1.2
+```
+
+The default screens (what the game draws when a project declares none, and what the editor's Edit button copies into the project) carry matching `on enter` and `on exit` clauses to edit or remove.
+
+`on exit <effect> [seconds] [delay s]` takes the same effects, played the other way (`slide left` leaves toward the left). It runs
+when the screen stays up and the element goes away (an `if` turning false, a list losing an entry): a copy of the element,
+inert and unclickable, stays at its old place while the effect plays. It also runs when a screen is dismissed (a Back button, a toast ending), so a closing
+screen's elements can fade or slide out; the game does not wait for it. Elements inside a `scroll` area just disappear. With Reduce motion on they disappear at once. `stagger` is for `on enter` only.
+
 `on click <label>` is for a HUD (below); a blocking screen ignores it.
 
 `action <name>` on a button or hotspot runs a built-in of the game shell instead of a label: `back`, `history`, `auto`, `skip`,
-`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters`, `achievements` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `tab` and `cycle` (below). It is how the quick menu is drawn by a screen: declaring a screen named
-`quickmenu` replaces the stock bar (game.json `quickMenu` is then ignored) and shows it while a game is being played. Nothing is
-recorded in saves; Auto and Skip show `aria-pressed` while they are on, so a theme can style them. The screen is redrawn before
-every line like a HUD, so `[variables]`, `if` and `enabled` work.
+`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters`, `achievements` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `tab` and `cycle` (below). The quick menu is a screen named `quickmenu`, shown while a game is being played. Without one in your project the default bar is drawn (the same way); declaring your own replaces it whole
+(game.json `quickMenu` then only fills in the variables below). Nothing is recorded in saves; Auto and Skip show `aria-pressed` while they are on, so a theme can style them.
+The screen is redrawn before every line like a HUD, so `[variables]`, `if` and `enabled` work. The shell fills in `quick_items` (the buttons game.json `quickMenu.items` lists, in
+order; the replay `voice` button only on a voiced line) and `quick_place` (an anchor place from `quickMenu.position` and `align`, like `topleft` or `bottom`). In `each quick_items as q`, `[q.label]` is
+the button's name in the player's language and the entry `q` is the action's name. A button's action can come from a variable like that, `action [q]`, and a layout's `anchor [quick_place]`
+is pinned to a place named by a variable; an unknown action does nothing and an unknown place is the center. `font n` on a button sets its label size in pixels (default 40). The default screen:
+
+```
+screen quickmenu:
+  row anchor [quick_place] margin 14,160,10,160 gap 6:
+    each quick_items as q:
+      button q "[q.label]" font 24 action [q]
+```
 
 ```
 screen quickmenu:
@@ -669,9 +731,11 @@ screen quickmenu:
     button auto "Auto" action auto
 ```
 
-A screen named `title` likewise replaces the stock title screen (the game.json background and music still show behind it):
+A screen named `title` is the title screen. A project that declares none gets the default title screen (below), drawn the same way; declare your own to change it (it replaces the default whole; the game.json background and music still show behind it):
 `start` begins a new game, `continue` loads the newest save (disabled without one), `load` and `options` open those screens,
 `quit` closes the window (browsers only allow that for a window the page opened itself).
+The words of the default screens are the built-in menu labels (game.json `labels`, translated as `ui.<key>`). Text you write in a screen of your
+own is an ordinary string instead: it gets an id like dialogue and is translated through it, and it does not read those labels.
 
 ```
 screen title:
@@ -681,7 +745,11 @@ screen title:
     button opt "Options" action options
 ```
 
-A screen named `pause` replaces the stock pause menu (Esc still opens and closes it; the dimmed stage stays behind it):
+The title screen can use these variables in texts and conditions: `game_title` (game.json `title`), `show_title` (false when `titleScreen.showTitle` is off), `can_continue` (there is a save), `continue_text` (the newest save's text, empty without one)
+and `has_gallery`, `has_music`, `has_chapters`, `has_achievements` (that part of the game is set up and listed in `titleScreen.buttons`). The starter uses them
+(`button gallery "Gallery" action gallery if has_gallery`); a button of your own with such an `action` is simply disabled when there is nothing behind it.
+
+A screen named `pause` is the pause menu (Esc still opens and closes it); with none declared the default is drawn. The default dims the stage with a full-stage `panel`; a screen of your own has to dim it itself, or not:
 
 ```
 screen pause:
@@ -693,17 +761,26 @@ screen pause:
     button menu "Main menu" action title
 ```
 
-A screen named `options` replaces the stock options screen (Esc still closes it; opened from the title, the pause menu or the quick menu).
+The options are the screen named `options` (Esc still closes it; opened from the title, the pause menu or the quick menu). Without one in your project the
+game draws a default screen (a dimmed backdrop, three tabs Audio / Game / Accessibility, every setting, Fullscreen and Back); declare your own to change it.
 The settings are the screen's variables, so labels and conditions can show them:
 
 - `slider <setting> at x,y [size w,h] [readout]` is a range bound to `master`, `music`, `sound`, `voice`, `text_speed`, `text_size` or `box_opacity`
   (400x48 without `size`). It shows its own position; `readout` adds the live value (`65%`, or the plain number for `text_speed`)
   16px to its right. `[master]` in a text is the value when the screen was last drawn.
-- `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion` and `captions` (`on`/`off`), `speaker_focus` (`on`/`off`, `none` when game.json has no `speakerFocus`; cycling it then does nothing), `timed_choices` (`normal`/`extended`/`off`),
+- `button <setting> ... action cycle` steps a setting that has a few words: `text_sounds`, `reduce_motion`, `captions` and `announce_lines` (`on`/`off`), `speaker_focus` (`on`/`off`, `none` when game.json has no `speakerFocus`; cycling it then does nothing), `timed_choices` (`normal`/`extended`/`off`),
   `auto_speed` (`slow`/`normal`/`fast`), `skip` (`read`/`all`), `language` and `voice_language` (`text` = follow the text language, else a language that has recordings; does nothing when none do) and `theme` (the next of game.json `themes`; does nothing with fewer than two).
-  The button id names the setting, and `[text_sounds]` in the label is its current word.
+  The button id names the setting. `[text_sounds]` in a label is its current word, always the same English one, for conditions (`if skip == "all"`); `[text_sounds_word]` (the same for every
+  cycle setting, `[language_word]` ...) is the value written in the player's language, for showing.
+- `select <setting> at x,y [size w,h] [font n]` takes the same settings as `action cycle` but shows the current value (with a ▾) and, when clicked, opens a list of every value
+  under it (above it when there is no room) to pick from. Esc, a second click or choosing closes the list, and the keys move through it like through any buttons.
+  It suits settings with more than two values (`language`, `theme`, `voice_language`, `skip`, `auto_speed`, `timed_choices`); a setting the game does not offer has an empty list
+  and the select is disabled. The list lies over the screen without moving the layout, and its buttons are `<setting>.<value>` (the current one lit). In a `row` / `column` /
+  `grid` a select is placed and stretched like a button. It is for the options screen only for now: a select that sets a screen's own `state` is not built.
+- `has_languages`, `has_themes`, `has_voice_languages` and `has_fullscreen` say whether the game offers a second language, a theme choice, voice recordings and a fullscreen mode:
+  `if has_languages` keeps a row out of the screen when there is nothing to choose.
 - `button <name> ... action tab` selects a tab: the variable `tab` becomes the button id (the first `action tab` button until one is picked), so
-  `if page == "audio"` shows an element on that tab only.
+  `if tab == "audio"` shows an element on that tab only. The button of the shown tab is lit (`aria-selected`, role `tab`); Left and Right on a tab, and the pad's shoulder buttons, move to the neighbouring tab.
 - `action close` goes back (the same as Esc) and `action fullscreen` toggles fullscreen.
 
 ```
@@ -712,60 +789,75 @@ screen options:
     button audio "Audio" action tab
     button game "Game" action tab
     button done "Back" action close
-  slider master at 700,300 if page == "audio"
-  slider music at 700,380 if page == "audio"
-  button text_sounds at 700,300 "Text sounds: [text_sounds]" action cycle if page == "game"
-  button auto_speed at 700,400 "Auto: [auto_speed]" action cycle if page == "game"
+  slider master at 700,300 if tab == "audio"
+  slider music at 700,380 if tab == "audio"
+  button text_sounds at 700,300 "Text sounds: [text_sounds]" action cycle if tab == "game"
+  button auto_speed at 700,400 "Auto: [auto_speed]" action cycle if tab == "game"
 ```
 
-A screen named `saves` replaces the stock save and load screen (Esc still closes it; opened from the title, the pause menu or the quick menu).
+The save and load screen is the screen named `saves` (Esc still closes it; opened from the title, the pause menu or the quick menu). Without one in your project the
+game draws a default screen (a dimmed backdrop, a title, the page buttons, six slot cards with thumbnails, Back); declare your own to change it.
 The shell fills in these variables, and two lists to draw with `each`:
 
-- `mode` (`"save"` or `"load"`), `page` (the current page id) and `deleting` (true in delete mode).
-- `pages`: the page ids, `page1`..`page9`, plus `pageauto`, `pagequick` and `pagechoice` in load mode. In `each pages as pg`, `[pg.name]` is the page's label.
+- `mode` (`"save"` or `"load"`), `page` (the current page id), `deleting` (true in delete mode), `note` (a message about the last save, such as "Could not save: browser storage is full", else empty)
+  and `can_rename` (true with game.json `"saveNames"` on).
+- `pages`: the page ids, `page1`..`page9`, plus `pageauto`, `pagequick` and `pagechoice` in load mode. In `each pages as pg`, `[pg.name]` is the page's label, and `pg == page` tells the current page.
 - `slots`: the slot ids of the current page. In `each slots as slot`, `[slot.title]` ("Slot 3", "Quick"), `[slot.label]` (the name the player gave the save with
-  game.json `"saveNames"` on, else empty), `[slot.when]` (date and time, empty for an empty slot),
-  `[slot.text]` (the saved line, or "Empty") and `slot.empty` (true/false) are filled from the save.
+  game.json `"saveNames"` on, else empty), `[slot.heading]` (the name, else the title), `[slot.when]` (date and time, empty for an empty slot),
+  `[slot.text]` (the saved line, or "Empty"), `slot.empty` (true/false), `slot.removable` and `slot.renamable` (the save can be deleted or renamed by hand) and `[slot.thumb]` (the picture taken when the save was made, empty for an empty
+  slot or a save without one) are filled from the save. `image "[slot.thumb]" at x,y size w,h` draws it: an image whose file is a `data:image/` URL is shown as it is.
 - `button <id> ... action slot` saves into that slot (asking before overwriting, then for a name with `"saveNames"` on) or loads it (asking first while a game runs), as the mode says. In load mode an empty
   slot does nothing, so use `enabled mode == "save" or not slot.empty` to grey it out. In delete mode it asks to delete the slot instead (auto, quick and choice saves cannot be deleted).
+- `button slot.remove ... action remove` and `button slot.rename ... action rename` (inside `each slots as slot`) ask to delete that slot, or for a new name for it; the id is `<slot>.<word>`, see `each` above.
 - `button <id> ... action page` opens that page. `action delete` turns delete mode on and off, and `action close` goes back.
 
 ```
 screen saves:
   each pages as pg at 100,50 step 140,0:
     button pg at 0,0 "[pg.name]" action page
-  each slots as slot at 100,200 step 0,110:
-    button slot at 0,0 size 1100,96 "[slot.title]  [slot.when]  [slot.text]" action slot enabled mode == "save" or not slot.empty
-  button del at 1400,200 "Delete" action delete if mode == "save"
+  grid 3 at 100,200 gap 24 cell 500,360:
+    each slots as slot:
+      panel size 500,360 color rgba(0,0,0,0):
+        button slot at 0,0 size 500,360 " " action slot enabled mode == "save" or not slot.empty
+        image "[slot.thumb]" at 10,10 size 480,270 if slot.thumb != ""
+        text at 14,284 "[slot.heading]  [slot.when]" font 26
+        text at 14,322 "[slot.text]" font 24 width 470 lines 1
+        button slot.remove at 436,16 size 48,48 "x" action remove if slot.removable
   button done at 1400,900 "Back" action close
 ```
 
-A screen named `history` replaces the stock history panel (opened from the quick menu, `L` or the pad's Select; Esc still closes it).
-The shell fills in these variables:
+The history panel is the screen named `history` (opened from the quick menu, `L` or the pad's Select; Esc closes it). Without one in your project the
+game draws a default screen (a dimmed backdrop, the lines in a scroll area, Back); declare your own to change it. The shell fills in these variables:
 
-- `lines`: the ids of every line passed, oldest first (up to about 500). In `each lines as ln`, `[ln.name]` is the speaker (empty for narration), `[ln.text]` the line
+- `lines`: the ids of every line passed, oldest first (up to about 500). In `each lines as ln`, `[ln.name]` is the speaker (empty for narration), `[ln.color]` its colour (empty for none; `text ... color [ln.color]` uses it), `[ln.text]` the line
   and `ln.current` is true for the line still on screen.
 - `total`: how many lines there are.
-- `button ln ... action line` closes the screen and rolls the story back to that line, however far back it is (the stock panel does the same when a row is clicked).
+- `button ln ... action line` closes the screen and rolls the story back to that line, however far back it is.
   On the line still on screen it does nothing, so `enabled not ln.current` can grey it out.
-- `action close` goes back. Put the list in a `scroll` (below); `start bottom` opens it at the newest line.
+- `action close` goes back. Put the list in a `scroll` (below); `start bottom` opens it at the newest line, and keyboard or pad focus
+  starts on the newest enabled button of such a scroll area instead of the oldest.
+
+The starter:
 
 ```
 screen history:
-  scroll at 160,140 size 1500,760 start bottom:
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
+  text at 160,50 "History" font 52 on enter fade 0.3 on exit fade 0.15
+  text at 160,170 "Nothing yet." if total == 0
+  scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3 distance=30 on exit fade 0.15:
     each lines as ln step 0,140:
-      text at 0,0 "[ln.name]" if ln.name != ""
-      button ln at 0,44 size 1500,84 "[ln.text]" action line
+      text at 0,0 "[ln.name]" font 26 if ln.name != ""
+      button ln at 0,40 size 1580,84 "[ln.text]" action line
   button done at 1500,960 "Back" action close
 ```
 
-A screen named `gallery` replaces the stock gallery (Esc still closes it). Open it from a project title screen with `action gallery`
+The gallery is the screen named `gallery` (Esc closes it). Without one in your project the game draws a default screen (a dimmed backdrop, a grid of tiles with their pictures and titles, Back); declare your own to change it. Open it from a title screen with `action gallery`
 (disabled when `game.json` lists no gallery images). The shell fills in:
 
 - `tiles`: one id per `gallery` entry of game.json, in order; `count` (unlocked) and `total`.
 - In `each tiles as t`: `[t.title]` (the entry's title, or the locked word for a locked tile), `t.unlocked` (true/false) and `[t.file]` (the picture's file under
   `assets/`, empty for a locked tile or a missing file), so `image "[t.file]" size 320,180 if t.unlocked` draws the thumbnail.
-- `button <id> ... action tile` opens the viewer on that tile (the stock one, or your `screen viewer` below; Esc returns, and focus comes back to the tile).
+- `button <id> ... action tile` opens the viewer on that tile (the starter, or your `screen viewer` below; Esc returns, and focus comes back to the tile).
   A locked tile does nothing, so add `enabled t.unlocked`. `action close` goes back.
 
 ```
@@ -778,21 +870,22 @@ screen gallery:
   button done at 1500,960 "Back" action close
 ```
 
-A screen named `viewer` replaces the stock picture viewer that a gallery tile opens (the stock one fills the stage with the picture and pages with the
-arrow keys; with your screen the arrows move focus like on any screen, so give it buttons). It is drawn over a black backdrop, so draw the picture yourself.
+The screen named `viewer` is the picture viewer that a gallery tile opens; declare your own to change the default below. The Left and Right arrow keys
+(and the pad's d-pad) page through the pictures whatever the screen holds, so `prev` / `next` buttons are for the mouse. Draw the backdrop and the picture yourself.
 The shell fills in `file` (the picture's file under `assets/`, empty when there is none), `title`, `position` (1-based) and `total` (the unlocked pictures).
 `action next` and `action prev` show the neighbouring picture (wrapping around) and redraw the screen; `action close` (or Esc) returns to the gallery.
 
 ```
 screen viewer:
-  image "[file]" at 0,0 size 1920,1080
+  panel size full color #000
+  image "[file]" at 0,0 size 1920,1080 on enter fade 0.3 on exit fade 0.2
   text at 80,40 "[title]  [position] / [total]"
   button prev at 80,960 "<" action prev if total > 1
   button next at 1700,960 ">" action next if total > 1
   button done at 1500,960 "Back" action close
 ```
 
-A screen named `music` replaces the stock music room and one named `chapters` the stock chapter select (Esc still closes them). Open them from a project
+The music room is the screen named `music` and the chapter select the one named `chapters` (Esc closes them). Without your own, the game draws default screens (a dimmed backdrop, a scroll list, Back; the music room marks the playing track with ♪ and has a Stop button); declare your own to change them. Open them from a
 title screen with `action music` and `action chapters` (disabled when `game.json` has no `musicRoom` / `chapters` entries). The shell fills in:
 
 - `music`: `tracks` (one id per `musicRoom` entry), `count` (unlocked), `total` and `now` (the title of the track playing, empty for none). In `each tracks as t`:
@@ -801,15 +894,15 @@ title screen with `action music` and `action chapters` (disabled when `game.json
 - `chapters`: `chapters` (one id per entry), `count` and `total`. In `each chapters as c`: `[c.title]` and `c.unlocked`. `action chapter` starts a new playthrough at
   that chapter's label, `action close` goes back.
 
-A screen named `achievements` replaces the stock achievements list (open it from a project title screen with `action achievements`, disabled when
-`game.json` has no `achievements`), and one named `achievement_toast` replaces the notice that pops up on an unlock. The shell fills in:
+The achievements list is the screen named `achievements` (open it from a title screen with `action achievements`, disabled when
+`game.json` has no `achievements`; the default screen lists endings, then achievements, with a dimmed title while locked), and one named `achievement_toast` replaces the notice that pops up on an unlock. The shell fills in:
 
 - `achievements`: `achievements` and `endings` (one id per entry of each kind), `count` / `total` (achievements unlocked / all) and `endings_count` /
   `endings_total`. In `each achievements as a` (or `each endings as e`): `[a.title]` (the hidden word, "???", for a hidden one still locked),
   `[a.description]` (empty while hidden), `a.icon` (the icon's file, for `image "[a.icon]"`; empty without one), `a.unlocked`, `a.hidden` and `a.ending`.
   `action close` goes back.
-- `achievement_toast`: `title`, `description`, `icon` and `ending` for the one being shown. It takes no input and needs no buttons; place it with
-  `at` (game.json's `achievementToast.position` only moves the stock toast). It stays for `achievementToast.seconds`.
+- `achievement_toast`: `title`, `description`, `icon`, `ending` and `position` (game.json's `achievementToast.position`: `topright`, `top`, `bottomleft`, ...; use it with `anchor [position]`)
+  for the one being shown. It takes no input and needs no buttons. It stays for `achievementToast.seconds`; its `on enter` and `on exit` clauses animate the arrival and the leaving. Without a screen of your own in your project the default is drawn.
 
 ```
 screen achievement_toast:
@@ -866,13 +959,14 @@ A scroll goes directly in the screen (not inside `each`, `row`, `column`, `grid`
 `each <list> as <name> limit n` draws at most n entries when you want a hard cap.
 
 ### panel
-`panel [at x,y] [size w,h] [image "file.png" [slice s] [edge stretch|repeat|round]] [padding p] [if <expr>]:` is a box with
+`panel [at x,y] [size w,h|full] [image "file.png" [slice s] [edge stretch|repeat|round]] [padding p] [color c] [if <expr>]:` is a box with
 a frame, and the elements indented under it sit inside it. With `image` the frame is a **9-slice** picture: the four corners
 keep their size and the edges fill the rest, so one small PNG frames a box of any size without stretching its corners.
 `slice` is how many pixels of the picture are corner and edge (`slice 32`; `slice 20,40` for top and bottom 20, left and
 right 40; `slice 10,20,30,40` for top, right, bottom and left; default 32). `edge` says how the strips between the corners
 fill: `stretch` (default), `repeat` (tile, may cut a tile) or `round` (tile, scaled to fit whole). The frame's middle is
-drawn too, so the picture can carry the fill. Without `image` the panel is a plain box in the theme's colors.
+drawn too, so the picture can carry the fill. Without `image` the panel is a plain box in the theme's colors, or a flat rectangle of `color` (`panel size full color rgba(4,6,10,.6)` dims the whole stage: `size full` is the
+stage's size). It takes `on enter` / `on exit` like any element, so a dimmer can fade in.
 
 Children are placed from the panel's top left plus `padding` (one number, `v,h` or `top,right,bottom,left`), so `at 0,0`
 is just inside it. Leave `size` out and the panel grows to fit its children and padding (never smaller than its corners);
@@ -914,9 +1008,12 @@ screen status:
 ### row / column / grid
 `row`, `column` and `grid <columns>` inside a screen place their children one after another, so buttons and text need no
 `at`. The container goes at `at x,y` or pinned to the stage with `anchor <place> [margin m]` (`topleft top topright left center
-right bottomleft bottom bottomright`). `margin` is the distance from the stage edges and `padding m` the room kept inside the container around its children;
+right bottomleft bottom bottomright`, or `[name]` for a variable that holds one). `margin` is the distance from the stage edges and `padding m` the room kept inside the container around its children;
 each is one number for all sides, `v,h` or `top,right,bottom,left` (no spaces: `margin 20`, `padding 12,24`, `margin 0,0,60,0`). `gap n` spaces the children, `align start|center|end` sets how they line up across the
-direction (in a grid, inside the cell), and a grid's `cell w,h` fixes the cell size (default: the biggest child). Containers nest
+direction (in a grid, inside the cell), and `align stretch` instead grows them to fill it, so a column of buttons is as wide as
+its widest one (text gets that width, panels grow their frame but not what is placed inside, an `image` or a non-rectangular
+hotspot keeps its size and is centred in the room that is left, so a label lines up with the button beside it). `width n` / `height n` set the least size of the container (a column's `width 420` makes every
+stretched button at least 420 wide). A grid's `cell w,h` fixes the cell size (default: the biggest child). Containers nest
 (an inner one is placed by its parent, so it takes no `at`/`anchor`) and an `each` inside spreads its entries, which makes an
 inventory list. `if` hides a whole container or one child, and the rest close up.
 

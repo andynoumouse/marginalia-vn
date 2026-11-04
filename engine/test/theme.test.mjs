@@ -150,19 +150,19 @@ test('theme components: tokens and button/panel/tab/toast looks with variants an
   const css = themeCss(theme);
   assert.match(css, /#stage \{[^}]*--vn-surface: #201810/);
   assert.doesNotMatch(css, /--vn-danger|--vn-text|huge|nope|99px/);
-  assert.match(css, /#stage \.screen button, #stage \.screen select \{ border-radius: 2px; \}/);
+  assert.match(css, /#stage \.screen button, #stage \.screen select, #stage \.sc-btn:not\(#quickui \.sc-btn\) \{ border-radius: 2px; \}/);
   assert.match(css, /#stage \.screen button:hover:not\(:disabled\)[^{]*\{ border-color: #fff; \}/);
   assert.match(css, /#stage \.screen button:disabled[^{]*\{ opacity: 0\.2; \}/);
   assert.match(css, /#stage \.screen button\[data-variant="primary"\][^{]*\{ background: #e0a050; color: #111; \}/);
   assert.ok(css.indexOf('border-radius: 2px') < css.indexOf('data-variant="primary"'), 'variants come after their component');
-  assert.match(css, /#stage \.opt-tabs button\[aria-selected="true"\] \{ background: rgba\(224,160,80,\.15\); \}/);
-  assert.match(css, /#stage #toast, #stage #achToast \{ box-shadow: 0 2px 4px #000; \}/);
+  assert.match(css, /#stage \.sc-btn\[role="tab"\]\[aria-selected="true"\] \{ background: rgba\(224,160,80,\.15\); \}/);
+  assert.match(css, /#stage #toast, #stage #achtoastui \.sc-panel \{ box-shadow: 0 2px 4px #000; \}/);
 });
 
 test('theme components: field and quickmenu', () => {
   const css = themeCss(resolveTheme({ components: { field: { border: '#fff' }, quickmenu: { selected: { color: '#f00' } } } }, {}));
   assert.match(css, /#stage #menu input, #stage \.save-name input \{ border-color: #fff; \}/);
-  assert.match(css, /#stage #quick button\[aria-pressed="true"\] \{ color: #f00; \}/);
+  assert.match(css, /#stage #quickui \.sc-btn\[aria-pressed="true"\] \{ color: #f00; \}/);
 });
 
 test('theme components: slider, title and choice states', () => {
@@ -170,8 +170,8 @@ test('theme components: slider, title and choice states', () => {
     slider: { color: '#f80', size: 40 }, title: { color: '#eee', size: 130 },
     choice: { hover: { border: '#fff' }, disabled: { opacity: 0.3 } },
   } }, {}));
-  assert.match(css, /#stage \.panel input\[type=range\], #stage \.sc-slider \{ accent-color: #f80; height: 40px; \}/);
-  assert.match(css, /#stage #gameTitle \{ color: #eee; font-size: 130px; \}/);
+  assert.match(css, /#stage \.sc-slider \{ accent-color: #f80; height: 40px; \}/);
+  assert.match(css, /#stage \.sc-text\[data-style="title"\] \{ color: #eee; font-size: 130px; \}/);
   assert.match(css, /#stage #menu button:hover:not\(\[aria-disabled="true"\]\) \{ border-color: #fff; \}/);
   assert.match(css, /#stage #menu button\[aria-disabled="true"\] \{ opacity: 0\.3; \}/);
 });
@@ -187,7 +187,7 @@ test('theme tokens: gap, uiSize and uiFont become variables', () => {
 
 test('theme screens: a component override scoped to one built-in screen', () => {
   const css = themeCss(resolveTheme({ screens: { options: { panel: { width: 1300 }, 'button.primary': { color: '#000' }, nope: { width: 1 } }, bogus: { panel: { width: 5 } } } }, {}));
-  assert.match(css, /#stage #options \.panel, #stage #options \.history-panel, #stage #options \.saves-panel \{ width: 1300px; \}/);
+  assert.match(css, /#stage #options \.panel \{ width: 1300px; \}/);
   assert.match(css, /#stage #options button\[data-variant="primary"\][^{]*\{ color: #000; \}/);
   assert.doesNotMatch(css, /bogus|5px|nope/);
 });

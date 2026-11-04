@@ -43,8 +43,8 @@ finds a label by name or by the text of a choice that leads out of it.
 
 The **Files** panel (Ctrl+B) lists the project's `game.json`, the scripts, the built-in screens, characters and
 assets. Click an image, a sound or a font to preview it, and drop files from your desktop onto the assets to copy
-them into the project. A built-in screen says `stock` until you press **Customize**, which writes a starter script
-you can restyle; the demo's own pause menu in `menus.vn` shows up there in place of `stock`.
+them into the project. A built-in screen says `default` until you press **Edit**, which writes a copy of its script into the
+project for you to change; the demo's own pause menu in `menus.vn` shows up there in place of `default`.
 
 Right-click a row for more (preview a script from its start, rename, delete, copy the path, reveal it in Explorer
 or Finder). **F2** on a row renames or moves it, and renaming an asset also rewrites the scripts and `game.json` that

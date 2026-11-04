@@ -26,8 +26,8 @@ test('starters only use shell variables that the screen is given', () => {
   assert.ok(shellVars('options').includes('tab'));
 });
 
-// The unit-test and browser-test project must show the stock screens: a generated starter (the editor's "Override this
-// screen") committed into games/sample/script by accident once hid the stock title and options, and the browser tests timed out.
+// The unit-test and browser-test project must show the default screens: a generated starter (the editor's "Edit"
+// button) committed into games/sample/script by accident once hid the default title and options, and the browser tests timed out.
 test('the sample project has no script that overrides a built-in screen, nor stray folders of them', async () => {
   const { readdirSync, readFileSync } = await import('node:fs');
   const dir = new URL('../../games/sample/script/', import.meta.url);

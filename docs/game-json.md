@@ -12,7 +12,7 @@ errors is not saved. Pixel values are on the stage, 1920x1080 unless `stage` say
   "title": "Evening in the Park",
   "splash": ["studio_logo", { "text": "A game by someone", "duration": 2 }],
   "titleScreen": { "background": "bg_park_evening", "music": "evening_theme", "showTitle": true,
-                   "align": "center", "buttons": ["new_game", "continue", "load", "gallery", "options"], "fade": 0.4 },
+                   "buttons": ["new_game", "continue", "load", "gallery", "options"], "fade": 0.4 },
   "quickMenu": { "items": ["back", "history", "auto", "skip"], "position": "bottom", "align": "center" },
   "gallery": [ { "image": "cg_epilogue", "title": "Epilogue", "unlock": "good_ending" } ],
   "musicRoom": [ { "track": "evening_theme", "title": "Evening Theme" } ],
@@ -39,7 +39,7 @@ What follows the size and what does not:
   (centred, edges cropped). The camera and screen wipes follow the size.
 - Animation offsets (`shake`, `hop`, `animate`, rig `x`/`y` keys) are fractions of the stage's **shorter side** (its height on a
   landscape stage, so existing projects are unchanged), and the built-in 8 px shake and 44 px hop are written against 1080.
-- Pixel coordinates in `screen` blocks and `image` lines are yours to place; nothing rescales them. The stock text box, title,
+- Pixel coordinates in `screen` blocks and `image` lines are yours to place; nothing rescales them. The default text box, title,
   pause and options screens are laid out for a landscape stage: on a portrait one, supply `screen title`, `screen options` and the
   rest yourself.
 - Nothing derived from the size is stored in saves (they hold the story position and variables), so a save loads at any stage size.
@@ -184,14 +184,13 @@ art and music load while the cards play. The editor's **Preview: Splash** comman
 | `background` | Scene name drawn behind the menu (`assets/bg/<name>.png`). |
 | `music` | Looping track (`assets/music/<name>.*`). |
 | `showTitle` | Show the game name (default true; turn off when the background has a logo). |
-| `align` | `left`, `center` (default) or `right`: where the title and buttons sit. |
-| `buttons` | Buttons in order, from `new_game`, `continue`, `load`, `gallery`, `music_room`, `chapters`, `achievements`, `options`. Leave one out to hide it. |
+| `buttons` | Which of the optional buttons of the default title screen show: `continue`, `gallery`, `music_room`, `chapters`, `achievements` (all when the list is left out; New game, Load and Options always show). |
 | `fade` | Seconds of black between the title screen and the game, in both directions (default 0.4; 0 cuts). Reduced motion also cuts. Menu screens always fade in briefly. |
 
 To design the title screen yourself, declare `screen title:` in a script with buttons that use `action start`, `continue`, `load`,
-`options` or `quit` (see "Screens" in commands.md); it replaces the stock buttons and the `buttons` list is then ignored (the
-`background`, `music` and `fade` keys still apply). `continue` is greyed out until there is a save. Gallery, music room and
-chapters have no action yet, so they are not reachable from a custom title screen.
+`options` or `quit` (see "Screens" in commands.md); it replaces the default title screen (which is itself a `screen title` the game draws when you declare none, so the editor can
+show you its code to start from). The `background`, `music` and `fade` keys still apply, and `showTitle` and `buttons` reach it as the variables `show_title`,
+`has_gallery` and so on. `continue` is greyed out until there is a save.
 
 ## quickMenu
 
@@ -201,8 +200,8 @@ chapters have no action yet, so they are not reachable from a custom title scree
 | `position` | `bottom` (default) or `top`. |
 | `align` | `left`, `center` (default) or `right`. |
 
-To design the bar yourself, declare `screen quickmenu:` in a script with buttons that use `action <name>` (see "Screens" in
-commands.md); it replaces this bar and these keys are then ignored.
+The bar is the default `quickmenu` screen. To design it yourself, declare `screen quickmenu:` in a script with buttons that use `action <name>` (see "Screens" in
+commands.md); it replaces the default whole, and these keys only fill in the variables it can use.
 
 ## gallery
 
@@ -263,9 +262,9 @@ one after another. Every key is optional.
 | `seconds` | How long each one stays (default 4). |
 | `sound` | A sound (`assets/sound/<sound>.*`) played as it appears. |
 
-The stock toast says "Achievement unlocked" or "Ending reached" (`ui.achievement_unlocked`, `ui.ending_reached` in the
+The default toast says "Achievement unlocked" or "Ending reached" (`ui.achievement_unlocked`, `ui.ending_reached` in the
 locale files) over the title, description and icon. To draw your own, declare `screen achievement_toast` (see the screens
-section of docs/commands.md); `seconds` and `sound` still apply, `position` is up to the screen.
+section of docs/commands.md); `seconds` and `sound` still apply, and `position` is a variable the screen can anchor to.
 
 ## speakerFocus
 
@@ -325,7 +324,8 @@ as a `blip=` value, and `blip=none` silences a character.
 
 Menu text in the source language, e.g. `"new_game": "Begin"`. Other languages use `ui.<key>` entries in
 `locale/<lang>.json` (`npm run strings` leaves them alone). The keys are the `data-ui` attributes in
-`preview/index.html`, and the quick menu buttons as `q_<item>` (`q_skip`). The editor completes the full list.
+`preview/index.html`, and the quick menu buttons as `q_<item>` (`q_skip`). The editor completes the full list, and the Translations dialog lists every label as a row (`menu label`,
+id `ui.<key>`) beside the script's strings, so they are translated, filtered and exported to CSV the same way.
 
 ## theme
 

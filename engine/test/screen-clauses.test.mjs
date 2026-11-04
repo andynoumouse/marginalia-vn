@@ -187,7 +187,7 @@ test('completions on a continuation start offer the clause words, and continue a
   const above = ['screen s:', '  toggle lamp_on tip at 1,1 "Lamp" #hgir', '    if page == "light"'];
   const labels = getCompletions(p, '    ', {}, above).map(s => s.label);
   for (const w of ['on', 'if', 'enabled', 'hover', 'tooltip', 'cursor', 'up', 'style=']) assert.ok(labels.includes(w), w);
-  assert.deepEqual(getCompletions(p, '    on ', {}, above).map(s => s.label).sort(), ['blur', 'click', 'focus']);
+  assert.deepEqual(getCompletions(p, '    on ', {}, above).map(s => s.label).sort(), ['blur', 'click', 'enter', 'exit', 'focus']);
   assert.ok(getCompletions(p, '    on focus set ', {}, above).some(s => s.label === 'tip'));
   // not under an element: the usual lists
   assert.ok(!getCompletions(p, '    ', {}, ['label x:', '  "hi"']).some(s => s.label === 'enabled'));

@@ -245,6 +245,6 @@ test('hud: the outline shows the labels a HUD calls, and completions know hud an
   assert.deepEqual(labels('hud on '), ['bar']);
   assert.deepEqual(labels('hud on bar '), ['keep']);
   assert.ok(labels('  button x at 0,0 ').includes('on'));
-  assert.deepEqual(labels('  button x at 0,0 "X" on '), ['click', 'focus', 'blur']);
+  assert.deepEqual(labels('  button x at 0,0 "X" on '), ['click', 'focus', 'blur', 'enter', 'exit']);
   assert.ok(labels('  button x at 0,0 "X" on click ').includes('open_bag'));
 });

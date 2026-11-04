@@ -8,6 +8,10 @@ npm run build:online          # writes build/online/ (about 20 MB)
 npm run serve:online          # serves it at http://localhost:5180/marginalia-vn/, as GitHub Pages would
 ```
 
+The code in `dist/` is bundled and minified with esbuild: one file per page (`editor.js`, `help-page.js`, `preview.js`,
+`projects.js` and the service worker `sw.js`) instead of the roughly 100 modules `tsc` writes. PixiJS stays a separate
+file in `vendor/`.
+
 Upload `build/online/` to any static host that serves HTTPS, at the root or in a subfolder (GitHub Pages works:
 `https://<user>.github.io/<repo>/`). Service workers need HTTPS (localhost counts as secure).
 
@@ -16,10 +20,11 @@ The repository's `.github/workflows/online-demo.yml` builds and publishes it to 
 
 ## What visitors get
 
-- **A project list** (the site's front page): start from the sample game or a blank project, import a project `.zip`,
+- **A project list** (the site's front page): start from the Iris demo or a blank project, import a project `.zip`,
   then open, play, rename, duplicate, download as `.zip`, or delete.
 - **The editor**, the same one `npm run dev` serves, with live preview, completions, the outline, translations, voice,
-  the animation studio, rename, find in files and the trash.
+  the animation studio, rename, find in files and the trash. The **‹ Projects** button at the left of the top bar saves
+  and goes back to the project list.
 - **The art pipeline in the browser**: drop a layered PSD on the Characters or Assets panel and it is converted on the
   spot (the same converter as `npm run art`). Reconvert All Art works too.
 - **Download as .zip** (project list, or Ctrl+P → Online). The zip holds the project folder exactly as on disk, so it

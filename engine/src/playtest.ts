@@ -177,7 +177,7 @@ export function unusedAssets(program: Program, index: AssetIndex, game: unknown 
       else if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
     }
   };
-  for (const def of Object.values(program.screens ?? {})) walk(def.body);
+  for (const def of Object.values(program.screens ?? {})) if (!def.src.file.startsWith('stock/')) walk(def.body); // a starter's "[file]" would match everything
   for (const it of Object.values(program.items ?? {})) addFile(it.image);
   for (const c of Object.values(program.characters)) if (c.style.blip && ctx.has(`sound/${c.style.blip}`)) used.add(`sound/${c.style.blip}`);
 

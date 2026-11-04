@@ -5,12 +5,12 @@
 // project data from project.json instead of the dev server, no live reload.
 
 import { initDebug } from './debug.js';
-import { attachPreloads, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeChapters, normalizeMusicRoom, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
+import { attachPreloads, quickMenuSettings, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
 import { Menus, type AchievementRow, type GalleryItem, type TitleConfig } from './menus.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { playSplash } from './splash.js';
 import { isOutdatedSave, newestSave, normalizeSaveVersion, PersistentSet, PersistentValues, readSave, SeenLines, setChoiceSlots, writeChoiceSave, writeSave, type Moment, type SaveData } from './saves.js';
-import { adjustFocused, moveFocus, watchGamepad, type Action } from './input.js';
+import { adjustFocused, autoFocus, moveFocus, watchGamepad, type Action } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
 import type { Voice } from './blips.js';
 import { $, H, sleep, stage, W, type AssetFile, type LineInfo } from './stage-ui.js';
@@ -104,7 +104,7 @@ async function fetchLocale(lang: string): Promise<Record<string, string>> {
   return table;
 }
 const statusEl = $('status'), langEl = $<HTMLSelectElement>('lang'), diagEl = $('diag'), diagBtn = $('diagBtn'), menuEl = $('menu');
-const quickEl = $('quick'), toastEl = $('toast'), errBanner = $('errBanner');
+const toastEl = $('toast'), errBanner = $('errBanner');
 
 // The stage size comes from game.json and must be known before the canvas is made.
 const firstProject = await fetchProject().catch(() => null);
@@ -200,10 +200,20 @@ applySettings();
 const titleState = (): DisplayState =>
   ({ bg: game.titleScreen?.background ?? null, sprites: [], music: game.titleScreen?.music ?? null, musicLoop: true });
 
-const QUICK_ITEMS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'voice', 'hide'];
-const quickButtons = Object.fromEntries([...quickEl.querySelectorAll<HTMLElement>('[data-q]')].map(b => [b.dataset.q!, b]));
-
-renderer.onVoice = voiced => { quickButtons.voice.hidden = !voiced; }; // the stock bar offers a replay only on voiced lines
+/** The key that does what a quick menu button does, shown as its tooltip. */
+const QUICK_KEYS: Record<string, string> = { back: 'Mouse wheel up / Page Up', history: 'L', auto: 'A', skip: 'Tab, or hold Ctrl', qsave: 'F5', qload: 'F9', voice: 'V', hide: 'H / middle click' };
+/** Tells the quick menu screen which buttons to draw (game.json "quickMenu", labels in the player's language) and where; the replay button only on a voiced line. */
+let lineVoiced = false;
+function applyQuickMenu() {
+  if (!runtime) return;
+  const { items, place } = quickMenuSettings(game.quickMenu);
+  runtime.quickMenu = { items: items.filter(i => i !== 'voice' || lineVoiced).map(id => ({ id, label: document.querySelector(`[data-ui="q_${id}"]`)?.textContent ?? id, hint: QUICK_KEYS[id] })), place };
+}
+renderer.onVoice = voiced => {
+  lineVoiced = voiced;
+  applyQuickMenu();
+  if (renderer.quickShown) void renderer.quick(runtime?.quickView() ?? null);
+};
 
 const themeEl = document.head.appendChild(document.createElement('style'));
 
@@ -255,7 +265,6 @@ function achievementDiagnostics(program: Program, text: string): Diagnostic[] {
 }
 
 // ---- achievement toasts: one at a time, each for achievementToast.seconds ----
-const achToastEl = $('achToast');
 const achQueue: AchievementEntry[] = [];
 let achShowing = false;
 function queueAchievement(entry: AchievementEntry) {
@@ -269,19 +278,8 @@ async function nextAchievement() {
   const cfg = achievementToastSettings(game.achievementToast);
   if (cfg.sound && renderer.audio.has('sound', cfg.sound)) void renderer.audio.sound(cfg.sound);
   const file = uiFile(entry.icon);
-  const view = runtime?.achievementToastView({ title: entry.title, description: entry.description, icon: file?.file ?? '', ending: entry.ending }) ?? null;
-  if (view) void renderer.achievementToast(view);
-  else {
-    const url = uiUrl(file);
-    (achToastEl.querySelector('.ach-icon') as HTMLElement).style.backgroundImage = url ? `url("${url}")` : '';
-    $('achToastHead').textContent = document.querySelector(`[data-ui="${entry.ending ? 'ending_reached' : 'achievement_unlocked'}"]`)?.textContent ?? '';
-    $('achToastTitle').textContent = entry.title;
-    $('achToastText').textContent = entry.description;
-    achToastEl.dataset.position = cfg.position;
-    achToastEl.dataset.show = 'true';
-  }
+  void renderer.achievementToast(runtime?.achievementToastView({ title: entry.title, description: entry.description, icon: file?.file ?? '', ending: entry.ending, position: cfg.position }) ?? null);
   await sleep(cfg.seconds * 1000);
-  achToastEl.dataset.show = 'false';
   void renderer.achievementToast(null);
   await sleep(300); // the fade out
   void nextAchievement();
@@ -311,22 +309,11 @@ function applyGame(assets: AssetFile[]) {
   setChoiceSlots(game.choiceSaves);
   saveVersion = normalizeSaveVersion(game.saveVersion);
   menus.setSaveNames(game.saveNames === true);
-  menus.configure(game.title ?? 'Untitled', game.titleScreen, {
-    gallery: Array.isArray(game.gallery) && game.gallery.length > 0,
-    music_room: normalizeMusicRoom(game.musicRoom).length > 0,
-    chapters: normalizeChapters(game.chapters).length > 0,
-    achievements: normalizeAchievements(game.achievements).length > 0,
-  });
-  const q = game.quickMenu ?? {};
-  // The replay button joins any listed bar; it stays hidden except on voiced lines.
-  const listed = Array.isArray(q.items) ? [...q.items, ...(q.items.includes('voice') ? [] : ['voice'])] : QUICK_ITEMS;
-  const items = listed.filter(i => quickButtons[i]);
-  quickEl.replaceChildren(...new Set(items.map(i => quickButtons[i])));
-  quickEl.dataset.position = q.position ?? 'bottom';
-  quickEl.dataset.align = q.align ?? 'center';
+  syncTitle();
+  applyQuickMenu();
   themeAssets = assets;
   const themes = Array.isArray(game.themes) ? game.themes.filter((n): n is string => typeof n === 'string' && !!game.themeLooks?.[n]) : [];
-  menus.setThemes(themes, settings.theme);
+  menus.setThemes(themes);
   applyTheme();
   renderer.blips.voices = game.blips && typeof game.blips === 'object' ? game.blips : {};
   renderer.speakerFocus = speakerFocusSettings(game.speakerFocus);
@@ -365,7 +352,7 @@ async function showTitle() {
   await renderer.prepare(titleState()); // the title art and music, so the screen is not drawn with a placeholder
   if (playing) return; // the player started a game meanwhile
   renderer.sync(titleState());
-  menus.showTitle(newestSave);
+  menus.showTitle();
   statusEl.textContent = 'title screen';
   if (fromGame) { curtained = false; void curtain(false); }
 }
@@ -400,6 +387,7 @@ async function enterGame(run: (rt: Runtime) => Promise<void>, from?: SaveData) {
   if (playing || embedded) { play(run, from); return; }
   curtained = true;
   await curtain(true);
+  void renderer.title(null, true); // the curtain is black: the title goes at once instead of playing its `on exit` as the curtain lifts
   play(run, from);
   curtained = false;
   await curtain(false);
@@ -479,7 +467,7 @@ function showCrash(error: unknown, at: Src | null) {
     lines: timeline.lines().map(l => (l.name ? `${l.name}: ${l.text}` : l.text)), agent: navigator.userAgent, time: new Date(),
   });
   crashEl.hidden = false;
-  $('crashToTitle').focus();
+  autoFocus($('crashToTitle'));
 }
 crashCopy.addEventListener('click', () => {
   const text = crashReportEl.textContent ?? '';
@@ -553,33 +541,32 @@ const quickActions: Record<string, () => void> = {
   voice: () => renderer.replayVoice(),
   hide: () => { if (canAct()) setUiHidden(true); },
 };
-/** Show or hide the quick menu: the project's `screen quickmenu` when it declares one, else the stock bar. */
+/** Show or hide the quick menu (the project's `screen quickmenu`, else the default). */
 function showQuick(on: boolean) {
-  const custom = on && !!runtime?.quickView();
-  quickEl.hidden = !on || custom;
   renderer.quickShown = on;
-  void renderer.quick(custom ? runtime!.quickView() : null);
+  applyQuickMenu();
+  void renderer.quick(runtime?.quickView() ?? null);
 }
 renderer.onQuickAction = item => {
   const act = item?.act;
   if (act) quickActions[act]?.();
 };
-quickEl.addEventListener('click', e => {
-  e.stopPropagation(); // not a click on the story
-  const q = (e.target as HTMLElement).closest<HTMLElement>('[data-q]')?.dataset.q;
-  if (q) quickActions[q]?.();
-});
-/** The project's `screen title` replaces the stock title screen: drawn while the stock one is up (hidden behind the saves or options opened over it). */
+/** The title screen (the project's `screen title`, else the starter) is drawn while its menu is up (hidden behind the saves or options opened over it). */
 const titleEl = $('title');
+/** game.json `titleScreen.buttons`, when it lists some: the optional buttons (gallery, music room, chapters, achievements, continue) the starter shows. */
+const titleWants = (button: string) => !Array.isArray(game.titleScreen?.buttons) || !game.titleScreen.buttons.length || game.titleScreen.buttons.includes(button);
 function syncTitle() {
-  const view = runtime?.titleView(!!newestSave(), galleryItems().length > 0, musicRoomItems().length > 0, chapterList().length > 0, achievementRows().length > 0) ?? null;
+  const has = (button: string, entries: number) => titleWants(button) && entries > 0;
+  const newest = newestSave();
+  const view = runtime?.titleView(!!newest && titleWants('continue'), has('gallery', Array.isArray(game.gallery) ? galleryItems().length : 0), has('music_room', musicRoomItems().length),
+    has('chapters', chapterList().length), has('achievements', achievementRows().length), game.title ?? 'Untitled', game.titleScreen?.showTitle !== false, newest?.text ?? '') ?? null;
   titleEl.dataset.custom = String(!!view);
   void renderer.title(view && !titleEl.hidden ? view : null);
 }
 new MutationObserver(syncTitle).observe(titleEl, { attributes: true, attributeFilter: ['hidden'] });
 const titleActions: Record<string, () => void> = {
-  start: () => void enterGame(rt => rt.start()),
-  continue: () => { const s = newestSave(); if (s) void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s); },
+  start: () => menus.act.newGame(),
+  continue: () => menus.act.continueGame(),
   load: () => menus.openSaves('load'),
   options: () => menus.openOptions(),
   gallery: () => menus.showGallery(),
@@ -588,7 +575,7 @@ const titleActions: Record<string, () => void> = {
   achievements: () => menus.showAchievements(),
   quit: () => window.close(),
 };
-/** The project's `screen pause` replaces the stock pause menu, the same way. */
+/** The pause menu (the project's `screen pause`, else the starter), the same way. */
 const pauseEl = $('pause');
 function syncPause() {
   const view = runtime?.pauseView() ?? null;
@@ -603,16 +590,17 @@ const pauseActions: Record<string, () => void> = {
   options: () => menus.openOptions(),
   title: () => menus.confirm('confirm_title', () => void showTitle()),
 };
-/** The project's `screen options` replaces the stock options: redrawn whenever the screen opens or a setting or the tab changes. */
+/** The project's `screen options` replaces the default options: redrawn whenever the screen opens or a setting or the tab changes. */
 const optionsEl = $('options');
 function syncOptions() {
-  const view = runtime?.optionsView(menus.optionValues()) ?? null;
+  const lists = menus.optionLists();
+  const view = runtime?.optionsView({ ...menus.optionValues(), ...lists.vars }, lists.entries) ?? null;
   optionsEl.dataset.custom = String(!!view);
   void renderer.options(view && !optionsEl.hidden ? view : null);
 }
 new MutationObserver(syncOptions).observe(optionsEl, { attributes: true, attributeFilter: ['hidden'] });
 menus.onValues = syncOptions;
-/** The project's `screen saves` replaces the stock save/load screen: redrawn whenever the screen opens or its page, mode or slots change. */
+/** The project's `screen saves` replaces the default save/load screen: redrawn whenever the screen opens or its page, mode or slots change. */
 const savesEl = $('saves');
 function syncSaves() {
   const { vars, entries } = menus.savesValues();
@@ -628,8 +616,10 @@ renderer.onSavesAction = item => {
   else if (act === 'page') menus.setPage(item!.id);
   else if (act === 'slot') menus.pickSlot(item!.id);
   else if (act === 'delete') menus.toggleDelete();
+  else if (act === 'remove') menus.removeSlot(item!.id.slice(0, item!.id.lastIndexOf('.')));
+  else if (act === 'rename') menus.renameSlot(item!.id.slice(0, item!.id.lastIndexOf('.')));
 };
-/** The project's `screen history` replaces the stock history panel: redrawn when it opens. */
+/** The history screen (the project's `screen history`, else the starter): redrawn when it opens. */
 const historyEl = $('history');
 function syncHistory() {
   const { vars, entries } = menus.historyValues();
@@ -642,7 +632,7 @@ renderer.onHistoryAction = item => {
   if (item?.act === 'close') menus.closeHistory();
   else if (item?.act === 'line') menus.pickLine(item.id);
 };
-/** The project's `screen gallery` replaces the stock gallery: drawn when it opens (and again when the viewer closes). */
+/** The project's `screen gallery` replaces the default gallery: drawn when it opens (and again when the viewer closes). */
 const galleryEl = $('gallery');
 function syncGallery() {
   const { vars, entries } = menus.galleryValues();
@@ -656,7 +646,7 @@ renderer.onGalleryAction = item => {
   if (act === 'close') menus.closeGallery();
   else if (act === 'tile') menus.pickTile(item!.id);
 };
-/** The project's `screen viewer` replaces the stock picture viewer opened from a gallery tile: redrawn when it opens and whenever the picture changes. */
+/** The viewer screen (the project's `screen viewer`, else the starter) opened from a gallery tile: redrawn when it opens and whenever the picture changes. */
 const viewerEl = $('viewer');
 function syncViewer() {
   const view = runtime?.viewerView(menus.viewerValues()) ?? null;
@@ -671,7 +661,7 @@ renderer.onViewerAction = item => {
   else if (act === 'next') menus.stepViewer(1);
   else if (act === 'prev') menus.stepViewer(-1);
 };
-/** The project's `screen music` replaces the stock music room: redrawn when it opens and whenever the playing track changes. */
+/** The project's `screen music` replaces the default music room: redrawn when it opens and whenever the playing track changes. */
 const musicEl = $('musicRoom');
 function syncMusic() {
   const { vars, entries } = menus.musicValues();
@@ -687,7 +677,7 @@ renderer.onMusicAction = item => {
   else if (act === 'stop') menus.stopMusic();
   else if (act === 'track') menus.pickTrack(item!.id);
 };
-/** The project's `screen chapters` replaces the stock chapter select. */
+/** The project's `screen chapters` replaces the default chapter select. */
 const chaptersEl = $('chapters');
 function syncChapters() {
   const { vars, entries } = menus.chaptersValues();
@@ -701,7 +691,7 @@ renderer.onChaptersAction = item => {
   if (act === 'close') menus.closeChapters();
   else if (act === 'chapter') menus.pickChapter(item!.id);
 };
-/** The project's `screen achievements` replaces the stock achievements list. */
+/** The project's `screen achievements` replaces the default achievements list. */
 const achievementsEl = $('achievements');
 function syncAchievements() {
   const { vars, entries } = menus.achievementsValues();
@@ -720,6 +710,8 @@ renderer.onOptionsAction = item => {
   else if (act === 'fullscreen') menus.toggleFullscreen();
   else if (act === 'tab') menus.setTab(item!.id);
   else if (act === 'cycle') menus.cycle(item!.id);
+  else if (act === 'select') menus.toggleSelect(item!.id);
+  else if (act === 'choose') menus.choose(item!.id);
 };
 renderer.onPauseAction = item => {
   const act = item?.act;
@@ -730,8 +722,6 @@ renderer.onTitleAction = item => {
   if (act) titleActions[act]?.();
 };
 renderer.onModeChange = () => {
-  quickButtons.auto.setAttribute('aria-pressed', String(renderer.autoOn));
-  quickButtons.skip.setAttribute('aria-pressed', String(renderer.skipping));
   const pressed = { auto: renderer.autoOn, skip: renderer.skipping };
   for (const [act, on] of Object.entries(pressed)) for (const el of document.querySelectorAll(`#quickui [data-act="${act}"]`)) el.setAttribute('aria-pressed', String(on));
 };
@@ -811,11 +801,11 @@ async function load() {
   if (!langs.includes(settings.lang)) settings.lang = source;
   if (settings.lang !== source && !tables[settings.lang]) tables[settings.lang] = await fetchLocale(settings.lang);
   voiceAvailable = voiceLanguages((proj.assets ?? []).map(a => a.file), source);
-  menus.setVoiceLanguages(voiceAvailable, settings.voiceLang);
+  menus.setVoiceLanguages(voiceAvailable);
   applySettings();
   langEl.replaceChildren(...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
   langEl.value = settings.lang;
-  menus.setLanguages(langs, settings.lang);
+  menus.setLanguages(langs);
   const locale = new Locale(tables, settings.lang, source);
   stage.lang = settings.lang;
   game = proj.game ?? {};
@@ -839,6 +829,8 @@ async function load() {
 
   if (!runtime) {
     runtime = new Runtime(program, renderer, locale);
+    // the starter title and pause screens say "New game" in the game's language (game.json "labels", locale `ui.<key>`), through the hidden [data-ui] labels
+    runtime.uiText = raw => menus.uiText(raw);
     runtime.onUnlock = name => {
       const fresh = achievementToToast(game.achievements, name, unlocked.has(name));
       unlocked.add(name);
@@ -939,11 +931,20 @@ stage.addEventListener('wheel', e => {
 // move focus; otherwise the pad plays the game.
 const choiceOpen = () => menuEl.dataset.visible === 'true';
 const screenOpen = () => !crashed && !menus.top && renderer.screens.open; // a custom screen (show screen) is up, with no menu over it
-// A project screen (title, pause, options) replaces a stock menu's contents; focus then moves inside its layer, not the hidden stock element.
+// A menu's container element stays empty: the screen is drawn in its layer, so focus moves inside the layer, not the container.
 const customRoot = (el: HTMLElement | null): HTMLElement | null =>
   el?.dataset.custom !== 'true' ? el : el === titleEl ? renderer.titleLayer.root : el === pauseEl ? renderer.pauseLayer.root : el === optionsEl ? renderer.optionsLayer.root : el === savesEl ? renderer.savesLayer.root : el === historyEl ? renderer.historyLayer.root : el === galleryEl ? renderer.galleryLayer.root : el === viewerEl ? renderer.viewerLayer.root : el === musicEl ? renderer.musicLayer.root : el === chaptersEl ? renderer.chaptersLayer.root : el;
 const uiRoot = (): HTMLElement | null => crashed ? crashEl : customRoot(menus.top) ?? (renderer.screens.open ? renderer.screens.root : choiceOpen() ? menuEl : renderer.hudLayer.focused ? renderer.hudLayer.root : null);
-const isTab = (e: Element | null) => !!e?.matches('.opt-tabs [data-tab]');
+const isTab = (e: Element | null) => !!e?.matches('[role="tab"]');
+/** Left/Right on a tab, or the shoulder buttons: click the next (or previous) tab of the row and keep the focus on the lit one. */
+function stepTab(root: HTMLElement, from: Element | null, step: number): boolean {
+  const tabs = [...root.querySelectorAll<HTMLElement>('[role="tab"]')];
+  if (!tabs.length) return false;
+  const at = Math.max(0, from ? tabs.indexOf(from as HTMLElement) : tabs.findIndex(t => t.getAttribute('aria-selected') === 'true'));
+  tabs[(at + step + tabs.length) % tabs.length].click();
+  requestAnimationFrame(() => root.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus());
+  return true;
+}
 
 function handleAction(a: Action) {
   stage.dataset.pad = 'true'; // the on-screen keyboard of name prompts shows while the pad is in use
@@ -960,9 +961,9 @@ function handleAction(a: Action) {
     switch (a) {
       case 'up': case 'down': moveFocus(root, a); break;
       case 'left': case 'right':
-        if (isTab(focused)) menus.cycleTab(a === 'right' ? 1 : -1);
+        if (menus.top === viewerEl) menus.stepViewer(a === 'right' ? 1 : -1); // the arrows page through the pictures
+        else if (isTab(focused)) stepTab(root, focused, a === 'right' ? 1 : -1);
         else if (!adjustFocused(a)) moveFocus(root, a);
-        if (isTab(focused)) root.querySelector<HTMLElement>('.opt-tabs [aria-selected="true"]')?.focus();
         break;
       case 'confirm':
         if (focused instanceof HTMLInputElement && focused.type === 'text') moveFocus(root, 'down'); // name prompt: on to the keyboard (OK is below it)
@@ -972,7 +973,7 @@ function handleAction(a: Action) {
       case 'cancel': if (menus.open) menus.escape(); else if (renderer.hudLayer.focused) renderer.hudLayer.blur(); break;
       case 'backspace': case 'shift': root.querySelector<HTMLElement>(`[data-osk="${a === 'shift' ? 'shift' : 'back'}"]`)?.click(); break;
       case 'tabPrev': case 'tabNext':
-        if (menus.cycleTab(a === 'tabNext' ? 1 : -1)) root.querySelector<HTMLElement>('.opt-tabs [aria-selected="true"]')?.focus();
+        stepTab(root, null, a === 'tabNext' ? 1 : -1);
         break;
     }
     return;
@@ -1059,7 +1060,7 @@ if (devMode) {
 }
 langEl.addEventListener('change', () => { settings.lang = langEl.value; saveSettings(settings); void load(); });
 
-/** Show a built-in screen (stock or the project's override) for the editor: the menus open over the title screen, the quick menu over the game. */
+/** Show a built-in screen (the default or the project's own) for the editor: the menus open over the title screen, the quick menu over the game. */
 async function previewScreen(name: string) {
   if (name === 'title') { await showTitle(); return; }
   if (name === 'quickmenu') { play(rt => rt.start()); return; }

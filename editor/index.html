@@ -452,6 +452,9 @@
   <div id="bar">
     <strong>Marginalia VN</strong>
     <div class="group">
+      <button id="projectsBtn" type="button" hidden title="Save and go back to the project list">‹ Projects</button>
+    </div>
+    <div class="group">
       <button id="filesBtn" type="button" title="Files and assets panel (Ctrl+B)">Files</button>
     </div>
     <div class="group">
@@ -511,7 +514,7 @@
       </section>
     </div>
     <div id="split" role="separator" aria-orientation="vertical"></div>
-    <iframe id="preview" src="../" title="Live preview" allow="gamepad"></iframe>
+    <iframe id="preview" src="../" title="Live preview" allow="gamepad; fullscreen" allowfullscreen></iframe>
   </div>
   <script src="../vendor/monaco/vs/loader.js"></script>
   <script type="module" src="../dist/editor/editor.js"></script>

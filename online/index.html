@@ -28,6 +28,9 @@
   .cards label:has(input:checked) { border-color: var(--accent); background: #5fd1c31a; }
   .cards label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .cards input { position: absolute; opacity: 0; pointer-events: none; }
+  .cards.games { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); margin-bottom: 8px; }
+  .cards.games button { display: grid; gap: 2px; align-content: start; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+  .cards.games button:hover, .cards.games button:focus-visible { border-color: var(--accent); }
   .cards small { color: var(--muted); font-size: 12px; }
   #actions { display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap; }
   #error { color: var(--bad); margin: -12px 0 16px; white-space: pre-wrap; }
@@ -36,7 +39,7 @@
   #note:empty { display: none; }
   h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
   #list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 6px; }
-  #list:empty::after { content: 'No projects yet. Start from the sample game, a blank project, or a zip.'; display: block; padding: 18px; color: var(--muted); }
+  #list:empty::after { content: 'No projects yet. Try the demo, start a blank project, or import a zip.'; display: block; padding: 18px; color: var(--muted); }
   #list li { display: flex; gap: 8px 16px; padding: 10px 14px; border-top: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
   #list li:first-child { border-top: 0; }
   .what { flex: 1 1 240px; min-width: 0; }
@@ -53,8 +56,10 @@
   <header><h1>Marginalia Online</h1><span class="muted" id="version"></span></header>
   <p class="intro muted">The Marginalia visual novel editor, running entirely in your browser. Projects are kept in this browser's
     storage on this device only: download a project as a zip to keep it, or to open it in Marginalia Studio or with <code>vn dev</code>.</p>
+  <h2>Try the demo</h2>
+  <div id="games" class="cards games"></div>
+  <h2>Or start your own</h2>
   <div id="actions">
-    <button type="button" class="primary" id="newSample">New from the sample game</button>
     <input type="text" id="title" value="My Visual Novel" aria-label="Title of a new project" autocomplete="off">
     <button type="button" id="newEmpty">New project</button>
     <button type="button" id="import">Import .zip…</button>

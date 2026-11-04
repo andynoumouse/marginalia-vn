@@ -51,12 +51,54 @@ Nothing open right now; pick from the topic sections below.
     `on click|focus|blur set`, `toggle`, `radio`, `inout` parameters with one recorded entry per screen and `cancel keep`.
     Left of them: step 4 (shell screens), `slider` on a numeric `inout`, list editing, the `modal` flag for a panel dialog, a
     playtest bot that follows tab changes, and local state on a HUD.
-  - [ ] Text input field inside a screen (documented out of scope; use `input`), and a dropdown / select (the theme has
-    `select`, screens can't declare one).
+  - [ ] Text input field inside a screen (documented out of scope; use `input`).
+  - [~] Dropdown: `select <setting>` on the options screen is built (a button showing the value that opens a themed list over the screen; keys, Esc and
+    pointer work; the default options use it for language, theme, voice language, skip, auto speed and timed choices). Left: a select bound to a screen's own
+    `state` / `inout` (needs the list drawn by the layer or local state on a HUD, step 4 of the contexts design), a click outside the list closing it, the list
+    opening with the current value focused, and a scrolling list for very many values.
   - [ ] Modal / popup dialog over a screen, without leaving it.
   - [ ] Tooltip on buttons and `each` items (only hotspots have one); badges and counters ("×3", "NEW") on items and buttons.
   - [ ] Image-based slider and bar (track and thumb from art, 9-slice or sprite).
-  - [ ] Animated screen elements (fade in, slide in, a pulsing "new" glow); `animate` targets characters only.
+  - [~] Animated screen elements: `on enter fade|slide|pop|zoom` and `loop pulse|bob|sway|breathe|shiver|glow` are built
+    (docs/commands.md, "Animating elements"). `on exit` is built too (inert copies of dropped elements). Left: animating a change
+    (tab switch, bar easing), and a browser test (checked by hand once; not in `browser.test.mjs`). Plan:
+    [docs/design/screen-animation.md](docs/design/screen-animation.md).
+  - [x] **Unify the stock menus with `ScreenLayer`.** Today the stock menus are CSS/HTML in `preview/index.html` plus shell code,
+    and `screen <name>` overrides replace them; the starters in `engine/src/ui-screens.ts` only approximate the stock look. Make a
+    starter the default when a project declares no such screen, drawn through the same `ScreenLayer` path, so enter/exit
+    animations, theming and fixes apply everywhere and the stock markup and CSS go away. No existing projects, so the starters
+    only have to be good defaults, not pixel copies. Plan, one screen per step (delete that screen's stock markup, CSS and shell
+    code in the same step, rewrite the browser tests that touch its DOM and run `npm run test:browser` after each):
+    1. [x] title and pause (proves the path; their exit/enter come from the starter, no separate `leaving` CSS). Done: `compile` adds the
+       starters as `stock/title.vn` / `stock/pause.vn` when a project declares none; new language: `panel ... color c` and `size full`
+       (a dimmer), `text ... font n width n|full align a`, the title screen's `game_title`, `show_title`, `can_continue`, `has_*` variables.
+       Left over from it: the theme's `button` skin now reaches `.sc-btn`, and its `title` component reaches the game name (`style=title`, a reserved style name);
+       `titleScreen.align` is gone;
+       the starters' labels are translated through the hidden `[data-ui]` texts (`runtime.uiText`), which goes with the stock menus in step 4.
+    2. [x] history, viewer. Done: both come from their starters (`stock/history.vn`, `stock/viewer.vn`); the viewer pages with Left/Right on any screen, a `start bottom` scroll
+       focuses its newest button first (the history opens on the newest line). Left over: the starters' labels come through the hidden `[data-ui]` texts (now a map built per language, not a DOM scan per text).
+    3. [x] gallery, music, chapters, achievements. Done: all four come from their starters (`stock/<name>.vn`) when a project declares none. New language: `text ... color c`
+       (and a tile/row is a `panel` with absolutely placed children, since a grid cell takes no `at`). Left over: the theme's `row` component no longer reaches anything; the music room's "Now playing" label is a plain ♪; a locked
+       entry is drawn dim by a second `text` with `if not x.unlocked` (no per-element opacity from data).
+    4. [x] saves, options. Done: both come from their starters (`stock/options.vn`, `stock/saves.vn`) when a project declares none; the stock markup, CSS and shell code are gone.
+       New language: `announce_lines`, `theme` and `voice_language` cycle settings, a `<setting>_word` variable per cycle setting (the value in the player's language), `has_languages` / `has_themes` /
+       `has_voice_languages` / `has_fullscreen`; an `action tab` button is lit (`role="tab"`, `aria-selected`) while its tab is shown, and Left/Right and the shoulder buttons step through any row of tabs;
+       `text ... lines n`; an id `<entry>.<word>` for a second button per `each` entry with the actions `remove` and `rename`; saves: `note`, `can_rename`, `slot.heading` / `thumb` /
+       `removable` / `renamable`, and an image given as a `data:image/` URL. Left over: options and saves are drawn by a HudLayer, so they take no local `state` (the starter's tabs use `action tab`);
+       the theme's `panel` / `button` / `tab` components reach the starters only through `.sc-btn[role="tab"]` (the rest of the `.sc-btn` path is still its own set of hooks); the delete mode (`action delete`)
+       is not used by the starter, which has a delete button on each card as the stock screen did; a slot card's screen-reader text is its visible texts, not one sentence as before.
+    5. [x] Editor: the Files panel's "Customize" is now "Edit" (rows say `default`, the revert is "Revert to Default"); docs, README, tutorials and comments say
+       "default screen" instead of "stock". Dead code removed: two unused imports and the music room's `now_playing` label. Left: the quick menu and the achievement
+       toast are still shell DOM (own TODO line below); `choice_saves` in index.html is unused but is a translatable key, kept.
+    Gaps in the screen language found on the way (options tabs, pause dimming, ...) are added as general features.
+  - [x] Draw the quick menu bar and the achievement toast through `ScreenLayer` defaults too. Done: `stock/quickmenu.vn` and `stock/achievement_toast.vn` come from their starters when a project
+    declares none; `#quick` and the toast DOM, CSS and code are gone. New language: `anchor [var]` (a layout pinned to a place a variable names), `action [var]` (a button's built-in action
+    from a variable, as in `each quick_items as q`), `font n` on a button; shell variables `quick_items` / `quick_place` and the toast's `position`. Left over: the theme's `toast` component no longer reaches the achievement toast (only the generic `#toast` notice); the toast's panel is the
+    default `panel` look (themed through `panel`), with no accent border. The bar's buttons have their hotkey tooltips again (new: `tooltip "text"` on a button).
+  - [x] `align stretch` and `width n` / `height n` on `row` / `column` / `grid`: children grow to fill the container's cross axis, so the
+    default title and pause menus have buttons of one width. The options starter is now a two-column `grid` per tab (label | control) instead of hand-placed `at` and `size 420,60`; under `align stretch`, parts that cannot grow (text, images) are centred in the room left, so labels line up with their controls.
+  - [ ] Fractional placement like Ren'Py's `xalign` / `yalign` / `xanchor` / `yanchor` on screen elements. Today only layout
+    containers can be pinned (`anchor <nine places> [margin]`), and `at x,y` is always the element's top-left corner.
 - [~] Sprite/character positioning. Left: anchors from `rig.json` (e.g. `head` at the real neck pixel); no browser test of
   rendered anchor bounds (`window.vnStage()` now gives each character's bounds).
 - [~] Several characters on stage. Draw order (`show ... order=front|back`, `behind=<char>`) and a two-character scene in
@@ -134,7 +176,7 @@ Nothing open right now; pick from the topic sections below.
 - [~] Variable rename. Left: game.json text is not scanned.
 - [~] "Did you mean" quick fixes. Left: game.json names and rig.json keys.
 - [~] Screens preview. Left: the project's own `screen`s are not listed.
-- [~] Translations dialog. Left: `ui.*` menu labels are not editable there; no import of a translated CSV;
+- [~] Translations dialog. Left: no import of a translated CSV;
   no translator notes; stale ids are counted but not removable; screen/item strings show no file and line.
 - [~] Script statistics (`vn stats`, the palette's **Story: Script Statistics**, `engine/src/stats.ts`). Left: words per
   route (the playtest bot's endings, shortest and longest way to each); counts in the Outline's label nodes.
@@ -272,3 +314,5 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
   playthrough, with jumps to chapter starts), so that finding the last ending is not guesswork. Opt-in in game.json.
 - [ ] As a writer, I want to check a route without clicking through it: "play to here" with chosen answers (the playtest
   bot already walks every route; let the author pick one and land in the preview at its end).
+- [x] As a user, I want to get back to project selection screen in the online standalone editor. (A "‹ Projects" button
+  at the left of the editor's top bar, online only; it saves first.)

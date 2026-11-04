@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, stringRows, translationStatus, translatorCsv, outdatedIds } from '../../dist/engine/src/index.js';
+import { compile, stringRows, uiLabelRows, translationStatus, translatorCsv, outdatedIds } from '../../dist/engine/src/index.js';
 
 const script = `define e "Eve" color=#ffffff
 label start:
@@ -56,4 +56,13 @@ test('csv shows the previous source of outdated translations for languages with 
   assert.equal(lines[0], 'id,file,line,label,kind,speaker,source,fi,fi previous source');
   assert.equal(lines[1], 'aaaa,a.vn,3,start,say,e,"Hello, there.",Hei,Hello!');
   assert.equal(lines[2], 'bbbb,a.vn,4,start,say,,Narration.,Kertoja,');
+});
+
+test('menu labels are rows: the page text, replaced by game.json labels, keyed ui.<key>', () => {
+  const rows = uiLabelRows({ options: 'Options', back: 'Back', new_game: 'New game' }, { new_game: 'Begin', back: '' });
+  assert.deepEqual(rows.map(r => [r.id, r.source, r.kind]), [['ui.back', 'Back', 'label'], ['ui.new_game', 'Begin', 'label'], ['ui.options', 'Options', 'label']]);
+  const st = translationStatus(rows, { 'ui.back': 'Takaisin', 'ui.gone': 'x' });
+  assert.equal(st.translated, 1);
+  assert.deepEqual(st.unused, []); // ui.* entries never count as unused
+  assert.match(translatorCsv(rows, { fi: { 'ui.back': 'Takaisin' } }, ['fi']), /ui\.back,,,,label,,Back,Takaisin/);
 });

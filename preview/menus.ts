@@ -1,21 +1,21 @@
-// Title screen, pause menu, options, save/load and confirm dialogs: DOM screens over the stage, kept on a
+// The menu stack (title, pause, options, save/load, the lists) and the confirm and save-name dialogs, over the stage, kept on a
 // stack so Esc / Back return to the screen underneath. Labels can be translated with `ui.<key>` entries in
 // locale/<lang>.json (keys are the data-ui attributes in index.html).
 
-import type { Locale, MusicItem, ChapterItem, AchievementItem } from '../engine/src/index.js';
+import { SELECT_SETTINGS, type Locale, type MusicItem, type ChapterItem, type AchievementItem } from '../engine/src/index.js';
 import type { LineInfo } from './stage-ui.js';
 import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SAVE_NAME_MAX, SLOTS_PER_PAGE, writeSave, type SaveData } from './saves.js';
-import { saveSettings, TEXT_INSTANT, type Settings } from './settings.js';
+import { saveSettings, type Settings } from './settings.js';
 import { getItem, setItem } from './storage.js';
 import { autoFocus, oskBoard } from './input.js';
-import { $, hue } from './stage-ui.js';
+import { $ } from './stage-ui.js';
 
 /** The title-screen part of game.json. */
 export interface TitleConfig {
   background?: string;
   music?: string;
   showTitle?: boolean;
-  align?: 'left' | 'center' | 'right';
+  /** The optional buttons the starter title screen shows (`gallery`, `music_room`, `chapters`, `achievements`, `continue`); all when left out. */
   buttons?: string[];
   /** Seconds of black between the title screen and the game (default 0.4). */
   fade?: number;
@@ -24,7 +24,6 @@ export interface TitleConfig {
 const TIMED_MODES: Settings['timedChoices'][] = ['normal', 'extended', 'off'];
 const AUTO_SPEEDS = ['slow', 'normal', 'fast'], AUTO_DELAYS = [3, 1.5, 0.6];
 const nearest = (list: number[], v: number) => list.reduce((best, x, i) => (Math.abs(x - v) < Math.abs(list[best] - v) ? i : best), 0);
-const DEFAULT_BUTTONS = ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'achievements', 'options'];
 
 /** A gallery entry as the gallery screen shows it. */
 /** An achievement as the achievements screen shows it, with its icon's URL and file under assets/ (null and '' without one). */
@@ -56,51 +55,17 @@ export interface MenuActions {
 }
 
 const titleEl = $('title'), pauseEl = $('pause'), optionsEl = $('options'), savesEl = $('saves'), confirmEl = $('confirm');
-const historyEl = $('history'), historyList = $('historyList');
-const galleryEl = $('gallery'), galleryGrid = $('galleryGrid'), galleryCount = $('galleryCount');
-const musicEl = $('musicRoom'), musicList = $('musicList'), musicCount = $('musicCount'), musicNow = $('musicNow');
-const chaptersEl = $('chapters'), chapterList = $('chapterList'), chapterCount = $('chapterCount');
-const achievementsEl = $('achievements'), achievementList = $('achievementList'), achievementCount = $('achievementCount');
-const viewerEl = $('viewer'), viewerImg = $('viewerImg'), viewerTitle = $('viewerTitle');
+const historyEl = $('history');
+const galleryEl = $('gallery'), musicEl = $('musicRoom'), chaptersEl = $('chapters'), achievementsEl = $('achievements');
+const viewerEl = $('viewer');
 const saveNameEl = $('saveName'), saveNameInput = $<HTMLInputElement>('saveNameInput');
 const SCREENS = [titleEl, pauseEl, optionsEl, savesEl, confirmEl, saveNameEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl, achievementsEl];
-const gameTitle = $('gameTitle'), continueBtn = $<HTMLButtonElement>('continue'), continueInfo = $('continueInfo');
-const titleNav = $('titleNav');
-const titleButtons: Record<string, HTMLElement> = {
-  new_game: $('newGame'), continue: continueBtn, load: $('titleLoad'), gallery: $('titleGallery'), music_room: $('titleMusic'), chapters: $('titleChapters'), achievements: $('titleAchievements'), options: $('titleOptions'),
-};
-const sliders = {
-  master: $<HTMLInputElement>('optMaster'),
-  music: $<HTMLInputElement>('optMusic'),
-  sound: $<HTMLInputElement>('optSound'),
-  voice: $<HTMLInputElement>('optVoice'),
-  textSpeed: $<HTMLInputElement>('optText'),
-  textSize: $<HTMLInputElement>('optSize'),
-  boxOpacity: $<HTMLInputElement>('optBox'),
-};
-const blipsEl = $<HTMLSelectElement>('optBlips'), motionEl = $<HTMLSelectElement>('optMotion'), captionsEl = $<HTMLSelectElement>('optCaptions'), announceEl = $<HTMLSelectElement>('optAnnounce'), focusEl = $<HTMLSelectElement>('optFocus'), timedEl = $<HTMLSelectElement>('optTimed'), skipEl = $<HTMLSelectElement>('optSkip'), autoEl = $<HTMLSelectElement>('optAuto'), langEl = $<HTMLSelectElement>('optLang'), voiceLangEl = $<HTMLSelectElement>('optVoiceLang'), themeEl = $<HTMLSelectElement>('optTheme'), voiceLangLabel = $('optVoiceLangLabel'), fullBtn = $<HTMLButtonElement>('optFull');
-const optTabs = [...document.querySelectorAll<HTMLButtonElement>('.opt-tabs [data-tab]')];
-const optPages = [...document.querySelectorAll<HTMLElement>('.opt-page')];
-const slotGrid = $('slotGrid'), pagesEl = $('savePages'), savesTitle = $('savesTitle'), savesNote = $('savesNote');
-
-/** Same look as the renderer's placeholder backgrounds, for art that does not exist yet. */
-const placeholder = (name: string) => {
-  const h = hue(name);
-  return `linear-gradient(165deg, hsl(${h} 32% 24%), hsl(${(h + 45) % 360} 38% 11%))`;
-};
 
 /** A screen under a dialog, with the layer a project's own version of it is drawn in (`#savesui` for `#saves`). */
 const setInert = (screen: HTMLElement, on: boolean) => {
   screen.inert = on;
   const layer = document.getElementById(`${screen.id}ui`);
   if (layer) layer.inert = on;
-};
-
-const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text = '') => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
 };
 
 export class Menus {
@@ -110,7 +75,6 @@ export class Menus {
   private onConfirm: (() => void) | null = null;
   private viewing: GalleryItem[] = [];
   private viewIndex = 0;
-  private tab = 0;
   private langs: string[] = [];
   private hasFocus = false;
   private voiceLangs: string[] = [];
@@ -121,39 +85,13 @@ export class Menus {
   /** The settings or the tab changed: the project's `screen options`, if it has one, redraws. */
   onValues: () => void = () => {};
 
-  constructor(private settings: Settings, private act: MenuActions) {
+  constructor(private settings: Settings, readonly act: MenuActions) {
     for (const s of SCREENS) {
       // Clicks on a screen must not reach the stage (which advances the story).
       s.addEventListener('click', e => e.stopPropagation());
       s.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); });
     }
     const on = (id: string, fn: () => void) => $(id).addEventListener('click', fn);
-    on('newGame', () => act.newGame());
-    on('continue', () => act.continueGame());
-    on('titleLoad', () => this.showSaves('load'));
-    on('titleOptions', () => this.openOptions());
-    on('resume', () => this.hideAll());
-    on('pauseSave', () => this.showSaves('save'));
-    on('pauseLoad', () => this.showSaves('load'));
-    on('pauseOptions', () => this.openOptions());
-    on('toTitle', () => this.confirm('confirm_title', () => act.toTitle()));
-    on('optBack', () => this.back());
-    on('savesBack', () => this.back());
-    on('historyBack', () => this.back());
-    on('titleGallery', () => this.openGallery());
-    on('galleryBack', () => this.back());
-    on('titleMusic', () => this.openMusicRoom());
-    on('musicBack', () => this.back());
-    on('musicStop', () => this.playTrack(null));
-    on('titleChapters', () => this.openChapters());
-    on('chaptersBack', () => this.back());
-    on('titleAchievements', () => this.openAchievements());
-    on('achievementsBack', () => this.back());
-    viewerEl.addEventListener('click', () => { if (viewerEl.dataset.custom !== 'true') this.back(); });
-    viewerEl.addEventListener('keydown', e => {
-      if (viewerEl.dataset.custom === 'true') return; // the project's screen takes the arrows as focus moves
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); this.showImage(this.viewIndex + (e.key === 'ArrowRight' ? 1 : -1)); }
-    });
     on('confirmYes', () => { const fn = this.onConfirm; this.back(); fn?.(); });
     on('confirmNo', () => this.back());
     on('saveNameCancel', () => this.back());
@@ -164,36 +102,7 @@ export class Menus {
       fn?.(label);
     });
 
-    for (const [key, input] of Object.entries(sliders) as [keyof typeof sliders, HTMLInputElement][]) {
-      input.value = String(settings[key]);
-      input.addEventListener('input', () => { settings[key] = Number(input.value); this.commit(false); });
-    }
-    autoEl.value = String(settings.autoDelay);
-    if (autoEl.value === '') autoEl.value = '1.5';
-    blipsEl.value = settings.textSounds ? 'on' : 'off';
-    blipsEl.addEventListener('change', () => { settings.textSounds = blipsEl.value === 'on'; this.commit(false); });
-    motionEl.value = settings.reduceMotion ? 'on' : 'off';
-    motionEl.addEventListener('change', () => { settings.reduceMotion = motionEl.value === 'on'; this.commit(false); });
-    captionsEl.value = settings.captions ? 'on' : 'off';
-    captionsEl.addEventListener('change', () => { settings.captions = captionsEl.value === 'on'; this.commit(false); });
-    announceEl.value = settings.announceLines ? 'on' : 'off';
-    announceEl.addEventListener('change', () => { settings.announceLines = announceEl.value === 'on'; this.commit(false); });
-    focusEl.value = settings.speakerFocus ? 'on' : 'off';
-    focusEl.addEventListener('change', () => { settings.speakerFocus = focusEl.value === 'on'; this.commit(false); });
-    timedEl.value = settings.timedChoices;
-    timedEl.addEventListener('change', () => { settings.timedChoices = timedEl.value as Settings['timedChoices']; this.commit(false); });
-    skipEl.value = settings.skipAll ? 'all' : 'read';
-    skipEl.addEventListener('change', () => { settings.skipAll = skipEl.value === 'all'; this.commit(false); });
-    autoEl.addEventListener('change', () => { settings.autoDelay = Number(autoEl.value); this.commit(false); });
-    langEl.addEventListener('change', () => { settings.lang = langEl.value; this.commit(true); });
-    voiceLangEl.addEventListener('change', () => { settings.voiceLang = voiceLangEl.value; this.commit(false); });
-    themeEl.addEventListener('change', () => { settings.theme = themeEl.value; this.commit(false); });
-    fullBtn.hidden = !document.fullscreenEnabled;
-    fullBtn.addEventListener('click', () => this.toggleFullscreen());
-    optTabs.forEach((b, n) => b.addEventListener('click', () => this.showTab(n)));
-    this.showTab(0);
     this.page = Math.min(PAGES - 1, Math.max(0, Number(getItem('savePage')) || 0));
-    this.showValues();
   }
 
   get open() { return this.stack.length > 0; }
@@ -202,23 +111,34 @@ export class Menus {
 
   private commit(lang: boolean, redraw = true) {
     saveSettings(this.settings);
-    this.showValues();
     this.act.changed(lang);
     if (redraw) this.onValues();
   }
 
   toggleFullscreen() {
     if (document.fullscreenElement) void document.exitFullscreen();
-    else void document.documentElement.requestFullscreen();
+    else document.documentElement.requestFullscreen().catch(e => console.warn('Fullscreen refused:', e));
   }
 
-  /** The settings as the variables of a project's `screen options`: numbers for the sliders, a word for the others. */
-  optionValues(): Record<string, string | number> {
+  /**
+   * The settings as the variables of the `screen options`: numbers for the sliders, a word for the others (stable, for conditions), and for each of
+   * those a `_word` variable with the same value in the player's language, for showing.
+   */
+  optionValues(): Record<string, string | number | boolean> {
     const s = this.settings, onOff = (b: boolean) => (b ? 'on' : 'off');
+    const auto = nearest(AUTO_DELAYS, s.autoDelay);
+    const words: Record<string, string> = {
+      text_sounds: this.label(onOff(s.textSounds)), auto_speed: this.label(AUTO_SPEEDS[auto]), skip: this.label(s.skipAll ? 'skip_all' : 'skip_read'),
+      reduce_motion: this.label(onOff(s.reduceMotion)), captions: this.label(onOff(s.captions)), announce_lines: this.label(onOff(s.announceLines)),
+      speaker_focus: this.label(onOff(s.speakerFocus)), timed_choices: this.label(s.timedChoices === 'normal' ? 'normal' : s.timedChoices === 'extended' ? 'timed_extended' : 'timed_off'),
+      language: s.lang, theme: s.theme || this.themes[0] || '', voice_language: s.voiceLang || this.label('voice_same'),
+    };
     return {
       master: s.master, music: s.music, sound: s.sound, voice: s.voice, text_speed: s.textSpeed, text_size: s.textSize, box_opacity: s.boxOpacity,
-      text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[nearest(AUTO_DELAYS, s.autoDelay)], skip: s.skipAll ? 'all' : 'read',
-      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', theme: s.theme || this.themes[0] || '', tab: this.customTab,
+      text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[auto], skip: s.skipAll ? 'all' : 'read',
+      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), announce_lines: onOff(s.announceLines), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', theme: s.theme || this.themes[0] || '', tab: this.customTab,
+      ...Object.fromEntries(Object.entries(words).map(([k, v]) => [`${k}_word`, v])),
+      has_languages: this.langs.length > 1, has_themes: this.themes.length > 1, has_voice_languages: this.voiceLangs.length > 0, has_fullscreen: document.fullscreenEnabled,
     };
   }
 
@@ -242,6 +162,7 @@ export class Menus {
       case 'skip': s.skipAll = !s.skipAll; break;
       case 'reduce_motion': s.reduceMotion = !s.reduceMotion; break;
       case 'captions': s.captions = !s.captions; break;
+      case 'announce_lines': s.announceLines = !s.announceLines; break;
       case 'speaker_focus': if (!this.hasFocus) return; s.speakerFocus = !s.speakerFocus; break;
       case 'timed_choices': s.timedChoices = TIMED_MODES[(TIMED_MODES.indexOf(s.timedChoices) + 1) % TIMED_MODES.length]; break;
       case 'language': {
@@ -266,18 +187,74 @@ export class Menus {
     this.commit(false);
   }
 
+  /** The setting whose list is open on the project's options screen ('' = none). */
+  private selectOpen = '';
+
+  /** The values a `select` of this setting offers, in order (`value` is what the screen's variable holds, `label` its words). */
+  selectChoices(setting: string): { value: string; label: string }[] {
+    const on = [{ value: 'on', label: this.label('on') }, { value: 'off', label: this.label('off') }];
+    switch (setting) {
+      case 'text_sounds': case 'reduce_motion': case 'captions': case 'announce_lines': return on;
+      case 'speaker_focus': return this.hasFocus ? on : [];
+      case 'auto_speed': return AUTO_SPEEDS.map(v => ({ value: v, label: this.label(v) }));
+      case 'skip': return [{ value: 'read', label: this.label('skip_read') }, { value: 'all', label: this.label('skip_all') }];
+      case 'timed_choices': return [{ value: 'normal', label: this.label('normal') }, { value: 'extended', label: this.label('timed_extended') }, { value: 'off', label: this.label('timed_off') }];
+      case 'language': return this.langs.length > 1 ? this.langs.map(v => ({ value: v, label: v })) : [];
+      case 'theme': return this.themes.length > 1 ? this.themes.map(v => ({ value: v, label: v })) : [];
+      case 'voice_language': return this.voiceLangs.length ? [{ value: 'text', label: this.label('voice_same') }, ...this.voiceLangs.map(v => ({ value: v, label: v }))] : [];
+      default: return [];
+    }
+  }
+
+  /** The lists of every `select` as the entries of the options screen (`<setting>_options`), and which one is open. */
+  optionLists(): { vars: Record<string, string | string[]>; entries: Record<string, Record<string, Record<string, string>>> } {
+    const vars: Record<string, string | string[]> = { select_open: this.selectOpen }, entries: Record<string, Record<string, Record<string, string>>> = {};
+    for (const setting of SELECT_SETTINGS) {
+      const choices = this.selectChoices(setting);
+      vars[`${setting}_options`] = choices.map(c => c.value);
+      entries[`${setting}_options`] = Object.fromEntries(choices.map(c => [c.value, { label: c.label }]));
+    }
+    return { vars, entries };
+  }
+
+  /** `action select` on the project's options screen: open this setting's list, or close it when it is the one open. */
+  toggleSelect(setting: string) { this.selectOpen = this.selectOpen === setting ? '' : setting; this.onValues(); }
+
+  /** Esc over an open list closes the list; true when it did (the screen stays). */
+  closeSelect(): boolean {
+    if (!this.selectOpen) return false;
+    this.selectOpen = '';
+    this.onValues();
+    return true;
+  }
+
+  /** `action choose` on a `select`'s list: the id is `<setting>.<value>`. */
+  choose(id: string) {
+    const dot = id.indexOf('.'), setting = id.slice(0, dot), value = id.slice(dot + 1), s = this.settings;
+    if (!this.selectChoices(setting).some(c => c.value === value)) return;
+    this.selectOpen = '';
+    switch (setting) {
+      case 'text_sounds': s.textSounds = value === 'on'; break;
+      case 'reduce_motion': s.reduceMotion = value === 'on'; break;
+      case 'captions': s.captions = value === 'on'; break;
+      case 'announce_lines': s.announceLines = value === 'on'; break;
+      case 'speaker_focus': s.speakerFocus = value === 'on'; break;
+      case 'auto_speed': s.autoDelay = AUTO_DELAYS[AUTO_SPEEDS.indexOf(value)]; break;
+      case 'skip': s.skipAll = value === 'all'; break;
+      case 'timed_choices': s.timedChoices = value as Settings['timedChoices']; break;
+      case 'language': s.lang = value; this.commit(true); return;
+      case 'theme': s.theme = value; break;
+      case 'voice_language': s.voiceLang = value === 'text' ? '' : value; break;
+      default: return;
+    }
+    this.commit(false);
+  }
+
   /** `action tab` on the project's options screen. */
-  setTab(name: string) { this.customTab = name; this.onValues(); }
+  setTab(name: string) { this.customTab = name; this.selectOpen = ''; this.onValues(); }
 
   /** `action close` on the project's options screen: the same as Back. */
   closeOptions() { if (this.stack.at(-1) === optionsEl) this.back(); }
-
-  private showValues() {
-    for (const k of ['master', 'music', 'sound', 'voice'] as const) $(`${sliders[k].id}Out`).textContent = `${Math.round(this.settings[k] * 100)}%`;
-    $('optSizeOut').textContent = `${Math.round(this.settings.textSize * 100)}%`;
-    $('optBoxOut').textContent = `${Math.round(this.settings.boxOpacity * 100)}%`;
-    $('optTextOut').textContent = this.settings.textSpeed >= TEXT_INSTANT ? this.label('instant') : String(this.settings.textSpeed);
-  }
 
   /** A translated word kept in a hidden [data-ui] element (see index.html). */
   private label(key: string): string {
@@ -289,53 +266,40 @@ export class Menus {
    * other languages use `ui.<key>` from their locale table.
    */
   translate(locale: Locale, labels: Record<string, string> = {}) {
+    this.uiLabels = null;
     for (const e of document.querySelectorAll<HTMLElement>('[data-ui]')) {
       e.dataset.html ??= e.textContent ?? '';
       e.textContent = locale.t(`ui.${e.dataset.ui}`, labels[e.dataset.ui!] || e.dataset.html);
     }
-    this.showValues();
-    if (!savesEl.hidden) this.renderSaves();
+    if (!savesEl.hidden) this.onSaves();
+    if (!optionsEl.hidden) this.onValues();
   }
 
-  /** Apply the title-screen layout from game.json; the extras buttons need entries (`has`, by button name). */
-  configure(title: string, c: TitleConfig = {}, has: Record<string, boolean> = {}) {
-    gameTitle.textContent = title;
-    gameTitle.style.visibility = c.showTitle === false ? 'hidden' : '';
-    titleEl.dataset.align = c.align ?? 'center';
-    const wanted = (Array.isArray(c.buttons) && c.buttons.length ? c.buttons : DEFAULT_BUTTONS)
-      .filter(b => titleButtons[b] && (!(b in has) || has[b]));
-    titleNav.replaceChildren(...new Set(wanted.map(b => titleButtons[b])));
+  /** Source text (as the default screens write it) to its translated label; built once per `translate`, not per text drawn. */
+  private uiLabels: Map<string, string> | null = null;
+  /** The translated label of a default screen's English text ("New game", "Back"), or the text itself when no hidden label has it. */
+  uiText(raw: string): string {
+    if (!this.uiLabels) {
+      this.uiLabels = new Map();
+      // "Music" is both a volume row and the title button: the button's label wins
+      for (const e of [...document.querySelectorAll<HTMLElement>('[data-ui]')].sort((a, b) => Number(b.dataset.ui === 'music_room') - Number(a.dataset.ui === 'music_room'))) {
+        const src = e.dataset.html ?? e.textContent ?? '';
+        if (!this.uiLabels.has(src)) this.uiLabels.set(src, e.textContent ?? src);
+      }
+    }
+    return this.uiLabels.get(raw) ?? raw;
   }
 
-  setLanguages(langs: string[], current: string) {
-    this.langs = langs;
-    langEl.replaceChildren(...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
-    langEl.value = current;
-  }
+  setLanguages(langs: string[]) { this.langs = langs; }
 
-  /** The themes the player may pick (game.json "themes"); the row shows only when there are two or more. */
-  setThemes(names: string[], current: string) {
-    this.themes = names;
-    themeEl.replaceChildren(...names.map(n => { const o = document.createElement('option'); o.value = o.textContent = n; return o; }));
-    themeEl.value = names.includes(current) ? current : names[0] ?? '';
-    for (const id of ['optThemeLabel', 'optTheme', 'optThemeEnd']) $(id).hidden = names.length < 2;
-  }
+  /** The themes the player may pick (game.json "themes"); the options offer the choice only when there are two or more. */
+  setThemes(names: string[]) { this.themes = names; }
 
   /** The game dims who is not speaking (game.json "speakerFocus"): only then do the options offer to turn it off. */
-  setFocusOption(has: boolean) {
-    this.hasFocus = has;
-    for (const id of ['optFocusLabel', 'optFocus', 'optFocusEnd']) $(id).hidden = !has;
-  }
+  setFocusOption(has: boolean) { this.hasFocus = has; }
 
   /** The languages the game has voice recordings in; the option to pick one is shown only when there are some. */
-  setVoiceLanguages(langs: string[], current: string) {
-    this.voiceLangs = langs;
-    const same = document.createElement('option');
-    same.value = ''; same.textContent = 'Same as text'; same.dataset.ui = 'voice_same'; // translated by the translate() that follows
-    voiceLangEl.replaceChildren(same, ...langs.map(l => { const o = document.createElement('option'); o.value = o.textContent = l; return o; }));
-    voiceLangEl.value = langs.includes(current) ? current : '';
-    voiceLangEl.hidden = voiceLangLabel.hidden = !langs.length;
-  }
+  setVoiceLanguages(langs: string[]) { this.voiceLangs = langs; }
 
   // ---- screen stack ----
   private focusIn(screen: HTMLElement) {
@@ -361,7 +325,6 @@ export class Menus {
     if (prev) {
       setInert(prev, false);
       prev.hidden = false;
-      if (prev === titleEl) this.refreshContinue();
       if (prev === savesEl) this.renderSaves();
       this.focusIn(prev);
     }
@@ -373,17 +336,8 @@ export class Menus {
     this.act.screens(false);
   }
 
-  private continueSave: () => SaveData | null = () => null;
-  private refreshContinue() {
-    const save = this.continueSave();
-    continueBtn.disabled = !save;
-    continueInfo.textContent = save?.text ?? '';
-  }
-
-  showTitle(newest: () => SaveData | null) {
+  showTitle() {
     this.hideAll();
-    this.continueSave = newest;
-    this.refreshContinue();
     this.push(titleEl);
   }
 
@@ -392,6 +346,7 @@ export class Menus {
   /** Esc: go back one screen, close the pause menu, or open it while playing. */
   escape() {
     const top = this.stack.at(-1);
+    if (top === optionsEl && this.closeSelect()) return;
     if (this.stack.length > 1) this.back();
     else if (top === pauseEl) this.hideAll();
     else if (top && top !== titleEl) this.back(); // history, saves or options opened over the game from the quick menu
@@ -426,20 +381,8 @@ export class Menus {
   private nameable(slot: string) { return this.saveNames && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot); }
 
   // ---- opened from the quick menu (over the game; Back returns to it) ----
-  openOptions() { this.showTab(0); this.customTab = ''; this.push(optionsEl); }
+  openOptions() { this.customTab = ''; this.selectOpen = ''; this.push(optionsEl); }
 
-  private showTab(i: number) {
-    this.tab = (i + optTabs.length) % optTabs.length;
-    optTabs.forEach((b, n) => { b.setAttribute('aria-selected', String(n === this.tab)); b.tabIndex = n === this.tab ? 0 : -1; });
-    optPages.forEach((p, n) => { p.toggleAttribute('inert', n !== this.tab); });
-  }
-
-  /** Switch the options tab (shoulder buttons, or Left/Right on a tab); false when the options are not on top. */
-  cycleTab(step: number) {
-    if (this.stack.at(-1) !== optionsEl) return false;
-    this.showTab(this.tab + step);
-    return true;
-  }
   openSaves(mode: 'save' | 'load') { this.showSaves(mode); }
 
   private historyLines: LineInfo[] = [];
@@ -447,17 +390,17 @@ export class Menus {
   private historyAtLine = false;
   private isCurrentLine(i: number) { return this.historyAtLine && i === this.historyLines.length - 1; }
 
-  /** The history as the variables and per-line data of a project's `screen history`. */
+  /** The history as the variables and per-line data of the `screen history`. */
   historyValues(): { vars: Record<string, string | number | string[]>; entries: Record<string, Record<string, Record<string, string | boolean>>> } {
     const ids = this.historyLines.map((_, i) => String(i + 1));
     return {
       vars: { lines: ids, total: ids.length },
-      entries: { lines: Object.fromEntries(ids.map((id, i) => { const l = this.historyLines[i]; return [id, { name: l.name ?? '', text: l.text, current: this.isCurrentLine(i) }]; })) },
+      entries: { lines: Object.fromEntries(ids.map((id, i) => { const l = this.historyLines[i]; return [id, { name: l.name ?? '', color: l.color ?? '', text: l.text, current: this.isCurrentLine(i) }]; })) },
     };
   }
   /** `action close` on the project's history screen: the same as Back. */
   closeHistory() { if (this.stack.at(-1) === historyEl) this.back(); }
-  /** `action line` on the project's history screen, or a click on a stock row: roll back to that line (id is 1-based). */
+  /** `action line` on the history screen: roll back to that line (id is 1-based). */
   pickLine(id: string) {
     const i = Number(id) - 1;
     if (!Number.isInteger(i) || i < 0 || i >= this.historyLines.length || this.isCurrentLine(i)) return;
@@ -469,29 +412,7 @@ export class Menus {
   openHistory(lines: LineInfo[], atLine: boolean) {
     this.historyLines = lines;
     this.historyAtLine = atLine;
-    const hint = this.label('history_return');
-    historyList.replaceChildren(...lines.map((l, i) => {
-      const li = el('li');
-      const row = el('button', 'hist-line');
-      row.type = 'button';
-      if (l.name) {
-        const who = el('span', 'who', l.name);
-        who.style.color = l.color ?? '';
-        row.append(who);
-      }
-      row.append(el('span', 'said', l.text));
-      if (this.isCurrentLine(i)) row.setAttribute('aria-current', 'true');
-      else row.title = hint;
-      row.addEventListener('click', () => this.pickLine(String(i + 1)));
-      li.append(row);
-      return li;
-    }));
-    if (!lines.length) historyList.append(el('li', 'empty', this.label('history_empty')));
     this.push(historyEl);
-    historyList.scrollTop = historyList.scrollHeight;
-    // Focus starts on the newest row (Up walks back through the story), not on the oldest.
-    const rows = historyList.querySelectorAll<HTMLElement>('.hist-line');
-    if (rows.length) autoFocus(rows[rows.length - 1]);
   }
 
   // ---- gallery ----
@@ -523,37 +444,17 @@ export class Menus {
   /** `action gallery` on a project's title screen. */
   showGallery() { this.openGallery(); }
 
-  private openGallery() {
-    const items = this.act.galleryItems();
-    const open = items.filter(i => i.unlocked);
-    galleryCount.textContent = `${open.length} / ${items.length}`;
-    galleryGrid.replaceChildren(...items.map(item => {
-      const b = el('button', 'tile');
-      b.type = 'button';
-      const thumb = el('div', 'thumb');
-      if (!item.unlocked) { thumb.textContent = '?'; b.disabled = true; }
-      else if (item.url) thumb.style.backgroundImage = `url("${item.url}")`;
-      else { thumb.style.background = placeholder(item.name); thumb.textContent = item.name; thumb.classList.add('named'); }
-      b.append(thumb, el('div', 'tile-title', item.unlocked ? item.title : this.label('locked')));
-      b.addEventListener('click', () => this.openViewer(open, open.indexOf(item)));
-      return b;
-    }));
-    this.push(galleryEl);
-  }
+  private openGallery() { this.push(galleryEl); }
 
   private openViewer(items: GalleryItem[], index: number) {
     this.viewing = items;
     this.push(viewerEl);
     this.showImage(index);
-    viewerEl.focus();
   }
 
   private showImage(index: number) {
     if (!this.viewing.length) return;
     this.viewIndex = (index + this.viewing.length) % this.viewing.length;
-    const item = this.viewing[this.viewIndex];
-    viewerImg.style.background = item.url ? `#000 url("${item.url}") center / cover no-repeat` : placeholder(item.name);
-    viewerTitle.textContent = this.viewing.length > 1 ? `${item.title}  ${this.viewIndex + 1} / ${this.viewing.length}` : item.title;
     this.onViewer();
   }
 
@@ -615,20 +516,7 @@ export class Menus {
     this.push(musicEl);
   }
 
-  private renderMusic() {
-    this.onMusic();
-    const items = this.act.musicItems();
-    musicCount.textContent = `${items.filter(i => i.unlocked).length} / ${items.length}`;
-    musicNow.textContent = this.nowPlaying ? `${this.label('now_playing')}: ${items.find(i => i.track === this.nowPlaying)?.title ?? this.nowPlaying}` : '';
-    musicList.replaceChildren(...items.map(item => {
-      const b = el('button', 'row', item.unlocked ? item.title : this.label('locked'));
-      b.type = 'button';
-      b.disabled = !item.unlocked;
-      if (item.track === this.nowPlaying) b.setAttribute('aria-current', 'true');
-      b.addEventListener('click', () => this.playTrack(item.track));
-      return b;
-    }));
-  }
+  private renderMusic() { this.onMusic(); }
 
   /** The chapter last picked on the project's chapter screen (focus returns to it). */
   lastChapter = '';
@@ -656,18 +544,7 @@ export class Menus {
   /** `action chapters` on a project's title screen. */
   showChapters() { this.openChapters(); }
 
-  private openChapters() {
-    const items = this.act.chapterItems();
-    chapterCount.textContent = `${items.filter(i => i.unlocked).length} / ${items.length}`;
-    chapterList.replaceChildren(...items.map(item => {
-      const b = el('button', 'row', item.unlocked ? item.title : this.label('locked'));
-      b.type = 'button';
-      b.disabled = !item.unlocked;
-      b.addEventListener('click', () => this.act.startChapter(item.label));
-      return b;
-    }));
-    this.push(chaptersEl);
-  }
+  private openChapters() { this.push(chaptersEl); }
 
   // ---- achievements and endings ----
   /**
@@ -700,34 +577,15 @@ export class Menus {
   /** `action achievements` on a project's title screen. */
   showAchievements() { this.openAchievements(); }
 
-  private openAchievements() {
-    const items = this.act.achievementItems();
-    const endings = items.filter(i => i.ending), others = items.filter(i => !i.ending);
-    const count = (list: AchievementRow[]) => `${list.filter(i => i.unlocked).length} / ${list.length}`;
-    achievementCount.textContent = [endings.length ? `${this.label('endings')} ${count(endings)}` : '', others.length ? `${this.label('achievements')} ${count(others)}` : ''].filter(Boolean).join(' · ');
-    const row = (item: AchievementRow) => {
-      const masked = item.hidden && !item.unlocked;
-      const r = el('div', 'ach-row');
-      r.dataset.locked = String(!item.unlocked);
-      const icon = el('div', 'ach-icon');
-      if (item.iconUrl && !masked) icon.style.backgroundImage = `url("${item.iconUrl}")`;
-      const text = el('div');
-      text.append(el('b', '', masked ? this.label('hidden_achievement') : item.title));
-      if (item.description && !masked) text.append(el('span', '', item.description));
-      r.append(icon, text);
-      return r;
-    };
-    const section = (key: string, list: AchievementRow[]) => (list.length && endings.length && others.length ? [el('h3', '', this.label(key))] : []).concat(list.map(row));
-    achievementList.replaceChildren(...section('endings', endings), ...section('achievements', others));
-    this.push(achievementsEl);
-  }
+  private openAchievements() { this.push(achievementsEl); }
 
   // ---- save / load ----
+  private note = '';
   private showSaves(mode: 'save' | 'load') {
     this.mode = mode;
     this.deleting = false;
     if (mode === 'save' && this.page < 0) this.page = 0;
-    savesNote.textContent = '';
+    this.note = '';
     this.renderSaves();
     this.push(savesEl);
   }
@@ -745,30 +603,36 @@ export class Menus {
   }
   /** Page ids are `page1`.., `pageauto`, `pagequick`, `pagechoice`: never equal to a slot id, so every element id on the screen stays unique. */
   private pageId(p: number): string { return `page${p === -1 ? 'auto' : p === -2 ? 'quick' : p === -3 ? 'choice' : p + 1}`; }
+  /** Auto, quick and choice saves are made by the game: they cannot be deleted by hand. */
+  private manual(slot: string) { return slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot); }
 
-  /** The save/load screen as the variables and per-entry data of a project's `screen saves`. */
+  /** The save/load screen as the variables and per-entry data of the `screen saves`. */
   savesValues(): { vars: Record<string, string | boolean | string[]>; entries: Record<string, Record<string, Record<string, string | boolean>>> } {
     const special: Record<number, string> = { [-1]: 'auto_short', [-2]: 'quick_short', [-3]: 'choice_short' };
     const pages = this.savePages(), slots = this.saveSlots();
     return {
-      vars: { mode: this.mode, page: this.pageId(this.page), pages: pages.map(p => this.pageId(p)), slots, deleting: this.deleting },
+      vars: { mode: this.mode, page: this.pageId(this.page), pages: pages.map(p => this.pageId(p)), slots, deleting: this.deleting, note: this.note, can_rename: this.saveNames },
       entries: {
         pages: Object.fromEntries(pages.map(p => [this.pageId(p), { name: p < 0 ? this.label(special[p]) : String(p + 1) }])),
         slots: Object.fromEntries(slots.map(slot => {
           const data = readSave(slot);
           return [slot, {
             title: this.slotTitle(slot),
+            heading: data?.label || this.slotTitle(slot),
             label: data?.label ?? '',
             when: data ? new Date(data.time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '',
             text: data ? (data.name ? `${data.name}: ${data.text}` : data.text) : this.label('empty_slot'),
             empty: !data,
+            thumb: data?.thumb ?? '',
+            removable: !!data && this.manual(slot),
+            renamable: !!data && this.nameable(slot),
           }];
         })),
       },
     };
   }
 
-  /** `action page` on the project's saves screen: id is the page id. */
+  /** `action page` on the saves screen: id is the page id. */
   setPage(id: string) {
     const p = this.savePages().find(q => this.pageId(q) === id);
     if (p === undefined) return;
@@ -778,44 +642,36 @@ export class Menus {
   }
   /** `action delete`: the next slot picked is deleted instead of saved or loaded. */
   toggleDelete() { this.deleting = !this.deleting; this.renderSaves(); }
-  /** `action slot`: the same as clicking that slot on the stock screen (or deleting it, in delete mode). */
+  /** `action slot`: save into the slot or load it (or delete it, in delete mode). */
   pickSlot(slot: string) {
-    if (this.deleting) {
-      if (readSave(slot) && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot)) this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }, true);
-      return;
-    }
+    if (this.deleting) { this.removeSlot(slot); return; }
     this.activateSlot(slot, readSave(slot));
   }
-  /** `action close` on the project's saves screen: the same as Back. */
+  /** `action remove` (id `<slot>.<anything>` inside an `each slots`) and the delete mode: ask, then delete a manual save. */
+  removeSlot(slot: string) {
+    if (readSave(slot) && this.manual(slot)) this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }, true);
+  }
+  /** `action rename`: ask for a new name for the save (game.json "saveNames"). */
+  renameSlot(slot: string) {
+    const data = readSave(slot);
+    if (!data || !this.nameable(slot)) return;
+    this.askName(data.label ?? '', this.slotTitle(slot), label => {
+      this.note = writeSave(slot, { ...data, label: label || undefined }) ? '' : this.label('save_failed');
+      this.renderSaves();
+    });
+  }
+  /** `action close` on the saves screen: the same as Back. */
   closeSaves() { if (this.stack.at(-1) === savesEl) this.back(); }
   onSaves: () => void = () => {};
 
-  private renderSaves() {
-    savesTitle.textContent = this.label(this.mode === 'save' ? 'save' : 'load');
-    this.onSaves();
-    const pages = this.savePages();
-    const special: Record<number, [string, string]> = { [-1]: ['auto_short', 'auto'], [-2]: ['quick_short', 'quick'], [-3]: ['choice_short', 'choice_saves'] };
-    pagesEl.replaceChildren(...pages.map(p => {
-      const b = el('button', '', p < 0 ? this.label(special[p][0]) : String(p + 1));
-      b.type = 'button';
-      if (p === this.page) b.setAttribute('aria-current', 'page');
-      b.setAttribute('aria-label', p < 0 ? this.label(special[p][1]) : `${this.label('page')} ${p + 1}`);
-      b.addEventListener('click', () => {
-        this.page = p;
-        setItem('savePage', String(Math.max(p, 0)));
-        this.renderSaves();
-      });
-      return b;
-    }));
-    slotGrid.replaceChildren(...this.saveSlots().map(slot => this.slotCard(slot)));
-  }
+  private renderSaves() { this.onSaves(); }
 
   /** Save into the slot (asking before overwriting) or load it (asking first while a game is running). */
   private activateSlot(slot: string, data: SaveData | null) {
     if (this.mode === 'save') {
       const write = async (label?: string) => {
         const ok = await this.act.save(slot, label || undefined);
-        savesNote.textContent = ok ? '' : this.label('save_failed');
+        this.note = ok ? '' : this.label('save_failed');
         this.renderSaves();
       };
       // Overwriting offers the old name again.
@@ -826,44 +682,5 @@ export class Menus {
       if (this.act.isPlaying()) this.confirm('confirm_load', () => this.act.load(slot));
       else this.act.load(slot);
     }
-  }
-
-  private slotCard(slot: string): HTMLElement {
-    const data = readSave(slot);
-    const card = el('div', 'slot');
-    const main = el('button', 'slot-main');
-    main.type = 'button';
-    const thumb = el('div', 'thumb');
-    if (data?.thumb) thumb.style.backgroundImage = `url("${data.thumb}")`;
-    else thumb.textContent = data ? '' : this.label('empty_slot');
-    const head = el('div', 'slot-head');
-    head.append(el('span', 'label', data?.label || this.slotTitle(slot)));
-    const when = data ? new Date(data.time).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '';
-    if (data) head.append(el('span', 'when', when));
-    const line = el('div', 'line', data ? (data.name ? `${data.name}: ${data.text}` : data.text) : '');
-    main.append(thumb, head, line);
-    main.disabled = this.mode === 'load' && !data;
-    const title = data?.label ? `${data.label}, ${this.slotTitle(slot)}` : this.slotTitle(slot);
-    main.setAttribute('aria-label', `${title} ${when}. ${data ? line.textContent : this.label('empty_slot')}`);
-    main.addEventListener('click', () => this.activateSlot(slot, data));
-    card.append(main);
-    if (data && this.nameable(slot)) {
-      const ren = el('button', 'ren', '✎');
-      ren.type = 'button';
-      ren.title = ren.ariaLabel = this.label('rename');
-      ren.addEventListener('click', () => this.askName(data.label ?? '', this.slotTitle(slot), label => {
-        savesNote.textContent = writeSave(slot, { ...data, label: label || undefined }) ? '' : this.label('save_failed');
-        this.renderSaves();
-      }));
-      card.append(ren);
-    }
-    if (data && slot !== 'auto' && slot !== 'quick' && !isChoiceSlot(slot)) {
-      const del = el('button', 'del', '×');
-      del.type = 'button';
-      del.title = del.ariaLabel = this.label('delete');
-      del.addEventListener('click', () => this.confirm('confirm_delete', () => { deleteSave(slot); this.renderSaves(); }, true));
-      card.append(del);
-    }
-    return card;
   }
 }

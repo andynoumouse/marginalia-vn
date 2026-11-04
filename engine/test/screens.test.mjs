@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { seededRng as rngFrom } from './rng.mjs';
 import {
-  compile, Runtime, NullRenderer, Locale, assignIds, existingIds, getCompletions, interpolate, checkAssets, attachPreloads,
+  compile, Runtime, NullRenderer, Locale, assignIds, existingIds, getCompletions, insideScreen, interpolate, checkAssets, attachPreloads,
   pointInPolygon, pointInEllipse, hitTest, shapeCenter, shapeBounds, focusMove, defaultAnswer, replayAnswer, blocks, resolveScreen, validateScreen, sliderReadout,
 } from '../../dist/engine/src/index.js';
 
@@ -152,7 +152,24 @@ test('action names a built-in the shell runs; quickView is the reserved quickmen
   assert.match(bad('text at 0,0 "A" action back'), /Unexpected/);
   const rt = new Runtime(p, new NullRenderer());
   assert.equal(rt.quickView().name, 'quickmenu');
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).quickView(), null);
+  const bare = new Runtime(build('label start:\n  end\n'), new NullRenderer()); // the starter, filled in by the shell
+  bare.quickMenu = { items: [{ id: 'back', label: 'Back' }, { id: 'hide', label: 'Hide' }], place: 'topright' };
+  const q = bare.quickView();
+  assert.deepEqual(q.parts.map(x => [x.act, x.label, x.bounds.y < 100, x.bounds.x > 1500]), [['back', 'Back', true, true], ['hide', 'Hide', true, true]]);
+  assert.equal(q.parts[0].font, 24);
+  bare.quickMenu.place = 'bottomleft';
+  assert.deepEqual(bare.quickView().parts.map(x => [x.bounds.y > 900, x.bounds.x < 400]), [[true, true], [true, true]]);
+});
+
+test('anchor [name] and action [name] take their value from a variable', () => {
+  const p = build('screen quickmenu:\n  row anchor [quick_place] margin 10 gap 5:\n    each quick_items as q:\n      button q "[q.label]" action [q]\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const rt = new Runtime(p, new NullRenderer());
+  rt.quickMenu = { items: [{ id: 'auto', label: 'Auto' }, { id: 'nonsense', label: 'X' }], place: 'nowhere' };
+  const v = rt.quickView();
+  assert.deepEqual(v.parts.map(x => x.act), ['auto', null]); // an unknown action does nothing
+  const left = v.parts[0].bounds.x, right = v.parts[1].bounds.x + v.parts[1].bounds.w;
+  assert.ok(Math.abs((left + right) / 2 - 960) < 1); // an unknown place is the center
 });
 
 test('titleView is the reserved title screen; continue is disabled without a save', () => {
@@ -161,7 +178,71 @@ test('titleView is the reserved title screen; continue is disabled without a sav
   const rt = new Runtime(p, new NullRenderer());
   assert.deepEqual(rt.titleView(true).parts.map(x => [x.act, x.enabled]), [['start', true], ['continue', true], ['quit', true]]);
   assert.deepEqual(rt.titleView(false).parts.map(x => [x.act, x.enabled]), [['start', true], ['continue', false], ['quit', true]]);
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).titleView(true), null);
+  // with no `screen title` the shell draws the starter
+  const stock = new Runtime(build('label start:\n  end\n'), new NullRenderer());
+  const acts = v => v.parts.filter(x => x.act).map(x => [x.act, x.enabled]);
+  assert.deepEqual(acts(stock.titleView(false, false, true, false, false, 'My Game')), [['start', true], ['continue', false], ['load', true], ['music', true], ['options', true]]);
+  assert.ok(stock.titleView(true, true, true, true, true, 'My Game').parts.some(x => x.kind === 'text' && x.text === 'My Game' && x.font === 100));
+  assert.ok(!stock.titleView(true, true, true, true, true, 'My Game', false).parts.some(x => x.kind === 'text'), 'show_title false hides the game name');
+  const info = (can, text) => stock.titleView(can, true, true, true, true, 'My Game', false, text).parts.filter(x => x.sub).map(x => x.sub);
+  assert.deepEqual(info(true, 'Park, evening'), ['Park, evening']);
+  assert.deepEqual(info(false, 'Park, evening'), [], 'no Continue text without a save');
+});
+
+test('a button takes tooltip "text" (worked out with its variables); other elements refuse it', () => {
+  const p = build('screen s:\n  button a at 0,0 "Go" tooltip "Key [k]" action close\n  button b at 0,100 tooltip "T" "Plain"\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const view = resolveScreen(p.screens.s, { k: 'F5' }, { items: {}, text: (id, raw, vars) => raw.replace(/\[(\w+)\]/g, (_, n) => vars[n]) });
+  assert.deepEqual(view.parts.map(x => [x.label, x.tooltip]), [['Go', 'Key F5'], ['Plain', 'T']]);
+  assert.match(errors(build('screen s:\n  text at 0,0 "x" tooltip "T"\nlabel start:\n  end\n'))[0], /tooltip "text" goes on a button/);
+});
+
+test('select shows a setting and, while open, lists its values under it', () => {
+  const p = build('screen options:\n  column at 100,100 gap 8 align stretch width 400:\n    select language size 400,60\n    button done "Back" action close\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const env = { items: {}, text: (id, raw) => raw, entries: { language_options: { en: { label: 'English' }, fi: { label: 'Suomi' } } } };
+  const vars = open => ({ language: 'fi', language_options: ['en', 'fi'], select_open: open });
+  const closed = resolveScreen(p.screens.options, vars(''), env);
+  assert.deepEqual(closed.parts.map(x => [x.id, x.label, x.act]), [['language', 'Suomi ▾', 'select'], ['done', 'Back', 'close']]);
+  const open = resolveScreen(p.screens.options, vars('language'), env);
+  assert.deepEqual(open.parts.slice(3).map(x => [x.id, x.label, x.act, x.checked, x.bounds.y]), [['language.en', 'English', 'choose', false, 164], ['language.fi', 'Suomi', 'choose', true, 228]]);
+  assert.deepEqual(open.parts.slice(0, 2).map(x => x.bounds.y), closed.parts.map(x => x.bounds.y), 'the open list does not move the layout');
+  assert.match(errors(build('screen options:\n  select volume at 0,0\nlabel start:\n  end\n'))[0], /select needs a player setting/);
+  assert.match(errors(build('screen options:\n  select language at 0,0 action close\nlabel start:\n  end\n'))[0], /opens its list itself/);
+});
+
+test('text color can be a [variable]; empty keeps the default colour', () => {
+  const p = build('screen s:\n  text at 0,0 "A" color [c]\n  text at 0,50 "B" color [d]\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const view = resolveScreen(p.screens.s, { c: '#f00', d: '' }, { items: {}, text: (id, raw, vars) => raw.replace(/\[(\w+)\]/g, (_, n) => vars[n]) });
+  assert.deepEqual(view.parts.map(x => x.color), ['#f00', undefined]);
+});
+
+test('align stretch makes a column of buttons one width; width sets its least size', () => {
+  const view = (head, rows = '    button a "Go"\n    button b "A much longer label" \n    text "Hi" width 10\n') => {
+    const p = build(`screen s:\n  ${head}:\n${rows}label start:\n  end\n`);
+    assert.deepEqual(errors(p), []);
+    return resolveScreen(p.screens.s, {}, { items: {}, text: (id, raw) => raw });
+  };
+  const widths = v => v.parts.filter(x => x.kind === 'button').map(x => x.bounds.w);
+  const plain = widths(view('column at 0,0 gap 4'));
+  assert.notEqual(plain[0], plain[1]);
+  const stretched = view('column at 0,0 gap 4 align stretch');
+  assert.deepEqual(widths(stretched), [plain[1], plain[1]]);
+  assert.equal(stretched.parts.find(x => x.kind === 'text').width, plain[1]);
+  assert.deepEqual(widths(view('column at 0,0 align stretch width 600')), [600, 600]);
+  // a row stretches the heights; a grid stretches both to the cell
+  assert.equal(new Set(view('row at 0,0', '    button a "A" size 50,40\n    button b "B" size 50,90\n').parts.map(x => x.bounds.h)).size, 2);
+  assert.deepEqual(view('row at 0,0 align stretch', '    button a "A" size 50,40\n    button b "B" size 50,90\n').parts.map(x => x.bounds.h), [90, 90]);
+  const g = view('grid 2 at 0,0 gap 10 align stretch', '    button a "A" size 50,40\n    button b "B" size 80,90\n');
+  assert.deepEqual(g.parts.map(x => [x.bounds.x, x.bounds.w, x.bounds.h]), [[0, 80, 90], [90, 80, 90]]);
+  // a part that cannot grow (a text line's height) is centred in the room left
+  const lab = view('grid 2 at 0,0 gap 10 cell 200,60 align stretch', '    text "Name" font 30\n    button b "B" size 50,40\n');
+  const t = lab.parts.find(x => x.kind === 'text');
+  assert.deepEqual([t.y, t.width], [12, 200]);
+  assert.deepEqual([lab.parts.find(x => x.kind === 'button').bounds.h], [60]);
+  const bad = build('screen s:\n  column at 0,0 width 0:\n    button a "A"\nlabel start:\n  end\n');
+  assert.match(errors(bad)[0], /width needs a number above 0/);
 });
 
 test('pauseView is the reserved pause screen', () => {
@@ -169,7 +250,24 @@ test('pauseView is the reserved pause screen', () => {
   assert.deepEqual(errors(p), []);
   const rt = new Runtime(p, new NullRenderer());
   assert.deepEqual(rt.pauseView().parts.map(x => x.act), ['resume', 'title']);
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).pauseView(), null);
+  // with no `screen pause` the shell draws the starter: a dimmer behind the buttons
+  const stock = new Runtime(build('label start:\n  end\n'), new NullRenderer()).pauseView();
+  assert.deepEqual(stock.parts.filter(x => x.act).map(x => x.act), ['resume', 'save', 'load', 'options', 'title']);
+  assert.deepEqual(stock.parts.filter(x => x.kind === 'panel').map(x => [x.w, x.h, x.color]), [[1920, 1080, 'rgba(4,6,10,.62)']]);
+});
+
+test('panel color and size full make a dimmer; text font, width and align place a heading', () => {
+  const p = build('screen d:\n  panel size full color rgba(0,0,0,.5)\n  text at 10,10 "Big" font 100\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const body = p.screens.d.body;
+  assert.deepEqual([body[0].kind, body[0].w, body[0].h, body[0].color], ['panel', 1920, 1080, 'rgba(0,0,0,.5)']);
+  assert.equal(body[1].font, 100);
+  const wide = build('screen d:\n  text at 0,5 "Hi" width full align center\nlabel start:\n  end\n');
+  assert.deepEqual(errors(wide), []);
+  assert.deepEqual([wide.screens.d.body[0].width, wide.screens.d.body[0].align], [1920, 'center']);
+  assert.ok(errors(build('screen d:\n  text at 0,5 "Hi" align middle\nlabel start:\n  end\n')).length > 0);
+  assert.ok(errors(build('screen d:\n  text at 1,1 "x" font 2\nlabel start:\n  end\n')).length > 0, 'font must be 8 to 400');
+  assert.ok(errors(build('screen d:\n  panel size full color #zz\nlabel start:\n  end\n')).length > 0);
 });
 
 const OPTIONS = 'screen options:\n  button audio at 100,50 "Audio" action tab\n  button game at 400,50 "Game" action tab\n  slider master at 100,200 size 500,40 readout if tab == "audio"\n  button text_sounds at 100,300 "Text sounds: [text_sounds]" action cycle if tab == "game"\n  button done at 100,900 "Back" action close\nlabel start:\n  end\n';
@@ -184,7 +282,7 @@ test('optionsView is the reserved options screen: sliders carry the setting, lab
   const game = rt.optionsView({ master: 0.5, text_sounds: 'off', tab: 'game' });
   assert.deepEqual(game.parts.map(x => x.kind === 'slider' ? 'slider' : x.id), ['audio', 'game', 'text_sounds', 'done']);
   assert.equal(game.parts.find(x => x.id === 'text_sounds').label, 'Text sounds: off');
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).optionsView({}), null);
+  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).optionsView({}).name, 'options'); // the starter
 });
 
 const SAVES = `screen saves:
@@ -214,7 +312,7 @@ test('savesView is the reserved saves screen: shell lists drive each, and the en
   const save = rt.savesView({ mode: 'save', page: '1', pages: ['1'], slots: ['1', '2'], deleting: false }, entries);
   assert.deepEqual(save.parts.filter(x => x.act === 'slot').map(x => x.enabled), [true, true]);
   assert.equal(save.parts.some(x => x.act === 'delete'), false);
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).savesView({}, {}), null);
+  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).savesView({}, {}).name, 'saves'); // the starter
 });
 
 test('historyView is the reserved history screen: entries fill name and text, inside a scroll area that knows its content height', () => {
@@ -237,7 +335,7 @@ label start:
   assert.deepEqual(rows.map(x => [x.label, x.shape.y]), [['Al: a', 100], [': b', 160], ['Bo: c', 220], ['Al: d', 280]]); // stage coordinates
   assert.equal(v.parts.find(x => x.kind === 'text').text, '4 lines');
   assert.equal(v.parts.find(x => x.act === 'close').area, undefined);
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).historyView({}, {}), null);
+  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).historyView({ lines: [], total: 0 }, {}).name, 'history'); // none of the project's own: the starter
 });
 
 test('history screen: `action line` buttons carry the line id, and `ln.current` marks the line on screen', () => {
@@ -279,8 +377,8 @@ label start:
   const c = rt.chaptersView({ chapters: ['1'], count: 1, total: 1 }, { chapters: { 1: { name: 'Bench', title: 'Bench', unlocked: true } } });
   assert.deepEqual(c.parts.filter(x => x.act === 'chapter').map(x => [x.id, x.label, x.enabled]), [['1', 'Bench', true]]);
   const bare = new Runtime(build('label start:\n  end\n'), new NullRenderer());
-  assert.equal(bare.musicView({}, {}), null);
-  assert.equal(bare.chaptersView({}, {}), null);
+  assert.equal(bare.musicView({ tracks: [], count: 0, total: 0, now: '' }, { tracks: {} }).name, 'music'); // the starters
+  assert.equal(bare.chaptersView({ chapters: [], count: 0, total: 0 }, { chapters: {} }).name, 'chapters');
   assert.deepEqual(rt.titleView(true, true, false, true).parts.map(x => [x.act, x.enabled]), [['music', false], ['chapters', true]]);
   assert.deepEqual(rt.titleView(true, true, true, false).parts.map(x => [x.act, x.enabled]), [['music', true], ['chapters', false]]);
 });
@@ -308,11 +406,12 @@ label start:
     endings: { 1: { name: 'Good', title: 'Good', description: '', icon: '', unlocked: false, hidden: false, ending: true } },
   });
   assert.deepEqual(v.parts.filter(x => x.kind === 'text').map(x => x.text), ['Key Found it', '1/2 0/1']);
-  const t = rt.achievementToastView({ title: 'Key', description: 'Found it', icon: '', ending: false });
+  const t = rt.achievementToastView({ title: 'Key', description: 'Found it', icon: '', ending: false, position: 'topright' });
   assert.deepEqual(t.parts.map(x => x.kind === 'text' ? x.text : x.kind), ['Key']);
   const bare = new Runtime(build('label start:\n  end\n'), new NullRenderer());
-  assert.equal(bare.achievementsView({}, {}), null);
-  assert.equal(bare.achievementToastView({}), null);
+  assert.equal(bare.achievementsView({ achievements: [], endings: [], count: 0, total: 0, endings_count: 0, endings_total: 0 }, { achievements: {}, endings: {} }).name, 'achievements'); // the starter
+  const stock = bare.achievementToastView({ title: 'Key', description: 'Found it', icon: '', ending: true, position: 'bottom' }); // the starter
+  assert.deepEqual(stock.parts.filter(x => x.kind === 'text').map(x => x.text), ['Ending reached', 'Key', 'Found it']);
   assert.deepEqual(rt.titleView(true, true, true, true, false).parts.map(x => [x.act, x.enabled]), [['achievements', false]]);
 });
 
@@ -333,7 +432,7 @@ label start:
   assert.deepEqual(v.parts.filter(x => x.kind === 'image').map(x => x.file), ['bg/park.png']);
   assert.deepEqual(v.parts.filter(x => x.act === 'tile').map(x => [x.id, x.label, x.enabled]), [['1', 'Park', true], ['2', 'Locked', false]]);
   assert.equal(v.parts.find(x => x.kind === 'text').text, '1/2');
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).galleryView({}, {}), null);
+  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).galleryView({ tiles: [], count: 0, total: 0 }, { tiles: {} }).name, 'gallery'); // none of the project's own: the starter
   const title = new Runtime(build('screen title:\n  button g at 0,0 "Gallery" action gallery\n  button s at 0,100 "Go" action start\nlabel start:\n  end\n'), new NullRenderer());
   assert.deepEqual(title.titleView(true, false).parts.map(x => [x.act, x.enabled]), [['gallery', false], ['start', true]]);
   assert.deepEqual(title.titleView(true).parts.map(x => [x.act, x.enabled]), [['gallery', true], ['start', true]]);
@@ -357,7 +456,7 @@ label start:
   assert.deepEqual(v.parts.filter(x => x.act).map(x => x.act), ['prev', 'next', 'close']);
   // a single picture hides the paging buttons
   assert.deepEqual(rt.viewerView({ file: 'bg/park.png', title: 'Park', position: 1, total: 1 }).parts.filter(x => x.act).map(x => x.act), ['close']);
-  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).viewerView({}), null);
+  assert.equal(new Runtime(build('label start:\n  end\n'), new NullRenderer()).viewerView({ file: '', title: '', position: 1, total: 0 }).name, 'viewer');
 });
 
 test('each limit caps the entries and must be a whole number', () => {
@@ -628,6 +727,35 @@ test('completions know screens, elements and define item', () => {
   assert.ok(labels('default ').includes('cafe'));
 });
 
+test('a new line offers screen elements inside a screen block and story commands outside it', () => {
+  const p = build(MAP);
+  const labels = (inScreen) => getCompletions(p, '  ', {}, [], inScreen).map(s => s.label);
+  assert.ok(labels(true).includes('hotspot') && !labels(true).includes('show') && !labels(true).includes('jump'));
+  assert.ok(labels(false).includes('show') && !labels(false).includes('hotspot'));
+  assert.ok(labels(undefined).includes('show') && labels(undefined).includes('hotspot'));
+  const above = ['screen map:', '  text at 0,0 "Hi"', '', '  # note'];
+  assert.equal(insideScreen(above, true), true);
+  assert.equal(insideScreen(above, false), false); // an unindented line is never an element
+  assert.equal(insideScreen(['screen a:', '  text at 0,0 "x"', 'label start:', '  "Hi"'], true), false);
+  assert.equal(insideScreen([], true), false);
+});
+
+test('completions offer the project files for asset parameters', () => {
+  const p = build(MAP);
+  const files = ['bg/park.png', 'cafe.jpg', 'music/theme.ogg', 'sound/click.wav', 'movie/rain.webm', 'ui/map.png', 'char/alice/neutral.png'];
+  const at = (prefix) => getCompletions(p, prefix, {}, [], undefined, files).map(s => s.label);
+  assert.ok(at('scene ').includes('park') && at('scene ').includes('cafe'));
+  assert.deepEqual(at('music play '), ['theme']);
+  assert.ok(at('sound play ').includes('click') && at('movie play ').includes('rain'));
+  assert.ok(at('image show lamp ').includes('ui/map.png'));
+  assert.ok(at('  image "').includes('ui/map.png') && at('  image "').includes('char/alice/neutral.png'));
+  assert.ok(at('hotspot a mask "u').includes('ui/map.png'));
+  assert.deepEqual(at('button b hover sound "'), ['click']);
+  assert.ok(at('define item key "K" image=').includes('ui/map.png'));
+  assert.ok(getCompletions(p, '  image "', {}, [], undefined, files).every(s => s.path));
+  assert.deepEqual(at('  text at 0,0 "Hi [').filter(l => l.includes('/')), []); // plain text is untouched
+});
+
 test('the sample screens script compiles clean', async () => {
   const fs = await import('node:fs');
   const files = fs.readdirSync('games/sample/script').filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: fs.readFileSync(`games/sample/script/${f}`, 'utf8') }));
@@ -838,4 +966,58 @@ test('nested elements: a trailing colon needs a body, ids stay unique, and an ea
   // localization ids are written for a child's label as for any other
   const r = assignIds('screen s:\n  hotspot a at 0,0 size 9,9 "A":\n    button b at 0,0 "B"\n', new Set(), rngFrom(1));
   assert.equal(r.added, 2);
+});
+
+test('text takes a color, and a bad one is an error', () => {
+  const ok = build(['screen gallery:', '  text at 0,0 "Dim" color #6b7385', 'label start:', '  end', ''].join('\n'));
+  assert.deepEqual(ok.diagnostics.filter(d => d.severity === 'error'), []);
+  assert.equal(new Runtime(ok, new NullRenderer()).galleryView({ tiles: [], count: 0, total: 0 }, { tiles: {} }).parts.find(x => x.kind === 'text').color, '#6b7385');
+  const bad = build(['screen gallery:', '  text at 0,0 "Dim" color', 'label start:', '  end', ''].join('\n'));
+  assert.ok(bad.diagnostics.some(d => d.severity === 'error' && /color/.test(d.message)));
+});
+
+test('the starter options screen: a page at a time, optional settings only when the game offers them, words for showing', () => {
+  const rt = new Runtime(build('label start:\n  end\n'), new NullRenderer());
+  const base = { master: 1, music: 1, sound: 1, voice: 1, text_speed: 40, text_size: 1, box_opacity: 1, speaker_focus: 'none', has_languages: false, has_themes: false, has_voice_languages: false, has_fullscreen: true, tab: '',
+    text_sounds_word: 'On', auto_speed_word: 'Normal', skip_word: 'Read text only', speaker_focus_word: 'On', language_word: 'en', theme_word: '', voice_language_word: 'Same as text', reduce_motion_word: 'Off', captions_word: 'Off', announce_lines_word: 'On', timed_choices_word: 'Normal' };
+  const ids = view => view.parts.filter(x => x.kind === 'slider' || x.id).map(x => x.kind === 'slider' ? `slider:${x.setting}` : x.id);
+  assert.deepEqual(ids(rt.optionsView(base)), ['audio', 'game', 'access', 'slider:master', 'slider:music', 'slider:sound', 'slider:voice', 'text_sounds', 'full', 'done']);
+  assert.deepEqual(rt.optionsView(base).parts.filter(x => x.role === 'tab').map(x => [x.id, x.checked]), [['audio', true], ['game', false], ['access', false]]); // the shown tab is lit
+  assert.equal(rt.optionsView(base).parts.find(x => x.id === 'text_sounds').label, 'On');
+  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'full', 'done']);
+  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game', has_languages: true, has_themes: true, has_voice_languages: true, speaker_focus: 'on' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'speaker_focus', 'language', 'theme', 'voice_language', 'full', 'done']);
+  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'access' })).slice(3), ['slider:text_size', 'slider:box_opacity', 'reduce_motion', 'captions', 'announce_lines', 'timed_choices', 'full', 'done']);
+});
+
+test('the starter saves screen: a card per slot with its own rename and delete buttons, only where they apply', () => {
+  const rt = new Runtime(build('label start:\n  end\n'), new NullRenderer());
+  const entries = {
+    pages: { page1: { name: '1' } },
+    slots: { 1: { title: 'Slot 1', heading: 'Slot 1', label: '', when: '', text: 'Empty', empty: true, thumb: '', removable: false, renamable: false },
+      2: { title: 'Slot 2', heading: 'Bench', label: 'Bench', when: '12:00', text: 'Hi', empty: false, thumb: 'data:image/jpeg;base64,AAAA', removable: true, renamable: true } },
+  };
+  const vars = { mode: 'save', page: 'page1', pages: ['page1'], slots: ['1', '2'], deleting: false, note: '', can_rename: true };
+  const view = rt.savesView(vars, entries);
+  assert.deepEqual(view.parts.filter(x => x.id).map(x => x.id), ['page1', 'done', '1', '2', '2.rename', '2.remove']);
+  assert.deepEqual(view.parts.filter(x => x.kind === 'image').map(x => x.file), ['data:image/jpeg;base64,AAAA']);
+  assert.deepEqual(view.parts.filter(x => x.kind === 'text' && x.lines).map(x => [x.text, x.lines]), [['Slot 1', 1], ['Bench', 1], ['Hi', 1]]);
+  assert.equal(rt.savesView({ ...vars, can_rename: false }, entries).parts.some(x => x.act === 'rename'), false);
+});
+
+test('inside an each an element id may be <entry>.<word>, and nothing else; text takes lines n', () => {
+  const ok = build('screen s:\n  each slots as slot at 0,0 step 0,100:\n    button slot at 0,0 size 400,80 "x"\n    button slot.remove at 360,0 size 40,40 "x" action remove\n    text at 0,50 "x" width 300 lines 2\nlabel start:\n  end\n');
+  assert.deepEqual(errors(ok), []);
+  assert.equal(ok.screens.s.body[0].body[2].lines, 2);
+  const bad = build('screen s:\n  each slots as slot at 0,0 step 0,100:\n    button other at 0,0 size 40,40 "x"\nlabel start:\n  end\n');
+  assert.ok(errors(bad).length > 0);
+  assert.ok(errors(build('screen s:\n  text at 0,0 "x" lines 0\nlabel start:\n  end\n')).length > 0);
+});
+
+test('a button takes sub "text": a second line inside it, worked out with variables, and a taller button', () => {
+  const p = build('screen s:\n  column at 0,0 gap 10:\n    button a "Go" sub "Saved [k]" action close\n    button b "Plain" action close\nlabel start:\n  end\n');
+  assert.deepEqual(errors(p), []);
+  const view = resolveScreen(p.screens.s, { k: 'today' }, { items: {}, text: (id, raw, vars) => raw.replace(/\[(\w+)\]/g, (_, n) => vars[n]) });
+  assert.deepEqual(view.parts.map(x => [x.label, x.sub]), [['Go', 'Saved today'], ['Plain', undefined]]);
+  assert.ok(view.parts[0].shape.h > view.parts[1].shape.h);
+  assert.match(errors(build('screen s:\n  text at 0,0 "x" sub "T"\nlabel start:\n  end\n'))[0], /sub "text" goes on a button/);
 });

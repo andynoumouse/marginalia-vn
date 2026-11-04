@@ -513,40 +513,52 @@ export class Runtime {
       names[it.id] = this.locale.t(it.nameId, it.name);
       items[it.id] = { name: names[it.id], image: it.image };
     }
-    return resolveScreen(def, { ...this.scope(), ...extra }, { items, entries, stage: this.program.stage, text: (id, raw, vars) => interpolate(this.locale.t(id, raw), vars, names, this.locale.lang) });
+    const stock = def.src.file.startsWith('stock/'); // a starter the shell draws for a screen the project does not declare
+    return resolveScreen(def, { ...this.scope(), ...extra }, { items, entries, stage: this.program.stage, text: (id, raw, vars) => interpolate(stock && !id ? this.uiText(raw) : this.locale.t(id, raw), vars, names, this.locale.lang) });
   }
 
-  /** The project's `screen quickmenu` as it looks now, or null when it declares none (the shell then keeps its stock bar). */
+  /** What the shell tells the quick menu: the buttons to show (action name and label, in order) and where the bar goes (an anchor place, see `quickMenuSettings`). */
+  quickMenu: { items: { id: string; label: string; /** the key that does the same, shown as a tooltip */ hint?: string }[]; place: string } = { items: [], place: 'bottom' };
+
+  /** The `quickmenu` screen (the project's, else the starter) as it looks now, or null with no such screen. */
   quickView(): ScreenView | null {
-    return QUICKMENU_SCREEN in this.program.screens ? this.viewOf(QUICKMENU_SCREEN) : null;
+    if (!(QUICKMENU_SCREEN in this.program.screens)) return null;
+    const { items, place } = this.quickMenu;
+    return this.viewOf(QUICKMENU_SCREEN, { quick_items: items.map(i => i.id), quick_place: place }, { quick_items: Object.fromEntries(items.map(i => [i.id, { label: i.label, hint: i.hint ?? '' }])) });
   }
 
-  /** The project's `screen title` as it looks now, or null when it declares none (the shell then keeps its stock title screen). Without `canContinue` the `action continue` elements are disabled. */
-  titleView(canContinue: boolean, hasGallery = true, hasMusic = true, hasChapters = true, hasAchievements = true): ScreenView | null {
+  /** The translation of a built-in label ("New game") in the starter screens; the shell sets it from the `ui.<key>` entries of the locale. */
+  uiText: (raw: string) => string = raw => raw;
+
+  /**
+   * The `screen title` as it looks now (the project's, else the starter), or null with no such screen. Without `canContinue` the `action continue` elements are
+   * disabled; the other flags are the screen's variables of the same names (`has_gallery`...), and the buttons for what is missing are disabled on a project's screen.
+   */
+  titleView(canContinue: boolean, hasGallery = true, hasMusic = true, hasChapters = true, hasAchievements = true, gameTitle = '', showTitle = true, continueText = ''): ScreenView | null {
     if (!(TITLE_SCREEN in this.program.screens)) return null;
-    const view = this.viewOf(TITLE_SCREEN);
+    const view = this.viewOf(TITLE_SCREEN, { game_title: gameTitle, show_title: showTitle, can_continue: canContinue, continue_text: canContinue ? continueText : '', has_gallery: hasGallery, has_music: hasMusic, has_chapters: hasChapters, has_achievements: hasAchievements });
     const off = (act: string | null) => (act === 'continue' && !canContinue) || (act === 'gallery' && !hasGallery) || (act === 'music' && !hasMusic) || (act === 'chapters' && !hasChapters)
       || (act === 'achievements' && !hasAchievements);
     return { ...view, parts: view.parts.map(p => ('act' in p && off(p.act) ? { ...p, enabled: false } : p)) };
   }
 
-  /** The project's `screen pause` as it looks now, or null when it declares none (the shell then keeps its stock pause menu). */
+  /** The `screen pause` as it looks now (the project's, else the starter), or null with no such screen. */
   pauseView(): ScreenView | null {
     return PAUSE_SCREEN in this.program.screens ? this.viewOf(PAUSE_SCREEN) : null;
   }
 
   /**
-   * The project's `screen options` as it looks now, or null when it declares none (the shell then keeps its stock options). `values` are the
+   * The project's `screen options` as it looks now, or null with no such screen (the default is drawn in its place). `values` are the
    * player's settings as variables of the screen (the sliders' numbers, the words of the cycle settings, `tab`); an empty `tab` is the first tab.
    */
-  optionsView(values: Vars): ScreenView | null {
+  optionsView(values: Vars, entries?: NonNullable<ScreenEnv['entries']>): ScreenView | null {
     const def = this.program.screens[OPTIONS_SCREEN];
     if (!def) return null;
-    return this.viewOf(OPTIONS_SCREEN, { ...values, tab: values.tab || firstTab(def) });
+    return this.viewOf(OPTIONS_SCREEN, { ...values, tab: values.tab || firstTab(def) }, entries);
   }
 
   /**
-   * The project's `screen saves` as it looks now, or null when it declares none (the shell then keeps its stock save/load screen). `values` are
+   * The project's `screen saves` as it looks now, or null with no such screen (the default is drawn in its place). `values` are
    * `mode`, `page`, `pages` (list), `slots` (list) and `deleting`; `entries` carry the data of each page and slot (`slot.title`, `slot.when`, `slot.text`, `slot.empty`, `pg.name`).
    */
   savesView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
@@ -554,15 +566,15 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen history` as it looks now, or null when it declares none (the shell then keeps its stock panel). `values` are `lines` (list of line
-   * ids, oldest first) and `total`; `entries` carry each line (`ln.name` the speaker, `ln.text`).
+   * The `screen history` as it looks now (the project's, else the starter). `values` are `lines` (list of line
+   * ids, oldest first) and `total`; `entries` carry each line (`ln.name` the speaker, `ln.color` its colour, `ln.text`).
    */
   historyView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
     return HISTORY_SCREEN in this.program.screens ? this.viewOf(HISTORY_SCREEN, values, entries) : null;
   }
 
   /**
-   * The project's `screen gallery` as it looks now, or null when it declares none (the shell then keeps its stock gallery). `values` are `tiles` (list of
+   * The project's `screen gallery` as it looks now, or null with no such screen (the default is drawn in its place). `values` are `tiles` (list of
    * tile ids), `count` (unlocked) and `total`; `entries` carry each tile (`t.title`, `t.unlocked`, `t.file`, the picture's asset file, '' without one).
    */
   galleryView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
@@ -570,7 +582,7 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen viewer` as it looks now, or null when it declares none (the shell then keeps its stock image viewer). `values` are `file` (the
+   * The `screen viewer` as it looks now (the project's, else the starter), or null with no such screen. `values` are `file` (the
    * picture's asset file, '' without one), `title`, `position` (1-based) and `total`.
    */
   viewerView(values: Vars): ScreenView | null {
@@ -578,7 +590,7 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen music` as it looks now, or null when it declares none (the shell then keeps its stock music room). `values` are `tracks` (list of
+   * The project's `screen music` as it looks now, or null with no such screen (the default is drawn in its place). `values` are `tracks` (list of
    * track ids), `count` (unlocked), `total` and `now` (the title of the track playing, '' for none); `entries` carry each track (`t.title`, `t.unlocked`, `t.playing`).
    */
   musicView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
@@ -586,7 +598,7 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen chapters` as it looks now, or null when it declares none (the shell then keeps its stock chapter select). `values` are `chapters`
+   * The project's `screen chapters` as it looks now, or null with no such screen (the default is drawn in its place). `values` are `chapters`
    * (list of chapter ids), `count` (unlocked) and `total`; `entries` carry each chapter (`c.title`, `c.unlocked`).
    */
   chaptersView(values: Vars, entries: NonNullable<ScreenEnv['entries']>): ScreenView | null {
@@ -594,7 +606,7 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen achievements` as it looks now, or null when it declares none (the shell then keeps its stock list). `values` are `achievements`
+   * The project's `screen achievements` as it looks now, or null with no such screen (the default is drawn in its place). `values` are `achievements`
    * and `endings` (lists of ids), `count` / `total` (achievements unlocked / all) and `endings_count` / `endings_total`; `entries` carry each one under
    * its list (`a.title`, `a.description`, `a.icon` the image's asset file or '', `a.unlocked`, `a.hidden`, `a.ending`).
    */
@@ -603,8 +615,8 @@ export class Runtime {
   }
 
   /**
-   * The project's `screen achievement_toast` showing one unlock, or null when it declares none (the shell then keeps its stock notice). `values` are
-   * `title`, `description`, `icon` (the image's asset file or '') and `ending`.
+   * The `achievement_toast` screen (the project's, else the starter) showing one unlock, or null with no such screen. `values` are
+   * `title`, `description`, `icon` (the image's asset file or ''), `ending` and `position` (an anchor place).
    */
   achievementToastView(values: Vars): ScreenView | null {
     return ACHIEVEMENT_TOAST_SCREEN in this.program.screens ? this.viewOf(ACHIEVEMENT_TOAST_SCREEN, values) : null;
@@ -1012,6 +1024,9 @@ export class Runtime {
         case 'nvl':
           if (op.mode !== 'clear') this.nvl = op.mode === 'on';
           this.clearPage();
+          break;
+        case 'textbox':
+          if (!this.instant) this.renderer.hideBox?.();
           break;
         default: {
           // visual ops

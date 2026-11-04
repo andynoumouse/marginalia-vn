@@ -5,6 +5,7 @@
 import { evalExpr, type Expr, type Value } from './expr.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import type { Src, Vars } from './types.js';
+import { partAnim, staggered, type ElementAnim, type PartAnim } from './screen-anim.js';
 
 /** Space on the four sides, in stage pixels: top, right, bottom, left. */
 export type Sides = [number, number, number, number];
@@ -27,50 +28,58 @@ export type HudEvent = typeof HUD_EVENTS[number];
 /** The label each event of an element calls. */
 export type HudHandlers = Partial<Record<HudEvent, string>>;
 /** Built-in actions an element can trigger with `action <name>` (the quick menu's and the title screen's buttons); the shell runs them, the script does not see them. */
-export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice', 'line'] as const;
+export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice', 'line', 'remove', 'rename', 'select', 'choose'] as const;
 export type ShellAction = typeof SHELL_ACTIONS[number];
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock quick menu bar. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default quick menu bar. */
 export const QUICKMENU_SCREEN = 'quickmenu';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock title screen. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default title screen. */
 export const TITLE_SCREEN = 'title';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock pause menu. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default pause menu. */
 export const PAUSE_SCREEN = 'pause';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock options screen. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default options screen. */
 export const OPTIONS_SCREEN = 'options';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock save/load screen. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default save/load screen. */
 export const SAVES_SCREEN = 'saves';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock history panel. */
+/** Reserved screen name: the history panel; a project's own replaces the default. */
 export const HISTORY_SCREEN = 'history';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock gallery. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default gallery. */
 export const GALLERY_SCREEN = 'gallery';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock gallery image viewer. */
+/** Reserved screen name: the picture viewer a gallery tile opens; a project's own replaces the default. */
 export const VIEWER_SCREEN = 'viewer';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock music room. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default music room. */
 export const MUSIC_SCREEN = 'music';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock chapter select. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default chapter select. */
 export const CHAPTERS_SCREEN = 'chapters';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock achievements and endings list. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default achievements and endings list. */
 export const ACHIEVEMENTS_SCREEN = 'achievements';
-/** Reserved screen name: when a project declares it, the shell draws it in place of the stock notice that pops up when an achievement unlocks. */
+/** Reserved screen name: when a project declares it, the shell draws it in place of the default notice that pops up when an achievement unlocks. */
 export const ACHIEVEMENT_TOAST_SCREEN = 'achievement_toast';
 /** Variables the shell fills in on a reserved screen (not story variables): the options settings, the saves screen's mode, page, page and slot lists and delete toggle, the history's lines, the gallery's tiles, the viewer's picture, the music room's tracks, the chapter select's chapters, the achievements list or the achievement toast. */
 export function shellVars(screen: string): string[] {
-  if (screen === OPTIONS_SCREEN) return ['tab', ...Object.keys(SLIDER_SETTINGS), ...CYCLE_SETTINGS];
-  if (screen === SAVES_SCREEN) return ['mode', 'page', 'pages', 'slots', 'deleting'];
+  if (screen === TITLE_SCREEN) return TITLE_VARS;
+  if (screen === OPTIONS_SCREEN) return ['tab', ...Object.keys(SLIDER_SETTINGS), ...CYCLE_SETTINGS, ...CYCLE_SETTINGS.map(c => `${c}_word`), ...OPTIONS_VARS];
+  if (screen === SAVES_SCREEN) return ['mode', 'page', 'pages', 'slots', 'deleting', 'note', 'can_rename'];
   if (screen === HISTORY_SCREEN) return ['lines', 'total'];
   if (screen === GALLERY_SCREEN) return ['tiles', 'count', 'total'];
   if (screen === VIEWER_SCREEN) return ['file', 'title', 'position', 'total'];
   if (screen === MUSIC_SCREEN) return ['tracks', 'count', 'total', 'now'];
   if (screen === CHAPTERS_SCREEN) return ['chapters', 'count', 'total'];
   if (screen === ACHIEVEMENTS_SCREEN) return ['achievements', 'endings', 'count', 'total', 'endings_count', 'endings_total'];
-  if (screen === ACHIEVEMENT_TOAST_SCREEN) return ['title', 'description', 'icon', 'ending'];
+  if (screen === ACHIEVEMENT_TOAST_SCREEN) return ['title', 'description', 'icon', 'ending', 'position'];
+  if (screen === QUICKMENU_SCREEN) return ['quick_items', 'quick_place'];
   return [];
 }
+/**
+ * What the shell tells the title screen: the game's name (game.json `title`), whether to show it (`titleScreen.showTitle`), and which of the
+ * buttons have something behind them (a save to continue, and gallery, music, chapters or achievements that are set up and listed in `titleScreen.buttons`).
+ */
+export const TITLE_VARS = ['game_title', 'show_title', 'can_continue', 'continue_text', 'has_gallery', 'has_music', 'has_chapters', 'has_achievements'];
 /** Extra fields the shell gives each entry of an `each` on a reserved screen (`slot.when`), next to `.name`, `.image` and `.index`. */
 export function shellEntryFields(screen: string): string[] {
-  return screen === SAVES_SCREEN ? ['title', 'label', 'when', 'text', 'empty'] : screen === HISTORY_SCREEN ? ['text', 'current'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
+  return screen === SAVES_SCREEN ? ['title', 'heading', 'label', 'when', 'text', 'empty', 'thumb', 'removable', 'renamable'] : screen === HISTORY_SCREEN ? ['text', 'current'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
     : screen === MUSIC_SCREEN ? ['title', 'unlocked', 'playing'] : screen === CHAPTERS_SCREEN ? ['title', 'unlocked']
-    : screen === ACHIEVEMENTS_SCREEN ? ['title', 'description', 'icon', 'unlocked', 'hidden', 'ending'] : [];
+    : screen === ACHIEVEMENTS_SCREEN ? ['title', 'description', 'icon', 'unlocked', 'hidden', 'ending']
+    : screen === QUICKMENU_SCREEN ? ['label'] : [];
 }
 /** Player settings a `slider` can be bound to, with the range the shell allows. */
 export const SLIDER_SETTINGS = {
@@ -82,7 +91,16 @@ export function sliderReadout(setting: string, value: number): string {
   return setting === 'text_speed' ? String(Math.round(value)) : `${Math.round(value * 100)}%`;
 }
 /** Player settings a button with `action cycle` steps through (its id names the setting); their current word is a variable of the options screen. */
-export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language'] as const;
+export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language', 'announce_lines', 'theme', 'voice_language'] as const;
+/**
+ * A `select <setting>` on the options screen: a button showing the setting's current value that opens a list of its values. The shell tells the
+ * screen the list as the variable `<setting>_options` (the values) with entries `<setting>_options` carrying each one's `label`, and which select is open
+ * as `select_open` (a setting name, or ""). The open list is drawn from these by `resolveScreen`; the shell answers `action select` (open or close) and `action choose`
+ * (the option's id is `<setting>.<value>`).
+ */
+export const SELECT_SETTINGS = CYCLE_SETTINGS;
+/** What else the shell tells the options screen: which of the optional settings the game offers (a second language, a theme choice, voice recordings, a fullscreen mode). Each cycle setting also has a `<setting>_word` variable, its current value written in the player's language. */
+export const OPTIONS_VARS = ['has_languages', 'has_themes', 'has_voice_languages', 'has_fullscreen'];
 /** Art-free hover look of a hotspot or button: `hover tint <color>`, `hover scale <n>`, `hover sound "name"`. */
 export interface HoverFx { tint: string | null; scale: number | null; sound: string | null }
 
@@ -92,32 +110,33 @@ export type FocusHints = Partial<Record<'up' | 'down' | 'left' | 'right', string
 export const LAYOUT_ANCHORS = ['topleft', 'top', 'topright', 'left', 'center', 'right', 'bottomleft', 'bottom', 'bottomright'] as const;
 export type LayoutAnchor = typeof LAYOUT_ANCHORS[number];
 export type LayoutKind = 'row' | 'column' | 'grid';
-export type LayoutAlign = 'start' | 'center' | 'end';
+export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch';
 /** How the edges of a 9-slice frame fill their strip (CSS `border-image-repeat`). */
 export const FRAME_EDGES = ['stretch', 'repeat', 'round'] as const;
 export type FrameEdge = typeof FRAME_EDGES[number];
 /** The slice a frame image gets when the script gives none (the same 32px the theme's `slice` defaults to). */
 export const DEFAULT_SLICE: Sides = [32, 32, 32, 32];
 
-interface Common { src: Src; cond: Expr | null }
+/** `anim`: the node's `on enter` / `loop`; a container hands them to every element it holds (a child's own clause wins). */
+interface Common { src: Src; cond: Expr | null; anim?: ElementAnim }
 export type ScreenNode = Common & (
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string }
+  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string; /** px, default 40 */ font?: number; /** a box this wide (px), the text aligned inside it */ width?: number; align?: 'left' | 'center' | 'right'; /** CSS colour */ color?: string; /** show at most this many lines */ lines?: number }
   /** A range input bound to a player setting (options screen). */
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
   | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; enabled: Expr | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null; sets?: LocalSets; /** elements shown with it, in stage coordinates: the group stays active while any of them is */ body?: ScreenNode[] }
-  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; style?: string; sets?: LocalSets; bind?: Bind; body?: ScreenNode[] }
+  | { kind: 'button'; id: string; x: number; y: number; w: number | null; h: number | null; label: string; labelId: string | null; enabled: Expr | null; hover: string | null; plain: boolean; fx: HoverFx; focus: FocusHints; on: HudHandlers; act: ShellAction | null; /** `action [name]`: the action is this variable's value */ actVar?: string; style?: string; /** px, default 40 */ font?: number; /** `tooltip "text"` */ tooltip?: string; /** `sub "text"`: a smaller second line inside the button */ sub?: string; /** `select <setting>`: the button that opens the list of the setting's values */ select?: true; sets?: LocalSets; bind?: Bind; body?: ScreenNode[] }
   /** One copy of the body per entry of the list variable; offsets are `at` plus the entry's number times `step`. */
   | { kind: 'each'; list: string; as: string; x: number; y: number; dx: number; dy: number; /** at most this many entries are drawn */ limit: number | null; body: ScreenNode[] }
   /** A clipped box that scrolls its children, placed relative to its top left (so they need no stage coordinates). */
   | { kind: 'scroll'; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; body: ScreenNode[] }
   /** A row, column or grid: places its children one after another (an `each` inside spreads its entries), so they need no `at`. */
-  | { kind: 'layout'; type: LayoutKind; columns: number; at: Point | null; anchor: LayoutAnchor | null; margin: Sides; padding: Sides; gap: number; align: LayoutAlign; cell: Point | null; body: ScreenNode[] }
+  | { kind: 'layout'; type: LayoutKind; columns: number; at: Point | null; anchor: LayoutAnchor | null; /** `anchor [name]`: the place is this variable's value */ anchorVar?: string; margin: Sides; padding: Sides; gap: number; align: LayoutAlign; cell: Point | null; /** least size of the box (px) */ width?: number; height?: number; body: ScreenNode[] }
   /**
    * A box framed by a 9-slice image (`file`: the corners keep their size, the edges stretch, repeat or round). Its children are placed
-   * from its top left plus `padding`; without a size it fits them. With no image it is the stock panel look.
+   * from its top left plus `padding`; without a size it fits them. With no image it is the default panel look.
    */
-  | { kind: 'panel'; x: number; y: number; w: number | null; h: number | null; file: string | null; slice: Sides; edge: FrameEdge; padding: Sides; body: ScreenNode[] }
+  | { kind: 'panel'; x: number; y: number; w: number | null; h: number | null; file: string | null; slice: Sides; edge: FrameEdge; padding: Sides; /** a plain fill (a dimmer) */ color?: string; body: ScreenNode[] }
   /** A filled bar showing `value` between `min` and `max`; `back` is the frame, `fill` the part that grows (cropped, or 9-sliced when `slice` is set). */
   | { kind: 'bar'; x: number; y: number; w: number; h: number; value: Expr; min: Expr; max: Expr; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; readout: boolean }
 );
@@ -172,12 +191,12 @@ export function screenParams(def: ScreenDef | undefined, args: Expr[] | undefine
 export type ViewPart = (
   | { kind: 'scroll'; /** the number its children carry in `area` */ index: number; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; contentH: number }
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; style?: string }
+  | { kind: 'text'; x: number; y: number; text: string; style?: string; font?: number; width?: number; align?: 'left' | 'center' | 'right'; color?: string; lines?: number }
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number }
-  | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge }
+  | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge; color?: string }
   | { kind: 'bar'; x: number; y: number; w: number; h: number; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; value: number; min: number; max: number; /** 0..1 */ fraction: number; /** "37 / 100" with `readout` */ readout: string | null }
-  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null; /** `on click|focus|blur set`: the local state each event sets (the screen redraws; a click here does not answer the screen) */ sets?: ViewSets; /** a `tab`, `toggle` or `radio`: lit (`checked`) while its state holds its word (a toggle: while it is true) */ role?: 'tab' | 'toggle' | 'radio'; checked?: boolean; /** id of the element this one is a child of (`hotspot ...:` with a body), else absent */ parent?: string }
-) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number };
+  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; /** px of a button's label, default 40 */ font?: number; /** a button's `tooltip "text"`, worked out */ tooltip?: string; /** a button's `sub "text"`, worked out (empty: none) */ sub?: string; /** a `select`'s values; its list is drawn below it while `open` (see `expandSelects`) */ select?: { options: { value: string; label: string }[]; value: string; open: boolean }; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null; /** `on click|focus|blur set`: the local state each event sets (the screen redraws; a click here does not answer the screen) */ sets?: ViewSets; /** a `tab`, `toggle` or `radio`: lit (`checked`) while its state holds its word (a toggle: while it is true) */ role?: 'tab' | 'toggle' | 'radio'; checked?: boolean; /** id of the element this one is a child of (`hotspot ...:` with a body), else absent */ parent?: string }
+) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number; /** `on enter` / `loop` of the element or of a container around it, with a key that survives redraws */ anim?: PartAnim };
 export type ViewItem = Extract<ViewPart, { id: string }>;
 export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean; /** `textbox off`: the shell hides the text box while the screen is up */ hideBox?: true }
 
@@ -192,14 +211,17 @@ export interface ScreenEnv {
 }
 
 /** Size guess for a button without `size` (40px text with padding): the shell uses it too, so focus and drawing agree. */
-export function buttonSize(label: string): { w: number; h: number } {
-  return { w: Math.max(200, Array.from(label).length * 24 + 72), h: 84 };
+export function buttonSize(label: string, font = 40, sub = ''): { w: number; h: number } {
+  const k = font / 40;
+  // a `sub` line is drawn at 55% of the label's size
+  const subW = Array.from(sub).length * 24 * k * 0.55 + 72 * k;
+  return { w: Math.max(200 * k, Array.from(label).length * 24 * k + 72 * k, subW), h: 84 * k + (sub ? 28 * k : 0) };
 }
 
 /** Size guess for a `text` line (40px text, about 24px a character, 48px a line): layouts need it to place the neighbours. */
-export function textSize(text: string): { w: number; h: number } {
+export function textSize(text: string, font = 40, width?: number): { w: number; h: number } {
   const lines = text.split('\n');
-  return { w: Math.max(...lines.map(l => Array.from(l).length)) * 24, h: lines.length * 48 };
+  return { w: width ?? Math.max(...lines.map(l => Array.from(l).length)) * font * 0.6, h: lines.length * font * 1.2 };
 }
 
 const truthy = (v: Value) => (Array.isArray(v) ? v.length > 0 : Boolean(v));
@@ -316,7 +338,7 @@ export function shiftPart(p: ViewPart, dx: number, dy: number): ViewPart {
 /** The box a part occupies for layout purposes (an image needs its size; text and buttons use the size guesses). */
 function partBox(p: ViewPart): StageRect {
   if (p.kind === 'image') return { x: p.x, y: p.y, w: p.w ?? 0, h: p.h ?? 0 };
-  if (p.kind === 'text') return { x: p.x, y: p.y, ...textSize(p.text) };
+  if (p.kind === 'text') return { x: p.x, y: p.y, ...textSize(p.text, p.font, p.width) };
   if (p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { x: p.x, y: p.y, w: p.w, h: p.h };
   return p.bounds;
 }
@@ -327,12 +349,42 @@ function groupBox(g: ViewPart[]): StageRect {
   return { x, y, w: Math.max(...boxes.map(b => b.x + b.w)) - x, h: Math.max(...boxes.map(b => b.y + b.h)) - y };
 }
 
-const alignOffset = (align: LayoutAlign, room: number) => (align === 'center' ? room / 2 : align === 'end' ? room : 0);
+/** Room left over after `align stretch` only exists for parts that cannot grow (text height, images): those are centred. */
+/** A text's `color`: a CSS color, or `[variable]` worked out (nothing when the variable is empty, so the default colour stays). */
+function textColor(raw: string, env: ScreenEnv, vars: Vars): { color?: string } {
+  const c = env.text(null, raw, vars);
+  return c ? { color: c } : {};
+}
+
+const alignOffset =(align: LayoutAlign, room: number) => (align === 'center' || align === 'stretch' ? room / 2 : align === 'end' ? room : 0);
+
+/**
+ * `align stretch`: a group's parts that span its box on an axis grow to `w` / `h` (null: leave that axis). Only boxes that can be
+ * resized without distorting are touched: text (a wider box), buttons and hotspots with a rectangle, panels, bars, sliders and scrolls.
+ * Children placed inside a panel keep their place.
+ */
+function stretchGroup(g: ViewPart[], w: number | null, h: number | null): ViewPart[] {
+  const box = groupBox(g);
+  return g.map(p => {
+    const b = partBox(p);
+    const sw = w !== null && b.x === box.x && b.w === box.w ? w : null, sh = h !== null && b.y === box.y && b.h === box.h ? h : null;
+    if (sw === null && sh === null) return p;
+    if (p.kind === 'text') return sw === null ? p : { ...p, width: sw };
+    if (p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { ...p, w: sw ?? p.w, h: sh ?? p.h };
+    if (p.kind === 'button' || p.kind === 'hotspot') {
+      if (p.shape.k !== 'rect') return p;
+      const shape: Shape = { ...p.shape, w: sw ?? p.shape.w, h: sh ?? p.shape.h };
+      return { ...p, shape, bounds: shapeBounds(shape), center: shapeCenter(shape) };
+    }
+    return p;
+  });
+}
 
 /** Where a layout's box goes on the stage: `at`, or an anchor with a margin (a layout inside another is placed by its parent: 0,0). */
-function anchorOrigin(n: Extract<ScreenNode, { kind: 'layout' }>, w: number, h: number, stage: StageSize): Point {
+function anchorOrigin(n: Extract<ScreenNode, { kind: 'layout' }>, w: number, h: number, stage: StageSize, vars: Vars): Point {
   if (n.at) return n.at;
-  const a = n.anchor;
+  const named = n.anchorVar ? String(vars[n.anchorVar]) : null;
+  const a = named !== null ? ((LAYOUT_ANCHORS as readonly string[]).includes(named) ? named : 'center') as LayoutAnchor : n.anchor;
   if (!a) return [0, 0];
   const [mt, mr, mb, ml] = n.margin;
   const x = a.endsWith('left') || a === 'left' ? ml : a.endsWith('right') ? stage.width - mr - w : (stage.width - w + ml - mr) / 2;
@@ -341,14 +393,16 @@ function anchorOrigin(n: Extract<ScreenNode, { kind: 'layout' }>, w: number, h: 
 }
 
 /** Places the groups of a row, column or grid: every part comes back moved to its cell, the whole at `at` or the anchor. */
-function layoutGroups(n: Extract<ScreenNode, { kind: 'layout' }>, groups: ViewPart[][], stage: StageSize): ViewPart[] {
+function layoutGroups(n: Extract<ScreenNode, { kind: 'layout' }>, groups: ViewPart[][], stage: StageSize, vars: Vars): ViewPart[] {
   if (!groups.length) return [];
-  const boxes = groups.map(groupBox);
+  let boxes = groups.map(groupBox);
+  const stretch = n.align === 'stretch';
   const moves: Point[] = [];
   let width: number, height: number;
   if (n.type === 'grid') {
     const cols = Math.max(1, n.columns), rows = Math.ceil(groups.length / cols);
     const cw = n.cell?.[0] ?? Math.max(...boxes.map(b => b.w)), ch = n.cell?.[1] ?? Math.max(...boxes.map(b => b.h));
+    if (stretch) { groups = groups.map(g => stretchGroup(g, cw, ch)); boxes = groups.map(groupBox); }
     boxes.forEach((b, i) => {
       const cx = (i % cols) * (cw + n.gap), cy = Math.floor(i / cols) * (ch + n.gap);
       moves.push([cx + alignOffset(n.align, cw - b.w) - b.x, cy + alignOffset(n.align, ch - b.h) - b.y]);
@@ -357,19 +411,20 @@ function layoutGroups(n: Extract<ScreenNode, { kind: 'layout' }>, groups: ViewPa
     height = rows * ch + (rows - 1) * n.gap;
   } else {
     const row = n.type === 'row';
-    const across = Math.max(...boxes.map(b => (row ? b.h : b.w)));
+    const across = Math.max((row ? n.height : n.width) ?? 0, ...boxes.map(b => (row ? b.h : b.w)));
+    if (stretch) { groups = groups.map(g => stretchGroup(g, row ? null : across, row ? across : null)); boxes = groups.map(groupBox); }
     let at = 0;
     for (const b of boxes) {
       const cross = alignOffset(n.align, across - (row ? b.h : b.w));
       moves.push(row ? [at - b.x, cross - b.y] : [cross - b.x, at - b.y]);
       at += (row ? b.w : b.h) + n.gap;
     }
-    const total = at - n.gap;
+    const total = Math.max(at - n.gap, (row ? n.width : n.height) ?? 0);
     width = row ? total : across;
     height = row ? across : total;
   }
   const [pt, pr, pb, pl] = n.padding;
-  const [ox, oy] = anchorOrigin(n, width + pl + pr, height + pt + pb, stage);
+  const [ox, oy] = anchorOrigin(n, width + pl + pr, height + pt + pb, stage, vars);
   return groups.flatMap((g, i) => g.map(p => shiftPart(p, moves[i][0] + ox + pl, moves[i][1] + oy + pt)));
 }
 
@@ -410,10 +465,63 @@ export function fitsInout(def: ScreenDef, name: string, recorded: Value | undefi
   return !words.length || words.includes(recorded);
 }
 
+/** The values a `select` offers, from the shell's `<setting>_options` list and entries (a value without an entry is its own label). */
+function selectOptions(setting: string, vars: Vars, env: ScreenEnv): { value: string; label: string }[] {
+  const list = vars[`${setting}_options`];
+  return (Array.isArray(list) ? list : []).map(v => ({ value: String(v), label: String(env.entries?.[`${setting}_options`]?.[String(v)]?.label ?? v) }));
+}
+
+/**
+ * The lists of the open `select`s, as parts to add after the rest of the screen (so they sit on top and do not move the layout): one button per
+ * value under the select, as wide and as tall as it, or above it when there is no room below. The current value is lit (a radio); an option's id is
+ * `<setting>.<value>` and its action `choose`.
+ */
+function expandSelects(parts: ViewPart[], stage: StageSize): ViewPart[] {
+  const out: ViewPart[] = [];
+  for (const p of parts) {
+    if (p.kind !== 'button' || !p.select?.open) continue;
+    const b = p.bounds, n = p.select.options.length, gap = 4;
+    const below = b.y + b.h + gap + n * (b.h + gap) <= stage.height || b.y - n * (b.h + gap) < 0;
+    const top = below ? b.y + b.h : b.y - n * (b.h + gap) - gap;
+    // a backing under the buttons, so the rows behind the list do not show through the gaps
+    out.push({ kind: 'panel', x: b.x - gap, y: top, w: b.w + 2 * gap, h: n * (b.h + gap) + gap, file: null, slice: DEFAULT_SLICE, edge: 'stretch', ...(p.area !== undefined ? { area: p.area } : {}) });
+    p.select.options.forEach((o, i) => {
+      const shape: Shape = { k: 'rect', x: b.x, y: below ? b.y + (i + 1) * (b.h + gap) : b.y - (n - i) * (b.h + gap), w: b.w, h: b.h };
+      out.push({
+        kind: 'button', id: `${p.id}.${o.value}`, shape, label: o.label, enabled: true, cursor: null, hover: null, plain: false, fx: { tint: null, scale: null, sound: null }, tip: false,
+        ...(p.style ? { style: p.style } : {}), ...(p.font ? { font: p.font } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: {}, on: {}, act: 'choose',
+        role: 'radio', checked: o.value === p.select!.value, ...(p.area !== undefined ? { area: p.area } : {}),
+      });
+    });
+  }
+  return out;
+}
+
 /** Evaluates the screen's conditions and fills in its text for the current variables. Never draws and never changes anything. */
 export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): ScreenView {
   const parts: ViewPart[] = [];
   let areas = 0;
+  // `on enter` / `loop` of the containers around the node being resolved, and the `each` entries it sits in (the key of its part)
+  let inherit: ElementAnim | null = null;
+  const path: string[] = [];
+  const merged = (n: ScreenNode): ElementAnim | null => (n.anim ? { enter: n.anim.enter ?? inherit?.enter, exit: n.anim.exit ?? inherit?.exit, loop: n.anim.loop ?? inherit?.loop } : inherit);
+  const within = <T,>(n: ScreenNode, fn: () => T): T => {
+    const prev = inherit;
+    inherit = merged(n);
+    try { return fn(); } finally { inherit = prev; }
+  };
+  /** One entry of an `each`: its elements enter `stagger` seconds later than the entry before. */
+  const entry = <T,>(n: Extract<ScreenNode, { kind: 'each' }>, value: Value, i: number, fn: () => T): T => {
+    const prev = inherit, m = merged(n);
+    inherit = m ? staggered(m, i) : null;
+    path.push(`[${String(value)}]`);
+    try { return fn(); } finally { path.pop(); inherit = prev; }
+  };
+  const mark = <P extends ViewPart>(n: ScreenNode, p: P): P => {
+    const a = merged(n);
+    const anim = a ? partAnim(a, `${n.src.file}:${n.src.line}${path.join('')}`, p.kind) : null;
+    return anim ? { ...p, anim } : p;
+  };
   const entryScope = (n: Extract<ScreenNode, { kind: 'each' }>, vars: Vars, entry: Value, i: number): Vars => {
     const id = String(entry), info = env.items[id];
     const extra = Object.fromEntries(Object.entries(env.entries?.[n.list]?.[id] ?? {}).map(([k, v]) => [`${n.as}.${k}`, v]));
@@ -426,7 +534,7 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
       if (n.cond && !truthy(evalExpr(n.cond, vars))) continue;
       if (n.kind === 'each') {
         const list = vars[n.list];
-        (Array.isArray(list) ? list : []).slice(0, n.limit ?? undefined).forEach((entry, i) => groups.push(...groupsOf(n.body, entryScope(n, vars, entry, i), n.as)));
+        (Array.isArray(list) ? list : []).slice(0, n.limit ?? undefined).forEach((e, i) => entry(n, e, i, () => groups.push(...groupsOf(n.body, entryScope(n, vars, e, i), n.as))));
       } else {
         const g: ViewPart[] = [];
         walk([n], vars, 0, 0, loop, g);
@@ -438,9 +546,10 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
   /** The body of a hotspot or button that was just pushed as the last part: drawn after it, in the same coordinates, each child marked with its parent's id. */
   const children = (n: ScreenNode, vars: Vars, ox: number, oy: number, loop: string | null, parts: ViewPart[]) => {
     if ((n.kind !== 'hotspot' && n.kind !== 'button') || !n.body?.length) return;
+    const body = n.body;
     const owner = parts[parts.length - 1] as ViewItem;
     const inner: ViewPart[] = [];
-    walk(n.body, vars, ox, oy, loop, inner);
+    within(n, () => walk(body, vars, ox, oy, loop, inner));
     for (const p of inner) parts.push('id' in p && p.parent === undefined ? { ...p, parent: owner.id } : p);
   };
   /** What an element adds to its part for local state: its handlers evaluated now, and a tab's lit state. */
@@ -455,66 +564,72 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
   };
   const walk = (nodes: ScreenNode[], vars: Vars, ox: number, oy: number, loop: string | null, parts: ViewPart[]) => {
     /** Inside `each`, an element named like the loop variable stands for the entry itself. */
-    const elementId = (id: string) => (id === loop ? String(vars[loop]) : id);
+    const elementId = (id: string) => (id === loop ? String(vars[loop]) : loop && id.startsWith(`${loop}.`) ? String(vars[loop]) + id.slice(loop.length) : id);
     const hints = (f: FocusHints): FocusHints => Object.fromEntries(Object.entries(f).map(([d, id]) => [d, elementId(id)]));
     for (const n of nodes) {
       if (n.cond && !truthy(evalExpr(n.cond, vars))) continue;
       switch (n.kind) {
         case 'image':
-          parts.push({ kind: 'image', file: env.text(null, n.file, vars), x: n.x + ox, y: n.y + oy, w: n.w, h: n.h });
+          parts.push(mark(n, { kind: 'image', file: env.text(null, n.file, vars), x: n.x + ox, y: n.y + oy, w: n.w, h: n.h }));
           break;
         case 'text':
-          parts.push({ kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars), ...(n.style ? { style: n.style } : {}) });
+          parts.push(mark(n, { kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars), ...(n.style ? { style: n.style } : {}), ...(n.font ? { font: n.font } : {}), ...(n.width ? { width: n.width } : {}), ...(n.align ? { align: n.align } : {}), ...(n.color ? textColor(n.color, env, vars) : {}), ...(n.lines ? { lines: n.lines } : {}) }));
           break;
         case 'slider': {
           const r = SLIDER_SETTINGS[n.setting as keyof typeof SLIDER_SETTINGS] ?? SLIDER_SETTINGS.master;
           const v = Number(vars[n.setting]);
-          parts.push({ kind: 'slider', setting: n.setting, x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, readout: n.readout, ...r, value: Number.isFinite(v) ? Math.min(r.max, Math.max(r.min, v)) : r.min });
+          parts.push(mark(n, { kind: 'slider', setting: n.setting, x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, readout: n.readout, ...r, value: Number.isFinite(v) ? Math.min(r.max, Math.max(r.min, v)) : r.min }));
           break;
         }
         case 'hotspot': {
           const shape = translate(n.shape, ox, oy);
-          parts.push({
+          parts.push(mark(n, {
             kind: 'hotspot', id: elementId(n.id), shape, label: env.text(n.labelId, n.label, vars),
             enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: n.cursor, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: n.tip, bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act, ...local(n, vars),
-          });
+          }));
           children(n, vars, ox, oy, loop, parts);
           break;
         }
         case 'button': {
-          const label = env.text(n.labelId, n.label, vars);
-          const size = buttonSize(label);
+          const choices = n.select ? selectOptions(n.id, vars, env) : null;
+          const shown = choices?.find(o => o.value === String(vars[n.id]));
+          const label = choices ? `${shown?.label ?? String(vars[`${n.id}_word`] ?? '')} ▾` : env.text(n.labelId, n.label, vars);
+          const sub = n.sub ? env.text(null, n.sub, vars) : '';
+          const size = buttonSize(label, n.font, sub);
+          const named = n.actVar ? String(vars[n.actVar]) : null;
+          const act = named !== null ? ((SHELL_ACTIONS as readonly string[]).includes(named) ? named as ShellAction : null) : n.act;
           const shape: Shape = { k: 'rect', x: n.x + ox, y: n.y + oy, w: n.w ?? size.w, h: n.h ?? size.h };
-          parts.push({
+          parts.push(mark(n, {
             kind: 'button', id: elementId(n.id), shape, label,
-            enabled: !n.enabled || truthy(evalExpr(n.enabled, vars)), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, ...(n.style ? { style: n.style } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act: n.act, ...local(n, vars),
-          });
+            enabled: (!n.enabled || truthy(evalExpr(n.enabled, vars))) && (!choices || choices.length > 0), cursor: null, hover: n.hover ? env.text(null, n.hover, vars) : null, plain: n.plain, fx: n.fx, tip: false, ...(choices ? { select: { options: choices, value: String(vars[n.id]), open: String(vars.select_open ?? '') === n.id } } : {}), ...(n.style ? { style: n.style } : {}), ...(n.font ? { font: n.font } : {}), ...(n.tooltip ? { tooltip: env.text(null, n.tooltip, vars) } : {}), ...(sub ? { sub } : {}), bounds: shapeBounds(shape), center: shapeCenter(shape), focus: hints(n.focus), on: n.on, act, ...local(n, vars),
+            ...(n.act === 'tab' ? { role: 'tab' as const, checked: String(vars.tab) === n.id } : {}), // an `action tab` button is lit while its tab is the shown one
+          }));
           children(n, vars, ox, oy, loop, parts);
           break;
         }
         case 'each': {
           const list = vars[n.list];
-          (Array.isArray(list) ? list : []).slice(0, n.limit ?? undefined).forEach((entry, i) => walk(n.body, entryScope(n, vars, entry, i), ox + n.x + i * n.dx, oy + n.y + i * n.dy, n.as, parts));
+          (Array.isArray(list) ? list : []).slice(0, n.limit ?? undefined).forEach((e, i) => entry(n, e, i, () => walk(n.body, entryScope(n, vars, e, i), ox + n.x + i * n.dx, oy + n.y + i * n.dy, n.as, parts)));
           break;
         }
         case 'scroll': {
           const inner: ViewPart[] = [];
-          walk(n.body, vars, 0, 0, loop, inner);
+          within(n, () => walk(n.body, vars, 0, 0, loop, inner));
           const index = areas++;
           const content = Math.max(0, ...inner.map(p => partBox(p).y + partBox(p).h));
-          parts.push({ kind: 'scroll', index, x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, start: n.start, bar: n.bar, contentH: Math.max(content, n.h) });
+          parts.push(mark(n, { kind: 'scroll', index, x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, start: n.start, bar: n.bar, contentH: Math.max(content, n.h) }));
           for (const p of inner) parts.push({ ...shiftPart(p, n.x + ox, n.y + oy), area: index });
           break;
         }
         case 'panel': {
           const inner: ViewPart[] = [];
-          walk(n.body, vars, 0, 0, loop, inner);
+          within(n, () => walk(n.body, vars, 0, 0, loop, inner));
           const [pt, pr, pb, pl] = n.padding;
           const boxes = inner.map(partBox);
           // without a size the panel fits its children, and never gets smaller than its frame's corners
           const w = n.w ?? Math.max(n.file ? n.slice[1] + n.slice[3] : 0, pl + pr + Math.max(0, ...boxes.map(b => b.x + b.w)));
           const h = n.h ?? Math.max(n.file ? n.slice[0] + n.slice[2] : 0, pt + pb + Math.max(0, ...boxes.map(b => b.y + b.h)));
-          parts.push({ kind: 'panel', x: n.x + ox, y: n.y + oy, w, h, file: n.file ? env.text(null, n.file, vars) : null, slice: n.slice, edge: n.edge });
+          parts.push(mark(n, { kind: 'panel', x: n.x + ox, y: n.y + oy, w, h, file: n.file ? env.text(null, n.file, vars) : null, slice: n.slice, edge: n.edge, ...(n.color ? { color: n.color } : {}) }));
           for (const p of inner) parts.push(shiftPart(p, n.x + ox + pl, n.y + oy + pt));
           break;
         }
@@ -523,19 +638,20 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           const min = num(n.min), max = num(n.max), value = Math.min(Math.max(num(n.value), min), Math.max(min, max));
           const fraction = max > min ? (value - min) / (max - min) : 0;
           const shown = (v: number) => String(Math.round(v * 10) / 10);
-          parts.push({
+          parts.push(mark(n, {
             kind: 'bar', x: n.x + ox, y: n.y + oy, w: n.w, h: n.h, back: n.back ? env.text(null, n.back, vars) : null, fill: n.fill ? env.text(null, n.fill, vars) : null,
             slice: n.slice, edge: n.edge, padding: n.padding, color: n.color, value, min, max, fraction, readout: n.readout ? `${shown(value)} / ${shown(max)}` : null,
-          });
+          }));
           break;
         }
         case 'layout':
-          for (const p of layoutGroups(n, groupsOf(n.body, vars, loop), env.stage ?? DEFAULT_STAGE)) parts.push(shiftPart(p, ox, oy));
+          for (const p of layoutGroups(n, within(n, () => groupsOf(n.body, vars, loop)), env.stage ?? DEFAULT_STAGE, vars)) parts.push(shiftPart(p, ox, oy));
           break;
       }
     }
   };
   walk(def.body, scope, 0, 0, null, parts);
+  parts.push(...expandSelects(parts, env.stage ?? DEFAULT_STAGE));
   return { name: def.name, parts, default: def.default, cancel: def.cancel, ...(def.hideBox ? { hideBox: true as const } : {}) };
 }
 
@@ -546,7 +662,8 @@ export interface ScreenProblem { src: Src; severity: 'error' | 'warning'; messag
 /** Problems in one screen declaration that need no variables: ids, shapes, an empty screen. */
 export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE): ScreenProblem[] {
   const out: ScreenProblem[] = [];
-  const problem = (src: Src, severity: 'error' | 'warning', message: string) => out.push({ src, severity, message });
+  const stock = def.src.file.startsWith('stock/'); // the starters are laid out for the default stage: no off-stage warnings about them
+  const problem = (src: Src, severity: 'error' | 'warning', message: string) => { if (!(stock && severity === 'warning')) out.push({ src, severity, message }); };
   const ids = new Set<string>();
   const hinted: { src: Src; from: string; to: string }[] = [];
   let interactive = 0, hasEach = false;
@@ -581,7 +698,7 @@ export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE)
       if ((n.kind === 'hotspot' || n.kind === 'button') && n.body?.length && loop !== null) problem(n.src, 'error', `"${n.id}" has child elements, which "each" cannot repeat (every copy would share the children's ids); put the group outside the each`);
       if (n.kind === 'hotspot' || n.kind === 'button') {
         interactive++;
-        if (loop !== null && n.id !== loop) problem(n.src, 'error', `Inside "each", the element id must be "${loop}" (the entry), or every copy would share one id`);
+        if (loop !== null && n.id !== loop && !n.id.startsWith(`${loop}.`)) problem(n.src, 'error', `Inside "each", the element id must be "${loop}" (the entry) or "${loop}.<word>", or every copy would share one id`);
         else if (loop === null && ids.has(n.id)) problem(n.src, 'error', `Duplicate element id "${n.id}" in screen ${def.name}`);
         if (loop === null) ids.add(n.id);
         if (loop === null) for (const to of Object.values(n.focus)) hinted.push({ src: n.src, from: n.id, to });

@@ -441,6 +441,22 @@ test('nvl: lines collect on a page; clear, scene and off end it; restore and sav
   assert.ok(getCompletions(p, 'nvl ').some(s => s.label === 'clear'));
 });
 
+test('textbox hide: asks the renderer to hide the box before the next line; bad forms are errors', async () => {
+  const p = compile([{ file: 't.vn', text: 'label start:\n  "one"\n  textbox hide\n  wait 0\n  "two"\n' }]);
+  assert.deepEqual(errors(p), []);
+  const r = new NullRenderer();
+  const log = [];
+  r.hideBox = () => log.push('hide');
+  const say = r.say.bind(r);
+  r.say = ev => { log.push(ev.text); return say(ev); };
+  await new Runtime(p, r).start();
+  assert.deepEqual(log, ['one', 'hide', 'two']);
+  for (const bad of ['textbox', 'textbox show', 'textbox hide now']) {
+    assert.equal(compile([{ file: 't.vn', text: `label start:\n  ${bad}\n` }]).diagnostics.filter(d => d.severity === 'error').length, 1, bad);
+  }
+  assert.ok(getCompletions(p, 'textbox ').some(s => s.label === 'hide'));
+});
+
 test('restore into an unreachable line in the middle of an nvl page starts with nvl on', async () => {
   const text = 'label start:\n  "a"\n  end\nlabel hidden:\n  nvl on\n  "x"\n  "y"\n';
   const p = compile([{ file: 't.vn', text }]);
