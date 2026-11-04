@@ -20,7 +20,8 @@ The repository's `.github/workflows/online-demo.yml` builds and publishes it to 
 
 ## What visitors get
 
-- **A project list** (the site's front page): start from the Iris demo or a blank project, import a project `.zip`,
+- **A project list** (the site's front page): each bundled demo has **Play** (adds it to your projects and starts
+  playing) and **Open in editor** (opens it in the editor); or start a blank project, import a project `.zip`,
   then open, play, rename, duplicate, download as `.zip`, or delete.
 - **The editor**, the same one `npm run dev` serves, with live preview, completions, the outline, translations, voice,
   the animation studio, rename, find in files and the trash. The **‹ Projects** button at the left of the top bar saves

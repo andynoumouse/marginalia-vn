@@ -38,22 +38,23 @@ async function startWorker(): Promise<boolean> {
 // ---- making projects ----
 const file = (path: string, text: string) => ({ path, bytes: enc.encode(text) });
 
-async function create(title: string, files: { path: string; bytes: Uint8Array; mtime?: number }[], open = true) {
+async function create(title: string, files: { path: string; bytes: Uint8Array; mtime?: number }[], open: 'editor' | 'play' | false = 'editor') {
   const id = freeId(projectSlug(title), (await listProjects()).map(p => p.id));
   const now = Date.now();
   await writeFiles(id, files);
   await putProject({ id, title, created: now, opened: now });
-  if (open) location.assign(`p/${id}/editor/`);
+  if (open === 'editor') location.assign(`p/${id}/editor/`);
+  else if (open === 'play') location.assign(`p/${id}/`);
   else await render();
 }
 
-async function newFromGame(g: SeedGame) {
+async function newFromGame(g: SeedGame, open: 'editor' | 'play' | false) {
   const files = await Promise.all(g.files.map(async path => {
     const r = await fetch(`seed/${g.id}/${path.split('/').map(encodeURIComponent).join('/')}`);
     if (!r.ok) throw new Error(`could not load ${g.title}'s ${path}`);
     return { path, bytes: new Uint8Array(await r.arrayBuffer()) };
   }));
-  await create(g.title, files);
+  await create(g.title, files, open);
 }
 
 async function newEmpty() {
@@ -152,9 +153,13 @@ async function main() {
   void loadSeed().then(s => {
     $('version').textContent = `engine ${s.engine}`;
     for (const g of s.games) {
-      const card = Object.assign(document.createElement('button'), { type: 'button' });
-      card.append(Object.assign(document.createElement('strong'), { textContent: g.title }), Object.assign(document.createElement('small'), { textContent: g.description }));
-      card.addEventListener('click', () => void busy(() => newFromGame(g)));
+      const card = Object.assign(document.createElement('div'), { className: 'game' });
+      const play = button('Play', () => busy(() => newFromGame(g, 'play')), 'Add it to your projects and play it right away');
+      play.classList.add('primary');
+      const edit = button('Open in editor', () => busy(() => newFromGame(g, 'editor')), 'Add it to your projects and open it in the editor');
+      const actions = Object.assign(document.createElement('div'), { className: 'game-actions' });
+      actions.append(play, edit);
+      card.append(Object.assign(document.createElement('strong'), { textContent: g.title }), Object.assign(document.createElement('small'), { textContent: g.description }), actions);
       $('games').append(card);
     }
   }, () => {});
