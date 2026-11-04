@@ -164,6 +164,12 @@
   /* the quick bar reads as labels, not buttons: no box until hovered or focused */
   #quickui .sc-btn { color: rgba(230,233,239,.7); background: transparent; border-color: transparent; padding: 6px 12px; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.6); }
   #quickui .sc-btn:hover, #quickui .sc-btn[data-active="true"], #quickui .sc-btn:focus-visible { color: var(--vn-text); background: rgba(255,255,255,.08); border-color: transparent; }
+  /* a full-stage picture left up while the next scene fades in (see ScreenLayer.unlinger) takes no clicks */
+  #screenui[data-linger] * { pointer-events: none !important; }
+  /* Auto and Skip are toggles (aria-pressed): a checkbox before the label, and the accent colour while on */
+  #quickui .sc-btn[aria-pressed]::before { content: "\2610"; margin-right: .35em; }
+  #quickui .sc-btn[aria-pressed="true"]::before { content: "\2611"; }
+  #quickui .sc-btn[aria-pressed="true"] { color: var(--vn-accent); }
   /* the quick bar's hints are a quiet aside: small, and only after the pointer has rested on the button */
   #stage #quickui .sc-tip { font-size: 22px; padding: 4px 12px; }
   #stage #quickui .sc-tip[data-show="true"] { animation: tip-in .15s ease-out .8s backwards; }

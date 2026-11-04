@@ -509,6 +509,10 @@ export abstract class StageRenderer implements Renderer {
       await this.ensure(keys);
       if (ep !== this.epoch) return;
     }
+    // A full-stage screen picture left up by the last screen fades with a scene change, and goes at once for anything else.
+    // (Sound and hide ops change nothing under the picture: the map screen is followed by `hide iris` before the jump to the next room's scene.)
+    if (op.op === 'scene') this.screens.unlinger(this.skipping ? 0 : op.dur);
+    else if (op.op !== 'hide' && op.op !== 'music' && op.op !== 'sound') this.screens.unlinger();
     switch (op.op) {
       case 'music':
         this.showMusic(state);
@@ -597,6 +601,7 @@ export abstract class StageRenderer implements Renderer {
   }
 
   say(ev: SayEvent): Promise<void> {
+    this.screens.unlinger();
     const plain = ev.segments.map(s => (s.kind === 'text' ? s.text : '')).join('');
     this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain });
     const wasSeen = this.isSeen(ev);

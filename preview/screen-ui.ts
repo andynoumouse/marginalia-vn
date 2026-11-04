@@ -244,6 +244,7 @@ export class ScreenLayer {
    * `leave`: the screen was dismissed, so the elements with an `on exit` play it on copies first; returns true while any are still playing, and `idle` runs when they are done.
    */
   close(leave = false, idle?: () => void): boolean {
+    this.clearLinger();
     const before = this.exitable;
     this.view = null;
     this.done = null;
@@ -674,8 +675,41 @@ export class ScreenLayer {
   }
   private finish(id: string) {
     const done = this.done;
+    // A picture that covers the whole stage (a map of hotspots) stays up, inert, until the next scene change fades it out:
+    // closing it at once would show the scene underneath for the length of that transition.
+    const covers = [...this.root.querySelectorAll('img')].some(i => i.offsetWidth >= this.root.offsetWidth * .98 && i.offsetHeight >= this.root.offsetHeight * .98);
+    const kids = covers ? [...this.root.children].filter(c => c !== this.tip) : [];
     this.close(true);
+    if (kids.length) {
+      this.root.append(...kids);
+      this.root.dataset.visible = 'true';
+      this.root.dataset.linger = 'true';
+      this.lingering = true;
+    }
     done?.(id);
+  }
+
+  private lingering = false;
+  private lingerTimer = 0;
+
+  private clearLinger() {
+    if (!this.lingering) return;
+    this.lingering = false;
+    clearTimeout(this.lingerTimer);
+    delete this.root.dataset.linger;
+    this.root.style.transition = '';
+    this.root.style.opacity = '';
+    this.root.replaceChildren();
+    this.root.dataset.visible = 'false';
+  }
+
+  /** Take down the picture a dismissed screen left up: at once, or fading out over `seconds` (the scene change underneath). */
+  unlinger(seconds = 0) {
+    if (!this.lingering) return;
+    if (seconds <= 0 || this.view) { if (!this.view) this.clearLinger(); return; }
+    this.root.style.transition = `opacity ${seconds}s linear`;
+    requestAnimationFrame(() => { this.root.style.opacity = '0'; });
+    this.lingerTimer = window.setTimeout(() => this.clearLinger(), seconds * 1000 + 50);
   }
 
   // ---- keyboard and pad ----
