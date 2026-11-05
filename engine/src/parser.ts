@@ -146,6 +146,7 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
       }
       const char = need(0, 'a character');
       let pose: string | null = null, x: number | null = null, fade = 0;
+      const more: string[] = []; // bare words after the first: further looks, applied left to right
       const overrides: Record<string, string> = {};
       const place: { y?: number; scale?: number; flip?: boolean; anchor?: Anchor; order?: 'front' | 'back'; behind?: string } = {};
       let posY: number | undefined; // the named position's height, used unless the line has its own y=
@@ -174,11 +175,11 @@ function parseCommand(text: string, positions: Positions, anchors: Anchors, stag
         else if (t.startsWith('anchor=')) { place.anchor = anchorArg(t, anchors); i++; }
         else if (t.includes('=')) { const [k, v] = t.split('='); overrides[k] = v; i++; }
         else if (pose === null) { pose = t; i++; }
-        else throw new ParseError(`Unexpected "${t}" in show`);
+        else { more.push(t); i++; }
       }
       if (place.y === undefined && posY !== undefined) place.y = posY;
       if (place.order && place.behind) throw new ParseError('Use either order= or behind=, not both');
-      return visual({ op: 'show', char, pose, overrides, x, fade, ...place });
+      return visual({ op: 'show', char, pose, more, overrides, x, fade, ...place });
     }
     case 'hide': {
       const char = need(0, 'a character');

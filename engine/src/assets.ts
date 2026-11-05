@@ -18,7 +18,7 @@ import { speakerFocusProblems } from './focus.js';
 import { sideImageProblems } from './side.js';
 import { iconAsset, versionProblem } from './app-info.js';
 import { hudLabels, type ScreenNode } from './screens.js';
-import { expandShow, liveOverrides, orderedParts, partName, rigPartNames, rigPoseNames, type RigData } from './rig.js';
+import { expandShow, showLooks, liveOverrides, orderedParts, partName, rigPartNames, rigLookNames, type RigData } from './rig.js';
 import { withFix } from './suggest.js';
 import { splitVoiceName } from './voice.js';
 import { buildCheckSettings } from './build-checks.js';
@@ -33,6 +33,8 @@ export interface RigPart {
   slot?: string;
   default?: string | null;
   variants?: Record<string, { file?: string; x?: number; y?: number; poses?: string[] }>;
+  /** The `+folders` of the PSD it sat in, outermost first, joined by `/` (the converter writes it; rigSkeleton makes bones of it). */
+  group?: string;
 }
 /** assets/char/<char>/sprite.json, written by tools/psd-convert.mjs. */
 export interface RigManifest {
@@ -85,20 +87,16 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
     return parts.length === 3 && parts[0] === 'char' && parts[1] === char && IMAGE.test(f) ? [parts[2].replace(/\.[^.]+$/, '')] : [];
   }));
 
-  // Layered characters: which poses and slot variants exist.
-  const rigs = new Map<string, { poses: Set<string>; slots: Map<string, Set<string>> }>();
+  // Layered characters: which slot variants exist.
+  const rigs = new Map<string, { slots: Map<string, Set<string>> }>();
   for (const [char, rig] of Object.entries(index.rigs ?? {})) {
     if (rig.flat) continue;
-    const poses = new Set<string>(), slots = new Map<string, Set<string>>();
+    const slots = new Map<string, Set<string>>();
     for (const p of rig.parts ?? []) {
       if (!p.slot || !p.variants) continue;
       slots.set(p.slot, new Set(Object.keys(p.variants)));
-      for (const [name, v] of Object.entries(p.variants)) {
-        poses.add(name);
-        for (const alias of v.poses ?? []) poses.add(alias);
-      }
     }
-    rigs.set(char, { poses, slots });
+    rigs.set(char, { slots });
   }
 
   for (const op of program.ops) {
@@ -109,9 +107,9 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
       case 'show': {
         const rig = rigs.get(op.char);
         if (rig) {
-          const shown = expandShow(index.rigs![op.char], op.pose, op.overrides); // rig.json shorthands and groups
+          const shown = expandShow(index.rigs![op.char], showLooks(op), op.overrides); // rig.json looks and PSD tags
           for (const problem of shown.problems) warn(op.src, `${op.char}: ${problem}`);
-          if (shown.pose && !rig.poses.has(shown.pose)) warn(op.src, `${op.char} has no layer named or aliased "${shown.pose}"`, shown.pose, rigPoseNames(index.rigs![op.char]), ' (see its PSD)');
+          for (const word of shown.unknown) warn(op.src, `${op.char} has no layer named or aliased "${word}"`, word, rigLookNames(index.rigs![op.char]), ' (see its PSD)');
           for (const [slot, value] of Object.entries(shown.overrides)) {
             const variants = rig.slots.get(slot);
             if (!variants) warn(op.src, `${op.char} has no slot "${slot}" (slots: ${[...rig.slots.keys()].join(', ') || 'none'})`);
@@ -366,40 +364,34 @@ export const imageKey = (file: string, ctx: AssetContext): string | null => {
 export interface RigLayer { file: string; x: number; y: number; part: string }
 
 /**
- * The layers of a layered character that show `pose` with the slot `overrides`, bottom to top. The one lookup
- * both the renderer (to draw) and the preload plan (to know which files) use; `warn` hears about names the
- * rig does not have.
+ * The layers of a layered character that show `looks` (applied left to right) with the slot `overrides`, bottom to top.
+ * The one lookup both the renderer (to draw) and the preload plan (to know which files) use; `warn` hears about names
+ * the rig does not have.
  */
-export function rigLayers(rig: RigManifest, pose: string | null, overrides: Record<string, string>, warn: (msg: string) => void = () => {}): RigLayer[] {
+export function rigLayers(rig: RigManifest, looks: string[], overrides: Record<string, string>, warn: (msg: string) => void = () => {}): RigLayer[] {
   const picks: RigLayer[] = [];
   let part = '';
   const add = (p?: { file?: string; x?: number; y?: number }) => { if (p?.file) picks.push({ file: p.file, x: p.x ?? 0, y: p.y ?? 0, part }); };
-  const shown = expandShow(rig, pose, overrides);
+  const shown = expandShow(rig, looks, overrides);
   shown.problems.forEach(warn);
-  pose = shown.pose;
+  for (const word of shown.unknown) warn(`no layer is named or aliased "${word}"`);
   overrides = shown.overrides;
-  let poseUsed = !pose;
   for (const p of orderedParts(rig)) {
     part = partName(p);
     if (!p.slot || !p.variants) { add(p); continue; }
     const want = overrides[p.slot];
     let v = want !== undefined ? p.variants[want] : undefined;
     if (want !== undefined && !v && want !== 'none') warn(`slot "${p.slot}" has no variant "${want}"`);
-    if (want === undefined && pose) {
-      v = p.variants[pose] ?? Object.values(p.variants).find(x => x.poses?.includes(pose));
-      if (v) poseUsed = true;
-    }
     if (want === undefined && !v && p.default) v = p.variants[p.default];
     add(v);
   }
-  if (!poseUsed) warn(`no layer is named or aliased "${pose}"`);
   return picks;
 }
 
 /** The image keys a sprite is drawn with (only files that exist: the rest is a placeholder). */
-export function spriteKeys(s: Pick<SpriteState, 'char' | 'pose' | 'overrides'>, ctx: AssetContext): string[] {
+export function spriteKeys(s: Pick<SpriteState, 'char' | 'pose' | 'more' | 'overrides'>, ctx: AssetContext): string[] {
   const rig = ctx.rigs[s.char]?.flat ? undefined : ctx.rigs[s.char];
-  const layerKeys = (overrides: Record<string, string>) => rigLayers(rig!, s.pose, overrides).map(p => `char/${s.char}/${p.file.replace(IMAGE, '')}`);
+  const layerKeys = (overrides: Record<string, string>) => rigLayers(rig!, showLooks(s), overrides).map(p => `char/${s.char}/${p.file.replace(IMAGE, '')}`);
   // A character that blinks or talks by itself also needs those variants loaded, or the swap would flash.
   const keys = rig
     ? [...new Set([...layerKeys(s.overrides), ...liveOverrides(rig.rig).flatMap(o => layerKeys({ ...s.overrides, ...o }))])]
@@ -465,7 +457,7 @@ export function opAssets(op: Op, ctx: AssetContext, program?: Pick<Program, 'scr
     case 'hud': return op.mode === 'on' && program ? hudAssets(program, op.name, ctx) : [];
     case 'screen': return program ? screenAssets(program, op.name, ctx) : [];
     case 'scene': { const k = bgKey(op.bg, ctx); return k ? [k] : []; }
-    case 'show': return spriteKeys({ char: op.char, pose: op.pose, overrides: op.overrides }, ctx);
+    case 'show': return spriteKeys({ char: op.char, pose: op.pose, more: op.more, overrides: op.overrides }, ctx);
     case 'image': { const k = op.action === 'show' ? imageKey(op.file, ctx) : null; return k ? [k] : []; }
     case 'say': return op.id && ctx.hasVoice(op.id) ? [VOICE_KEY + op.id] : [];
     case 'music': return op.action === 'play' && op.name && ctx.has(`music/${op.name}`) ? [`music/${op.name}`] : [];
@@ -547,7 +539,7 @@ export function attachPreloads(program: Program, index: AssetIndex, opts: { gall
   for (const c of Object.values(program.characters) as CharacterDef[]) {
     if (c.style.blip && ctx.has(`sound/${c.style.blip}`)) always.add(`sound/${c.style.blip}`);
   }
-  for (const op of ops) if (op.op === 'show' && !op.pose) for (const k of spriteKeys({ char: op.char, pose: null, overrides: {} }, ctx)) always.add(k);
+  for (const op of ops) if (op.op === 'show' && !op.pose) for (const k of spriteKeys({ char: op.char, pose: null, more: [], overrides: {} }, ctx)) always.add(k);
   const gallery = (opts.gallery ?? []).map(n => bgKey(n, ctx)).filter((k): k is string => !!k);
 
   return (program.preload = { lookahead, tasks, always: [...always], gallery });

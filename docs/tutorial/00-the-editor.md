@@ -67,4 +67,4 @@ cursor, and **F8** steps through problems. `game.json` has its own tab with comp
 **Translate** edits translations side by side, **Voice** tracks a recording for each line, and **Build** runs the
 pre-build checks and exports a web or desktop build into `build/`.
 
-The full reference is in the [README's Editor section](../../README.md#editor).
+The full reference is in the [editor reference](../editor.md).

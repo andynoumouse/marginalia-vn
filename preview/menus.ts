@@ -48,6 +48,9 @@ export interface MenuActions {
   load(slot: string): void;
   /** Roll back to the `n`th line of the history (0-based); the history screen is already closed. */
   rollbackTo(n: number): void;
+  /** A history line's recording (by the line's localization id): whether it exists, and play it. */
+  hasVoice(id: string | undefined): boolean;
+  playVoice(id: string | undefined): void;
   /** A setting changed; `lang` is true when the language did. */
   changed(lang: boolean): void;
   /** A screen opened or the last one closed. */
@@ -395,9 +398,11 @@ export class Menus {
     const ids = this.historyLines.map((_, i) => String(i + 1));
     return {
       vars: { lines: ids, total: ids.length },
-      entries: { lines: Object.fromEntries(ids.map((id, i) => { const l = this.historyLines[i]; return [id, { name: l.name ?? '', color: l.color ?? '', text: l.text, current: this.isCurrentLine(i) }]; })) },
+      entries: { lines: Object.fromEntries(ids.map((id, i) => { const l = this.historyLines[i]; return [id, { name: l.name ?? '', color: l.color ?? '', text: l.text, current: this.isCurrentLine(i), voiced: this.act.hasVoice(l.id) }]; })) },
     };
   }
+  /** `action voice` on a history line's own button (`button ln.voice`): play that line's recording again (id is 1-based). */
+  replayLine(id: string) { this.act.playVoice(this.historyLines[Number(id) - 1]?.id); }
   /** `action close` on the project's history screen: the same as Back. */
   closeHistory() { if (this.stack.at(-1) === historyEl) this.back(); }
   /** `action line` on the history screen: roll back to that line (id is 1-based). */

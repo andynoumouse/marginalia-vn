@@ -316,6 +316,14 @@
   #animStudio .as-key { max-width: 100%; }
   #animStudio header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   #animStudio header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #animStudio .as-modes { display: inline-flex; }
+  #animStudio .as-modes button { border-radius: 0; }
+  #animStudio .as-modes button:first-child { border-radius: 4px 0 0 4px; }
+  #animStudio .as-modes button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
+  #animStudio .as-modes button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); position: relative; }
+  /* Rig mode: no animation list, transport or timeline; the stage grows and the inspector widens. */
+  #animStudio[data-mode="rig"] .as-body { grid-template-columns: minmax(0, 1fr) 420px; }
+  #animStudio[data-mode="rig"] :is(.as-side, .as-transport, .as-timeline, [data-t="scene"]) { display: none; }
   #animStudio .as-side { display: flex; flex-direction: column; gap: 8px; }
   #animStudio .as-name { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--accent); border-radius: 4px; font-size: 12px; color: var(--muted); }
   #animStudio .as-name[hidden] { display: none; }
@@ -358,6 +366,8 @@
   #animStudio .as-variant { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; font-size: 12px; }
   #animStudio .as-variant[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   #animStudio .as-variant.as-set { background: var(--ink); }
+  #animStudio .as-drop { outline: 2px dashed var(--accent); }
+  #animStudio .as-bone-fold { padding: 0 6px; margin-right: 4px; }
   #animStudio .as-poses { padding-left: 0; }
   #animStudio .as-poses .as-variant { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; max-width: 100%; }
   #animStudio .as-place input[type=number] { width: 80px; }

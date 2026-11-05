@@ -9,7 +9,7 @@ Durations are in seconds. Positions are `left` (0.2), `center` (0.5), `right` (0
 Visual commands (everything under "Stage") accept `nowait` to run in the background while the script goes on.
 
 Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) · [Stage](#stage) · [Effects](#effects) ·
-[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Persistent flags](#persistent-flags) ·
+[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Persistent flags](#persistent-flags-and-data) ·
 [Editor keys](#editor-keys)
 
 ## Story
@@ -208,11 +208,14 @@ scene bg_hall pixelate 0.8
 ```
 
 ### show / hide
-`show <char> [pose] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...]`. For layered
-(PSD) characters a pose picks a variant per slot, and `slot=variant` overrides one slot (`glasses=none` empties it).
-A pose-less show keeps the character's current pose. `y=`, `scale=` and `flip=` place the character in the same
+`show <char> [look ...] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...]`. For layered
+(PSD) characters a *look* picks a variant per slot: a name from the character's `rig.json` `looks`, or a variant name or
+tag from the PSD (`show mina smile`), and `slot=variant` overrides one slot (`glasses=none` empties it). Several looks
+may stand on the line and apply left to right, the last winning per slot (`show mina shy casual`); `slot=variant` beats
+every look (see [rig-json.md](rig-json.md#looks)). A look-less show keeps the character's current looks. For a flat
+character the first word names the image (`show iris smile`). `y=`, `scale=` and `flip=` place the character in the same
 units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
-Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand. The line includes the pose and slot variants chosen in the Parts tab, and "Insert in script" puts it under the line the cursor was on.
+Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand. The line includes the look and slot variants chosen in the Parts tab, and "Insert in script" puts it under the line the cursor was on.
 `hide <char> [fade <seconds>]`.
 
 Characters are drawn in the order they were first shown, the newest in front. `order=front` or `order=back` moves a
@@ -274,7 +277,7 @@ its loop. The animation adds to where the character stands (`move`, `show at`), 
 it plays once for the seconds (a default for each name) and the script waits for it unless `nowait`. With `loop`
 it repeats until `stop`, `hide` or the next `scene`, the seconds being one cycle; a loop is kept in saves and
 rollback, and a new loop replaces the running one. With `part=` the animation moves just that part of a layered
-character (about its pivot, see [rig-json.md](rig-json.md)) instead of the whole body; a rig.json group moves all its parts as one. `strength=` scales how far it moves. With reduce motion on,
+character (about its pivot, see [rig-json.md](rig-json.md)) instead of the whole body; a rig.json bone moves its parts, and the bones below it, as one. `strength=` scales how far it moves. With reduce motion on,
 animations do not play.
 
 | name | default seconds | motion |
@@ -830,8 +833,10 @@ The history panel is the screen named `history` (opened from the quick menu, `L`
 game draws a default screen (a dimmed backdrop, the lines in a scroll area, Back); declare your own to change it. The shell fills in these variables:
 
 - `lines`: the ids of every line passed, oldest first (up to about 500). In `each lines as ln`, `[ln.name]` is the speaker (empty for narration), `[ln.color]` its colour (empty for none; `text ... color [ln.color]` uses it), `[ln.text]` the line
-  and `ln.current` is true for the line still on screen.
+  and `ln.current` is true for the line still on screen. `ln.voiced` is true when the line has a recording in the player's voice language.
 - `total`: how many lines there are.
+- `button ln.voice ... action voice` (a second button per line, id `<line>.voice`) plays that line's recording again; use `if ln.voiced`. Saves made before this
+  was added carry no line ids, so their older lines show no replay button.
 - `button ln ... action line` closes the screen and rolls the story back to that line, however far back it is.
   On the line still on screen it does nothing, so `enabled not ln.current` can grey it out.
 - `action close` goes back. Put the list in a `scroll` (below); `start bottom` opens it at the newest line, and keyboard or pad focus
@@ -847,7 +852,8 @@ screen history:
   scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3 distance=30 on exit fade 0.15:
     each lines as ln step 0,140:
       text at 0,0 "[ln.name]" font 26 if ln.name != ""
-      button ln at 0,40 size 1580,84 "[ln.text]" action line
+      button ln at 0,40 size 1500,84 "[ln.text]" action line
+      button ln.voice at 1512,40 size 68,84 "♪" action voice if ln.voiced
   button done at 1500,960 "Back" action close
 ```
 
@@ -1221,7 +1227,7 @@ set persistent.playerName = name
 
 ### unlock
 `unlock <flag>` stores a flag across all playthroughs (endings, extras). Read it as `unlocked.<flag>`; flags can
-also unlock gallery images (see the README), and a flag listed in game.json's `achievements` unlocks that achievement
+also unlock gallery images (see [game-shell.md](game-shell.md)), and a flag listed in game.json's `achievements` unlocks that achievement
 and pops up its toast.
 
 ```

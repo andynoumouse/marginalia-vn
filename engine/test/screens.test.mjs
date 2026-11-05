@@ -350,6 +350,19 @@ label start:
   assert.deepEqual(v.parts.filter(x => x.act === 'line').map(x => [x.id, x.label, x.enabled]), [['1', 'a', true], ['2', 'b', false]]);
 });
 
+test('history screen: a second `ln.voice` button per line takes `action voice` and shows only on a voiced line', () => {
+  const p = build(`screen history:
+  each lines as ln step 0,60:
+    button ln at 0,0 size 700,50 "[ln.text]" action line
+    button ln.voice at 710,0 size 90,50 "v" action voice if ln.voiced
+label start:
+  end
+`);
+  assert.deepEqual(p.diagnostics, []);
+  const v = new Runtime(p, new NullRenderer()).historyView({ lines: ['1', '2'], total: 2 }, { lines: { 1: { name: '', text: 'a', current: false, voiced: true }, 2: { name: '', text: 'b', current: false, voiced: false } } });
+  assert.deepEqual(v.parts.filter(x => x.act === 'voice').map(x => x.id), ['1.voice']);
+});
+
 test('musicView and chaptersView are the reserved music and chapter screens; the title buttons follow the entries', () => {
   const p = build(`screen music:
   each tracks as t step 0,100:

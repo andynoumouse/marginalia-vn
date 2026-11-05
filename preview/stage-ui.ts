@@ -75,7 +75,7 @@ const nvlEl = $('nvl'), nvlPage = $('nvl-page');
 const box = $('box'), sideEl = $<HTMLImageElement>('side'), nameEl = $('name'), textEl = $('text'), menuEl = $('menu'), hud = $('hud'), endedEl = $('ended');
 
 /** A line as the shell sees it (history, saves). */
-export interface LineInfo { name: string | null; color: string | null; text: string }
+export interface LineInfo { name: string | null; color: string | null; text: string; /** localization id, for the line's voice recording */ id?: string }
 
 const SKIP_MS = 45; // time each line stays on screen while skipping
 const LOADING_BAR_MS = 250; // a wait for files shows the loading bar only after this long
@@ -158,6 +158,9 @@ export abstract class StageRenderer implements Renderer {
   private lineVoice: string | null = null; // id of the line on screen, while it has a recording
   /** Play the recording of the line on screen again (the replay button, key V). */
   replayVoice() { if (this.lineVoice) void this.audio.voice(this.lineVoice, this.lang); }
+  /** Whether line `id` has a recording in the voice language, and playing it (the history screen's replay button). */
+  hasVoice(id: string | undefined): boolean { return !!id && this.audio.hasVoice(id, this.lang); }
+  playVoice(id: string | undefined) { if (id) void this.audio.voice(id, this.lang); }
   protected epoch = 0;
   private advanceFn: (() => void) | null = null;
   private typeTimer = 0;
@@ -603,7 +606,7 @@ export abstract class StageRenderer implements Renderer {
   say(ev: SayEvent): Promise<void> {
     this.screens.unlinger();
     const plain = ev.segments.map(s => (s.kind === 'text' ? s.text : '')).join('');
-    this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain });
+    this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain, ...(ev.id ? { id: ev.id } : {}) });
     const wasSeen = this.isSeen(ev);
     this.markSeen(ev);
     this.lineSpeaker = ev.who;

@@ -17,21 +17,21 @@ label mina_demo:
   show mina eyes=closed
   mina: slot=variant overrides a single slot. #xhdd
 
-  # A group (rig.json "groups"): one name that sets several slots at once.
-  show mina outfit=casual
-  mina: outfit=casual sets both top and bottom, because "outfit" is a group. #od2v
-  show mina outfit=school
-  mina: And outfit=school puts the uniform back. #bm9q
-
-  # A pose shorthand (rig.json "poses"): a pose plus overrides under one name.
+  # A look (rig.json "looks"): a map from slots to variants under one name.
+  show mina uniform
+  mina: "uniform" sets both top and bottom to school. #od2v
   show mina shy
-  mina: "shy" is the smile pose with a neutral mouth. #rdgs
+  mina: "shy" is the smile look with a neutral mouth. #rdgs
   show mina casual
-  mina: "casual" is the happy pose and the casual outfit in one word. #rbq9
+  mina: "casual" is the happy look and the casual outfit in one word. #rbq9
 
-  # A line wins over a shorthand: casual, but the mouth open.
+  # Several looks on one line apply left to right: the last one wins per slot.
+  show mina casual uniform
+  mina: Casual first, then uniform, so the uniform wins. #bm9q
+
+  # A line wins over a look: casual, but the mouth open.
   show mina casual mouth=open
-  mina: Explicit slot=variant after a shorthand wins over what it set. #mv0y
+  mina: Explicit slot=variant after a look wins over what it set. #mv0y
 
   # rig.json "animations": keyframes of your own, played with `animate`.
   mina: Keyframe animations live in rig.json too. #zz01

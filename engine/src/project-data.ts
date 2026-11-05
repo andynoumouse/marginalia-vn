@@ -78,7 +78,7 @@ export function projectFromListing(listing: ProjectListing): ProjectData {
     const m = /^char\/([^/]+)\/rig\.json$/.exec(a.file);
     if (m && !rigs[m[1]]) rigs[m[1]] = { parts: [], flat: true } as unknown as RigManifest;
   }
-  // Hand-written additions (z-order, groups, shorthands) next to a generated sprite.json: engine/src/rig.ts.
+  // Hand-written additions (z-order, bones, looks) next to a generated sprite.json: engine/src/rig.ts.
   for (const [char, manifest] of Object.entries(rigs)) {
     const file = `char/${char}/rig.json`;
     if (!have.has(file)) continue;

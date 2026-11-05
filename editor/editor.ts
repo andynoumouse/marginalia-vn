@@ -3,12 +3,12 @@
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
 import {
-  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, partGroups, rigSkeleton, rigOutline, rigPoseNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, PROJECT_FOLDERS, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
+  sourceLanguage, declaredVoiceLanguages, stringRows, ANIM_NAMES, EASE_NAMES, animateRef, wordSpan, applyTextEdits, compile, namedAnchors, namedPositions, stageSize, parseVarValue, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, labelAt, variableAt, variableUses, labelRefs, renameVariable, renameLabel, rigLayers, checkRig, mergeRig, partName, rigPartNames, rigSkeleton, rigOutline, rigLookNames, UI_SCREENS, type UiScreen, overriddenScreens, writeRigText, textChange, type RigWrite, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, findColors, formatHex, findFileRefs, resolveFileRef, buildFileTree, type FileTreeFolder, matchMasters, PROJECT_FOLDERS, planMove, movedPath, isUnder, renameAssetRefs, describeTrashEntry, type TrashEntry, readCapabilities, FULL_CAPABILITIES, type Capabilities,
   UI_COMPONENTS, BUILTIN_THEMES, moveInlineTheme, themeCss, themeStylesheet, resolveTheme, type Program, type RigManifest, type LabelEdit, type ProjectFile,
 } from '../engine/src/index.js';
 import { AssetViewer, canView } from './asset-viewer.js';
 import { confirmAsk } from './ask.js';
-import { AnimStudio } from './anim-studio.js';
+import { AnimStudio, type Mode } from './anim-studio.js';
 import { HelpDialog } from './help-dialog.js';
 import { FindDialog } from './find-dialog.js';
 import { TranslationsDialog } from './translations-dialog.js';
@@ -1075,6 +1075,7 @@ function renderSidebarAssets() {
       const row = withMenu(document.createElement('div'), () => [
         { label: 'Edit rig.json', run: () => openRig(c) },
         { label: 'Animate', run: () => openAnimStudio(c) },
+        { label: 'Inspect Rig (parts and pivots)', run: () => openAnimStudio(c, undefined, undefined, 'rig') },
         null,
         ...(master ? [
           { label: 'Open Master in Default App', title: `masters/${master}`, run: () => void showPath('open', `masters/${master}`) },
@@ -1089,11 +1090,13 @@ function renderSidebarAssets() {
       row.className = 'row';
       const anim = Object.assign(document.createElement('button'), { type: 'button', className: 'anim', textContent: 'Animate', title: `Open the animation studio for ${c}` });
       anim.addEventListener('click', () => openAnimStudio(c));
+      const rig = Object.assign(document.createElement('button'), { type: 'button', className: 'anim', textContent: 'Rig', title: `Inspect the parts and pivots of ${c} without the animation` });
+      rig.addEventListener('click', () => openAnimStudio(c, undefined, undefined, 'rig'));
       row.append(sbItem(c, {
         title: `Edit char/${c}/rig.json${master ? ` (art from masters/${master})` : ''}`, current: active === rigName(c),
         meta: [master ? 'psd' : '', files.has(rigName(c)) ? 'rig.json (open)' : c in projectAssets.rigTexts ? 'rig.json' : 'rig.json (new)'].filter(Boolean).join(' · '),
         run: () => openRig(c),
-      }), anim);
+      }), rig, anim);
       return row;
     }) : [sbNone(filtering ? 'No matching characters' : 'No converted characters yet')]),
     ...sbSection('Assets', [addAny, newAssetDir], () => [{ label: 'Add Files…', run: addAny[2] }, { label: 'New Folder…', run: newAssetDir[2] }, null, revealItem('assets')],
@@ -1571,6 +1574,8 @@ function rigSchemas() {
     const variants = (slot: string) => [...Object.keys(slots.find(p => p.slot === slot)?.variants ?? {}), 'none'];
     const everyVariant = [...new Set(slots.flatMap(p => Object.entries(p.variants!).flatMap(([n, v]) => [n, ...(v.poses ?? [])])))];
     const str = (description: string, examples: string[]) => ({ type: 'string', description, examples });
+    let boneNames: string[] = [];
+    try { boneNames = Object.keys(JSON.parse(f.model.getValue()).bones ?? {}); } catch { /* the file does not parse yet: no names to offer */ }
     return [{
       uri: `vn://schema/rig/${f.char}`,
       fileMatch: [`file:///${f.name}`],
@@ -1583,18 +1588,38 @@ function rigSchemas() {
             description: 'Part names bottom to top. Listed parts swap among the positions they hold; the rest stay where the PSD had them.',
             items: str('A slot, or a plain layer\'s file name without .png.', manifest.parts.map(partName)),
           },
-          groups: {
+          bones: {
             type: 'object',
-            description: 'One name that sets several slots at once: "outfit": ["outfit_back", "outfit_front"] makes outfit=school set both.',
-            additionalProperties: { type: 'array', items: str('A slot.', slots.map(p => p.slot!)) },
+            description: 'The bone tree: transform nodes with a parent and a pivot. A key or `animate ... part=` naming a bone moves it and everything below it.',
+            additionalProperties: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                parent: str('Another bone; without one the bone hangs from the character.', boneNames),
+                pivot: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'Where it turns, [x, y] in pixels of the PSD canvas. Without one: its parent\'s.' },
+              },
+            },
           },
-          poses: {
+          parts: {
             type: 'object',
-            description: 'Named shorthands for `show`: a pose plus slot or group overrides. Overrides on the show line win.',
+            description: 'Which bone each part sits on (and a pivot of its own for a part that must turn about another point than its bone\'s).',
+            additionalProperties: false,
+            properties: Object.fromEntries(manifest.parts.map(p => [partName(p), {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                bone: str(`The bone ${partName(p)} sits on.`, boneNames),
+                pivot: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'A pivot of its own, when it must turn about another point than its bone\'s.' },
+              },
+            }])),
+          },
+          looks: {
+            type: 'object',
+            description: 'Named maps from slots to variants for `show` (`show mina shy casual`): later looks win per slot, and slot=variant on the show line wins over all. A variant of none hides the slot.',
             additionalProperties: {
               type: 'object',
               properties: {
-                pose: str('The base pose: a layer name or alias from the PSD.', everyVariant),
+                look: str('Another look, applied first: one of these looks, or a layer name or alias from the PSD.', everyVariant),
                 ...Object.fromEntries(slots.map(p => [p.slot!, str(`Variant of ${p.slot}, or none.`, variants(p.slot!))])),
               },
               additionalProperties: { type: 'string' },
@@ -1912,7 +1937,7 @@ let gitPanel: GitPanel;
 const toggleOutline = () => outlineView.toggle(buildOutline(program), () => editor.focus());
 
 /** F1 / Help button: the command reference at the statement under the cursor; a game.json tab shows docs/game-json.md,
- *  a rig.json tab docs/rig-json.md at the key (order, groups, poses) the cursor is under. */
+ *  a rig.json tab docs/rig-json.md at the key (order, bones, looks) the cursor is under. */
 function toggleHelp() {
   const kind = files.get(active)?.kind;
   let key: string | null = null;
@@ -2063,16 +2088,17 @@ function inlineThemeMarkers() {
 
 const THEME_PICK = '#theme:', THEME_CSS_PICK = '#themecss:';
 
-/** Add parts that are new in the converted art to the open rig.json's order; report ones that disappeared. */
+/** Add parts that are new in the converted art to the open rig.json's order (and bones for their PSD folders); report ones that disappeared. */
 function updateRigFromArt() {
   const f = files.get(active);
   const manifest = f?.kind === 'rig' && f.char ? projectAssets.rigs[f.char] : undefined;
   if (!f || !manifest) return;
   let data;
   try { data = JSON.parse(f.model.getValue()); } catch { setStatus(`${f.name} has errors; fix them first`); return; }
-  const { rig, added, missing } = mergeRig(data, manifest);
+  const { rig, added, missing, bonesAdded } = mergeRig(data, manifest);
   if (added.length) f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text: `${JSON.stringify(rig, null, 2)}\n` }], () => null);
   setStatus([added.length ? `added to order: ${added.join(', ')}` : 'order already has every part',
+    bonesAdded.length ? `new bones from PSD folders: ${bonesAdded.join(', ')}` : '',
     missing.length ? `no longer in the art: ${missing.join(', ')}` : ''].filter(Boolean).join('; '));
 }
 
@@ -2087,7 +2113,7 @@ function openGame(): unknown {
 }
 
 /** Open the animation studio for `char` (opening its rig.json tab) or else for the character of the active rig.json tab; unsaved text counts. */
-function openAnimStudio(char?: string, animation?: string, scene?: { file: string; line: number }) {
+function openAnimStudio(char?: string, animation?: string, scene?: { file: string; line: number }, mode?: Mode) {
   const wasOpen = char ? openTabs.includes(rigName(char)) : true; // a rig tab opened only for the studio goes away with it
   const before = active;
   const cursor = editor.getPosition();
@@ -2102,7 +2128,7 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
   let applied = readRigSettings(data);
   const slots: Record<string, string[]> = {};
   for (const part of manifest?.parts ?? []) if (part.slot && part.variants) slots[part.slot] = Object.keys(part.variants);
-  animStudio.open(f.char, { anims: object(data?.animations), pivots: object(data?.pivots), rig: applied }, {
+  animStudio.open(f.char, { anims: object(data?.animations), pivots: object(data?.pivots), bones: object(data?.bones), parts: object(data?.parts), looks: object(data?.looks), rig: applied }, {
     returnFocus: () => {
       const rigTab = char ? rigName(char) : '';
       // A generated skeleton (saved === '') stays: closing a tab autosaves it, which would create a rig.json nobody asked for.
@@ -2136,17 +2162,16 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
     scene: scene ?? target ?? undefined,
     positions: namedPositions(openGame()),
     anchors: namedAnchors(openGame()),
-    parts: manifest ? rigPartNames({ ...manifest, rig: object(data) }) : [], // groups from the file as it is now
-    groups: manifest ? partGroups({ ...manifest, rig: object(data) }) : {},
-    poses: manifest ? rigPoseNames(manifest) : [],
+    parts: manifest ? (manifest.parts ?? []).map(partName) : [],
+    looks: manifest ? rigLookNames(manifest) : [],
     slots,
     width: manifest?.width ?? 0,
     height: manifest?.height ?? 0,
-    shown: manifest ? (pose, overrides) => rigLayers(manifest, pose, overrides).map(l => l.part) : undefined,
-    outline: manifest ? (pose, overrides) => rigOutline({ ...manifest, rig: object(data) }, pose, overrides) : undefined,
+    shown: manifest ? (pose, overrides) => rigLayers(manifest, pose ? [pose] : [], overrides).map(l => l.part) : undefined,
+    outline: manifest ? (pose, overrides, looks) => rigOutline({ ...manifest, rig: { ...object(data), looks } }, pose ? [pose] : [], overrides) : undefined,
     image: file => `../assets/char/${encodeURIComponent(f.char!)}/${encodeURI(file)}`,
     apply: change => {
-      const writes: RigWrite[] = [{ key: 'animations', value: change.anims }, { key: 'pivots', value: change.pivots }];
+      const writes: RigWrite[] = [{ key: 'animations', value: change.anims }, { key: 'pivots', value: change.pivots }, { key: 'bones', value: change.bones }, { key: 'parts', value: change.parts }, { key: 'looks', value: change.looks }];
       const now = change.rig;
       if (now.idle !== applied.idle) writes.push({ key: 'idle', value: now.idle });
       // The file's own `speak` and `blink` are the base, so keys the studio does not edit (and unknown ones) survive.
@@ -2158,7 +2183,7 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
       if (ok) applied = now;
       return ok;
     },
-  }, animation);
+  }, animation, mode);
 }
 
 /** The animation a script line plays, opened in the studio (F12 on an `animate` line); other lines get the normal Go to Definition. */
@@ -2343,7 +2368,7 @@ function buildCommands(): Command[] {
     { title: 'Theme: Open or Create a Theme File (themes/<name>.json)', run: () => palette.setText(THEME_PICK) },
     { title: 'Theme: Open or Create a Theme Stylesheet (themes/<name>.css)', run: () => palette.setText(THEME_CSS_PICK) },
     { title: 'Theme: Move the Inline Theme of game.json to a Theme File', run: () => moveThemeToFile() },
-    { title: 'Character: Edit Rig (z-order, groups, shorthands)', run: () => palette.setText(RIG_PICK) },
+    { title: 'Character: Edit Rig (z-order, bones, looks)', run: () => palette.setText(RIG_PICK) },
     { title: 'Character: Update Rig from Reconverted Art', when: () => files.get(active)?.kind === 'rig', run: updateRigFromArt },
     { title: 'Character: Animation Studio (play and inspect animations)', run: () => {
       if (files.get(active)?.kind === 'rig') openAnimStudio(); else palette.setText(ANIM_PICK); // no rig tab: pick a character first

@@ -73,3 +73,14 @@ test('psd plan: prefixFrom reads game.json', () => {
   assert.equal(prefixFrom({ psdPrefix: '~' }), '~');
   assert.equal(prefixFrom({ psdPrefix: '' }), '');
 });
+
+test('psd plan: a + folder names the group of what it holds, nested folders make a path', () => {
+  const { entries } = plan([
+    layer('body'),
+    group('+head', [layer('face'), group('eyes', [layer('open')]), group('+  hat ', [layer('brim')])]),
+    group('+arm', [group('+forearm', [layer('hand')])]),
+  ]);
+  assert.deepEqual(entries.map(e => [e.type === 'part' ? e.name : e.slot, e.group]), [
+    ['body', undefined], ['face', 'head'], ['eyes', 'head'], ['brim', 'head/hat'], ['hand', 'arm/forearm'],
+  ]);
+});

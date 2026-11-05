@@ -76,7 +76,7 @@ export function shellVars(screen: string): string[] {
 export const TITLE_VARS = ['game_title', 'show_title', 'can_continue', 'continue_text', 'has_gallery', 'has_music', 'has_chapters', 'has_achievements'];
 /** Extra fields the shell gives each entry of an `each` on a reserved screen (`slot.when`), next to `.name`, `.image` and `.index`. */
 export function shellEntryFields(screen: string): string[] {
-  return screen === SAVES_SCREEN ? ['title', 'heading', 'label', 'when', 'text', 'empty', 'thumb', 'removable', 'renamable'] : screen === HISTORY_SCREEN ? ['text', 'current'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
+  return screen === SAVES_SCREEN ? ['title', 'heading', 'label', 'when', 'text', 'empty', 'thumb', 'removable', 'renamable'] : screen === HISTORY_SCREEN ? ['text', 'current', 'voiced'] : screen === GALLERY_SCREEN ? ['title', 'unlocked', 'file']
     : screen === MUSIC_SCREEN ? ['title', 'unlocked', 'playing'] : screen === CHAPTERS_SCREEN ? ['title', 'unlocked']
     : screen === ACHIEVEMENTS_SCREEN ? ['title', 'description', 'icon', 'unlocked', 'hidden', 'ending']
     : screen === QUICKMENU_SCREEN ? ['label'] : [];

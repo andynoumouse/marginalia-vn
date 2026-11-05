@@ -1193,6 +1193,145 @@ test('git commit dialog: the bar counts changes, the dialog lists them, ignores,
   }
 });
 
+test('animation studio: Rig mode hides the timeline and shows the parts, and Animate brings them back', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-timeline').waitFor();
+    await studio.locator('.as-modes [data-mode="rig"]').click();
+    assert.equal(await studio.locator('.as-modes [data-mode="rig"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(await studio.locator('.as-timeline').isVisible(), false);
+    assert.equal(await studio.locator('.as-transport').isVisible(), false);
+    assert.equal(await studio.locator('.as-tab[data-tab="key"]').isVisible(), false);
+    assert.equal(await studio.locator('.as-tab[data-tab="part"]').getAttribute('aria-selected'), 'true');
+    assert.match(await studio.locator('header strong').textContent(), /^Rig: /);
+    await page.keyboard.press('Space'); // the animation does not play in Rig mode
+    assert.match(await studio.locator('.as-play').textContent(), /Play/);
+    await studio.locator('.as-modes [data-mode="animate"]').click();
+    assert.equal(await studio.locator('.as-timeline').isVisible(), true);
+    assert.equal(await studio.locator('.as-tab[data-tab="key"]').isVisible(), true);
+    assert.equal(await studio.locator('.as-tab[data-tab="key"]').getAttribute('aria-selected'), 'true');
+    // The Parts tree: arrows move between rows, Left / Right between the variants of a slot.
+    await studio.locator('.as-tab[data-tab="part"]').click();
+    const focused = () => page.evaluate(() => document.activeElement.dataset.part ?? document.activeElement.dataset.variant ?? null);
+    const rows = await studio.locator('.as-tree .as-row').evaluateAll(els => els.map(e => e.dataset.part));
+    await studio.locator('.as-tree .as-row').first().focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await focused(), rows[1]);
+    await page.keyboard.press('End');
+    assert.equal(await focused(), rows.at(-1));
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await focused(), rows.at(-2));
+    await page.keyboard.press('Home');
+    assert.equal(await focused(), rows[0]);
+    await studio.locator('.as-tree .as-variants:not(.as-poses) .as-variant').first().focus();
+    const first = await focused();
+    await page.keyboard.press('ArrowRight');
+    assert.notEqual(await focused(), first);
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await focused(), first);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the Rig button opens Rig mode, and dragging on the stage moves the chosen pivot in one undo step', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Rig' }).first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-timeline').waitFor({ state: 'hidden' });
+    assert.equal(await studio.locator('.as-modes [data-mode="rig"]').getAttribute('aria-pressed'), 'true');
+    await studio.locator('.as-tree .as-row[data-part="face"]').click();
+    const x = studio.locator('[data-p="x"]'), y = studio.locator('[data-p="y"]');
+    const before = [await x.inputValue(), await y.inputValue()];
+    const box = await studio.locator('.as-stage').boundingBox();
+    // The stage page may still be loading: it takes the pick once its cursor turns into a crosshair.
+    const cursor = () => page.frameLocator('#animStudio iframe').locator('#stage').evaluate(e => e.style.cursor);
+    for (let i = 0; (await cursor().catch(() => '')) !== 'crosshair' && i < 50; i++) await page.waitForTimeout(100);
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.4);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    assert.notDeepEqual([await x.inputValue(), await y.inputValue()], before, 'the drag moved the pivot');
+    await studio.locator('[data-t="undo"]').click(); // the whole drag is one step
+    assert.deepEqual([await x.inputValue(), await y.inputValue()], before);
+    assert.equal(await studio.locator('[data-t="undo"]').isDisabled(), true);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: bones are edited in the Parts tab (new bone, parent, part on a bone, pivot, remove) and written by Apply', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click();
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tab[data-tab="part"]').click();
+    await studio.locator('.as-tree .as-row[data-part="head"]').waitFor();
+    const select = name => studio.locator(`.as-tree select[data-bone-for="${name}"]`);
+    assert.equal(await select('face').inputValue(), 'head', 'face sits on the head bone');
+    // a new bone under the head, then the bangs move onto it and it turns about a pivot of its own
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    await studio.locator('.as-bone-new').click();
+    await studio.locator('.as-tree .as-row[data-part="bone"]').waitFor();
+    assert.equal(await select('bone').inputValue(), 'head', 'a new bone hangs from the chosen bone');
+    await select('bone').selectOption('');
+    assert.equal(await select('bone').inputValue(), '', 'and can be moved to the top');
+    await select('bone').selectOption('head');
+    assert.equal(await select('bone').inputValue(), 'head');
+    await select('bangs').selectOption('bone');
+    await studio.locator('.as-tree .as-row[data-part="head"]').click(); // the head bone's own pivot is edited in the fields
+    assert.deepEqual([await studio.locator('[data-p="x"]').inputValue(), await studio.locator('[data-p="y"]').inputValue()], ['270', '380']);
+    await studio.locator('[data-p="x"]').fill('300');
+    await studio.locator('[data-p="x"]').press('Tab');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; !saved.length && i < 50; i++) await page.waitForTimeout(100);
+    assert.ok(saved.length, 'the rig.json tab was not saved');
+    let rig = JSON.parse(saved.at(-1));
+    assert.deepEqual(rig.bones.bone, { parent: 'head' });
+    assert.deepEqual(rig.bones.head.pivot, [300, 380]);
+    assert.equal(rig.parts.bangs.bone, 'bone');
+    assert.equal(rig.parts.face.bone, 'head', 'the rest of parts stays');
+    // removing it puts the bangs back on the head
+    await studio.locator('.as-tree .as-bone-del').last().click();
+    assert.equal(await select('bangs').inputValue(), 'head');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; JSON.parse(saved.at(-1)).bones.bone && i < 50; i++) await page.waitForTimeout(100);
+    rig = JSON.parse(saved.at(-1));
+    assert.equal(rig.bones.bone, undefined);
+    assert.equal(rig.parts.bangs.bone, 'head');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
 test('animation studio: the mouth and blink fields are written to rig.json by Apply', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -1264,7 +1403,7 @@ test('animation studio: fills a 1280x720 window, every tab opens by keyboard, fo
   }
 });
 
-test('animation studio: the Parts tree dresses the stage, and picking shows the other pivots as one ring', async t => {
+test('animation studio: the Parts tree dresses the stage, and picking a part without a pivot shows no ring', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -1277,16 +1416,16 @@ test('animation studio: the Parts tree dresses the stage, and picking shows the 
     await studio.locator('.as-tab[data-tab="part"]').click();
     await studio.locator('.as-tree .as-row').first().waitFor();
     const kinds = await studio.locator('.as-tree .as-badge').allTextContents();
-    assert.ok(['slot', 'layer', 'group'].every(k => kinds.includes(k)), `the tree names slots, layers and groups, saw ${kinds}`);
+    assert.ok(['slot', 'layer', 'bone'].every(k => kinds.includes(k)), `the tree names slots, layers and bones, saw ${kinds}`);
     assert.ok(await studio.locator('.as-tree img').count() > 0, 'parts and variants have thumbnails');
     const options = () => studio.locator('.as-part option').allTextContents();
-    assert.ok(!(await options()).some(o => o.includes('hidden in this pose')), 'nothing is hidden by default');
+    assert.ok(!(await options()).some(o => o.includes('hidden in this look')), 'nothing is hidden by default');
     const none = studio.locator('.as-tree [data-variant="none"]').first();
     await none.click();
-    assert.ok((await options()).some(o => o.includes('hidden in this pose')), 'a slot set to none hides its part');
+    assert.ok((await options()).some(o => o.includes('hidden in this look')), 'a slot set to none hides its part');
     assert.equal(await none.getAttribute('aria-pressed'), 'true');
-    await none.click(); // again: back to what the pose picks
-    assert.ok(!(await options()).some(o => o.includes('hidden in this pose')));
+    await none.click(); // again: back to what the look picks
+    assert.ok(!(await options()).some(o => o.includes('hidden in this look')));
     await studio.locator('.as-list button', { hasText: 'head_tilt' }).click();
     assert.notEqual(await studio.locator('.as-part').inputValue(), '', 'an animation that only keys parts opens at one of them');
     await studio.locator('.as-part').selectOption('face'); // opens the Parts tab
@@ -1295,10 +1434,10 @@ test('animation studio: the Parts tree dresses the stage, and picking shows the 
     await studio.locator('.as-pick').click();
     const stage = page.frameLocator('#animStudio iframe');
     const visible = () => stage.locator('div[title]').evaluateAll(els => els.filter(e => getComputedStyle(e).display !== 'none').map(e => e.title));
-    let rings = [];
-    for (let i = 0; !rings.length && i < 30; i++) { rings = await visible(); if (!rings.length) await page.waitForTimeout(100); }
-    assert.equal(rings.length, 1, 'parts sharing a pivot are one ring');
-    assert.ok(rings[0].includes('mouth') && !rings[0].includes('face'));
+    // face sits on the head bone and has no pivot of its own, and the studio only draws rig.json `pivots` until Rig mode
+    // learns about bones (TODO.md, phase 5): picking it shows no ring (it used to show one for the pivot the head parts shared).
+    await page.waitForTimeout(500);
+    assert.deepEqual(await visible(), [], 'a part without a pivot of its own has no ring to compare');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();

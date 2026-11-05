@@ -48,11 +48,11 @@ export const prefixFrom = (game: unknown) => {
 // ---- character layer tree -> a plan of parts ----
 //   { type: 'part', name, layers }                        always drawn: a layer plus the layers clipped to it
 //   { type: 'slot', slot, default, variants: [{ name, aliases, layer }] }
-// Entries come bottom to top. A top-level group is a slot, unless its name starts with `prefix`: then it is only a folder
+// Entries come bottom to top, each with `group`: the folders it sat in, prefix removed and joined by `/` ("arm/forearm"), when it sat in any. A top-level group is a slot, unless its name starts with `prefix`: then it is only a folder
 // for organizing the PSD, and its layers are processed as if they sat beside it.
 export type PlanEntry =
-  | { type: 'part'; name: string; layers: PsdLayer[] }
-  | { type: 'slot'; slot: string; default: string | null; variants: { name: string; aliases: string[]; layer: PsdLayer }[] };
+  | { type: 'part'; name: string; layers: PsdLayer[]; group?: string }
+  | { type: 'slot'; slot: string; default: string | null; variants: { name: string; aliases: string[]; layer: PsdLayer }[]; group?: string };
 
 export function planCharacter(top: PsdLayer[], { prefix = DEFAULT_PREFIX, warn = (_m: string) => {} } = {}): PlanEntry[] {
   const plan: PlanEntry[] = [];
@@ -75,12 +75,14 @@ export function planCharacter(top: PsdLayer[], { prefix = DEFAULT_PREFIX, warn =
     return { type: 'slot', slot, default: def, variants };
   };
 
-  const walk = (layers: PsdLayer[]) => {
+  const walk = (layers: PsdLayer[], path: string[] = []) => {
+    const group = path.length ? { group: path.join('/') } : {};
     for (let i = 0; i < layers.length; i++) {
       const l = layers[i];
       if (skipped(l) || l.clipping) continue; // clipped layers are merged into their base
       if (isFolder(l)) {
-        if (!l.hidden) walk(l.children!);
+        const folder = (l.name ?? '').trim().slice(prefix.length).trim();
+        if (!l.hidden) walk(l.children!, folder ? [...path, folder] : path);
         continue;
       }
       if (!isGroup(l)) {
@@ -90,10 +92,10 @@ export function planCharacter(top: PsdLayer[], { prefix = DEFAULT_PREFIX, warn =
         const name = l.name ?? 'layer', file = fileSafe(name);
         if (partFiles.has(file)) warn(`layers "${partFiles.get(file)}" and "${name}" write the same image; the upper one wins`);
         else partFiles.set(file, name);
-        plan.push({ type: 'part', name, layers: stack });
+        plan.push({ type: 'part', name, layers: stack, ...group });
         continue;
       }
-      plan.push(planSlot(l));
+      plan.push({ ...planSlot(l), ...group });
     }
   };
 
@@ -409,7 +411,7 @@ async function convertCharacter(char: string, psd: Psd, charH: number, prefix: s
   for (const entry of planCharacter(psd.children ?? [], { prefix, warn })) {
     if (entry.type === 'part') {
       const p = await writePart(flatten(entry.layers, warn), `${fileSafe(entry.name)}.png`);
-      if (p) parts.push(p);
+      if (p) parts.push({ ...p, ...(entry.group ? { group: entry.group } : {}) });
       continue;
     }
     const variants: Record<string, unknown> = {};
@@ -418,7 +420,7 @@ async function convertCharacter(char: string, psd: Psd, charH: number, prefix: s
       const p = await writePart(im, `${fileSafe(entry.slot)}/${fileSafe(name)}.png`);
       variants[name] = { ...(p ?? {}), ...(aliases.length ? { poses: aliases } : {}) };
     }
-    parts.push({ slot: entry.slot, default: entry.default, variants });
+    parts.push({ slot: entry.slot, default: entry.default, variants, ...(entry.group ? { group: entry.group } : {}) });
   }
   const manifest = { generator: 'psd-convert', width: Math.round(psd.width * s), height: charH, parts, files: written };
   files.push({ path: `char/${char}/sprite.json`, bytes: new TextEncoder().encode(JSON.stringify(manifest, null, 2) + '\n') });

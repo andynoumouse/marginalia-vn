@@ -4,8 +4,8 @@
 //                assets/char/<char>/<pose>.(png|webp)     one image per pose ("default" when none is given)
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
-import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Rectangle, Sprite, Texture, VideoSource } from 'pixi.js';
-import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, focusLevels, raisedSpeaker, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partGroups, rigLayers, scaleOffset, spreadPartOffsets, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
+import { Application, Assets, BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Matrix, Rectangle, Sprite, Texture, VideoSource } from 'pixi.js';
+import { imageBytes, type Resident, addOffset, anchorOffset, type AnimDef, bgKey, imageKey, blinkOf, blindsRects, blurRadius, easing, EASES, filterMatrix, focusLevels, raisedSpeaker, fxUnit, irisRadius, mulberry32, pixelBlock, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName, lerp, mouthFrame, NO_OFFSET, resolveAnim, partsUnder, placeParts, type PlacedPart, rigLayers, showLooks, scaleOffset, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type RigData, type Camera, type DisplayState, type ImageState, type SpriteState } from '../engine/src/index.js';
 import { $, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
@@ -276,14 +276,15 @@ export class PixiRenderer extends StageRenderer {
   }
   private dimParts(a: Actor) {
     const part = this.focused.get(a.s.char), rig = this.files.rigs[a.s.char];
-    const lit = part ? (rig ? partGroups(rig)[part] : undefined) ?? [part] : null;
+    const bones = rig?.rig?.bones, onBone = Object.fromEntries(Object.entries(rig?.rig?.parts ?? {}).map(([p, d]) => [p, d?.bone]));
+    const lit = part ? (bones && Object.hasOwn(bones, part) && !a.parts.has(part) ? partsUnder(bones, onBone, part) : [part]) : null;
     for (const [name, c] of a.parts) c.alpha = !lit || lit.includes(name) ? 1 : 0.2;
   }
-  /** The studio's working copy of `pivots` replaces the character's own, and its layers are built again with them. */
-  studioPivots(char: string, pivots: Record<string, [number, number]>) {
+  /** The studio's working copy of `pivots`, `bones` and `parts` replaces the character's own, and its layers are built again with them. */
+  studioPivots(char: string, pivots: Record<string, [number, number]>, bones?: RigData['bones'], parts?: RigData['parts']) {
     const rig = this.files.rigs[char], a = this.actors.get(char);
     if (!rig) return;
-    rig.rig = { ...rig.rig, pivots };
+    rig.rig = { ...rig.rig, pivots, ...(bones ? { bones } : {}), ...(parts ? { parts } : {}) };
     if (a) { a.key = ''; this.dress(a, a.s); }
   }
   private poseBody(a: Actor, o: Offset) {
@@ -349,7 +350,7 @@ export class PixiRenderer extends StageRenderer {
   private look(s: SpriteState): { key: string; build: () => Container[] } {
     const rig = this.files.rigs[s.char];
     if (rig && !rig.flat) {
-      const picks = rigLayers(rig, s.pose, s.overrides, msg => this.warnOnce(`${s.char}: ${msg}`));
+      const picks = rigLayers(rig, showLooks(s), s.overrides, msg => this.warnOnce(`${s.char}: ${msg}`));
       const dir = `char/${s.char}/`;
       return {
         key: `rig:${picks.map(p => p.file).join('|')}`,
@@ -358,13 +359,10 @@ export class PixiRenderer extends StageRenderer {
           const sp = new Sprite(this.art.get(dir + p.file.replace(IMAGE, '')) ?? Texture.EMPTY);
           const left = p.x - (rig.width ?? 0) / 2, top = p.y - (rig.height ?? 0);
           sp.position.set(left, top);
-          const pv = rig.rig?.pivots?.[p.part];
-          const px = pv ? pv[0] - (rig.width ?? 0) / 2 : left + sp.texture.width / 2, py = pv ? pv[1] - (rig.height ?? 0) : top + sp.texture.height / 2;
           const part = new Container();
           part.label = p.part;
-          part.pivot.set(px, py);
-          part.position.set(px, py);
-          part.addChild(sp);
+          part.addChild(sp); // posePartsOf gives the container its matrix: bone, then its own offset about its pivot
+
           return part;
         }),
       };
@@ -422,26 +420,31 @@ export class PixiRenderer extends StageRenderer {
     for (const c of a.body.removeChildren()) c.destroy({ children: true });
     const nodes = build();
     a.body.addChild(...nodes);
-    a.parts = new Map(nodes.filter(c => c.label).map(c => [c.label, c]));
+    a.parts = new Map(nodes.filter(c => c.label && !(c instanceof Sprite)).map(c => [c.label, c]));
     if (this.focused.size) this.dimParts(a);
     a.key = key;
     this.posePartsOf(a, a.partPose);
   }
-  /** Turn the parts about their pivots: `o` has the offsets of those that move (by part or group name); the rest go back to rest. */
+  /** Turn the parts about their pivots: `o` has the offsets of those that move (by part or bone name); the rest go back to rest. */
   private posePartsOf(a: Actor, o: Map<string, Offset>) {
     a.partPose = o;
-    const rig = this.files.rigs[a.s.char];
-    const pivot = (name: string): [number, number] | null => {
-      const c = a.parts.get(name), pv = rig?.rig?.pivots?.[name];
-      if (c) return [c.pivot.x, c.pivot.y];
-      return pv ? [pv[0] - (rig!.width ?? 0) / 2, pv[1] - (rig!.height ?? 0)] : null; // a group's own pivot
-    };
-    const spread = o.size && rig ? spreadPartOffsets(o, partGroups(rig), pivot, FX()) : o;
+    const rig = this.files.rigs[a.s.char], data = rig?.rig;
+    // Everything below is in the container's local space: the PSD canvas shifted so the origin is the bottom middle.
+    const ox = (rig?.width ?? 0) / 2, oy = rig?.height ?? 0;
+    const legacy = (name: string): [number, number] | null => { const pv = data?.pivots?.[name]; return pv ? [pv[0] - ox, pv[1] - oy] : null; };
+    const bones = data?.bones ?? {};
+    const placed: Record<string, PlacedPart> = {}, onBone: Record<string, string | undefined> = {};
     for (const [name, c] of a.parts) {
-      const p = spread.get(name) ?? NO_OFFSET;
-      c.position.set(c.pivot.x + p.dx * FX(), c.pivot.y + p.dy * FX());
-      c.scale.set(1 + p.sx, 1 + p.sy);
-      c.angle = p.rot;
+      const sp = c.children[0] as Sprite, def = data?.parts?.[name];
+      const pv = def?.pivot;
+      placed[name] = { box: { x: sp.x, y: sp.y, w: sp.texture.width, h: sp.texture.height }, bone: def?.bone, pivot: pv ? [pv[0] - ox, pv[1] - oy] : undefined };
+      onBone[name] = def?.bone;
+    }
+    // A name that is a bone (and no part) moves the bone and what hangs on it; a part name moves just that part.
+    const m = placeParts(bones, placed, new Map([...o].filter(([name]) => a.parts.has(name) || Object.hasOwn(bones, name))), legacy, [0, 0], FX());
+    for (const [name, c] of a.parts) {
+      const t = m[name];
+      c.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.tx, t.ty));
     }
   }
   /** Put an actor's node where `s` says: position, opacity, and scale, rotation and mirroring about its anchor. */

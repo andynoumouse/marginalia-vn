@@ -1,16 +1,16 @@
 {
   "order": ["bottom", "top"],
-  "groups": {
-    "outfit": ["top", "bottom"],
-    "head": ["face", "bangs", "eyes", "mouth"]
+  "bones": {
+    "head": { "pivot": [270, 380] }
   },
-  "poses": {
-    "shy": { "pose": "smile", "mouth": "neutral" },
-    "uniform": { "outfit": "school" },
-    "casual": { "pose": "happy", "outfit": "casual" }
+  "parts": {
+    "face": { "bone": "head" }, "bangs": { "bone": "head" }, "eyes": { "bone": "head" }, "mouth": { "bone": "head" }
   },
-  "pivots": {
-    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380], "bangs": [270, 380], "eyes": [270, 380], "mouth": [270, 380]
+  "pivots": { "hair_back": [270, 380] },
+  "looks": {
+    "shy": { "look": "smile", "mouth": "neutral" },
+    "uniform": { "top": "school", "bottom": "school" },
+    "casual": { "look": "happy", "top": "casual", "bottom": "casual" }
   },
   "idle": "breathe",
   "speak": { "variants": ["open", "neutral"], "rate": 7 },

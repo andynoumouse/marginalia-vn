@@ -2,26 +2,29 @@
 // converter's sprite.json:
 //  - order:  part names (a slot, or a plain part's file name without extension), bottom to top. Listed parts are
 //            re-stacked among the positions they already occupy; parts not listed stay where the PSD had them.
-//  - groups: one name for several parts: `outfit=school` sets the variant of each slot in it, and an animation key or
-//            `animate ... part=` naming the group moves all its parts as one piece (about the group's pivot).
-//  - poses:  named shorthands for a pose plus slot overrides (`show alice shy`).
+//  - bones, parts: the tree that moves parts together (see bones.ts); a key or `animate ... part=` may name a bone.
+//  - looks:  named maps from slots to variants (`show alice shy casual`): dressing, expressions, whole poses.
 //  - animations: keyframe animations for `animate alice <name>` (see anim.ts).
 //  - idle, speak, blink: what the character does by itself (see idle.ts): a looping animation while it is on stage, a
 //    mouth and/or animation while its lines type, and blinking through a slot.
 // project-data.mjs attaches the file to the manifest as `rig`, so renderer, preloads and checks all see it.
 
-import { ANIM_NAMES, EASE_NAMES, KEY_CHANNELS, NO_OFFSET, addOffset, resolveAnim, type AnimDef, type Offset } from './anim.js';
+import { ANIM_NAMES, EASE_NAMES, KEY_CHANNELS, resolveAnim, type AnimDef } from './anim.js';
 import type { RigManifest, RigPart } from './assets.js';
+import { boneCycles, type BoneDef } from './bones.js';
 
 export interface RigData {
   order?: string[];
-  groups?: Record<string, string[]>;
-  /** `pose` is the base pose; every other key is a slot or group name with its variant. */
-  poses?: Record<string, Record<string, string>>;
+  /** Look name to slot variants (or `none`); the reserved key `look` names another look applied first. */
+  looks?: Record<string, Record<string, string>>;
   /** Keyframe animations by name, played with `animate <char> <name>`; one named like a preset replaces it for this character. */
   animations?: Record<string, AnimDef>;
   /** Where a part turns and scales from, in PSD canvas pixels `[x, y]` from the top left; the middle of the part's image when left out. */
   pivots?: Record<string, [number, number]>;
+  /** The bone tree: transform nodes with a parent and a pivot (canvas pixels), imageless ones allowed. See bones.ts. */
+  bones?: Record<string, BoneDef>;
+  /** Which bone each part sits on, and a pivot of its own for a part that must turn about another point than its bone's. */
+  parts?: Record<string, { bone?: string; pivot?: [number, number] }>;
   /** An animation (preset or one of `animations`) that loops while the character is on stage. */
   idle?: string;
   /** While one of the character's lines types: cycle a slot through `variants` (`rate` changes a second) and/or loop `anim`. */
@@ -79,36 +82,52 @@ export function orderedParts(rig: RigManifest): RigPart[] {
   return parts.map(p => (listed.includes(partName(p)) ? byName.get(next.shift()!)! : p));
 }
 
-/**
- * A `show`'s pose and slot overrides with the rig's shorthands and groups expanded. Explicit overrides come after
- * (and so beat) what a shorthand sets. `problems` lists group members that do not fit.
- */
-export function expandShow(rig: RigManifest, pose: string | null, overrides: Record<string, string>): { pose: string | null; overrides: Record<string, string>; problems: string[] } {
-  const data = rig.rig;
-  const problems: string[] = [];
-  if (!data) return { pose, overrides, problems };
-  const slots = slotsOf(rig), names = new Set((rig.parts ?? []).map(partName));
+/** The bare words of a `show` (or a sprite on stage), in order. */
+export const showLooks = (s: { pose: string | null; more: string[] }): string[] => (s.pose ? [s.pose, ...s.more] : []);
+
+/** The slot variants a bare word picks on its own: every slot with a variant of that name, else one tagged with it. */
+function implicitLook(rig: RigManifest, name: string): Record<string, string> | null {
   const out: Record<string, string> = {};
-  const apply = (key: string, value: string) => {
-    const members = data.groups?.[key];
-    if (!members || slots.has(key)) { out[key] = value; return; } // a real slot wins over a group of the same name
-    if (!members.some(m => slots.has(m))) { problems.push(`group "${key}" has no slots to set (only plain parts: it is for animation)`); return; }
-    for (const slot of members) {
-      const variants = slots.get(slot);
-      if (!variants && names.has(slot)) continue; // a plain layer in the group: it has no variants
-      if (!variants) problems.push(`group "${key}" names slot "${slot}", which this character does not have`);
-      else if (value !== 'none' && !variants[value]) problems.push(`slot "${slot}" of group "${key}" has no variant "${value}"`);
-      else out[slot] = value;
-    }
-  };
-  let outPose = pose;
-  const shorthand = pose ? data.poses?.[pose] : undefined;
-  if (shorthand) {
-    outPose = shorthand.pose ?? null;
-    for (const [k, v] of Object.entries(shorthand)) if (k !== 'pose') apply(k, v);
+  for (const [slot, variants] of slotsOf(rig)) {
+    const v = Object.hasOwn(variants, name) ? name : Object.keys(variants).find(k => variants[k].poses?.includes(name));
+    if (v !== undefined) out[slot] = v;
   }
-  for (const [k, v] of Object.entries(overrides)) apply(k, v);
-  return { pose: outPose, overrides: out, problems };
+  return Object.keys(out).length ? out : null;
+}
+
+/** The slots a look names (the `look` reference expanded first), or null when the name is no look of this rig. */
+function lookPicks(rig: RigManifest, name: string, problems: string[], seen: string[] = []): Record<string, string> | null {
+  const def = rig.rig?.looks;
+  if (!def || !Object.hasOwn(def, name) || !def[name] || typeof def[name] !== 'object') return implicitLook(rig, name);
+  if (seen.includes(name)) { problems.push(`look "${name}" refers back to itself (${[...seen, name].join(' > ')})`); return {}; }
+  const slots = slotsOf(rig), out: Record<string, string> = {};
+  const raw = def[name];
+  if (typeof raw.look === 'string') Object.assign(out, lookPicks(rig, raw.look, problems, [...seen, name]) ?? (problems.push(`look "${name}" refers to "${raw.look}", which is no look`), {}));
+  for (const [slot, value] of Object.entries(raw)) {
+    if (slot === 'look') continue;
+    const variants = slots.get(slot);
+    if (!variants) problems.push(`look "${name}" names slot "${slot}", which this character does not have`);
+    else if (value !== 'none' && !variants[value]) problems.push(`slot "${slot}" of look "${name}" has no variant "${value}"`);
+    else out[slot] = value;
+  }
+  return out;
+}
+
+/**
+ * A `show`'s looks (bare words, applied left to right) and slot overrides as one map of slot overrides: the last look
+ * wins per slot, and explicit overrides beat every look. `problems` lists look entries that do not fit; `unknown` the
+ * words that are no look, implicit look or variant of this rig.
+ */
+export function expandShow(rig: RigManifest, looks: string[], overrides: Record<string, string>): { overrides: Record<string, string>; unknown: string[]; problems: string[] } {
+  const problems: string[] = [], unknown: string[] = [];
+  const out: Record<string, string> = {};
+  if (!rig.rig && !(rig.parts ?? []).length) return { overrides, unknown, problems };
+  for (const word of looks) {
+    const picks = lookPicks(rig, word, problems);
+    if (picks) Object.assign(out, picks);
+    else unknown.push(word);
+  }
+  return { overrides: { ...out, ...overrides }, unknown, problems };
 }
 
 /** Every variant name and alias in the PSD's slots. */
@@ -118,59 +137,17 @@ const variantNames = (rig: RigManifest): Set<string> => {
   return out;
 };
 
-/** What `show <char> <pose>` accepts: PSD variant names and aliases, and rig.json shorthands. */
-export const rigPoseNames = (rig: RigManifest): string[] => [...new Set([...Object.keys(rig.rig?.poses ?? {}), ...variantNames(rig)])].sort();
+/** What a bare word on `show <char>` accepts: rig.json looks, then PSD variant names and tags (implicit looks). */
+export const rigLookNames = (rig: RigManifest): string[] => [...new Set([...Object.keys(rig.rig?.looks ?? {}), ...variantNames(rig)])].sort();
 
-/**
- * The rig.json groups that can move parts: a group named like a part is left out (the part wins), and members that
- * are not parts are dropped.
- */
-export function partGroups(rig: RigManifest): Record<string, string[]> {
-  const names = new Set((rig.parts ?? []).map(partName));
-  const out: Record<string, string[]> = {};
-  for (const [g, members] of Object.entries(rig.rig?.groups ?? {})) {
-    if (!names.has(g) && Array.isArray(members)) out[g] = members.filter(m => names.has(m));
-  }
-  return out;
-}
-
-/** What `animate ... part=` and keyframe `part`s can name: the parts of a layered character (slots and plain layers), then its groups. */
-export const rigPartNames = (rig: RigManifest): string[] => [...(rig.parts ?? []).map(partName), ...Object.keys(partGroups(rig))];
+/** What `animate ... part=` and keyframe `part`s can name: the parts of a layered character (slots and plain layers), then its bones. */
+export const rigPartNames = (rig: RigManifest): string[] => [...new Set([...(rig.parts ?? []).map(partName), ...Object.keys(rig.rig?.bones ?? {})])];
 
 /** What `animate <char> <name>` accepts beyond the presets. */
 export const rigAnimNames = (rig: RigManifest): string[] => Object.keys(rig.rig?.animations ?? {});
 
-/** What `slot=variant` accepts on the left: slots and the rig.json groups that have a slot in them. */
-export const rigSlotNames = (rig: RigManifest): string[] => {
-  const slots = slotsOf(rig);
-  const groups = Object.entries(rig.rig?.groups ?? {}).filter(([, m]) => Array.isArray(m) && m.some(s => slots.has(s))).map(([g]) => g);
-  return [...new Set([...slots.keys(), ...groups])];
-};
-
-/**
- * Animation offsets by part or group name (`named`) spread onto the parts. A group moves each of its parts as one
- * piece: about the group's pivot, where `pivot` gives it (local pixels; a part turns about its own, so the difference
- * becomes a shift), and added to the part's own offset. `unit` is how many local pixels an offset's dx/dy of 1 is.
- */
-export function spreadPartOffsets(named: Map<string, Offset>, groups: Record<string, string[]>, pivot: (name: string) => [number, number] | null, unit: number): Map<string, Offset> {
-  const out = new Map<string, Offset>();
-  const add = (part: string, o: Offset) => out.set(part, addOffset(out.get(part) ?? NO_OFFSET, o));
-  for (const [name, o] of named) {
-    const members = Object.hasOwn(groups, name) ? groups[name] : null;
-    if (!members) { add(name, o); continue; }
-    const q = pivot(name) ?? (members.length ? pivot(members[0]) : null);
-    const r = (o.rot * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
-    for (const m of members) {
-      const p = pivot(m);
-      if (!q || !p || !unit) { add(m, o); continue; }
-      // Turning about q instead of p: x -> q + M(x - q) = p + M(x - p) + (q - p) - M(q - p), with M = rotate . scale.
-      const vx = q[0] - p[0], vy = q[1] - p[1];
-      const mx = cos * (1 + o.sx) * vx - sin * (1 + o.sy) * vy, my = sin * (1 + o.sx) * vx + cos * (1 + o.sy) * vy;
-      add(m, { ...o, dx: o.dx + (vx - mx) / unit, dy: o.dy + (vy - my) / unit });
-    }
-  }
-  return out;
-}
+/** What `slot=variant` accepts on the left: the slots. */
+export const rigSlotNames = (rig: RigManifest): string[] => [...slotsOf(rig).keys()];
 
 /** A problem in rig.json; `at` is the key it is about, so the editor can find its line. */
 export interface RigProblem { message: string; at: string }
@@ -185,26 +162,33 @@ export function checkRig(rig: RigManifest): RigProblem[] {
   const names = new Set((rig.parts ?? []).map(partName));
   const variants = variantNames(rig);
   for (const n of data.order ?? []) if (!names.has(n)) problem(`order: no part named "${n}"`, n);
-  for (const [g, members] of Object.entries(data.groups ?? {})) {
-    if (names.has(g)) problem(`groups: "${g}" is also a ${slots.has(g) ? 'slot' : 'part'} name; the ${slots.has(g) ? 'slot' : 'part'} wins`, g);
-    for (const s of members) if (!names.has(s)) problem(`groups: "${g}" names part "${s}", which does not exist`, s);
-  }
-  const groups = partGroups(rig);
-  const target = (k: string) => (slots.has(k) ? [k] : data.groups?.[k]?.filter(s => slots.has(s)));
-  for (const [name, def] of Object.entries(data.poses ?? {})) {
-    if (variants.has(name)) problem(`poses: "${name}" is also a variant or pose name in the PSD; the shorthand wins`, name);
+  const raw = data as Record<string, unknown>;
+  if (raw.groups !== undefined) problem('groups was replaced by bones and parts: give the members one bone (parts.<name>.bone) and key the bone; see rig-json.md', 'groups');
+  if (raw.poses !== undefined) problem('poses was replaced by looks; see rig-json.md', 'poses');
+  const lookNames = new Set([...Object.keys(data.looks ?? {}), ...variants]);
+  if (slots.has('look') && data.looks) problem('looks: a slot named "look" cannot be set by a look; "look" is reserved for naming another look', 'look');
+  for (const [name, def] of Object.entries(data.looks ?? {})) {
+    if (variants.has(name)) problem(`looks: "${name}" is also a variant or pose name in the PSD; the look wins`, name);
+    if (!def || typeof def !== 'object') { problem(`looks.${name}: needs an object of slot: variant`, name); continue; }
     for (const [k, v] of Object.entries(def)) {
-      if (k === 'pose') { if (v && !variants.has(v)) problem(`poses.${name}: no layer named or aliased "${v}"`, name); continue; }
-      const members = target(k);
-      if (!members) { problem(`poses.${name}: no slot or group "${k}"`, k); continue; }
-      if (!members.length) { problem(`poses.${name}: group "${k}" has no slots to set`, k); continue; }
-      for (const s of members) if (v !== 'none' && !slots.get(s)![v]) problem(`poses.${name}: slot "${s}" has no variant "${v}"`, name);
+      if (typeof v !== 'string') { problem(`looks.${name}.${k}: must be a string`, name); continue; }
+      if (k === 'look') { if (!lookNames.has(v)) problem(`looks.${name}: look "${v}" is no look`, name); continue; }
+      const have = slots.get(k);
+      if (!have) problem(`looks.${name}: no slot "${k}"`, k);
+      else if (v !== 'none' && !have[v]) problem(`looks.${name}: slot "${k}" has no variant "${v}"`, name);
+    }
+    const loop = [name];
+    for (let cur = def.look; typeof cur === 'string' && Object.hasOwn(data.looks!, cur); cur = data.looks![cur]?.look) {
+      if (cur === name) { problem(`looks.${name}: look references form a cycle (${[...loop, name].join(' > ')})`, name); break; }
+      if (loop.includes(cur)) break; // a cycle that does not include this look: reported at its own entry
+      loop.push(cur);
     }
   }
   for (const [part, pv] of Object.entries(data.pivots ?? {})) {
-    if (!names.has(part) && !Object.hasOwn(groups, part)) problem(`pivots: no part or group named "${part}"`, part);
+    if (!names.has(part)) problem(`pivots: no part named "${part}"${Object.hasOwn(data.bones ?? {}, part) ? ' (a bone takes its pivot in bones)' : ''}`, part);
     else if (!Array.isArray(pv) || pv.length !== 2 || !pv.every(Number.isFinite)) problem(`pivots.${part}: use [x, y] in pixels of the PSD canvas`, part);
   }
+  checkBones(data, names, problem);
   const knownAnim = (n: string) => resolveAnim(n, data.animations) !== null;
   const animList = [...ANIM_NAMES, ...Object.keys(data.animations ?? {})].join(', ');
   if (data.idle !== undefined && (typeof data.idle !== 'string' || !knownAnim(data.idle))) problem(`idle: no animation "${String(data.idle)}" (${animList})`, 'idle');
@@ -237,7 +221,7 @@ export function checkRig(rig: RigManifest): RigProblem[] {
     def.keys.forEach((k, i) => {
       const at = `animations.${name}.keys[${i}]`;
       if (!k || typeof k !== 'object') { problem(`${at}: not a key`, name); return; }
-      if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(groups, k.part)) problem(`${at}: no part or group named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name);
+      if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(data.bones ?? {}, k.part)) problem(`${at}: no part or bone named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name);
       if (!(k.t >= 0 && k.t <= 1)) problem(`${at}: t must be a number from 0 to 1`, name);
       if (k.ease !== undefined && !EASE_NAMES.includes(k.ease)) problem(`${at}: unknown ease "${k.ease}" (${EASE_NAMES.join(', ')})`, name);
       const channels = KEY_CHANNELS.filter(c => k[c] !== undefined);
@@ -249,27 +233,78 @@ export function checkRig(rig: RigManifest): RigProblem[] {
   return out;
 }
 
-/** A starting rig.json: the current part order, and groups suggested from slots like `outfit_back` + `outfit_front`. */
+/** The `bones` and `parts` keys of rig.json: a bone's parent and pivot, the bone each part sits on, and bones that do nothing. */
+function checkBones(data: RigData, names: Set<string>, problem: (message: string, at: string) => void): void {
+  const isPoint = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
+  const bones: Record<string, BoneDef> = {};
+  for (const [b, def] of Object.entries(data.bones ?? {})) {
+    if (!def || typeof def !== 'object' || Array.isArray(def)) { problem(`bones.${b}: needs an object with parent and/or pivot`, b); continue; }
+    bones[b] = def;
+  }
+  for (const [b, def] of Object.entries(bones)) {
+    if (def.parent !== undefined && (typeof def.parent !== 'string' || !Object.hasOwn(bones, def.parent))) problem(`bones.${b}.parent: no bone named "${String(def.parent)}" (bones: ${Object.keys(bones).join(', ')})`, b);
+    if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`bones.${b}.pivot: use [x, y] in pixels of the PSD canvas`, b);
+    if (names.has(b)) problem(`bones: "${b}" is also a part name; the part wins where a script or key names it`, b);
+  }
+  for (const loop of boneCycles(bones)) problem(`bones: parents form a loop (${[...loop, loop[0]].join(' > ')})`, loop[0]);
+  const onBone = new Map<string, number>();
+  for (const [part, def] of Object.entries(data.parts ?? {})) {
+    if (!names.has(part)) { problem(`parts.${part}: no part (slot or layer) named "${part}"`, part); continue; }
+    if (!def || typeof def !== 'object' || Array.isArray(def)) { problem(`parts.${part}: needs an object with bone and/or pivot`, part); continue; }
+    if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`parts.${part}.pivot: use [x, y] in pixels of the PSD canvas`, part);
+    if (def.bone === undefined) continue;
+    if (typeof def.bone !== 'string' || !Object.hasOwn(bones, def.bone)) problem(`parts.${part}.bone: no bone named "${String(def.bone)}" (bones: ${Object.keys(bones).join(', ')})`, part);
+    else onBone.set(def.bone, (onBone.get(def.bone) ?? 0) + 1);
+  }
+  // Warnings: a bone that moves nothing, or has nothing to turn about.
+  const looped = new Set(boneCycles(bones).flat());
+  const parentOf = (b: string) => (typeof bones[b].parent === 'string' && Object.hasOwn(bones, bones[b].parent!) && !looped.has(b) ? bones[b].parent! : null);
+  const children = (b: string) => Object.keys(bones).filter(c => parentOf(c) === b);
+  const measured = (b: string, seen = new Set<string>()): boolean => !seen.has(b) && (seen.add(b), (onBone.get(b) ?? 0) > 0 || children(b).some(c => measured(c, seen)));
+  for (const b of Object.keys(bones)) {
+    let cur: string | null = b, pivoted = false;
+    for (let i = 0; cur !== null && i <= Object.keys(bones).length; i++) { if (isPoint(bones[cur].pivot)) { pivoted = true; break; } cur = parentOf(cur); }
+    if (!measured(b) && !children(b).length) problem(`bones: "${b}" has no parts and no children, so it moves nothing`, b);
+    else if (!pivoted && !measured(b)) problem(`bones: "${b}" has no pivot (and neither has anything above it) and no parts to measure one from, so it has nothing to turn about`, b);
+  }
+}
+
+/**
+ * The bones the PSD's `+folders` suggest: one per distinct folder path (parents first), named after the last folder
+ * (the whole path joined with `_` when that name is taken by another path), parented along the path, and each folder's
+ * parts on it. Pivots are left out: the studio's Rig mode is where they get placed.
+ */
+export function folderBones(rig: RigManifest): { bones: Record<string, BoneDef>; parts: Record<string, { bone: string }> } {
+  const names = new Map<string, string>(); // folder path -> bone name
+  const bones: Record<string, BoneDef> = {}, parts: Record<string, { bone: string }> = {};
+  const boneFor = (path: string): string => {
+    const known = names.get(path);
+    if (known) return known;
+    const segs = path.split('/'), last = segs[segs.length - 1];
+    const taken = new Set(names.values());
+    let name = taken.has(last) ? segs.join('_') : last;
+    for (let i = 2; taken.has(name); i++) name = `${segs.join('_')}_${i}`;
+    names.set(path, name);
+    const parent = segs.length > 1 ? boneFor(segs.slice(0, -1).join('/')) : undefined;
+    bones[name] = parent ? { parent } : {};
+    return name;
+  };
+  for (const p of rig.parts ?? []) if (p.group) parts[partName(p)] = { bone: boneFor(p.group) };
+  return { bones, parts };
+}
+
+/** A starting rig.json: the current part order, and bones from the PSD's folders. */
 export function rigSkeleton(rig: RigManifest): RigData {
-  const slots = slotsOf(rig);
-  const buckets = new Map<string, string[]>();
-  for (const slot of slots.keys()) {
-    const m = /^(.+)_([A-Za-z0-9]+)$/.exec(slot);
-    if (m && !slots.has(m[1])) buckets.set(m[1], [...(buckets.get(m[1]) ?? []), slot]);
-  }
-  const groups: Record<string, string[]> = {};
-  for (const [base, members] of buckets) {
-    const key = (s: string) => Object.keys(slots.get(s)!).sort().join(',');
-    if (members.length > 1 && members.every(s => key(s) === key(members[0]))) groups[base] = members;
-  }
-  return { order: (rig.parts ?? []).map(partName), groups, poses: {} };
+  const { bones, parts } = folderBones(rig);
+  return { order: (rig.parts ?? []).map(partName), ...(Object.keys(bones).length ? { bones, parts } : {}), looks: {} };
 }
 
 /**
  * `existing` brought up to date with a reconverted manifest: parts that are new are added to `order` after the part
- * below them in the PSD; nothing is removed (`missing` lists names that no longer exist, for the author to fix).
+ * below them in the PSD, and new folders add bones (and new parts their `parts` entry); nothing is removed or changed
+ * (`missing` lists names that no longer exist, for the author to fix).
  */
-export function mergeRig(existing: RigData, rig: RigManifest): { rig: RigData; added: string[]; missing: string[] } {
+export function mergeRig(existing: RigData, rig: RigManifest): { rig: RigData; added: string[]; missing: string[]; bonesAdded: string[] } {
   const names = (rig.parts ?? []).map(partName);
   const order = [...(existing.order ?? [])];
   const added: string[] = [];
@@ -280,5 +315,14 @@ export function mergeRig(existing: RigData, rig: RigManifest): { rig: RigData; a
     added.push(n);
   });
   const missing = order.filter(n => !names.includes(n));
-  return { rig: { ...existing, order }, added, missing };
+  const fromArt = folderBones(rig), bones = { ...existing.bones }, parts = { ...existing.parts }, bonesAdded: string[] = [];
+  // Only for the new parts: a bone that would hold nothing is not added, and nothing the author already has is touched.
+  const needed = new Set<string>();
+  for (const p of added) for (let b: string | undefined = fromArt.parts[p]?.bone; b !== undefined && !needed.has(b); b = fromArt.bones[b]?.parent) needed.add(b);
+  for (const [b, def] of Object.entries(fromArt.bones)) if (needed.has(b) && !Object.hasOwn(bones, b)) { bones[b] = def; bonesAdded.push(b); }
+  for (const p of added) if (fromArt.parts[p] && !Object.hasOwn(parts, p)) parts[p] = fromArt.parts[p];
+  const out: RigData = { ...existing, order };
+  if (Object.keys(bones).length) out.bones = bones;
+  if (Object.keys(parts).length) out.parts = parts;
+  return { rig: out, added, missing, bonesAdded };
 }

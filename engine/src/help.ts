@@ -101,12 +101,12 @@ export function helpTopicAt(line: string, column = line.length): string | null {
 }
 
 /**
- * The docs/rig-json.md section for a line (0-based) of a rig.json text: the top-level key (`order`, `groups`,
- * `poses`, `animations`, `pivots`, `idle`, `speak` or `blink`) the line sits under, or null above the first one. Look the key up with `HelpDoc.find`.
+ * The docs/rig-json.md section for a line (0-based) of a rig.json text: the top-level key (`order`, `bones`,
+ * `bones`, `parts`, `looks`, `animations`, `pivots`, `idle`, `speak` or `blink`) the line sits under, or null above the first one. Look the key up with `HelpDoc.find`.
  */
 export function rigHelpTopicAt(lines: readonly string[], line: number): string | null {
   for (let i = Math.min(line, lines.length - 1); i >= 0; i--) {
-    const m = /^ {0,2}"(order|groups|poses|animations|pivots|idle|speak|blink)"\s*:/.exec(lines[i]);
+    const m = /^ {0,2}"(order|bones|parts|looks|animations|pivots|idle|speak|blink)"\s*:/.exec(lines[i]);
     if (m) return m[1];
   }
   return null;

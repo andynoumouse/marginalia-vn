@@ -433,6 +433,8 @@ const menus = new Menus(settings, {
     if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s));
   },
   rollbackTo: n => rollbackTo(n),
+  hasVoice: id => renderer.hasVoice(id),
+  playVoice: id => renderer.playVoice(id),
   galleryItems,
   musicItems: musicRoomItems,
   playTrack: name => { void renderer.audio.music(name ?? game.titleScreen?.music ?? null, true, 0.5); },
@@ -631,6 +633,7 @@ new MutationObserver(syncHistory).observe(historyEl, { attributes: true, attribu
 renderer.onHistoryAction = item => {
   if (item?.act === 'close') menus.closeHistory();
   else if (item?.act === 'line') menus.pickLine(item.id);
+  else if (item?.act === 'voice') menus.replayLine(item.id.slice(0, item.id.lastIndexOf('.')));
 };
 /** The project's `screen gallery` replaces the default gallery: drawn when it opens (and again when the viewer closes). */
 const galleryEl = $('gallery');

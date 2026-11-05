@@ -79,6 +79,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Every built-in menu (title, pause, options, saves, history, gallery, music, chapters, achievements, quick menu) is a screen you can override; layout containers take align stretch and width/height, and select <setting> shows a dropdown for a player setting.',
     'textbox hide takes the text box away until the next line. The Translations dialog lists the built-in menu labels (ui.<key>).',
   ],
+  '0.8': [
+    'rig.json has bones (a parent and a pivot each) and parts that sit on a bone, so a child follows its parent: moving an upper arm carries the forearm. part= and animation keys accept bone names. The animation studio edits bones in the Parts tab (parent, fold, drag to re-parent, pivots).',
+    'rig.json looks replace poses and the dressing half of groups (show mina happy casual applies looks left to right); the studio can save the current dress as a look. Old rig.json files are not converted: groups and poses are reported as errors, so move them to bones and looks.',
+    'PSD folders named +folder become bones when you run Update Rig after Reconverted Art.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

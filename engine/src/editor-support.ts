@@ -1,6 +1,6 @@
 import { ANIM_NAMES, EASE_NAMES } from './anim.js';
 import { BLIP_PRESETS, type RigManifest } from './assets.js';
-import { rigAnimNames, rigPartNames, rigPoseNames, rigSlotNames } from './rig.js';
+import { rigAnimNames, rigPartNames, rigLookNames, rigSlotNames } from './rig.js';
 import { FILTER_NAMES, WEATHER_NAMES } from './fx.js';
 import { TRANSITIONS, type Program } from './types.js';
 import { childNodes, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
@@ -32,7 +32,7 @@ const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
 const COMMANDS: [string, string][] = [
   ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
-  ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [pose] [at pos] [order=front|back | behind=<char>] [fade s]'],
+  ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade s]'],
   ['hide', 'hide <character> [fade s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <seconds>'],
   ['shake', 'shake <character|screen> [seconds]'], ['hop', 'hop <character> [seconds]'],
   ['animate', 'animate <character> <name|stop> [seconds] [loop]'],
@@ -197,10 +197,10 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (last === 'at') return kw(Object.keys(program.positions));
       if (last === 'fade') return [];
       const rig = rigs[prev[1]];
-      const poses = [...(rig ? rigPoseNames(rig) : []), ...program.ops.flatMap(o => (o.op === 'show' && o.char === prev[1] && o.pose ? [o.pose] : []))];
+      const looks = [...(rig ? rigLookNames(rig) : []), ...program.ops.flatMap(o => (o.op === 'show' && o.char === prev[1] && o.pose ? [o.pose, ...o.more] : []))];
       const slots = (rig ? rigSlotNames(rig) : []).map(s => ({ label: `${s}=`, kind: 'keyword' as const, detail: `slot of ${prev[1]}` }));
       const behind = characters.filter(c => c.label !== prev[1]).map(c => ({ label: `behind=${c.label}`, kind: 'keyword' as const, detail: 'draw order' }));
-      return [...assets(poses, `pose of ${prev[1]}`), ...slots, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'order=front', 'order=back', 'nowait']), ...behind];
+      return [...assets(looks, `look of ${prev[1]}`), ...slots, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'order=front', 'order=back', 'nowait']), ...behind];
     }
     case 'hide': return arg === 0 ? characters : kw(['fade', 'nowait']);
     case 'hop': return arg === 0 ? characters : kw(['nowait']);

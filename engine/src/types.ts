@@ -63,7 +63,7 @@ export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'ir
 
 export type VisualBody =
   | { op: 'scene'; bg: string; transition: Transition; dir: string | null; dur: number }
-  | { op: 'show'; char: string; pose: string | null; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string } // order/behind: where it goes in the draw order (state.sprites, back to front)
+  | { op: 'show'; char: string; pose: string | null; more: string[]; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string } // order/behind: where it goes in the draw order (state.sprites, back to front)
   | { op: 'hide'; char: string; fade: number }
   | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
   | { op: 'shake'; target: string; dur: number; strength: number }
@@ -146,7 +146,8 @@ export interface Program {
  * stage height (negative = up); `scale` grows it about its `anchor` (the feet by default); `rotation` is in degrees, clockwise; `flip` mirrors it.
  */
 export interface SpriteState {
-  char: string; pose: string | null; overrides: Record<string, string>;
+  /** `pose` is the first bare word of the `show` line (a look, or the image of a flat character); `more` are the bare words after it, applied left to right. */
+  char: string; pose: string | null; more: string[]; overrides: Record<string, string>;
   x: number; y: number; scale: number; rotation: number; alpha: number; flip: boolean;
   /** The point `scale`, `rotation` and `flip` turn about, as fractions of the sprite (0,0 top left); the feet by default. */
   anchor: [number, number];

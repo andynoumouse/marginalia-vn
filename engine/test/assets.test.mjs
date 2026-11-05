@@ -24,26 +24,26 @@ test('asset keys: backgrounds resolve to bg/<name> or a root image, missing ones
 });
 
 test('rig layers follow the slot, pose alias and default rules of the renderer', () => {
-  const files = (pose, overrides) => rigLayers(rig, pose, overrides).map(p => p.file);
+  const files = (pose, overrides) => rigLayers(rig, pose ? [pose] : [], overrides).map(p => p.file);
   assert.deepEqual(files(null, {}), ['body.png', 'eyes_open.png']);                       // defaults; mouth has none
   assert.deepEqual(files('smile', {}), ['body.png', 'eyes_open.png']);                    // alias of eyes/open
   assert.deepEqual(files('grin', {}), ['body.png', 'eyes_open.png', 'mouth_grin.png']);   // pose named like a variant
   assert.deepEqual(files(null, { eyes: 'closed', mouth: 'grin' }), ['body.png', 'eyes_closed.png', 'mouth_grin.png']);
   assert.deepEqual(files(null, { eyes: 'none' }), ['body.png']);
-  assert.deepEqual(rigLayers(rig, null, {})[1], { file: 'eyes_open.png', x: 1, y: 2, part: 'eyes' });
+  assert.deepEqual(rigLayers(rig, [], {})[1], { file: 'eyes_open.png', x: 1, y: 2, part: 'eyes' });
   const warned = [];
-  rigLayers(rig, 'frown', { eyes: 'wide' }, m => warned.push(m));
+  rigLayers(rig, ['frown'], { eyes: 'wide' }, m => warned.push(m));
   assert.equal(warned.length, 2);
 });
 
 test('sprites and display states list only files that exist', () => {
-  assert.deepEqual(spriteKeys({ char: 'al', pose: 'grin', overrides: {} }, ctx), ['char/al/body', 'char/al/eyes_open', 'char/al/mouth_grin']);
-  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'grin', overrides: {} }, ctx), ['char/bo/grin']);   // no rig: one image per pose
-  assert.deepEqual(spriteKeys({ char: 'bo', pose: null, overrides: {} }, ctx), ['char/bo/default']);
-  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'sad', overrides: {} }, ctx), []);                  // placeholder
+  assert.deepEqual(spriteKeys({ char: 'al', pose: 'grin', more: [], overrides: {} }, ctx), ['char/al/body', 'char/al/eyes_open', 'char/al/mouth_grin']);
+  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'grin', more: [], overrides: {} }, ctx), ['char/bo/grin']);   // no rig: one image per pose
+  assert.deepEqual(spriteKeys({ char: 'bo', pose: null, more: [], overrides: {} }, ctx), ['char/bo/default']);
+  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'sad', more: [], overrides: {} }, ctx), []);                  // placeholder
   const state = {
     bg: 'park', music: 'theme', musicLoop: true,
-    sprites: [{ char: 'bo', pose: 'grin', overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }, { char: 'al', pose: null, overrides: { eyes: 'closed' }, x: 0.2, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }],
+    sprites: [{ char: 'bo', pose: 'grin', more: [], overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }, { char: 'al', pose: null, overrides: { eyes: 'closed' }, x: 0.2, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }],
   };
   assert.deepEqual(stateAssets(state, ctx), ['bg/park', 'char/bo/grin', 'char/al/body', 'char/al/eyes_closed', 'music/theme']);
   assert.deepEqual(stateAssets({ bg: 'beach', music: 'nope', sprites: [] }, ctx), []);
@@ -239,7 +239,7 @@ test('a flat character with a rig.json keeps its image per pose and gets its own
   const flat = { parts: [], flat: true, rig: { animations: { nod: { dur: 1, keys: [{ t: 0, dy: 0 }, { t: 1, dy: 5 }] } } } };
   const flatFiles = ['char/bo/default.png', 'char/bo/grin.png'];
   const c = assetContext({ files: flatFiles, rigs: { bo: flat } });
-  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'grin', overrides: {} }, c), ['char/bo/grin']);
+  assert.deepEqual(spriteKeys({ char: 'bo', pose: 'grin', more: [], overrides: {} }, c), ['char/bo/grin']);
   const p = compile([{ file: 'a.vn', text: 'label start:\n  show bo grin\n  animate bo nod\n  animate bo wobble\n  end' }]);
   const msgs = checkAssets(p, { files: flatFiles, rigs: { bo: flat } }).map(d => d.message);
   assert.equal(msgs.length, 1);

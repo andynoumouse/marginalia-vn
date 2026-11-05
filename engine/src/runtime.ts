@@ -52,10 +52,10 @@ export function applyToState(state: DisplayState, op: VisualOp): void {
     case 'show': {
       let s = state.sprites.find(x => x.char === op.char);
       if (!s) {
-        s = { char: op.char, pose: null, overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null };
+        s = { char: op.char, pose: null, more: [], overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null };
         state.sprites.push(s);
       }
-      if (op.pose !== null) { s.pose = op.pose; s.overrides = { ...op.overrides }; }
+      if (op.pose !== null) { s.pose = op.pose; s.more = [...op.more]; s.overrides = { ...op.overrides }; }
       else s.overrides = { ...s.overrides, ...op.overrides };
       if (op.x !== null) s.x = op.x;
       if (op.y !== undefined) s.y = op.y;

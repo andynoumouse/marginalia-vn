@@ -669,12 +669,12 @@ test('help: topic under the cursor', () => {
 });
 
 test('help: rig.json section under the cursor', () => {
-  const lines = ['{', '  "order": ["a",', '    "b"],', '  "groups": {', '    "outfit": ["x"]', '  },', '  "poses": { "shy": { "pose": "smile" } }', '}'];
+  const lines = ['{', '  "order": ["a",', '    "b"],', '  "bones": {', '    "head": {}', '  },', '  "looks": { "shy": { "look": "smile" } }', '}'];
   assert.equal(rigHelpTopicAt(lines, 0), null);
   assert.equal(rigHelpTopicAt(lines, 2), 'order');
-  assert.equal(rigHelpTopicAt(lines, 4), 'groups');
-  assert.equal(rigHelpTopicAt(lines, 6), 'poses');
-  assert.equal(rigHelpTopicAt(lines, 99), 'poses');
+  assert.equal(rigHelpTopicAt(lines, 4), 'bones');
+  assert.equal(rigHelpTopicAt(lines, 6), 'looks');
+  assert.equal(rigHelpTopicAt(lines, 99), 'looks');
 });
 
 test('outline: labels, edges, layers and unreachable labels', () => {
@@ -861,7 +861,7 @@ test('move: position, transforms and flip update the sprite state', async () => 
   assert.deepEqual([mv[1].x, mv[1].y, mv[1].scale, mv[1].dur], [null, null, 1, 0]);
   const rt = new Runtime(p, new NullRenderer());
   await rt.start();
-  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, overrides: {}, x: 0.8, y: -0.05, scale: 1, rotation: -8, alpha: 0.5, flip: true, anchor: [0.5, 1], anim: null }]);
+  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: -0.05, scale: 1, rotation: -8, alpha: 0.5, flip: true, anchor: [0.5, 1], anim: null }]);
 });
 
 test('move: bad arguments are parse errors', () => {
@@ -915,7 +915,7 @@ test('show: y=, scale= and flip= place the sprite without a move, and are kept w
   assert.deepEqual([sh[1].y, sh[1].scale, sh[1].flip], [undefined, undefined, undefined]);
   const rt = new Runtime(p, new NullRenderer());
   await rt.start();
-  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, overrides: {}, x: 0.8, y: 0.02, scale: 1.1, rotation: 0, alpha: 1, flip: true, anchor: [0.5, 1], anim: null }]);
+  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: 0.02, scale: 1.1, rotation: 0, alpha: 1, flip: true, anchor: [0.5, 1], anim: null }]);
   const run = line => compile([{ file: 't.vn', text: `define alice "Alice"\nlabel start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
   assert.match(run('show alice flip=maybe'), /on or off/);
   assert.match(run('show alice y=abc'), /number/);

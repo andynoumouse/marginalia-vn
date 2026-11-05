@@ -13,7 +13,7 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 interface SeedGame { id: string; title: string; description: string; files: string[] }
 interface Seed { engine: string; games: SeedGame[] }
 let seed: Seed | null = null;
-const loadSeed = async () => (seed ??= await (await fetch('seed/index.json')).json() as Seed);
+const loadSeed = async () => (seed ??= await (await fetch('seed/index.json', { cache: 'no-cache' })).json() as Seed);
 
 const showError =(e: unknown) => { errorEl.textContent = e instanceof Error ? e.message : String(e); };
 async function busy<T>(work: () => Promise<T>): Promise<T | undefined> {
@@ -50,7 +50,7 @@ async function create(title: string, files: { path: string; bytes: Uint8Array; m
 
 async function newFromGame(g: SeedGame, open: 'editor' | 'play' | false) {
   const files = await Promise.all(g.files.map(async path => {
-    const r = await fetch(`seed/${g.id}/${path.split('/').map(encodeURIComponent).join('/')}`);
+    const r = await fetch(`seed/${g.id}/${path.split('/').map(encodeURIComponent).join('/')}`, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`could not load ${g.title}'s ${path}`);
     return { path, bytes: new Uint8Array(await r.arrayBuffer()) };
   }));

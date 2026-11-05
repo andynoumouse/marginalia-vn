@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   addKey, setKey, deleteKey, setDur, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset,
+  uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, saveLook,
   sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, noRigSettings,
 } from '../../dist/engine/src/index.js';
 
@@ -278,4 +279,47 @@ test('textChange is the one edit between the common start and end', () => {
   assert.equal(applyEdit('abcXYdef', e), 'abcZdef');
   assert.equal(applyEdit('aaa', textChange('aaa', 'aaaa')), 'aaaa');
   assert.equal(applyEdit('abab', textChange('abab', 'ab')), 'ab');
+});
+
+test('bones: add, pivot, re-parent (never into a loop), put parts on bones, delete', () => {
+  const bones = { root: { pivot: [10, 20] }, torso: { parent: 'root' }, head: { parent: 'torso' } };
+  assert.equal(uniqueBoneName(bones), 'bone');
+  assert.equal(uniqueBoneName(bones, 'head'), 'head_2');
+  assert.deepEqual(addBone(bones, 'neck', 'torso').neck, { parent: 'torso' });
+  assert.deepEqual(addBone(bones, 'tail').tail, {});
+  assert.equal(addBone(bones, 'head'), null);
+  assert.equal(addBone(bones, 'x', 'ghost'), null);
+  assert.deepEqual(setBonePivot(bones, 'head', [1.4, 2.6]).head, { parent: 'torso', pivot: [1, 3] });
+  assert.deepEqual(setBonePivot(setBonePivot(bones, 'head', [1, 2]), 'head', null).head, { parent: 'torso' });
+  assert.equal(setBonePivot(bones, 'ghost', [1, 2]), bones);
+  assert.deepEqual(setBoneParent(bones, 'head', 'root').head, { parent: 'root' });
+  assert.deepEqual(setBoneParent(bones, 'head', null).head, {});
+  assert.equal(setBoneParent(bones, 'root', 'head'), null, 'a loop');
+  assert.equal(setBoneParent(bones, 'torso', 'torso'), null);
+  assert.equal(setBoneParent(bones, 'head', 'ghost'), null);
+  assert.deepEqual(bones.head, { parent: 'torso' }, 'the input is left alone');
+
+  assert.deepEqual(setPartBone({}, 'face', 'head'), { face: { bone: 'head' } });
+  assert.deepEqual(setPartBone({ face: { bone: 'head', pivot: [1, 2] } }, 'face', null), { face: { pivot: [1, 2] } });
+  assert.deepEqual(setPartBone({ face: { bone: 'head' } }, 'face', null), {});
+
+  const parts = { face: { bone: 'head' }, coat: { bone: 'torso' }, hair: { bone: 'head', pivot: [1, 2] } };
+  const gone = deleteBone(bones, parts, 'torso');
+  assert.deepEqual(gone.bones, { root: { pivot: [10, 20] }, head: { parent: 'root' } });
+  assert.deepEqual(gone.parts, { face: { bone: 'head' }, coat: { bone: 'root' }, hair: { bone: 'head', pivot: [1, 2] } });
+  const top = deleteBone(bones, parts, 'root');
+  assert.deepEqual(top.bones, { torso: {}, head: { parent: 'torso' } });
+  assert.deepEqual(deleteBone(bones, { coat: { bone: 'root' } }, 'root').parts, {});
+
+  assert.deepEqual(boneRows({ b: { parent: 'a' }, a: {}, c: { parent: 'b' }, d: {} }), [
+    { name: 'a', depth: 0 }, { name: 'b', depth: 1 }, { name: 'c', depth: 2 }, { name: 'd', depth: 0 },
+  ]);
+});
+
+test('saveLook stores every slot, none for an empty one, and refuses a blank name', () => {
+  const looks = { a: { top: 'tee' } };
+  assert.deepEqual(saveLook(looks, ' casual ', { top: 'jacket', hair: null }), { a: { top: 'tee' }, casual: { top: 'jacket', hair: 'none' } });
+  assert.deepEqual(looks, { a: { top: 'tee' } });
+  assert.equal(saveLook(looks, '', { top: 'x' }), null);
+  assert.equal(saveLook(looks, 'b', {}), null);
 });

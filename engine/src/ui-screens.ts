@@ -123,7 +123,8 @@ const STARTERS: Record<string, string> = {
   scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3 distance=30 on exit fade 0.15:
     each lines as ln step 0,140:
       text at 0,0 "[ln.name]" font 26 color [ln.color] if ln.name != ""
-      button ln at 0,40 size 1580,84 "[ln.text]" action line
+      button ln at 0,40 size 1500,84 "[ln.text]" action line
+      button ln.voice at 1512,40 size 68,84 "♪" action voice if ln.voiced
 ${BACK}`,
   [GALLERY_SCREEN]: `screen gallery:
   panel size full color rgba(4,6,10,.72) on enter fade 0.2 on exit fade 0.15

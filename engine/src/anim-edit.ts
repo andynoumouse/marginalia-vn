@@ -3,6 +3,7 @@
 
 import { ANCHORS, anchorToken, type Anchor, type Anchors } from './anchor.js';
 import { BUILTIN_POSITIONS, type Positions } from './positions.js';
+import { boneCycles, type BoneDef } from './bones.js';
 import { ANIMS, KEY_CHANNELS, keyframeFn, keyframeParts, type AnimDef, type KeyChannel, type KeyDef, type Offset } from './anim.js';
 
 export type Anims = Record<string, AnimDef>;
@@ -376,6 +377,81 @@ export const stageToPsd = (f: PivotFrame, x: number, y: number): [number, number
 export function setPivot(pivots: Pivots, part: string, at: [number, number] | null): Pivots {
   if (!at) return Object.fromEntries(Object.entries(pivots).filter(([k]) => k !== part));
   return { ...pivots, [part]: [Math.round(at[0]), Math.round(at[1])] }; // an existing part keeps its place in the list
+}
+
+// ---- bones: the working copy of rig.json `bones` and `parts` ----
+
+export type Bones = Record<string, BoneDef>;
+export type PartBones = Record<string, { bone?: string; pivot?: [number, number] }>;
+
+export type Looks = Record<string, Record<string, string>>;
+
+/** `looks` with `name` set to the slot `picks` (a slot with no variant shown is `none`); null when the name is empty or has no picks. */
+export function saveLook(looks: Looks, name: string, picks: Record<string, string | null>): Looks | null {
+  const entries = Object.entries(picks).map(([slot, v]) => [slot, v ?? 'none'] as const);
+  if (!name.trim() || !entries.length) return null;
+  return { ...looks, [name.trim()]: Object.fromEntries(entries) };
+}
+
+/** `base` (or `base_2`, `base_3`...) as a bone name nobody has. */
+export function uniqueBoneName(bones: Bones, base = 'bone'): string {
+  let name = base;
+  for (let i = 2; Object.hasOwn(bones, name); i++) name = `${base}_${i}`;
+  return name;
+}
+
+/** `bones` with a new bone `name` (under `parent`, else at the top); null when the name is taken or the parent is no bone. */
+export function addBone(bones: Bones, name: string, parent: string | null = null): Bones | null {
+  if (!name || Object.hasOwn(bones, name) || (parent !== null && !Object.hasOwn(bones, parent))) return null;
+  return { ...bones, [name]: parent === null ? {} : { parent } };
+}
+
+/** `bones` with the pivot of `name` set to `at` (rounded), or removed when `at` is null. */
+export function setBonePivot(bones: Bones, name: string, at: [number, number] | null): Bones {
+  if (!Object.hasOwn(bones, name)) return bones;
+  const { pivot: _, ...rest } = bones[name];
+  return { ...bones, [name]: at ? { ...rest, pivot: [Math.round(at[0]), Math.round(at[1])] } : rest };
+}
+
+/** `bones` with `name` hanging from `parent` (null: from the top); null when either is no bone or it would make a loop. */
+export function setBoneParent(bones: Bones, name: string, parent: string | null): Bones | null {
+  if (!Object.hasOwn(bones, name) || (parent !== null && !Object.hasOwn(bones, parent))) return null;
+  const { parent: _, ...rest } = bones[name];
+  const out = { ...bones, [name]: parent === null ? rest : { ...rest, parent } };
+  return boneCycles(out).length ? null : out;
+}
+
+/** `parts` with `part` on `bone` (null: on none); an entry left with nothing in it goes away. */
+export function setPartBone(parts: PartBones, part: string, bone: string | null): PartBones {
+  const { bone: _, ...rest } = parts[part] ?? {};
+  if (bone === null && !Object.keys(rest).length) return Object.fromEntries(Object.entries(parts).filter(([k]) => k !== part));
+  return { ...parts, [part]: bone === null ? rest : { bone, ...rest } };
+}
+
+/** `bones` and `parts` without bone `name`: its children and its parts go to its parent (or to the top). */
+export function deleteBone(bones: Bones, parts: PartBones, name: string): { bones: Bones; parts: PartBones } {
+  if (!Object.hasOwn(bones, name)) return { bones, parts };
+  const up = bones[name].parent !== undefined && Object.hasOwn(bones, bones[name].parent!) && bones[name].parent !== name ? bones[name].parent! : null;
+  const out: Bones = {};
+  for (const [b, def] of Object.entries(bones)) {
+    if (b === name) continue;
+    if (def.parent !== name) { out[b] = def; continue; }
+    const { parent: _, ...rest } = def;
+    out[b] = up === null ? rest : { ...rest, parent: up };
+  }
+  let kept = parts;
+  for (const [p, def] of Object.entries(parts)) if (def?.bone === name) kept = setPartBone(kept, p, up);
+  return { bones: out, parts: kept };
+}
+
+/** Bone names parents first, each with how deep it is, for an indented list (children in file order). */
+export function boneRows(bones: Bones): { name: string; depth: number }[] {
+  const looped = new Set(boneCycles(bones).flat());
+  const parentOf = (b: string) => { const p = bones[b].parent; return typeof p === 'string' && p !== b && Object.hasOwn(bones, p) && !looped.has(b) ? p : null; };
+  const out: { name: string; depth: number }[] = [];
+  const walk = (parent: string | null, depth: number) => { for (const b of Object.keys(bones)) if (parentOf(b) === parent) { out.push({ name: b, depth }); walk(b, depth + 1); } };
+  walk(null, 0);
+  return out;
 }
 
 /** What the animation studio edits of rig.json besides `animations` and `pivots`: null means "not written, use the default". */

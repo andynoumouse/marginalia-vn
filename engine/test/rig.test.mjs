@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkAssets, checkRig, compile, getCompletions, NullRenderer, Runtime, expandShow, mergeRig, orderedParts, rigLayers, rigAnimNames, rigPoseNames, rigSkeleton, rigSlotNames, rigPartNames, partGroups, spreadPartOffsets, rigOutline, NO_OFFSET } from '../../dist/engine/src/index.js';
+import { checkAssets, checkRig, compile, getCompletions, NullRenderer, Runtime, expandShow, mergeRig, orderedParts, rigLayers, rigAnimNames, rigLookNames, rigSkeleton, rigSlotNames, rigPartNames, rigOutline } from '../../dist/engine/src/index.js';
 
 const v = file => ({ file });
 const manifest = rig => ({
@@ -17,10 +17,11 @@ const manifest = rig => ({
 });
 const rig = {
   order: ['body', 'outfit_back', 'hair', 'outfit_front'],
-  groups: { outfit: ['outfit_back', 'outfit_front'] },
-  poses: { shy: { pose: 'angry', blush: 'on' }, plain: { outfit: 'casual' } },
+  bones: { torso: {}, head: { parent: 'torso', pivot: [50, 40] } },
+  parts: { outfit_back: { bone: 'torso' }, outfit_front: { bone: 'torso' }, hair: { bone: 'head' } },
+  looks: { shy: { look: 'angry', blush: 'on' }, plain: { outfit_back: 'casual', outfit_front: 'casual' } },
 };
-const files = m => rigLayers(m, null, {}).map(p => p.file);
+const files = m => rigLayers(m, [], {}).map(p => p.file);
 
 test('rig order: listed parts are re-stacked among their own positions', () => {
   assert.deepEqual(orderedParts(manifest({ order: ['hair', 'body'] })).map(p => p.file ?? p.slot), ['hair.png', 'outfit_back', 'body.png', 'outfit_front', 'eyes', 'blush']);
@@ -28,42 +29,106 @@ test('rig order: listed parts are re-stacked among their own positions', () => {
   assert.deepEqual(files(manifest({ order: ['hair', 'body'] })).slice(0, 2), ['hair.png', 'ob_school.png']);
 });
 
-test('rig groups: one name sets several slots; a missing variant is skipped with a warning', () => {
+test('a group no longer dresses: outfit=casual is a plain (unknown) slot override', () => {
   const m = manifest(rig);
-  const x = expandShow(m, null, { outfit: 'casual' });
-  assert.deepEqual(x.overrides, { outfit_back: 'casual', outfit_front: 'casual' });
-  assert.deepEqual(x.problems, []);
-  const bad = expandShow({ ...m, parts: m.parts.map(p => (p.slot === 'outfit_front' ? { ...p, variants: { school: v('x.png') } } : p)) }, null, { outfit: 'casual' });
-  assert.deepEqual(bad.overrides, { outfit_back: 'casual' });
-  assert.equal(bad.problems.length, 1);
-  assert.deepEqual(expandShow(m, null, { outfit: 'none' }).overrides, { outfit_back: 'none', outfit_front: 'none' });
+  const x = expandShow(m, [], { outfit: 'casual' });
+  assert.deepEqual(x.overrides, { outfit: 'casual' });
+  assert.deepEqual(rigSlotNames(m), ['outfit_back', 'outfit_front', 'eyes', 'blush']);
+  const index = { files: [], rigs: { al: m } };
+  const msgs = checkAssets(compile([{ file: 't.vn', text: 'define al "Al"\nlabel start:\n  show al outfit=casual\n' }]), index).map(d => d.message);
+  assert.ok(msgs.some(t => t.includes('has no slot "outfit"')));
 });
 
-test('rig shorthands: expand to a pose and overrides, explicit overrides win', () => {
+test('looks: expand into slot overrides, explicit overrides win', () => {
   const m = manifest(rig);
-  assert.deepEqual(expandShow(m, 'shy', {}), { pose: 'angry', overrides: { blush: 'on' }, problems: [] });
-  assert.deepEqual(expandShow(m, 'shy', { blush: 'none', eyes: 'down' }).overrides, { blush: 'none', eyes: 'down' });
-  assert.equal(expandShow(m, 'plain', {}).pose, null);
+  assert.deepEqual(expandShow(m, ['shy'], {}), { overrides: { eyes: 'narrow', blush: 'on' }, unknown: [], problems: [] });
+  assert.deepEqual(expandShow(m, ['shy'], { blush: 'none', eyes: 'down' }).overrides, { eyes: 'down', blush: 'none' });
+  assert.deepEqual(expandShow(m, ['plain'], {}).overrides, { outfit_back: 'casual', outfit_front: 'casual' });
   assert.deepEqual(files(m), ['body.png', 'ob_school.png', 'hair.png', 'of_school.png', 'e_open.png']);
   const warned = [];
-  const shy = rigLayers(m, 'shy', {}, w => warned.push(w)).map(p => p.file);
+  const shy = rigLayers(m, ['shy'], {}, w => warned.push(w)).map(p => p.file);
   assert.deepEqual(shy, ['body.png', 'ob_school.png', 'hair.png', 'of_school.png', 'e_narrow.png', 'blush.png']);
   assert.deepEqual(warned, []);
-  assert.deepEqual(rigLayers(m, 'plain', {}).map(p => p.file).slice(1, 4), ['ob_casual.png', 'hair.png', 'of_casual.png']);
+  assert.deepEqual(rigLayers(m, ['plain'], {}).map(p => p.file).slice(1, 4), ['ob_casual.png', 'hair.png', 'of_casual.png']);
+});
+
+test('looks: several bare words apply left to right, the last wins per slot', () => {
+  const m = manifest(rig);
+  assert.deepEqual(expandShow(m, ['shy', 'plain'], {}).overrides, { eyes: 'narrow', blush: 'on', outfit_back: 'casual', outfit_front: 'casual' });
+  const mixed = manifest({ looks: { a: { eyes: 'down', blush: 'on' }, b: { eyes: 'open' } } });
+  assert.deepEqual(expandShow(mixed, ['a', 'b'], {}).overrides, { eyes: 'open', blush: 'on' });
+  assert.deepEqual(expandShow(mixed, ['b', 'a'], {}).overrides, { eyes: 'down', blush: 'on' });
+  assert.deepEqual(expandShow(mixed, ['a', 'b'], { eyes: 'narrow' }).overrides, { eyes: 'narrow', blush: 'on' }, 'the line beats every look');
+});
+
+test('looks: the look key applies another look first; none hides a slot; cycles are cut and rejected', () => {
+  const m = manifest({ looks: {
+    base: { eyes: 'down', blush: 'on' },
+    child: { look: 'base', eyes: 'open', outfit_back: 'none' },
+    a: { look: 'b', eyes: 'down' }, b: { look: 'a', blush: 'on' },
+    ghost: { look: 'nobody' }, odd: { hat: 'x', eyes: 'closed' },
+  } });
+  const child = expandShow(m, ['child'], {});
+  assert.deepEqual(child.overrides, { eyes: 'open', blush: 'on', outfit_back: 'none' });
+  assert.deepEqual(child.problems, []);
+  assert.deepEqual(rigLayers(m, ['child'], {}).map(l => l.file), ['body.png', 'hair.png', 'of_school.png', 'e_open.png', 'blush.png']);
+  assert.match(expandShow(m, ['a'], {}).problems[0], /refers back to itself/);
+  assert.match(expandShow(m, ['ghost'], {}).problems[0], /"nobody", which is no look/);
+  assert.equal(expandShow(m, ['odd'], {}).problems.length, 2);
+  const bad = checkRig(m).map(p => p.message);
+  for (const want of ['looks.a: look references form a cycle', 'looks.b: look references form a cycle', 'looks.ghost: look "nobody" is no look', 'looks.odd: no slot "hat"', 'looks.odd: slot "eyes" has no variant "closed"']) {
+    assert.ok(bad.some(t => t.includes(want)), want);
+  }
+  assert.ok(!bad.some(t => t.startsWith('looks.child') || t.startsWith('looks.base')));
+});
+
+test('looks: a bare word is a look, then an implicit look from PSD names and tags, else unknown', () => {
+  const m = manifest({ looks: { angry: { blush: 'on' } } });
+  assert.deepEqual(expandShow(m, ['casual'], {}).overrides, { outfit_back: 'casual', outfit_front: 'casual' }, 'a variant name picks it in every slot that has it');
+  assert.deepEqual(expandShow(manifest(), ['angry'], {}).overrides, { eyes: 'narrow' }, 'a tag on a variant');
+  assert.deepEqual(expandShow(m, ['angry'], {}).overrides, { blush: 'on' }, 'a looks entry of the same name wins');
+  const u = expandShow(m, ['zzz', 'casual'], {});
+  assert.deepEqual(u.unknown, ['zzz']);
+  assert.deepEqual(u.overrides, { outfit_back: 'casual', outfit_front: 'casual' });
+  const warned = [];
+  rigLayers(m, ['zzz'], {}, w => warned.push(w));
+  assert.deepEqual(warned, ['no layer is named or aliased "zzz"']);
+  assert.ok(checkRig(m).some(p => p.message.includes('"angry" is also a variant or pose name in the PSD; the look wins')));
+});
+
+test('checkRig: poses was replaced by looks', () => {
+  const found = checkRig(manifest({ poses: { a: {} } }));
+  assert.deepEqual(found.map(p => p.message), ['poses was replaced by looks; see rig-json.md']);
+});
+
+test('show parses several bare words and runs them left to right', async () => {
+  const src = 'define al "Al"\nlabel start:\n  show al shy plain eyes=down\n  end\n';
+  const p = compile([{ file: 't.vn', text: src }]);
+  const show = p.ops.find(o => o.op === 'show');
+  assert.equal(show.pose, 'shy');
+  assert.deepEqual(show.more, ['plain']);
+  assert.deepEqual(show.overrides, { eyes: 'down' });
+  const rt = new Runtime(p, new NullRenderer());
+  await rt.start();
+  const s = rt.state.sprites[0];
+  assert.deepEqual([s.pose, s.more, s.overrides], ['shy', ['plain'], { eyes: 'down' }]);
+  assert.deepEqual(checkAssets(p, { files: [], rigs: { al: manifest(rig) } }).map(d => d.message), []);
 });
 
 test('rig: without rig.json nothing changes', () => {
   const m = manifest();
-  assert.deepEqual(expandShow(m, 'angry', { eyes: 'down' }), { pose: 'angry', overrides: { eyes: 'down' }, problems: [] });
+  assert.deepEqual(expandShow(m, ['angry'], { eyes: 'down' }), { overrides: { eyes: 'down' }, unknown: [], problems: [] });
 });
 
-test('checkAssets understands shorthands and groups', () => {
+test('checkAssets understands looks', () => {
   const index = { files: [], rigs: { al: manifest(rig) } };
   const program = src => compile([{ file: 't.vn', text: `define al "Al"\nlabel start:\n  ${src}\n` }]);
   const msgs = src => checkAssets(program(src), index).map(d => d.message);
   assert.deepEqual(msgs('show al shy'), []);
-  assert.deepEqual(msgs('show al angry outfit=casual'), []);
-  assert.ok(msgs('show al angry outfit=wizard').some(m => m.includes('has no variant "wizard"')));
+  assert.deepEqual(msgs('show al angry outfit_back=casual'), []);
+  assert.deepEqual(msgs('show al shy plain'), []);
+  assert.ok(msgs('show al zzz').some(m => m.includes('no layer named or aliased "zzz"')));
+  assert.ok(msgs('show al angry outfit_back=wizard').some(m => m.includes('has no variant "wizard"')));
   assert.ok(msgs('show al angry hat=red').some(m => m.includes('has no slot "hat"')));
 });
 
@@ -71,15 +136,15 @@ test('checkRig reports problems in rig.json', () => {
   assert.deepEqual(checkRig(manifest(rig)), []);
   const found = checkRig(manifest({
     order: ['body', 'ghost'],
-    groups: { outfit: ['outfit_back', 'nope'], eyes: ['blush'] },
-    poses: { open: {}, odd: { pose: 'zzz', hat: 'x', eyes: 'closed' } },
+    groups: { outfit: ['outfit_back'] },
+    looks: { open: {}, odd: { look: 'zzz', hat: 'x', eyes: 'closed' } },
   }));
   const bad = found.map(p => p.message);
   assert.deepEqual(found.find(p => p.message.includes('ghost')).at, 'ghost');
-  assert.deepEqual(found.find(p => p.message.includes('no slot or group')).at, 'hat');
-  assert.deepEqual(rigPoseNames(manifest(rig)), ['angry', 'casual', 'down', 'narrow', 'on', 'open', 'plain', 'school', 'shy']);
-  assert.deepEqual(rigSlotNames(manifest(rig)), ['outfit_back', 'outfit_front', 'eyes', 'blush', 'outfit']);
-  for (const part of ['no part named "ghost"', 'names part "nope"', '"eyes" is also a slot', '"open" is also a variant', 'no layer named or aliased "zzz"', 'no slot or group "hat"', 'slot "eyes" has no variant "closed"']) {
+  assert.deepEqual(found.find(p => p.message.includes('no slot "hat"')).at, 'hat');
+  assert.deepEqual(rigLookNames(manifest(rig)), ['angry', 'casual', 'down', 'narrow', 'on', 'open', 'plain', 'school', 'shy']);
+  assert.deepEqual(rigSlotNames(manifest(rig)), ['outfit_back', 'outfit_front', 'eyes', 'blush']);
+  for (const part of ['no part named "ghost"', 'groups was replaced by bones', '"open" is also a variant', 'look "zzz" is no look', 'no slot "hat"', 'slot "eyes" has no variant "closed"']) {
     assert.ok(bad.some(m => m.includes(part)), part);
   }
 });
@@ -88,21 +153,20 @@ test('rig skeleton and merge', () => {
   const m = manifest();
   const sk = rigSkeleton(m);
   assert.deepEqual(sk.order, ['body', 'outfit_back', 'hair', 'outfit_front', 'eyes', 'blush']);
-  assert.deepEqual(sk.groups, { outfit: ['outfit_back', 'outfit_front'] });
-  assert.deepEqual(sk.poses, {});
+  assert.deepEqual(sk.looks, {});
 
   const updated = { ...m, parts: [...m.parts.slice(0, 3), { file: 'scarf.png' }, ...m.parts.slice(3)] };
-  const merged = mergeRig({ order: ['body', 'hair', 'old'], poses: { a: {} } }, updated);
+  const merged = mergeRig({ order: ['body', 'hair', 'old'], looks: { a: {} } }, updated);
   assert.deepEqual(merged.added, ['outfit_back', 'scarf', 'outfit_front', 'eyes', 'blush']);
   assert.deepEqual(merged.missing, ['old']);
-  assert.deepEqual(merged.rig.poses, { a: {} });
+  assert.deepEqual(merged.rig.looks, { a: {} });
   assert.ok(merged.rig.order.indexOf('scarf') === merged.rig.order.indexOf('hair') + 1);
 });
 
-test('completions after "show <char>" offer rig poses, shorthands and slots', () => {
+test('completions after "show <char>" offer rig looks, PSD names and slots', () => {
   const p = compile([{ file: 't.vn', text: 'define al "Al"\nlabel start:\n  show al\n' }]);
   const labels = getCompletions(p, '  show al ', { al: manifest(rig) }).map(s => s.label);
-  for (const want of ['shy', 'angry', 'school', 'eyes=', 'outfit=', 'at']) assert.ok(labels.includes(want), want);
+  for (const want of ['shy', 'angry', 'school', 'eyes=', 'at']) assert.ok(labels.includes(want), want);
   assert.ok(!getCompletions(p, '  show al ').some(s => s.label === 'shy'));
 });
 
@@ -141,51 +205,15 @@ test('animate: names are checked against presets and the character\'s rig.json a
 
 test('parts: rigLayers names the part of each layer; pivots and key parts are checked', () => {
   const m = manifest({ order: ['hair', 'body'] });
-  assert.deepEqual(rigLayers(m, null, {}).map(l => l.part), ['hair', 'outfit_back', 'body', 'outfit_front', 'eyes']);
+  assert.deepEqual(rigLayers(m, [], {}).map(l => l.part), ['hair', 'outfit_back', 'body', 'outfit_front', 'eyes']);
   const msgs = rig => checkRig(manifest(rig)).map(p => p.message);
   assert.deepEqual(msgs({ pivots: { hair: [10, 20], eyes: [0, 0] } }), []);
-  assert.match(msgs({ pivots: { tail: [1, 2] } })[0], /no part or group named "tail"/);
+  assert.match(msgs({ pivots: { tail: [1, 2] } })[0], /no part named "tail"/);
   assert.match(msgs({ pivots: { hair: [1] } })[0], /use \[x, y\]/);
   assert.match(msgs({ pivots: { hair: ['a', 2] } })[0], /use \[x, y\]/);
   const anim = key => ({ animations: { wave: { keys: [key] } } });
   assert.deepEqual(msgs(anim({ t: 0.5, part: 'hair', rot: 5 })), []);
-  assert.match(msgs(anim({ t: 0.5, part: 'tail', rot: 5 }))[0], /no part or group named "tail"/);
-});
-
-test('groups of parts: keys, pivots and part= can name a group; slot=variant only takes groups with slots', () => {
-  const head = { groups: { head: ['hair', 'eyes'], face: ['hair'] }, pivots: { head: [50, 40] } };
-  const m = manifest(head);
-  assert.deepEqual(partGroups(m), { head: ['hair', 'eyes'], face: ['hair'] });
-  assert.deepEqual(rigPartNames(m).slice(-2), ['head', 'face']);
-  assert.deepEqual(rigSlotNames(m).slice(-1), ['head']); // `face` has no slot to set
-  const msgs = rig => checkRig(manifest(rig)).map(p => p.message);
-  assert.deepEqual(msgs({ ...head, animations: { tilt: { keys: [{ t: 0.5, part: 'head', rot: 5 }] } } }), []);
-  assert.match(msgs({ groups: { hair: ['eyes'] } })[0], /"hair" is also a part name; the part wins/);
-  assert.deepEqual(partGroups(manifest({ groups: { hair: ['eyes'], g: ['eyes', 'nope'] } })), { g: ['eyes'] });
-  // a plain layer in a group is skipped by slot=variant; a group of only plain layers sets nothing
-  assert.deepEqual(expandShow(m, null, { head: 'down' }), { pose: null, overrides: { eyes: 'down' }, problems: [] });
-  assert.match(expandShow(m, null, { face: 'down' }).problems[0], /group "face" has no slots/);
-  const src = 'define al "Al"\nlabel start:\n  show al\n  animate al nod part=head\n  end\n';
-  assert.deepEqual(checkAssets(compile([{ file: 't.vn', text: src }]), { files: [], rigs: { al: m } }).map(d => d.message), []);
-});
-
-test('spreadPartOffsets: a group moves its parts as one piece about its pivot', () => {
-  const o = (x = {}) => ({ ...NO_OFFSET, ...x });
-  const pivots = { a: [0, 0], b: [10, 0], g: [0, 0] };
-  const pv = n => pivots[n] ?? null;
-  // a turn of 90 degrees about (0,0): b's own pivot (10,0) ends at (0,10), a shift of (-10, 10); a turns in place
-  const out = spreadPartOffsets(new Map([['g', o({ rot: 90 })], ['a', o({ rot: 5 })]]), { g: ['a', 'b'] }, pv, 1);
-  assert.deepEqual(out.get('a'), o({ rot: 95 })); // its own offset adds to the group's
-  const b = out.get('b');
-  assert.equal(b.rot, 90);
-  assert.ok(Math.abs(b.dx + 10) < 1e-9 && Math.abs(b.dy - 10) < 1e-9, JSON.stringify(b));
-  // dx/dy are in units of `unit` pixels; a part name that is not a group passes through
-  const half = spreadPartOffsets(new Map([['g', o({ rot: 90 })], ['c', o({ dx: 1 })]]), { g: ['b'] }, pv, 2).get('b');
-  assert.ok(Math.abs(half.dx + 5) < 1e-9 && Math.abs(half.dy - 5) < 1e-9);
-  assert.deepEqual(spreadPartOffsets(new Map([['c', o({ dx: 1 })]]), { g: ['b'] }, pv, 2).get('c'), o({ dx: 1 }));
-  // without a pivot of its own the group turns about its first part's
-  const first = spreadPartOffsets(new Map([['g', o({ rot: 90 })]]), { g: ['b', 'a'] }, n => (n === 'g' ? null : pv(n)), 1);
-  assert.deepEqual(first.get('b'), o({ rot: 90 }));
+  assert.match(msgs(anim({ t: 0.5, part: 'tail', rot: 5 }))[0], /no part or bone named "tail"/);
 });
 
 test('animate part=: parsed, kept on a loop and checked against the character\'s parts', async () => {
@@ -207,13 +235,13 @@ test('animate part=: parsed, kept on a loop and checked against the character\'s
   assert.deepEqual(rt.state.sprites[0].anim, { name: 'sway', dur: null, strength: 1, part: 'hair' });
 });
 
-test('rigOutline: parts top first with what is shown, groups, and the variants each pose picks', () => {
-  const m = manifest({ ...rig, groups: { ...rig.groups, still: ['hair', 'body', 'nope'] } });
-  const o = rigOutline(m, null, {});
+test('rigOutline: parts top first with what is shown, bones, and the variants each look picks', () => {
+  const m = manifest(rig);
+  const o = rigOutline(m, [], {});
   assert.deepEqual(o.parts.map(p => `${p.kind}:${p.name}`), ['slot:blush', 'slot:eyes', 'slot:outfit_front', 'layer:hair', 'slot:outfit_back', 'layer:body']);
   const part = (x, n) => x.parts.find(p => p.name === n);
   assert.deepEqual(part(o, 'eyes'), {
-    name: 'eyes', kind: 'slot', file: 'e_open.png', shown: 'open', groups: [],
+    name: 'eyes', kind: 'slot', file: 'e_open.png', shown: 'open', bone: null,
     variants: [
       { name: 'open', file: 'e_open.png', poses: [], isDefault: true },
       { name: 'down', file: 'e_down.png', poses: [], isDefault: false },
@@ -221,15 +249,44 @@ test('rigOutline: parts top first with what is shown, groups, and the variants e
     ],
   });
   assert.equal(part(o, 'blush').shown, null, 'a slot without a default shows nothing');
-  assert.deepEqual(part(o, 'hair'), { name: 'hair', kind: 'layer', file: 'hair.png', variants: [], shown: null, groups: ['still'] });
-  assert.deepEqual(part(o, 'outfit_front').groups, ['outfit']);
-  assert.deepEqual(o.groups, [{ name: 'outfit', parts: ['outfit_back', 'outfit_front'], dresses: true }, { name: 'still', parts: ['hair', 'body'], dresses: false }]);
-  assert.deepEqual(o.poses, [
-    { name: 'shy', from: 'rig', picks: { eyes: 'narrow', blush: 'on' } },
+  assert.deepEqual(part(o, 'hair'), { name: 'hair', kind: 'layer', file: 'hair.png', variants: [], shown: null, bone: 'head' });
+  assert.equal(part(o, 'outfit_front').bone, 'torso');
+  assert.deepEqual(o.bones, [{ name: 'torso', parent: null, parts: ['outfit_back', 'outfit_front', 'hair'] }, { name: 'head', parent: 'torso', parts: ['hair'] }]);
+  assert.deepEqual(o.looks, [
+    { name: 'shy', from: 'rig', picks: { blush: 'on', eyes: 'narrow' } },
     { name: 'plain', from: 'rig', picks: { outfit_front: 'casual', outfit_back: 'casual' } },
     { name: 'angry', from: 'art', picks: { eyes: 'narrow' } },
   ]);
-  const dressed = rigOutline(m, 'shy', { eyes: 'down', outfit: 'none' });
+  const dressed = rigOutline(m, ['shy'], { eyes: 'down', outfit_front: 'none', outfit_back: 'none' });
   assert.deepEqual(['blush', 'eyes', 'outfit_front'].map(n => part(dressed, n).shown), ['on', 'down', null]);
   assert.equal(part(dressed, 'outfit_back').file, null);
+});
+
+test('folderBones, rigSkeleton and mergeRig: PSD folders become bones, nothing the author has is changed', () => {
+  const m = {
+    width: 100, height: 100,
+    parts: [
+      { file: 'body.png' },
+      { file: 'face.png', group: 'head' },
+      { slot: 'eyes', default: 'open', variants: { open: { file: 'e.png' } }, group: 'head' },
+      { file: 'hand.png', group: 'arm/forearm' },
+      { file: 'cuff.png', group: 'forearm' },
+    ],
+  };
+  const sk = rigSkeleton(m);
+  assert.deepEqual(sk.bones, { head: {}, forearm: { parent: 'arm' }, arm: {}, forearm_2: {} });
+  assert.deepEqual(sk.parts, { face: { bone: 'head' }, eyes: { bone: 'head' }, hand: { bone: 'forearm' }, cuff: { bone: 'forearm_2' } });
+  assert.deepEqual(checkRig({ ...m, rig: sk }).map(p => p.message), []);
+  assert.deepEqual(rigSkeleton({ parts: [{ file: 'a.png' }] }).bones, undefined, 'no folders, no bones');
+
+  // a reconvert adds bones only for new parts, and never changes what is there
+  const mine = { order: ['body', 'face'], bones: { head: { pivot: [5, 5] } }, parts: { face: { bone: 'head', pivot: [1, 2] } } };
+  const merged = mergeRig(mine, m);
+  assert.deepEqual(merged.added, ['eyes', 'hand', 'cuff']);
+  assert.deepEqual(merged.bonesAdded, ['arm', 'forearm', 'forearm_2']);
+  assert.deepEqual(merged.rig.bones.head, { pivot: [5, 5] });
+  assert.deepEqual(merged.rig.parts.face, { bone: 'head', pivot: [1, 2] });
+  assert.deepEqual(merged.rig.parts.eyes, { bone: 'head' });
+  // a folder whose parts are all already in order adds no empty bone
+  assert.deepEqual(mergeRig({ order: ['body', 'face', 'eyes', 'hand', 'cuff'] }, m).bonesAdded, []);
 });

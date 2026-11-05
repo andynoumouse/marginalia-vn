@@ -37,12 +37,6 @@ Nothing open right now; pick from the topic sections below.
 - [~] Screen UI elements missing from `screen` blocks. `panel` (a 9-slice framed container) and `bar` (a stat bar) are in
   (docs/commands.md); left of them: `style=` from the theme on both, a vertical or right-to-left bar, an eased fill, and no
   browser test yet (checked by hand in the preview). Still missing, roughly by payoff; when one is picked up, move it to "Next up":
-  - [x] Tabs / tab bar for custom screens (a journal with Items / Notes / Map pages): `tab` on a blocking screen with local
-    `state` (docs/commands.md, "state / tab / toggle / radio / inout"). Not yet on a HUD or the built-in screens (step 4 of the design note).
-  - [x] Toggle / checkbox and radio group: `toggle` / `radio` bound to local state or an `inout` parameter, written back when the
-    screen answers (docs/commands.md, "state / tab / toggle / radio / inout"). A slider on a numeric `inout` is not built.
-  - [x] Clause continuation lines: a long element line goes on over deeper-indented lines that start with a clause word
-    (docs/commands.md, "continuation"; the demo's settings.vn uses it).
   - [ ] **NEEDS PLANNING** Make screen elements behave the same in every context (blocking screen, HUD, built-in-replacement
     screens), as a screen with its own local state, inputs and outputs. It would also deliver the two items above (and the
     dialog, tooltip and hover-reveal items). Design notes in [docs/design/screen-contexts.md](docs/design/screen-contexts.md).
@@ -63,40 +57,6 @@ Nothing open right now; pick from the topic sections below.
     (docs/commands.md, "Animating elements"). `on exit` is built too (inert copies of dropped elements). Left: animating a change
     (tab switch, bar easing), and a browser test (checked by hand once; not in `browser.test.mjs`). Plan:
     [docs/design/screen-animation.md](docs/design/screen-animation.md).
-  - [x] **Unify the stock menus with `ScreenLayer`.** Today the stock menus are CSS/HTML in `preview/index.html` plus shell code,
-    and `screen <name>` overrides replace them; the starters in `engine/src/ui-screens.ts` only approximate the stock look. Make a
-    starter the default when a project declares no such screen, drawn through the same `ScreenLayer` path, so enter/exit
-    animations, theming and fixes apply everywhere and the stock markup and CSS go away. No existing projects, so the starters
-    only have to be good defaults, not pixel copies. Plan, one screen per step (delete that screen's stock markup, CSS and shell
-    code in the same step, rewrite the browser tests that touch its DOM and run `npm run test:browser` after each):
-    1. [x] title and pause (proves the path; their exit/enter come from the starter, no separate `leaving` CSS). Done: `compile` adds the
-       starters as `stock/title.vn` / `stock/pause.vn` when a project declares none; new language: `panel ... color c` and `size full`
-       (a dimmer), `text ... font n width n|full align a`, the title screen's `game_title`, `show_title`, `can_continue`, `has_*` variables.
-       Left over from it: the theme's `button` skin now reaches `.sc-btn`, and its `title` component reaches the game name (`style=title`, a reserved style name);
-       `titleScreen.align` is gone;
-       the starters' labels are translated through the hidden `[data-ui]` texts (`runtime.uiText`), which goes with the stock menus in step 4.
-    2. [x] history, viewer. Done: both come from their starters (`stock/history.vn`, `stock/viewer.vn`); the viewer pages with Left/Right on any screen, a `start bottom` scroll
-       focuses its newest button first (the history opens on the newest line). Left over: the starters' labels come through the hidden `[data-ui]` texts (now a map built per language, not a DOM scan per text).
-    3. [x] gallery, music, chapters, achievements. Done: all four come from their starters (`stock/<name>.vn`) when a project declares none. New language: `text ... color c`
-       (and a tile/row is a `panel` with absolutely placed children, since a grid cell takes no `at`). Left over: the theme's `row` component no longer reaches anything; the music room's "Now playing" label is a plain ♪; a locked
-       entry is drawn dim by a second `text` with `if not x.unlocked` (no per-element opacity from data).
-    4. [x] saves, options. Done: both come from their starters (`stock/options.vn`, `stock/saves.vn`) when a project declares none; the stock markup, CSS and shell code are gone.
-       New language: `announce_lines`, `theme` and `voice_language` cycle settings, a `<setting>_word` variable per cycle setting (the value in the player's language), `has_languages` / `has_themes` /
-       `has_voice_languages` / `has_fullscreen`; an `action tab` button is lit (`role="tab"`, `aria-selected`) while its tab is shown, and Left/Right and the shoulder buttons step through any row of tabs;
-       `text ... lines n`; an id `<entry>.<word>` for a second button per `each` entry with the actions `remove` and `rename`; saves: `note`, `can_rename`, `slot.heading` / `thumb` /
-       `removable` / `renamable`, and an image given as a `data:image/` URL. Left over: options and saves are drawn by a HudLayer, so they take no local `state` (the starter's tabs use `action tab`);
-       the theme's `panel` / `button` / `tab` components reach the starters only through `.sc-btn[role="tab"]` (the rest of the `.sc-btn` path is still its own set of hooks); the delete mode (`action delete`)
-       is not used by the starter, which has a delete button on each card as the stock screen did; a slot card's screen-reader text is its visible texts, not one sentence as before.
-    5. [x] Editor: the Files panel's "Customize" is now "Edit" (rows say `default`, the revert is "Revert to Default"); docs, README, tutorials and comments say
-       "default screen" instead of "stock". Dead code removed: two unused imports and the music room's `now_playing` label. Left: the quick menu and the achievement
-       toast are still shell DOM (own TODO line below); `choice_saves` in index.html is unused but is a translatable key, kept.
-    Gaps in the screen language found on the way (options tabs, pause dimming, ...) are added as general features.
-  - [x] Draw the quick menu bar and the achievement toast through `ScreenLayer` defaults too. Done: `stock/quickmenu.vn` and `stock/achievement_toast.vn` come from their starters when a project
-    declares none; `#quick` and the toast DOM, CSS and code are gone. New language: `anchor [var]` (a layout pinned to a place a variable names), `action [var]` (a button's built-in action
-    from a variable, as in `each quick_items as q`), `font n` on a button; shell variables `quick_items` / `quick_place` and the toast's `position`. Left over: the theme's `toast` component no longer reaches the achievement toast (only the generic `#toast` notice); the toast's panel is the
-    default `panel` look (themed through `panel`), with no accent border. The bar's buttons have their hotkey tooltips again (new: `tooltip "text"` on a button).
-  - [x] `align stretch` and `width n` / `height n` on `row` / `column` / `grid`: children grow to fill the container's cross axis, so the
-    default title and pause menus have buttons of one width. The options starter is now a two-column `grid` per tab (label | control) instead of hand-placed `at` and `size 420,60`; under `align stretch`, parts that cannot grow (text, images) are centred in the room left, so labels line up with their controls.
   - [ ] Fractional placement like Ren'Py's `xalign` / `yalign` / `xanchor` / `yanchor` on screen elements. Today only layout
     containers can be pinned (`anchor <nine places> [margin]`), and `at x,y` is always the element's top-left corner.
 - [~] Sprite/character positioning. Left: anchors from `rig.json` (e.g. `head` at the real neck pixel); no browser test of
@@ -119,6 +79,7 @@ Nothing open right now; pick from the topic sections below.
 - [ ] **NEEDS PLANNING** Mesh-warp animation for layered characters (a Live2D-like look without Live2D): rig.json parts get warp
   deformers (hair sway, breathing, cloth) drawn with Pixi 8 `MeshPlane` / `MeshRope`, on top of the rigid-part animation.
   Chosen over embedding Live2D (Cubism Core is a proprietary WASM runtime with bundling limits; Pixi wrappers target Pixi 6/7).
+  Other formats (Spine, Inochi2D's parameter-driven deformers) are surveyed in [docs/design/rig-formats.md](docs/design/rig-formats.md).
   Open questions:
   - Deformer model: grid size per part, channels (control points? bend/sine/noise presets?), keys on points or on a few
     parameters (`sway`, `bend`, `stretch`).
@@ -127,10 +88,65 @@ Nothing open right now; pick from the topic sections below.
   - Editing: a studio lane per deformer and draggable control points, or hand-written first.
   - Rendering cost, reduced motion, interaction with slot variants and `order`.
   - Whether Live2D import is still wanted later (check Pixi 8 plugin status and the Cubism license first).
+- [~] Part hierarchy for layered characters (a child follows its parent's motion): today groups are
+  flat lists, a member's keys add to its group's, and there is no parent/child transform inheritance (forearm following
+  upper arm, hair following head). Also the natural base for the mesh-warp item above. A survey of Spine, DragonBones,
+  Inochi2D, Rive and Cubism is in [docs/design/rig-formats.md](docs/design/rig-formats.md). The design (schema,
+  composition, keys, `show` syntax, checks, editor, tests, five phases) is in
+  [docs/design/rig-hierarchy.md](docs/design/rig-hierarchy.md); reviewed and its questions settled (the name is
+  "look"; several bare looks on a `show` apply left to right; bone scale is uniform, so no shear). Phase 1 (looks) is done:
+  `looks` replace `poses` and the dressing half of `groups`, `show` takes several bare looks, and mina's rig and the
+  tests are rebuilt. Phase 2 (bones in the data model) is done:
+  `bones` and `parts` keys, `engine/src/bones.ts` (`composeBones`, pivot fallback, cycles) and their `checkRig` checks,
+  with no renderer change yet (`groups` and `pivots` still move parts). Phase 3, first step, is done: the renderer
+  draws every part with a matrix from `placeParts` (bone world matrix, then the part's own offset about its pivot),
+  and `part=` / keys accept bone names (a bone key carries its subtree). Its second step is done too: `groups`,
+  `spreadPartOffsets` and `partGroups` are gone (`checkRig` reports a `groups` key), mina's head is a bone, and the
+  studio lists bones where it listed groups (flat for now; the tree comes in phase 5). `pivots` stays for parts.
+  Phase 4 (converter) is done: `sprite.json` parts carry a `group` (the PSD `+folder` path), and `rigSkeleton` / Update Rig
+  from Reconverted Art make bones from it (new parts only; nothing existing is changed). The look skeleton from slot
+  families needs nothing: PSD variant names already act as implicit looks. Phase 5 (editor) is done:
+  the Parts tab lists bones indented with a parent choice, a bone choice under each part, New bone and Remove, bone pivots
+  are edited like part pivots, Rig mode draws parent-child lines, rig.json completes bone names, bones with children fold,
+  a bone row can be dragged onto another (or onto the Bones heading) to re-parent it, and Save as look under Looks saves the
+  current dress. Left: no browser test of the Parts tab's folding, dragging or Save as look.
+  Decisions:
+  - The hierarchy replaces flat groups as the way to move parts together (no keeping both). No migration: the engine is
+    alpha, so `groups` is removed outright and old rig.json files are not converted. Our own test data (sample and demo
+    characters, tests) is rebuilt for the new format.
+  - Three separate things, as in Spine: **bones** (transform nodes with a parent and a pivot, no image needed), **parts**
+    (the drawn layers and slots, each on one bone and following it, with a draw order independent of the tree, as `order`
+    is now), and **outfits** (named sets of which variant each slot shows). An outfit cuts across the tree (a jacket's
+    pieces sit on different bones), so it is not a subtree or a tag on parts.
+  - Groups' second job, dressing (`outfit=casual` setting several slots, `outfit=none` emptying them), moves to outfits
+    as an explicit map: `"outfits": { "casual": { "top": "tee", "bottom": "jeans" } }`. Variant names may differ per slot;
+    an outfit may cover only some slots (the others keep what they show); an explicit `slot=variant` on the `show` line
+    still wins; a slot may map to `none`; an unknown slot or variant is a `checkRig` error, not a runtime warning.
+  - Stacking by expansion: applying an outfit (`show mina jacket`) writes its slot map into the character's slot
+    overrides, so a later outfit wins per slot and no stack is kept in state. The cost is that an outfit cannot be taken
+    off to restore what was under it; if authors need that, add `+name` / `-name` (or `wear` / `unwear`) with a stack in
+    the state later. A slot always shows one variant; layering clothes means a second slot (`outerwear` over `top`) in
+    the PSD, not several variants visible in one slot.
+  - Outfits and poses / shorthands merge into one concept: a named map from slots to variants that may cover all slots
+    (a pose like `happy`) or only some (an outfit like `casual`), applied by expansion as above. The `rig.json` key
+    replaces both `outfits` and `poses`; pose names tagged on variants in the PSD stay as labels the converter reads and
+    become such maps too. Today's `"pose": "smile"` base inside a shorthand becomes a reference to another look applied
+    first.
+  Open questions:
+  - What the merged thing is called, in `rig.json` and in scripts (`show mina casual`): "look" is the working name; keep
+    "pose" if it reads well enough for clothing.
+  - Data: a `parent` per part in `rig.json` (bones with no image allowed, like a neck or an empty root?); cycles and
+    unknown parents in `checkRig`.
+  - Transform: compose the child's `x`/`y`/`scale`/`rot` onto the parent's; pivots in the parent's space or the PSD's;
+    interaction with `order`, slot variants and a group's first-part pivot fallback.
+  - Scripts: does `animate ... part=<parent>` carry its children (yes), and can a child be keyed alone on top of that?
+  - Editing: Rig mode shows a tree instead of a flat list (drag to re-parent), draws parent-child links on the stage.
+  - A part's own keys vs. its parent's: additive as groups are now, or relative to the parent's motion.
 - [~] Flat characters (rig.json without sprite.json). Left: create the first rig.json from the editor; no browser test.
 - [~] Script ↔ studio links. Left: a hover link; opening the studio from a `show` line starts from that placement; no browser test.
-- [~] Animation studio. Left: the "Lanes of" part's pivot shows only while picking; after Apply the stage shows the rest pose
-  while the playhead sits on a key; no arrow keys in the Parts tree.
+- [~] Animation studio. Rig mode (Animate | Rig toggle: stage, parts, all pivots at once, click to move a pivot) is in,
+  with a Rig button in the Files panel and a draggable pivot. Left: after Apply the stage shows the rest pose while the
+  playhead sits on a key; Rig mode could add a draw-order/group overview.
 - [~] Outfit variants in the PSD converter. Left: not tried with a real PSD; no PSD-layer preview in the asset viewer.
 - [~] Voice lines. Left: not tried with real recordings or a large project; no completions, music ducking or per-character
   volume; NVL voices each line as it is added; no browser test of the prefetch and auto-advance wait.
@@ -143,9 +159,6 @@ Nothing open right now; pick from the topic sections below.
 
 ## Player experience
 
-- [~] History: a click on a line rolls back to it (`action line` on a project screen). Left: a button to replay its voice
-  line.
-- [ ] Skip to the next choice (a quick-menu item and a key), stopping at unread text unless Options says otherwise.
 - [~] Saves: named saves exist (game.json `saveNames`). Left: no rename action for a project's `screen saves` (only the stock
   ✎ button); export and import saves in the web build (a file download/upload), so a player can move between browsers or
   keep a backup before clearing site data.
@@ -184,35 +197,6 @@ Nothing open right now; pick from the topic sections below.
 - [ ] Spell check for dialogue and menu text only (not ids, tags, `[variables]` or commands), as Monaco warnings with
   "add to project dictionary" (a word list in the project); a dictionary per locale is a later step.
 - [ ] Consider pipeline settings for asset preprocessing (a project-level resize/compression/format config per asset type).
-- [x] Project templates for different game styles. Plan: a template is an overlay on the base starter, pure data in
-  `engine/src/templates.ts` (id, title, description, optional stage, a game.json patch, theme tokens, extra script files,
-  the assets it takes from a shared pool); `newProjectFiles` gets a `template` option, `blank` stays the default of the
-  API, the Studio picker defaults to Classic ADV. Placeholder art is generated (flat colour backgrounds, silhouette
-  sprites), not art packs. The sample stays the showcase and the demo stays Iris; templates are small starting points.
-  - [x] Mechanism: registry (`engine/src/templates.ts`), `template` option in `new-project.ts`, `vn init --template`, and
-    card pickers (radio cards with the description) in Studio's New project dialog and on the online demo, which also
-    takes the title in a field instead of a `window.prompt`.
-  - [x] Shared asset pool, `templates/assets/` (placeholder title backgrounds from `scripts/make-placeholders.mjs`, plus
-    the demo's audio): `templateAssets` lists what a template copies, `tools/template-assets.mjs` copies it for `vn init`
-    and the Studio, the online demo fetches it from `templates/assets/`; Studio packaging and the online build include it.
-    `games/sample` and `games/demo` keep their own copies (the editor opens them as they are; git stores identical files
-    once) and a test checks they stay byte-identical to the pool.
-  - [x] Guard test (`engine/test/templates.test.mjs`): for each template, the scripts compile, the playtest bot finds
-    no unreachable labels or stuck loops, the theme resolves without warnings, the asset check and `checkGame` find
-    nothing missing or invalid, and `assignIds` marks every string and a second pass adds none.
-  - [x] Silhouette placeholder sprites (`scripts/make-silhouettes.mjs` writes `templates/assets/char/{mina,ren}/neutral.png`):
-    Classic ADV shows Mina and Branching shows Mina and Ren, so `speakerFocus` has something to focus on. Blank, Portrait
-    and Kinetic/NVL stay without characters.
-  - [x] Templates: all five (Classic ADV, Portrait, Kinetic/NVL, Branching, Mystery) are in (Classic ADV and
-    Branching show the silhouette sprites). Branching has the status HUD, chapters, three endings as achievements and a
-    persistent play counter; Mystery has a hotspot room and an inventory list. Mystery also has an `each` inventory
-    screen and asks the player's name with `input`. Branching has a gallery too: one generated placeholder CG per ending (`scripts/make-cgs.mjs`), unlocked by that ending. Planned as: Classic ADV (`speakerFocus`, `sideImages`, `blips`, `quickMenu`, gallery, music room; two
-    characters, a menu with a variable, two endings); Portrait/mobile (1080x1920, larger text tokens, bottom text box,
-    bigger quick menu; also offered as a stage-size choice on any template); Kinetic/NVL (`nvl`, no choices,
-    auto-forward, minimal title and quick menu); Branching/dating sim (affection variables, `bar` HUD, `chapters`,
-    `achievements` as endings, `persistent`, gallery unlocks, a hub label); Mystery/adventure (`screen` with
-    `hotspot`/`each`, inventory list, map screen, `hud`, `input`).
-  - [x] Docs: README, `docs/game-json.md`, and a template page in the tutorial (`docs/tutorial/05-templates.md`).
 - [ ] **NEEDS PLANNING** Extension points for authors who know JavaScript: custom text tags, effects or screen elements
   in a project file, without breaking the deterministic runtime (no state outside variables; replay must give the same
   result). Decide first whether this is wanted at all.
@@ -267,20 +251,10 @@ Nothing open right now; pick from the topic sections below.
   - [ ] Cursor changes: today a hotspot only takes a CSS cursor name (`cursor help`). Wanted: a custom cursor image (with
     a hotspot offset), a script command to set it (e.g. the held item or the active verb, kept in saves and replay), and
     a per-element override. Keep the touch/pad fallback (no cursor there: show the held item as text or an icon).
-  - [x] Hover-reveal zones: an edge strip that shows the item bar while hovered or focused. A `hotspot` / `button` line ending
-    in `:` takes child elements (stage coordinates), and `ScreenLayer.setActive` works on the chain of ancestors: moving onto a
-    child fires `focus` for the child only, `blur` fires only for elements left entirely, and arrows, Tab and the pad count as
-    staying in the group; `hover` styling follows the chain. A quiet `on focus` / `on blur` handler plus `if` does the reveal
-    (docs/commands.md, "Groups"). Children cannot be inside an `each`. Independent of the local-state work in
-    docs/design/screen-contexts.md.
   - [ ] Popup next to the click: a verb/item menu placed where the player clicked. Today `at x,y` takes literal numbers
     and a screen answers only with an element id, so a popup can only sit at a fixed position per spot (one `if spot ==`
     group each). Needs the click position stored in variables (recorded like the answer, so replay and saves keep it) and
     `at` taking variables or expressions, with clamping to the stage edges. Keyboard/pad: use the focused element's centre.
-  - [x] Parameterised screens: `screen room(name, floor):` and `show screen room("hall", 2) as spot`, so one layout
-    serves many rooms (docs/commands.md). Not for `hud on` screens (no arguments to give). F2 renames a screen parameter inside
-    its screen. The Mystery template's `inventory(title)` uses it (bag, and
-    "use an item on the door"). A second room that shares a `room(name, backdrop)` layout is not built.
   - [ ] Hotspots follow the scene: they are stage coordinates, not tied to sprites or props. Checked: they do not move
     with `camera` (screens are DOM layers over the stage, outside the pixi `world` that the camera scales). Decide on
     anchoring a hotspot to a shown sprite or to the camera (transform the layer by the camera state).
