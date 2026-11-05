@@ -90,6 +90,29 @@ const map = paint(1920, 1080, [
   [either(rect(990, 612, 84, 14), rect(1002, 600, 60, 14)), [226, 190, 96]],
   [rect(1090, 730, 90, 40), [226, 214, 190]],                                                                  // papers
   [rect(900, 720, 70, 16), [150, 62, 62]],
+  // the repair shelf (Robo's route), under hotspot 160,90 420x170: a wall shelf with a small robot, a toolbox and a jar
+  [rect(180, 250, 380, 18), woodLight],
+  [rect(180, 268, 380, 6), woodDark],
+  [rect(210, 268, 14, 40), woodDark],
+  [rect(516, 268, 14, 40), woodDark],
+  [rect(190, 196, 90, 54), [150, 62, 62]],                                                                     // the toolbox
+  [rect(190, 190, 90, 10), iron],
+  [rect(224, 176, 22, 14), iron],
+  [rect(228, 218, 14, 12), brass],
+  [rect(450, 192, 56, 58), [150, 190, 200]],                                                                   // a jar of screws
+  [rect(454, 184, 48, 10), brass],
+  [rect(372, 236, 14, 14), [60, 74, 92]],                                                                      // the robot: legs,
+  [rect(396, 236, 14, 14), [60, 74, 92]],
+  [rect(364, 176, 54, 62), [64, 132, 214]],                                                                    // body,
+  [rect(376, 188, 30, 26), [210, 226, 240]],
+  [rect(346, 180, 16, 44), [150, 170, 190]],                                                                   // arms,
+  [rect(420, 180, 16, 44), [150, 170, 190]],
+  [rect(368, 120, 46, 50), [150, 170, 190]],                                                                   // head
+  [rect(374, 130, 34, 18), [60, 74, 92]],
+  [circle(385, 139, 4), [255, 226, 110]],
+  [circle(397, 139, 4), [255, 226, 110]],
+  [rect(389, 100, 3, 20), [60, 74, 92]],                                                                       // antenna
+  [circle(390, 98, 6), [236, 84, 84]],
   // the card catalogue, under the polygon 680,220 1180,200 1220,480 660,500
   [poly([[680, 220], [1180, 200], [1220, 480], [660, 500]]), drawer],
   // the archive: a tall arched door with iron bands and a lock, under hotspot 1300,280 420x360

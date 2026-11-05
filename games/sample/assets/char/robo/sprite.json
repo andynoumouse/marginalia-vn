@@ -1,0 +1,133 @@
+{
+  "generator": "psd-convert",
+  "width": 540,
+  "height": 1080,
+  "parts": [
+    {
+      "file": "legs.png",
+      "x": 205,
+      "y": 720
+    },
+    {
+      "file": "torso.png",
+      "x": 190,
+      "y": 440
+    },
+    {
+      "file": "collar.png",
+      "x": 255,
+      "y": 410
+    },
+    {
+      "file": "hand_r.png",
+      "x": 121,
+      "y": 686,
+      "group": "arm_r/forearm_r"
+    },
+    {
+      "file": "lower_r.png",
+      "x": 130,
+      "y": 571,
+      "group": "arm_r/forearm_r"
+    },
+    {
+      "file": "upper_r.png",
+      "x": 138,
+      "y": 455,
+      "group": "arm_r"
+    },
+    {
+      "file": "hand_l.png",
+      "x": 371,
+      "y": 686,
+      "group": "arm_l/forearm_l"
+    },
+    {
+      "file": "lower_l.png",
+      "x": 361,
+      "y": 571,
+      "group": "arm_l/forearm_l"
+    },
+    {
+      "file": "upper_l.png",
+      "x": 315,
+      "y": 455,
+      "group": "arm_l"
+    },
+    {
+      "file": "antenna.png",
+      "x": 267,
+      "y": 172,
+      "group": "head"
+    },
+    {
+      "slot": "mouth",
+      "default": "smile",
+      "variants": {
+        "smile": {
+          "file": "mouth/smile.png",
+          "x": 233,
+          "y": 377
+        },
+        "open": {
+          "file": "mouth/open.png",
+          "x": 243,
+          "y": 368
+        },
+        "flat": {
+          "file": "mouth/flat.png",
+          "x": 240,
+          "y": 378
+        }
+      },
+      "group": "head"
+    },
+    {
+      "slot": "eyes",
+      "default": "open",
+      "variants": {
+        "open": {
+          "file": "eyes/open.png",
+          "x": 218,
+          "y": 298
+        },
+        "happy": {
+          "file": "eyes/happy.png",
+          "x": 220,
+          "y": 308
+        },
+        "closed": {
+          "file": "eyes/closed.png",
+          "x": 218,
+          "y": 318
+        }
+      },
+      "group": "head"
+    },
+    {
+      "file": "face.png",
+      "x": 190,
+      "y": 250,
+      "group": "head"
+    }
+  ],
+  "files": [
+    "legs.png",
+    "torso.png",
+    "collar.png",
+    "hand_r.png",
+    "lower_r.png",
+    "upper_r.png",
+    "hand_l.png",
+    "lower_l.png",
+    "upper_l.png",
+    "antenna.png",
+    "mouth/smile.png",
+    "mouth/open.png",
+    "mouth/flat.png",
+    "eyes/open.png",
+    "eyes/happy.png",
+    "eyes/closed.png",
+    "face.png"
+  ]
+}

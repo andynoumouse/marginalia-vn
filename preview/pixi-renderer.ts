@@ -432,7 +432,8 @@ export class PixiRenderer extends StageRenderer {
     // Everything below is in the container's local space: the PSD canvas shifted so the origin is the bottom middle.
     const ox = (rig?.width ?? 0) / 2, oy = rig?.height ?? 0;
     const legacy = (name: string): [number, number] | null => { const pv = data?.pivots?.[name]; return pv ? [pv[0] - ox, pv[1] - oy] : null; };
-    const bones = data?.bones ?? {};
+    // Bone pivots are PSD pixels like part pivots; part boxes are already local, so shift them the same way.
+    const bones = Object.fromEntries(Object.entries(data?.bones ?? {}).map(([b, d]) => [b, Array.isArray(d.pivot) ? { ...d, pivot: [d.pivot[0] - ox, d.pivot[1] - oy] as [number, number] } : d]));
     const placed: Record<string, PlacedPart> = {}, onBone: Record<string, string | undefined> = {};
     for (const [name, c] of a.parts) {
       const sp = c.children[0] as Sprite, def = data?.parts?.[name];

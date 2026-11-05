@@ -1,0 +1,114 @@
+{
+  "order": ["legs", "torso", "collar", "hand_r", "lower_r", "upper_r", "hand_l", "lower_l", "upper_l", "antenna", "mouth", "eyes", "face"],
+  "bones": {
+    "root": { "pivot": [270, 1050] },
+    "spine": { "parent": "root", "pivot": [270, 700] },
+    "neck": { "parent": "spine", "pivot": [270, 450] },
+    "head": { "parent": "neck", "pivot": [270, 415] },
+    "arm_r": { "parent": "spine", "pivot": [200, 480] },
+    "forearm_r": { "parent": "arm_r", "pivot": [160, 590] },
+    "arm_l": { "parent": "spine", "pivot": [340, 480] },
+    "forearm_l": { "parent": "arm_l", "pivot": [380, 590] }
+  },
+  "parts": {
+    "legs": { "bone": "root" },
+    "torso": { "bone": "spine" },
+    "collar": { "bone": "neck" },
+    "upper_r": { "bone": "arm_r" }, "lower_r": { "bone": "forearm_r" }, "hand_r": { "bone": "forearm_r" },
+    "upper_l": { "bone": "arm_l" }, "lower_l": { "bone": "forearm_l" }, "hand_l": { "bone": "forearm_l" },
+    "face": { "bone": "head" }, "eyes": { "bone": "head" }, "mouth": { "bone": "head" },
+    "antenna": { "bone": "head", "pivot": [272, 260] }
+  },
+  "looks": {
+    "cheerful": { "eyes": "happy", "mouth": "smile" },
+    "calm": { "eyes": "open", "mouth": "flat" },
+    "asleep": { "eyes": "closed", "mouth": "flat" }
+  },
+  "idle": "sway",
+  "speak": { "variants": ["open", "flat"], "rate": 7 },
+  "blink": true,
+  "animations": {
+    "sway": {
+      "dur": 3,
+      "keys": [
+        { "part": "spine", "t": 0.5, "rot": 1.5, "ease": "inout" },
+        { "part": "head", "t": 0.5, "rot": -2.5, "ease": "inout" },
+        { "part": "antenna", "t": 0.35, "rot": 8, "ease": "inout" },
+        { "part": "antenna", "t": 0.75, "rot": -6, "ease": "inout" },
+        { "part": "arm_r", "t": 0.5, "rot": 2, "ease": "inout" },
+        { "part": "arm_l", "t": 0.5, "rot": 2, "ease": "inout" }
+      ]
+    },
+    "wave": {
+      "dur": 1.6,
+      "keys": [
+        { "part": "arm_r", "t": 0.25, "rot": 135, "ease": "out" },
+        { "part": "arm_r", "t": 0.85, "rot": 135 },
+        { "part": "arm_r", "t": 1, "rot": 0, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.25, "rot": 0 },
+        { "part": "forearm_r", "t": 0.4, "rot": 28, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.55, "rot": -22, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.7, "rot": 28, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.85, "rot": 0, "ease": "inout" },
+        { "part": "head", "t": 0.3, "rot": -6, "ease": "out" },
+        { "part": "head", "t": 0.9, "rot": -6 },
+        { "part": "head", "t": 1, "rot": 0, "ease": "inout" }
+      ]
+    },
+    "nod": {
+      "dur": 0.9,
+      "keys": [
+        { "part": "head", "t": 0.25, "rot": 9, "y": 0.005, "ease": "out" },
+        { "part": "head", "t": 0.5, "rot": -2, "ease": "inout" },
+        { "part": "head", "t": 0.75, "rot": 6, "ease": "inout" },
+        { "part": "neck", "t": 0.3, "rot": 3, "ease": "out" },
+        { "part": "neck", "t": 0.8, "rot": 0, "ease": "inout" },
+        { "part": "antenna", "t": 0.4, "rot": -14, "ease": "out" },
+        { "part": "antenna", "t": 0.8, "rot": 6, "ease": "inout" }
+      ]
+    },
+    "shrug": {
+      "dur": 1.3,
+      "keys": [
+        { "part": "arm_r", "t": 0.3, "rot": 38, "ease": "out" },
+        { "part": "arm_l", "t": 0.3, "rot": -38, "ease": "out" },
+        { "part": "forearm_r", "t": 0.3, "rot": -35, "ease": "out" },
+        { "part": "forearm_l", "t": 0.3, "rot": 35, "ease": "out" },
+        { "part": "spine", "t": 0.3, "y": 0.012, "ease": "out" },
+        { "part": "head", "t": 0.3, "rot": 8, "ease": "out" },
+        { "part": "arm_r", "t": 0.75, "rot": 38 },
+        { "part": "arm_l", "t": 0.75, "rot": -38 },
+        { "part": "forearm_r", "t": 0.75, "rot": -35 },
+        { "part": "forearm_l", "t": 0.75, "rot": 35 },
+        { "part": "head", "t": 0.75, "rot": 8 },
+        { "part": "arm_r", "t": 1, "rot": 0, "ease": "inout" },
+        { "part": "arm_l", "t": 1, "rot": 0, "ease": "inout" },
+        { "part": "forearm_r", "t": 1, "rot": 0, "ease": "inout" },
+        { "part": "forearm_l", "t": 1, "rot": 0, "ease": "inout" },
+        { "part": "spine", "t": 1, "y": 0, "ease": "inout" },
+        { "part": "head", "t": 1, "rot": 0, "ease": "inout" }
+      ]
+    },
+    "dance": {
+      "dur": 1.2,
+      "keys": [
+        { "part": "root", "t": 0.25, "y": -0.03, "ease": "out" },
+        { "part": "root", "t": 0.5, "y": 0, "ease": "in" },
+        { "part": "root", "t": 0.75, "y": -0.03, "ease": "out" },
+        { "part": "spine", "t": 0.25, "rot": 5, "ease": "inout" },
+        { "part": "spine", "t": 0.75, "rot": -5, "ease": "inout" },
+        { "part": "head", "t": 0.25, "rot": -8, "ease": "inout" },
+        { "part": "head", "t": 0.75, "rot": 8, "ease": "inout" },
+        { "part": "arm_r", "t": 0.25, "rot": 70, "ease": "inout" },
+        { "part": "arm_r", "t": 0.75, "rot": -15, "ease": "inout" },
+        { "part": "arm_l", "t": 0.25, "rot": 15, "ease": "inout" },
+        { "part": "arm_l", "t": 0.75, "rot": -70, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.25, "rot": 25, "ease": "inout" },
+        { "part": "forearm_r", "t": 0.75, "rot": -10, "ease": "inout" },
+        { "part": "forearm_l", "t": 0.25, "rot": 10, "ease": "inout" },
+        { "part": "forearm_l", "t": 0.75, "rot": -25, "ease": "inout" },
+        { "part": "antenna", "t": 0.5, "rot": 18, "ease": "inout" }
+      ]
+    }
+  }
+}

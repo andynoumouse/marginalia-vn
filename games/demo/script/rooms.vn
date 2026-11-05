@@ -17,6 +17,7 @@ screen library_map:
   hotspot desk ellipse at 800,640 size 460,220 "The front desk" #qlcp hover scale 1.06
   hotspot archive at 1300,280 size 420,360 "The archive" #rf5t hover tint rgba(120,200,255,.30)
   hotspot board at 1380,740 size 360,200 "The notice board" #swx9 hover tint rgba(255,220,120,.30)
+  hotspot workshop at 160,90 size 420,190 "The repair shelf" #vn5a hover tint rgba(160,220,255,.30)
   hotspot catalogue poly 680,220 1180,200 1220,480 660,500 "The card catalogue" #qe79 hover tint rgba(200,255,160,.30)
   button leave at 80,950 size 420,64 "Find a seat" #g71l hover scale 1.04
   button prefs at 80,870 size 420,64 "Reading preferences" #takj hover scale 1.04
@@ -57,6 +58,8 @@ label hub:
     jump board
   elif screen == "catalogue":
     jump catalogue
+  elif screen == "workshop":
+    jump robo_demo
   elif screen == "prefs":
     jump prefs
   jump reading_room
