@@ -423,3 +423,102 @@ test('Build: the desktop app on the Studio\'s runtime, named after the game, zip
     assert.equal(await game.evaluate(({ app }) => app.getPath('userData')), path.join(s.tmp, 'game-data'));
   } finally { await game.close(); }
 });
+
+test('movie export: the animation studio writes PNG frames into the folder chosen in the native dialog, and only there', { skip, timeout: 180_000 }, async () => {
+  const s = await setup();
+  const frames = path.join(s.tmp, 'frames');
+  fs.mkdirSync(frames);
+  const { app, win } = await launch(s, { project: s.project, env: { VN_STUDIO_TEST_PICK: frames } });
+  try {
+    // Before a folder is chosen, and for anything that is not a plain frame name, the write call refuses.
+    await assert.rejects(win.evaluate(() => window.vnStudio.movie.write('a_0001.png', new Uint8Array(4))), /No folder was chosen/);
+    await win.locator('button.anim', { hasText: 'Animate' }).first().click();
+    const studio = win.locator('#animStudio');
+    await studio.locator('.as-timeline').waitFor();
+    await win.waitForFunction(() => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('canvas'), null, { timeout: 30_000 });
+    await studio.locator('.as-anim').selectOption('breathe');
+    await studio.locator('[data-t="export"]').click();
+    const dialog = studio.locator('.as-export');
+    assert.equal(await dialog.locator('.ax-folder').isEnabled(), true, 'the Studio can write into a folder');
+    assert.equal(await dialog.locator('.ax-folder').isChecked(), true);
+    await dialog.locator('.ax-fps').fill('4');
+    await dialog.locator('.ax-once').check();
+    await dialog.locator('.ax-w').fill('320');
+    await dialog.locator('.ax-h').fill('180');
+    await dialog.locator('.ax-name').fill('bot');
+    await dialog.locator('.ax-go').click();
+    await dialog.waitFor({ state: 'hidden', timeout: 60_000 });
+    const files = fs.readdirSync(frames).sort();
+    assert.equal(files.length, 15, 'breathe is 3.5 s: 14 steps at 4 fps and the last pose');
+    assert.equal(files[0], 'bot_0001.png');
+    assert.equal(files.at(-1), 'bot_0015.png');
+    for (const f of [files[0], files[7]]) assert.deepEqual([...fs.readFileSync(path.join(frames, f)).subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], `${f} is a PNG`);
+    assert.notDeepEqual(fs.readFileSync(path.join(frames, files[0])), fs.readFileSync(path.join(frames, files[7])), 'the frames differ over time');
+    assert.match(await studio.locator('.as-note').textContent(), /Saved 15 frames/);
+    await assert.rejects(win.evaluate(() => window.vnStudio.movie.write('../escape.png', new Uint8Array(4))), /Not a frame file name/);
+    await assert.rejects(win.evaluate(() => window.vnStudio.movie.write('sub/a.png', new Uint8Array(4))), /Not a frame file name/);
+    assert.equal(fs.existsSync(path.join(s.tmp, 'escape.png')), false);
+  } finally { await app.close(); }
+});
+
+test('open character: the projects screen opens the animation studio on a folder with no game project, and the bridge reads and writes only inside it', { skip, timeout: 120_000 }, async () => {
+  const s = await setup();
+  const robo = path.join(s.tmp, 'robo');
+  fs.cpSync(path.join(root, 'games', 'sample', 'assets', 'char', 'robo'), robo, { recursive: true });
+  const original = fs.readFileSync(path.join(robo, 'rig.json'), 'utf8');
+  const { app, win } = await launch(s, { env: { VN_STUDIO_TEST_PICK: robo } });
+  try {
+    // The projects screen is not the studio page: the folder calls are refused there.
+    await assert.rejects(win.evaluate(() => window.vnStudio.character.list()), /Not allowed from this page/);
+    await win.locator('#openCharacter').click();
+    const studio = win.locator('#animStudio');
+    await studio.locator('.as-timeline').waitFor({ timeout: 60_000 });
+    await win.waitForFunction(() => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('canvas'), null, { timeout: 30_000 });
+    assert.match(win.url(), /\/editor\/studio\.html$/);
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), 'robo - Marginalia Studio');
+    // There is no game project behind the page: the server answers no /api route.
+    assert.equal(await win.evaluate(async () => (await fetch('/api/project')).status), 404);
+    assert.deepEqual(await studio.locator('header button:visible').allInnerTexts(), ['Model', 'Animate', 'Open...', 'Export...', 'Undo', 'Redo', 'Save']);
+
+    // Edit, Save: rig.json in the folder changes, and nothing else does.
+    const before = fs.readdirSync(robo, { recursive: true }).sort();
+    await studio.locator('.as-more').click();
+    await win.locator('.ctxmenu button', { hasText: 'New animation' }).click();
+    await studio.locator('.as-name input').fill('qa_wave');
+    await studio.locator('.as-name button[type="submit"]').click();
+    await studio.locator('[data-t="apply"]').click();
+    await win.waitForFunction(() => /Saved rig\.json/.test(document.querySelector('#animStudio .as-note').textContent), null, { timeout: 15_000 });
+    const rig = JSON.parse(fs.readFileSync(path.join(robo, 'rig.json'), 'utf8'));
+    assert.ok(rig.animations.qa_wave);
+    assert.deepEqual(rig.order, JSON.parse(original).order, 'the rest of rig.json is kept');
+    assert.deepEqual(fs.readdirSync(robo, { recursive: true }).sort(), before, 'no file was added or removed');
+
+    // The bridge stays inside the folder, reads images and JSON only, and writes rig.json and sprite.json only.
+    await assert.rejects(win.evaluate(() => window.vnStudio.character.read('../outside.json')), /Not a path in the character folder/);
+    await assert.rejects(win.evaluate(() => window.vnStudio.character.read('notes.txt')), /Not a file the studio reads/);
+    await assert.rejects(win.evaluate(() => window.vnStudio.character.write('torso.png', 'x')), /Not a file the studio writes/);
+    await assert.rejects(win.evaluate(() => window.vnStudio.character.write('../rig.json', '{}')), /Not a path in the character folder/);
+    assert.equal(fs.existsSync(path.join(s.tmp, 'rig.json')), false);
+
+    // File > Switch Project from a character: unsaved edits make the page's guard ask (Stay keeps them), Leave goes back to the projects
+    // screen, and the project-less server and everything it started are gone.
+    const server = await serverTree(app);
+    assert.ok(!server.some(p => p.cmd.includes('psd-convert.mjs')), 'a character studio starts no PSD watcher');
+    await studio.locator('.as-more').click();
+    await win.locator('.ctxmenu button', { hasText: 'New animation' }).click();
+    await studio.locator('.as-name input').fill('qa_pending');
+    await studio.locator('.as-name button[type="submit"]').click();
+    await app.evaluate(({ dialog }) => { globalThis.asked = 0; dialog.showMessageBoxSync = () => (++globalThis.asked === 1 ? 1 : 0); });
+    await clickSwitchProject(app);
+    await win.waitForTimeout(1000);
+    assert.equal(await app.evaluate(() => globalThis.asked), 1);
+    assert.match(win.url(), /\/editor\/studio\.html$/, 'Stay keeps the studio');
+    await clickSwitchProject(app);
+    await win.waitForURL(/projects\.html$/);
+    await screenReady(win);
+    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), 'Marginalia Studio');
+    for (let i = 0; i < 50 && server.some(p => alive(p.pid)); i++) await win.waitForTimeout(100);
+    assert.deepEqual(server.filter(p => alive(p.pid)).map(p => p.cmd), [], 'the character server is gone');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(robo, 'rig.json'), 'utf8')).animations.qa_pending, undefined, 'the discarded edit never reached the file');
+  } finally { await app.close(); }
+});

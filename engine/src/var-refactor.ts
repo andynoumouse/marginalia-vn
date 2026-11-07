@@ -84,17 +84,30 @@ function textRefs(raw: string, from: number, to: number, add: Add) {
 interface Scope { id: string; file: string; start: number; end: number; indent: number; names: Set<string> }
 interface RawRef { file: string; line: number; col: number; name: string; persistent: boolean; outer: boolean }
 
-function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
-  const stack: Scope[] = [];
-  let screenIndent: number | null = null;
-  let screenScope: Scope | null = null; // the screen being scanned: its parameters and `state`s are local to it
-  const lines = text.split(/\r?\n/);
-  lines.forEach((raw, i) => {
-    const no = i + 1;
+interface LineCtx { raw: string; m: string; end: number; no: number; indent: number; add: Add; strings: (limit?: number) => void }
+
+/** Reads one file line by line, keeping the open scopes (labels with parameters, screens, loops) on a stack. */
+class FileScanner {
+  private stack: Scope[] = [];
+  private screenIndent: number | null = null;
+  private screenScope: Scope | null = null; // the screen being scanned: its parameters and `state`s are local to it
+  private lines: string[];
+
+  constructor(private file: string, text: string, private scopes: Scope[], private refs: RawRef[]) {
+    this.lines = text.split(/\r?\n/);
+  }
+
+  run() {
+    this.lines.forEach((raw, i) => this.line(raw, i + 1));
+    for (const s of this.stack) s.end = this.lines.length;
+  }
+
+  private line(raw: string, no: number) {
+    const { file, stack, refs, scopes, lines } = this;
     if (/^\s*$/.test(raw) || /^\s*#/.test(raw)) return;
     const indent = /^ */.exec(raw)![0].length;
     while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop()!.end = no - 1;
-    if (screenIndent !== null && indent <= screenIndent) screenIndent = null;
+    if (this.screenIndent !== null && indent <= this.screenIndent) this.screenIndent = null;
     const m = mask(raw);
     const hash = m.indexOf('#');
     const end = hash >= 0 ? hash : raw.length;
@@ -107,22 +120,77 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
       }
     };
     const strings = (limit = raw.length) => { for (const [a, b] of quoted(raw)) if (a < limit) textRefs(raw, a, b, add); };
-    let r: RegExpExecArray | null;
+    const c: LineCtx = { raw, m, end, no, indent, add, strings };
+    if (
+      this.labelDef(c) ||
+      this.label(c) ||
+      this.assign(c) ||
+      this.condition(c) ||
+      this.callLine(c) ||
+      this.inputLine(c) ||
+      this.showScreen(c) ||
+      this.screenHead(c) ||
+      this.menuLine(c) ||
+      this.quoted(c) ||
+      this.element(c) ||
+      this.say(c)
+    ) return;
+    strings();
+  }
 
+
+  private labelDef(c: LineCtx): boolean {
+    const { m, add } = c;
+    let r: RegExpExecArray | null;
     if ((r = new RegExp(`^(\\s*label\\s+${ID}\\s*\\()([^()]*)\\)\\s*:`).exec(m))) {
       const ps = new RegExp(ID, 'g');
       for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index, p[0], false, 'param');
-      return;
+      return true;
     }
-    if (/^\s*label\s/.test(m)) return;
+    return false;
+  }
+
+  private label(c: LineCtx): boolean {
+    const { m } = c;
+    if (/^\s*label\s/.test(m)) return true;
+    return false;
+  }
+
+  private assign(c: LineCtx): boolean {
+    const { raw, m, end, add } = c;
+    let r: RegExpExecArray | null;
     if ((r = new RegExp(`^(\\s*set\\s+)(persistent\\.)?(${ID})\\s*(?:=|\\+=|-=|\\*=|\\/=)\\s*`).exec(m))) {
       add(r[1].length + (r[2]?.length ?? 0), r[3], !!r[2]);
       exprRefs(raw, r[0].length, end, add);
-      return;
+      return true;
     }
-    if ((r = /^\s*(?:if|elif)\s+/.exec(m))) { exprRefs(raw, r[0].length, end, add); return; }
-    if ((r = new RegExp(`^\\s*call\\s+${ID}\\s*\\(`).exec(m))) { exprRefs(raw, r[0].length, end, add); return; }
-    if ((r = new RegExp(`^(\\s*input\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); strings(); return; }
+    return false;
+  }
+
+  private condition(c: LineCtx): boolean {
+    const { raw, m, end, add } = c;
+    let r: RegExpExecArray | null;
+    if ((r = /^\s*(?:if|elif)\s+/.exec(m))) { exprRefs(raw, r[0].length, end, add); return true; }
+    return false;
+  }
+
+  private callLine(c: LineCtx): boolean {
+    const { raw, m, end, add } = c;
+    let r: RegExpExecArray | null;
+    if ((r = new RegExp(`^\\s*call\\s+${ID}\\s*\\(`).exec(m))) { exprRefs(raw, r[0].length, end, add); return true; }
+    return false;
+  }
+
+  private inputLine(c: LineCtx): boolean {
+    const { m, add, strings } = c;
+    let r: RegExpExecArray | null;
+    if ((r = new RegExp(`^(\\s*input\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); strings(); return true; }
+    return false;
+  }
+
+  private showScreen(c: LineCtx): boolean {
+    const { raw, m, end, add } = c;
+    let r: RegExpExecArray | null;
     if ((r = new RegExp(`^(\\s*show\\s+screen\\s+${ID})(?:(\\s*\\()(.*)\\))?(?:(\\s+as\\s+)(${ID}))?`).exec(m.slice(0, end)))) {
       let at = r[1].length;
       if (r[3] !== undefined) { // the arguments
@@ -130,25 +198,42 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
         at += r[2].length + r[3].length + 1;
       }
       if (r[5]) add(at + r[4].length, r[5], false);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  private screenHead(c: LineCtx): boolean {
+    const { m, no, indent, add } = c;
+    const { file, stack, scopes, lines } = this;
+    let r: RegExpExecArray | null;
     if (/^\s*screen\s/.test(m)) { // the screen is a scope even without parameters: its states belong to it
-      screenScope = { id: `${file}#${no}`, file, start: no, end: lines.length, indent, names: new Set() };
-      stack.push(screenScope);
-      scopes.push(screenScope);
-      screenIndent = indent;
+      this.screenScope = { id: `${file}#${no}`, file, start: no, end: lines.length, indent, names: new Set() };
+      stack.push(this.screenScope);
+      scopes.push(this.screenScope);
+      this.screenIndent = indent;
       if ((r = new RegExp(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter (an inout one too) is local to its screen, like a label's
         const ps = new RegExp(`(?:\\binout\\s+)?(${ID})`, 'g');
         for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index + p[0].length - p[1].length, p[1], false, 'param');
       }
-      return;
+      return true;
     }
+    return false;
+  }
+
+  private menuLine(c: LineCtx): boolean {
+    const { raw, m, end, add, strings } = c;
     if (/^\s*menu\b/.test(m)) {
       const t = /\stimeout\s+/.exec(m);
       if (t) exprRefs(raw, t.index + t[0].length, end, add);
       strings(t?.index);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  private quoted(c: LineCtx): boolean {
+    const { raw, m, end, add, strings } = c;
     if (m.trimStart().startsWith('"')) {
       const c = /\sif\s+/.exec(m);
       if (c) {
@@ -156,9 +241,15 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
         exprRefs(raw, c.index + c[0].length, e && e.index > c.index ? e.index : end, add);
       }
       strings();
-      return;
+      return true;
     }
-    if (screenIndent !== null && ELEMENT.test(m)) {
+    return false;
+  }
+
+  private element(c: LineCtx): boolean {
+    const { raw, m, end, add, strings } = c;
+    let r: RegExpExecArray | null;
+    if (this.screenIndent !== null && ELEMENT.test(m)) {
       const cuts = [...m.matchAll(/\s(?:if|enabled)\s+/g)];
       if (cuts.length) cuts.forEach((c, k) => exprRefs(raw, c.index! + c[0].length, k + 1 < cuts.length ? cuts[k + 1].index! : end, add));
       const setAt = m.search(/\bon\s+(?:click|focus|blur)\s+set\s/); // the strings of the label come before the clauses
@@ -167,7 +258,7 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
       // local state: a declaration, the state a toggle, radio or tab is bound to, and the states an "on ... set" changes (with the value it computes)
       if ((r = new RegExp(`^(\\s*state\\s+)(${ID})\\s*=\\s*`).exec(m))) {
         add(r[1].length, r[2], false);
-        screenScope?.names.add(r[2]);
+        this.screenScope?.names.add(r[2]);
         exprRefs(raw, r[0].length, end, add);
       }
       if ((r = new RegExp(`^\\s*(?:toggle\\s+${ID}\\s+|(?:radio|tab)\\s+${ID}\\s+)(${ID})`).exec(m))) add(r[0].length - r[1].length, r[1], false);
@@ -186,12 +277,21 @@ function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
         const head = cuts[0]?.index ?? end;
         for (const w of m.slice(0, head).matchAll(/(?:^\s*bar\s+|\s(?:max|min)\s+)(\S+)/g)) exprRefs(raw, w.index! + w[0].length - w[1].length, w.index! + w[0].length, add);
       }
-      return;
+      return true;
     }
-    if ((r = SAY.exec(m))) { textRefs(raw, r[0].length, raw.length, add); return; }
-    strings();
-  });
-  for (const s of stack) s.end = lines.length;
+    return false;
+  }
+
+  private say(c: LineCtx): boolean {
+    const { raw, m, add } = c;
+    let r: RegExpExecArray | null;
+    if ((r = SAY.exec(m))) { textRefs(raw, r[0].length, raw.length, add); return true; }
+    return false;
+  }
+}
+
+function scanFile(file: string, text: string, scopes: Scope[], refs: RawRef[]) {
+  new FileScanner(file, text, scopes, refs).run();
 }
 
 

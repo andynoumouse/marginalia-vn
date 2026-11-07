@@ -19,4 +19,8 @@ label robo_demo:
   show robo cheerful
   animate robo dance
   robo: Everything at once: the whole body bounces on the root bone. #un70
+  show robo pose=salute
+  robo: Parameters drive the arm and the head from sliders; a pose is a saved set of them. # #gljn
+  animate robo lookaround
+  robo: And an animation can key them: this one only turns the head, with no keys on a bone. # #fza3
   hide robo fade 0.4

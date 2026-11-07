@@ -2,6 +2,8 @@
 
 Answers the TODO "Performance" item. Sections 1-4 describe the code as investigated, before the changes; steps 1-3 of section 5 are now implemented (see README "Loading" and TODO.md). Measured on a synthetic project (24 backgrounds 1920x1080, 6 characters x 10 layers, 4 tracks, 3 sounds; 97 files, 114 MB; localhost): before, all 97 files were requested before the title screen; now 5 (the title background, the title music and 3 short sounds, about 6.4 MB), and the first scene's files load behind the title.
 
+> The `file:line` references in sections 1-4 point at the code as investigated. Files have been split since (for example `pixi-renderer.ts`, `stage-ui.ts` and `preview.ts`), and `preloadArt` is gone, so the line numbers no longer match; search for the named symbol instead.
+
 ## 1. How assets load today: everything, at boot, and nothing is ever unloaded
 
 `load()` in `preview/preview.ts:298` fetches the project, compiles it, then calls `renderer.preload(proj.assets)` (`preview.ts:317`) and only then shows the title (`:329`). `proj.assets` is the full file list of `assets/` (`tools/project-data.mjs:37`; the web export ships the same list in `project.json`, and `preview.ts:48` reads it). `StageRenderer.preload` (`preview/stage-ui.ts:64`) does two things, and both walk the whole list:

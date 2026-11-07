@@ -9,6 +9,12 @@ installer yet.
 3. The exe is not code-signed, so Windows SmartScreen may stop the first start: choose **More info**, then **Run
    anyway**.
 
+**Open Character...** on the projects screen opens the animation studio on a character folder with no game project (see
+[standalone-studio.md](standalone-studio.md)); **File > Switch Project...** goes back.
+
+The animation studio's **Export...** (a PNG sequence with transparency, see [rig-json.md](rig-json.md#exporting-a-movie)) can save
+its frames straight into a folder you pick in the Studio's own dialog; a zip goes through the usual save dialog.
+
 New projects go to `Documents/Marginalia Studio` by default, and so does the copy of the demo. The Studio carries the
 engine's version number; a project made with an older engine version is offered an update when opened.
 

@@ -170,7 +170,7 @@ Marginalia Studio it also offers the desktop app ready to run (a zip to share). 
 
 ## For developers
 
-- Editor commands are one list in `buildCommands()` (`editor/editor.ts`): a title, an optional key (bound
+- Editor commands are one list in `buildCommands()` (`editor/commands.ts`): a title, an optional key (bound
   automatically and shown in the palette), an optional `when`, and `run`.
 - Project tasks (export, strings, art) run in the dev server (`/api/task`, a fixed whitelist) and stream to the
   Output panel, where `file:line` references open that line.

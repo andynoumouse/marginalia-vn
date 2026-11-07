@@ -144,6 +144,18 @@ On Windows the renamed exe then gets the game's icon and version info (`tools/ex
 the Studio ships no rcedit exe; @electron/packager uses the same library, but it would also need an Electron zip and 17 more
 packages).
 
+### 12. Open Character (the animation studio with no game project)
+
+The projects screen's **Open Character...** (`projects:character`) picks a folder in the native dialog, stops any server, starts the
+dev server child with `VN_STUDIO_ONLY=1` instead of `VN_PROJECT` (no project, no watchers, no PSD converter, every `/api` route a 404; it
+prints a `Studio:` line where a project server prints `Editor:`, and the main process waits for that one) and loads
+`/editor/studio.html` from it. `currentCharacter` takes the place of `currentProject` for the title, the File menu's Switch Project and
+the default folders of the download and movie dialogs. The page reads and writes the folder through `vnStudio.character`
+(`folder`, `pick`, `list`, `read`, `write`), served by `registerCharacterBridge`: allowed from `/editor/studio.html` only, always inside the
+one folder the main process holds for the window (a path the page names is checked to stay under it), reading images and JSON and writing
+only `rig.json` and `sprite.json`. The design of the page itself is in
+[animation-studio-parameters.md](animation-studio-parameters.md#standalone-as-built-2026-11-07).
+
 ## Order of work
 
 Each step is usable on its own and keeps the CLI working.

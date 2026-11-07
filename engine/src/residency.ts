@@ -37,6 +37,8 @@ export function formatBytes(n: number): string {
 export interface ResidencyStats {
   /** Files the story had to wait for when it reached them (should stay 0 when playing straight through). */
   lateLoads: number;
+  /** Stencil masks on stage (rig.json `masks`): each is extra draw passes every frame, not measured on weak phones. Left out of the report when absent or 0. */
+  masks?: number;
 }
 
 /** The lines `memory` prints: totals per kind against the budget, the largest assets, and the late loads. */
@@ -49,6 +51,7 @@ export function residencyReport(resident: Resident[], budget: number, stats: Res
     `  images ${formatBytes(sum('image'))} in ${count('image')} files, audio ${formatBytes(sum('audio'))} in ${count('audio')} files`,
     `  late loads ${stats.lateLoads}`,
   ];
+  if (stats.masks) lines.push(`  stencil masks ${stats.masks} on stage (each is extra draw passes every frame; the cost is unmeasured on weak phones)`);
   const largest = [...resident].sort((a, b) => b.bytes - a.bytes || a.key.localeCompare(b.key)).slice(0, top);
   if (largest.length) lines.push('largest:', ...largest.map(r => `  ${formatBytes(r.bytes).padStart(9)}  ${r.key}`));
   lines.push('(estimates from pixel counts and decoded audio length, not read from the GPU)');

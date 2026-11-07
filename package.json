@@ -1,6 +1,6 @@
 {
   "name": "marginalia-vn",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -17,6 +17,7 @@
     "test": "tsc -p . && node scripts/test.mjs fast",
     "test:browser": "tsc -p . && node scripts/test.mjs browser",
     "test:all": "tsc -p . && node scripts/test.mjs all",
+    "test:dock": "tsc -p . && node scripts/test.mjs dock",
     "test:studio": "tsc -p . && node scripts/test.mjs studio",
     "studio": "electron studio",
     "ids": "node bin/vn.mjs ids",

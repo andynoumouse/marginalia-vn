@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   compile, Runtime, NullRenderer, getCompletions,
   filterMatrix, IDENTITY, blurRadius, weatherCount, WEATHER, WEATHER_NAMES, spawnParticle, stepParticle, mulberry32,
-  irisRadius, blindsRects, pixelBlock,
+  irisRadius, blindsRects, revealShapes, shakeOffset, cameraPivot, pixelBlock, maskReveal, assetContext, opAssets, checkAssets,
 } from '../../dist/engine/src/index.js';
 
 const build = lines => compile([{ file: 'a.vn', text: lines.join('\n') }]);
@@ -134,4 +134,53 @@ test('iris, blinds and pixelate geometry', () => {
   assert.equal(pixelBlock(1), 1);
   assert.equal(pixelBlock(0.5, 64), 64);
   assert.ok(pixelBlock(0.25, 64) < pixelBlock(0.5, 64));
+});
+
+test('scene accepts mask=<image> on dissolve; elsewhere it is an error', () => {
+  const p = build(['label start:', '  scene a dissolve mask=wipe_clock 0.8', '  scene b mask=radial', '  scene c dissolve', '  scene d mask=x wipe up', '  scene e dissolve mask=']);
+  assert.deepEqual(p.diagnostics.map(d => d.line), [5, 6]);
+  assert.deepEqual(ops('scene', p).map(o => [o.transition, o.mask, o.dur]), [['dissolve', 'wipe_clock', 0.8], ['dissolve', 'radial', 0.5], ['dissolve', null, 0.5]]);
+});
+
+test('maskReveal: dark pixels show first, nothing at 0, everything at 1, monotonic in progress', () => {
+  for (const m of [0, 0.3, 1]) { assert.equal(maskReveal(0, m), 0, `m=${m} at 0`); assert.equal(maskReveal(1, m), 1, `m=${m} at 1`); }
+  assert.ok(maskReveal(0.4, 0.1) > maskReveal(0.4, 0.9));
+  let last = 0;
+  for (let k = 0; k <= 1; k += 0.05) { const v = maskReveal(k, 0.5); assert.ok(v >= last); last = v; }
+  assert.ok(maskReveal(0.5, 0.5) > 0 && maskReveal(0.5, 0.5) < 1); // a soft edge, not a hard threshold
+});
+
+test('mask assets: preloaded with the scene, a missing one is warned about, names are completed', () => {
+  const index = { files: ['bg/a.png', 'transitions/wipe_clock.png'], rigs: {} };
+  const p = build(['label start:', '  scene a dissolve mask=wipe_clock', '  scene a dissolve mask=wipe_clok']);
+  const ctx = assetContext(index);
+  assert.deepEqual(opAssets(ops('scene', p)[0], ctx), ['bg/a', 'transitions/wipe_clock']);
+  assert.deepEqual(opAssets(ops('scene', p)[1], ctx), ['bg/a']);
+  const msgs = checkAssets(p, index).map(d => d.message);
+  assert.deepEqual(msgs, ['No mask "wipe_clok" in assets/transitions (did you mean "wipe_clock"?)']);
+  assert.ok(getCompletions(p, '  scene a dissolve ', {}, [], undefined, index.files).some(s => s.label === 'mask=wipe_clock'));
+});
+
+test('revealShapes: a wipe grows from its side, an iris is one circle, blinds are twelve slats', () => {
+  const rect = (t, dir, k) => revealShapes(t, dir, k, 100, 50);
+  assert.deepEqual(rect('wipe', 'left', 0.5), [{ rect: { x: 0, y: 0, w: 50, h: 50 } }]);
+  assert.deepEqual(rect('wipe', 'right', 0.25), [{ rect: { x: 75, y: 0, w: 25, h: 50 } }]);
+  assert.deepEqual(rect('wipe', 'up', 0.5), [{ rect: { x: 0, y: 0, w: 100, h: 25 } }]);
+  assert.deepEqual(rect('wipe', 'down', 0.5), [{ rect: { x: 0, y: 25, w: 100, h: 25 } }]);
+  assert.deepEqual(rect('iris', 'left', 0.5), [{ circle: { x: 50, y: 25, r: irisRadius(0.5, 100, 50) } }]);
+  assert.equal(rect('blinds', 'left', 0.5).length, 12);
+});
+
+test('shakeOffset: starts and ends at rest and swings out first', () => {
+  assert.equal(shakeOffset(10, 0), 0);
+  assert.equal(shakeOffset(10, 1), 0);
+  assert.equal(shakeOffset(10, 1 / 6), -10);
+  assert.equal(shakeOffset(10, 2 / 6), 10);
+  assert.equal(shakeOffset(10, 1 / 12), -5);
+});
+
+test('cameraPivot: recovers the pivot from the world offset, the fallback at zoom 1', () => {
+  assert.deepEqual(cameraPivot(1, 0, 0, 100, 50, { x: 0.3, y: 0.7 }), { x: 0.3, y: 0.7 });
+  // zoom 2 around (0.25, 0.5): offset = pivot * size * (1 - zoom)
+  assert.deepEqual(cameraPivot(2, 25 * -1, 25 * -1, 100, 50, { x: 0, y: 0 }), { x: 0.25, y: 0.5 });
 });

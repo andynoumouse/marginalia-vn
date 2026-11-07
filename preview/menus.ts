@@ -2,7 +2,7 @@
 // stack so Esc / Back return to the screen underneath. Labels can be translated with `ui.<key>` entries in
 // locale/<lang>.json (keys are the data-ui attributes in index.html).
 
-import { SELECT_SETTINGS, type Locale, type MusicItem, type ChapterItem, type AchievementItem } from '../engine/src/index.js';
+import { SELECT_SETTINGS, SLIDER_SETTINGS, type CycleSetting, type Locale, type MusicItem, type ChapterItem, type AchievementItem } from '../engine/src/index.js';
 import type { LineInfo } from './stage-ui.js';
 import { choiceSlotCount, choiceSlot, deleteSave, isChoiceSlot, manualSlot, PAGES, readSave, SAVE_NAME_MAX, SLOTS_PER_PAGE, writeSave, type SaveData } from './saves.js';
 import { saveSettings, type Settings } from './settings.js';
@@ -21,6 +21,12 @@ export interface TitleConfig {
   fade?: number;
 }
 /** The three Auto speeds (seconds to wait after a line), in the order of the options. */
+/** The Settings field behind each slider of SLIDER_SETTINGS. */
+const SLIDER_KEYS: Record<keyof typeof SLIDER_SETTINGS, 'master' | 'music' | 'sound' | 'voice' | 'textSpeed' | 'textSize' | 'boxOpacity'> = {
+  master: 'master', music: 'music', sound: 'sound', voice: 'voice', text_speed: 'textSpeed', text_size: 'textSize', box_opacity: 'boxOpacity',
+};
+/** One cycle setting's behaviour (see Menus.cycleOps). */
+interface CycleOp { choices(): { value: string; label: string }[]; cycle(): boolean; pick(value: string): void }
 const TIMED_MODES: Settings['timedChoices'][] = ['normal', 'extended', 'off'];
 const AUTO_SPEEDS = ['slow', 'normal', 'fast'], AUTO_DELAYS = [3, 1.5, 0.6];
 const nearest = (list: number[], v: number) => list.reduce((best, x, i) => (Math.abs(x - v) < Math.abs(list[best] - v) ? i : best), 0);
@@ -147,66 +153,82 @@ export class Menus {
 
   /** A slider of the project's options screen moved (the screen is not redrawn: the slider is already where the player put it). */
   setNumber(setting: string, v: number) {
-    const keys: Record<string, 'master' | 'music' | 'sound' | 'voice' | 'textSpeed' | 'textSize' | 'boxOpacity'> = {
-      master: 'master', music: 'music', sound: 'sound', voice: 'voice', text_speed: 'textSpeed', text_size: 'textSize', box_opacity: 'boxOpacity',
-    };
-    const key = keys[setting];
+    const key = Object.hasOwn(SLIDER_KEYS, setting) ? SLIDER_KEYS[setting as keyof typeof SLIDER_KEYS] : undefined;
     if (!key || !Number.isFinite(v)) return;
     this.settings[key] = v;
     this.commit(false, false);
   }
 
+  /**
+   * What each cycle setting does, one table so the compiler notices a setting added to CYCLE_SETTINGS: `choices` are the values a `select` offers
+   * (empty when the game does not offer the setting), `cycle` steps to the next one (false: nothing to step through), `pick` sets a value.
+   */
+  private cycleOps(): Record<CycleSetting, CycleOp> {
+    const s = this.settings;
+    const on = () => [{ value: 'on', label: this.label('on') }, { value: 'off', label: this.label('off') }];
+    const flag = (key: 'textSounds' | 'reduceMotion' | 'captions' | 'announceLines' | 'speakerFocus', offered = true): CycleOp => ({
+      choices: () => (offered ? on() : []),
+      cycle: () => { if (!offered) return false; s[key] = !s[key]; return true; },
+      pick: v => { s[key] = v === 'on'; },
+    });
+    return {
+      text_sounds: flag('textSounds'), reduce_motion: flag('reduceMotion'), captions: flag('captions'), announce_lines: flag('announceLines'),
+      speaker_focus: flag('speakerFocus', this.hasFocus),
+      auto_speed: {
+        choices: () => AUTO_SPEEDS.map(v => ({ value: v, label: this.label(v) })),
+        cycle: () => { s.autoDelay = AUTO_DELAYS[(nearest(AUTO_DELAYS, s.autoDelay) + 1) % AUTO_DELAYS.length]; return true; },
+        pick: v => { s.autoDelay = AUTO_DELAYS[AUTO_SPEEDS.indexOf(v)]; },
+      },
+      skip: {
+        choices: () => [{ value: 'read', label: this.label('skip_read') }, { value: 'all', label: this.label('skip_all') }],
+        cycle: () => { s.skipAll = !s.skipAll; return true; },
+        pick: v => { s.skipAll = v === 'all'; },
+      },
+      timed_choices: {
+        choices: () => [{ value: 'normal', label: this.label('normal') }, { value: 'extended', label: this.label('timed_extended') }, { value: 'off', label: this.label('timed_off') }],
+        cycle: () => { s.timedChoices = TIMED_MODES[(TIMED_MODES.indexOf(s.timedChoices) + 1) % TIMED_MODES.length]; return true; },
+        pick: v => { s.timedChoices = v as Settings['timedChoices']; },
+      },
+      language: {
+        choices: () => (this.langs.length > 1 ? this.langs.map(v => ({ value: v, label: v })) : []),
+        cycle: () => { if (this.langs.length < 2) return false; s.lang = this.langs[(Math.max(0, this.langs.indexOf(s.lang)) + 1) % this.langs.length]; return true; },
+        pick: v => { s.lang = v; },
+      },
+      theme: {
+        choices: () => (this.themes.length > 1 ? this.themes.map(v => ({ value: v, label: v })) : []),
+        cycle: () => { if (this.themes.length < 2) return false; s.theme = this.themes[(Math.max(0, this.themes.indexOf(s.theme || this.themes[0])) + 1) % this.themes.length]; return true; },
+        pick: v => { s.theme = v; },
+      },
+      voice_language: {
+        choices: () => (this.voiceLangs.length ? [{ value: 'text', label: this.label('voice_same') }, ...this.voiceLangs.map(v => ({ value: v, label: v }))] : []),
+        cycle: () => {
+          if (!this.voiceLangs.length) return false;
+          const all = ['', ...this.voiceLangs];
+          s.voiceLang = all[(Math.max(0, all.indexOf(s.voiceLang)) + 1) % all.length];
+          return true;
+        },
+        pick: v => { s.voiceLang = v === 'text' ? '' : v; },
+      },
+    };
+  }
+
   /** `action cycle` on the project's options screen: the next value of a setting that has a few. */
   cycle(setting: string) {
-    const s = this.settings;
-    switch (setting) {
-      case 'text_sounds': s.textSounds = !s.textSounds; break;
-      case 'auto_speed': s.autoDelay = AUTO_DELAYS[(nearest(AUTO_DELAYS, s.autoDelay) + 1) % AUTO_DELAYS.length]; break;
-      case 'skip': s.skipAll = !s.skipAll; break;
-      case 'reduce_motion': s.reduceMotion = !s.reduceMotion; break;
-      case 'captions': s.captions = !s.captions; break;
-      case 'announce_lines': s.announceLines = !s.announceLines; break;
-      case 'speaker_focus': if (!this.hasFocus) return; s.speakerFocus = !s.speakerFocus; break;
-      case 'timed_choices': s.timedChoices = TIMED_MODES[(TIMED_MODES.indexOf(s.timedChoices) + 1) % TIMED_MODES.length]; break;
-      case 'language': {
-        if (this.langs.length < 2) return;
-        s.lang = this.langs[(Math.max(0, this.langs.indexOf(s.lang)) + 1) % this.langs.length];
-        this.commit(true);
-        return;
-      }
-      case 'theme': {
-        if (this.themes.length < 2) return;
-        s.theme = this.themes[(Math.max(0, this.themes.indexOf(s.theme || this.themes[0])) + 1) % this.themes.length];
-        break;
-      }
-      case 'voice_language': {
-        if (!this.voiceLangs.length) return;
-        const all = ['', ...this.voiceLangs];
-        s.voiceLang = all[(Math.max(0, all.indexOf(s.voiceLang)) + 1) % all.length];
-        break;
-      }
-      default: return;
-    }
-    this.commit(false);
+    const ops = this.cycleOps();
+    if (!Object.hasOwn(ops, setting) || !ops[setting as CycleSetting].cycle()) return;
+    this.commit(setting === 'language'); // a new language reloads the texts
   }
 
   /** The setting whose list is open on the project's options screen ('' = none). */
   private selectOpen = '';
 
+  /** The setting whose list is open ('' = none). */
+  get openSelect(): string { return this.selectOpen; }
+
   /** The values a `select` of this setting offers, in order (`value` is what the screen's variable holds, `label` its words). */
   selectChoices(setting: string): { value: string; label: string }[] {
-    const on = [{ value: 'on', label: this.label('on') }, { value: 'off', label: this.label('off') }];
-    switch (setting) {
-      case 'text_sounds': case 'reduce_motion': case 'captions': case 'announce_lines': return on;
-      case 'speaker_focus': return this.hasFocus ? on : [];
-      case 'auto_speed': return AUTO_SPEEDS.map(v => ({ value: v, label: this.label(v) }));
-      case 'skip': return [{ value: 'read', label: this.label('skip_read') }, { value: 'all', label: this.label('skip_all') }];
-      case 'timed_choices': return [{ value: 'normal', label: this.label('normal') }, { value: 'extended', label: this.label('timed_extended') }, { value: 'off', label: this.label('timed_off') }];
-      case 'language': return this.langs.length > 1 ? this.langs.map(v => ({ value: v, label: v })) : [];
-      case 'theme': return this.themes.length > 1 ? this.themes.map(v => ({ value: v, label: v })) : [];
-      case 'voice_language': return this.voiceLangs.length ? [{ value: 'text', label: this.label('voice_same') }, ...this.voiceLangs.map(v => ({ value: v, label: v }))] : [];
-      default: return [];
-    }
+    const ops = this.cycleOps();
+    return Object.hasOwn(ops, setting) ? ops[setting as CycleSetting].choices() : [];
   }
 
   /** The lists of every `select` as the entries of the options screen (`<setting>_options`), and which one is open. */
@@ -233,24 +255,11 @@ export class Menus {
 
   /** `action choose` on a `select`'s list: the id is `<setting>.<value>`. */
   choose(id: string) {
-    const dot = id.indexOf('.'), setting = id.slice(0, dot), value = id.slice(dot + 1), s = this.settings;
+    const dot = id.indexOf('.'), setting = id.slice(0, dot), value = id.slice(dot + 1);
     if (!this.selectChoices(setting).some(c => c.value === value)) return;
     this.selectOpen = '';
-    switch (setting) {
-      case 'text_sounds': s.textSounds = value === 'on'; break;
-      case 'reduce_motion': s.reduceMotion = value === 'on'; break;
-      case 'captions': s.captions = value === 'on'; break;
-      case 'announce_lines': s.announceLines = value === 'on'; break;
-      case 'speaker_focus': s.speakerFocus = value === 'on'; break;
-      case 'auto_speed': s.autoDelay = AUTO_DELAYS[AUTO_SPEEDS.indexOf(value)]; break;
-      case 'skip': s.skipAll = value === 'all'; break;
-      case 'timed_choices': s.timedChoices = value as Settings['timedChoices']; break;
-      case 'language': s.lang = value; this.commit(true); return;
-      case 'theme': s.theme = value; break;
-      case 'voice_language': s.voiceLang = value === 'text' ? '' : value; break;
-      default: return;
-    }
-    this.commit(false);
+    this.cycleOps()[setting as CycleSetting].pick(value);
+    this.commit(setting === 'language');
   }
 
   /** `action tab` on the project's options screen. */

@@ -7,14 +7,26 @@
     "face": { "bone": "head" }, "bangs": { "bone": "head" }, "eyes": { "bone": "head" }, "mouth": { "bone": "head" }
   },
   "pivots": { "hair_back": [270, 380] },
+  "physics": {
+    "hair": {
+      "inputs": [{ "bone": "head", "channel": "rot", "weight": 1.6, "smoothing": 0.3 }],
+      "segments": [
+        { "length": 1, "mass": 1, "damping": 3, "stiffness": 90, "limit": 20 },
+        { "length": 1.2, "mass": 1.2, "damping": 3, "stiffness": 70, "limit": 25 }
+      ],
+      "outputs": [{ "part": "hair_back", "scale": 0.6, "min": -25, "max": 25 }]
+    }
+  },
   "looks": {
     "shy": { "look": "smile", "mouth": "neutral" },
     "uniform": { "top": "school", "bottom": "school" },
     "casual": { "look": "happy", "top": "casual", "bottom": "casual" }
   },
-  "idle": "breathe",
-  "speak": { "variants": ["open", "neutral"], "rate": 7 },
-  "blink": true,
+  "autonomous": {
+    "idle": "breathe",
+    "speak": { "slot": "mouth", "variants": ["open", "neutral"], "rate": 7 },
+    "blink": { "slot": "eyes", "variant": "closed" }
+  },
   "animations": {
     "wave": {
       "dur": 1.2,

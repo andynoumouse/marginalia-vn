@@ -102,6 +102,9 @@ $('openFolder').addEventListener('click', async () => {
 
 $('openDemo').addEventListener('click', () => opening(() => api.openDemo()));
 
+// The animation studio on a character folder (the PSD converter's output, or one image per pose), with no game project.
+$('openCharacter').addEventListener('click', () => opening(() => api.openCharacter()));
+
 // ---- New project ----
 
 const folderName = title => title.replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '');

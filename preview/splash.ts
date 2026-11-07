@@ -7,8 +7,6 @@ import { $, sleep } from './stage-ui.js';
 const splashEl = $('splash'), splashImg = $('splashImg'), splashText = $('splashText');
 let running = false;
 
-export const splashActive = () => running;
-
 /** Resolves when the last card is gone. `urlOf` maps a background name to a URL (null = no such file, text only). */
 export async function playSplash(cards: SplashCard[], urlOf: (name: string) => string | null, reduceMotion: boolean): Promise<void> {
   if (running || !cards.length) return;

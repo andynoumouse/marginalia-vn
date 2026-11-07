@@ -85,7 +85,7 @@ export function parseRich(text: string): Segment[] {
   const re = /\{(?:(\/?)(i|b|color|size|shake|wave|ruby|speed)(?:=([^{}]*))?|pause=([0-9]*\.?[0-9]+)|(wait|nw))\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    const [all, close, tag, arg, pause, mark] = m;
+    const [, close, tag, arg, pause, mark] = m;
     const bad = tag && !close && (tag === 'color' ? !COLOR.test(arg ?? '') : tag === 'size' || tag === 'speed' ? !(Number(arg) > 0) : tag === 'ruby' ? !arg : arg !== undefined);
     const stray = tag && close && arg !== undefined;
     if (bad || stray) continue; // not a tag we know: stays in the text

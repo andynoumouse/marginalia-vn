@@ -42,10 +42,9 @@ test('style= does not disturb ids: assignIds keeps it before the new id', () => 
   assert.deepEqual(existingIds([out.join('\n')]).size, 3 + 1); // three lines, plus the option
 });
 
-test('define accepts style= and the old box=', () => {
-  const p = build('define a "A" style=one\ndefine b "B" box=two\ndefine c "C" style=a-b\nlabel start:\n  end\n');
+test('define accepts style=', () => {
+  const p = build('define a "A" style=one\ndefine c "C" style=a-b\nlabel start:\n  end\n');
   assert.equal(p.characters.a.style.box, 'one');
-  assert.equal(p.characters.b.style.box, 'two');
   assert.ok(p.diagnostics.some(d => /style= needs a style name/.test(d.message)));
 });
 

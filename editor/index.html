@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Marginalia VN</title>
 <link rel="stylesheet" href="help.css">
+<link rel="stylesheet" href="studio.css">
 <style>
   :root { --ink: #0e1117; --panel: #171b23; --line: #2a303c; --text: #e6e9ef; --muted: #8b93a3;
     --accent: #5fd1c3; --warn: #e8b64c; --bad: #f0707a; --right: 46%; color-scheme: dark; }
@@ -99,12 +100,6 @@
   #sbList .add { flex: none; display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 3px; visibility: hidden; }
   #sbList :is(summary, h3):is(:hover, :focus-within) .add { visibility: visible; }
   #sbList .add:hover { background: rgba(255,255,255,.1); color: var(--text); }
-  .ctxmenu { position: fixed; z-index: 50; min-width: 180px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
-  .ctxmenu[hidden] { display: none; }
-  .ctxmenu button { display: block; width: 100%; padding: 4px 10px; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; white-space: nowrap; }
-  .ctxmenu button:is(:hover, :focus) { background: rgba(95, 209, 195, .16); outline: none; }
-  .ctxmenu button:disabled { color: var(--muted); }
-  .ctxmenu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
   #sbList .item:hover { background: rgba(255,255,255,.06); }
   #sbList .item[aria-current="true"] { background: rgba(95, 209, 195, .16); }
   #sbList .item[data-errors="true"] { color: var(--bad); }
@@ -294,120 +289,6 @@
   #assetView .av-stage img { max-width: 100%; max-height: calc(100vh - 190px); object-fit: contain; }
   #assetView .av-font { font-size: 30px; line-height: 1.4; white-space: pre-wrap; padding: 12px; }
   #assetView .av-info { padding: 6px 12px; border-top: 1px solid var(--line); color: var(--muted); font: 12px ui-monospace, Consolas, monospace; min-height: 30px; }
-  #animStudio { position: fixed; inset: 0; z-index: 50; background: var(--panel); display: flex; }
-  #animStudio[hidden] { display: none; }
-  #animStudio .as-card { flex: 1; min-width: 0; display: flex; flex-direction: column; outline: none; overflow: auto; background: var(--panel); }
-  #animStudio .as-card > * { flex-shrink: 0; }
-  #animStudio .as-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 200px minmax(0, 1fr) 360px; border-top: 0; }
-  #animStudio .as-body > * { min-height: 0; }
-  #animStudio .as-side { padding: 12px; border-right: 1px solid var(--line); overflow-y: auto; }
-  #animStudio .as-main { display: flex; flex-direction: column; min-width: 0; padding-top: 12px; }
-  #animStudio .as-main > .as-stage { flex: 1 1 0; min-height: 120px; aspect-ratio: auto; max-height: none; position: relative; margin: 0 12px 8px; width: auto; justify-self: stretch; }
-  #animStudio .as-main > .as-transport, #animStudio .as-main > .as-timeline { flex: none; }
-  #animStudio .as-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); pointer-events: none; }
-  #animStudio .as-inspect { display: flex; flex-direction: column; border-left: 1px solid var(--line); overflow: hidden; }
-  #animStudio .as-tabs { display: flex; border-bottom: 1px solid var(--line); }
-  #animStudio .as-tab { flex: 1; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; }
-  #animStudio .as-tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
-  #animStudio .as-panel { flex: 1; overflow-y: auto; }
-  #animStudio .as-panel[hidden] { display: none; }
-  #animStudio .as-panel > div { flex-direction: column; align-items: flex-start; border-top: 0; border-bottom: 1px solid var(--line); }
-  #animStudio .as-panel .as-add { margin-left: 0; }
-  #animStudio .as-key { max-width: 100%; }
-  #animStudio header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
-  #animStudio header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
-  #animStudio .as-modes { display: inline-flex; }
-  #animStudio .as-modes button { border-radius: 0; }
-  #animStudio .as-modes button:first-child { border-radius: 4px 0 0 4px; }
-  #animStudio .as-modes button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
-  #animStudio .as-modes button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); position: relative; }
-  /* Rig mode: no animation list, transport or timeline; the stage grows and the inspector widens. */
-  #animStudio[data-mode="rig"] .as-body { grid-template-columns: minmax(0, 1fr) 420px; }
-  #animStudio[data-mode="rig"] :is(.as-side, .as-transport, .as-timeline, [data-t="scene"]) { display: none; }
-  #animStudio .as-side { display: flex; flex-direction: column; gap: 8px; }
-  #animStudio .as-name { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--accent); border-radius: 4px; font-size: 12px; color: var(--muted); }
-  #animStudio .as-name[hidden] { display: none; }
-  #animStudio .as-name input { font: inherit; font-size: 14px; color: var(--text); background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
-  #animStudio .as-name div { display: flex; gap: 6px; }
-  #animStudio .as-tools { display: flex; flex-wrap: wrap; gap: 4px; }
-  #animStudio button:disabled { opacity: .45; cursor: default; }
-  #animStudio button.primary:not(:disabled) { border-color: var(--accent); color: var(--accent); }
-  #animStudio input[type="number"] { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; width: 78px; }
-  #animStudio .as-dur { width: 64px !important; }
-  #animStudio .as-inspector { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
-  #animStudio .as-inspector label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-  #animStudio .as-pivot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
-  #animStudio .as-pivot label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-  #animStudio .as-pivot-name { font-weight: 600; min-width: 90px; }
-  #animStudio .as-pivot-hint { color: var(--muted); font-size: 12px; }
-  #animStudio .as-auto, #animStudio .as-place { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 12px; border-top: 1px solid var(--line); }
-  #animStudio .as-auto label, #animStudio .as-place label, #animStudio .as-share label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-  #animStudio .as-share { display: flex; flex-wrap: wrap; gap: 6px 12px; }
-  #animStudio .as-transport label:has(.as-part) { flex: 0 1 260px; min-width: 0; }
-  #animStudio .as-part { flex: 1; min-width: 0; width: 100%; }
-  /* The Parts tree: rows for the whole character, each part (slots with their variants), groups, then the poses. */
-  #animStudio .as-panel > .as-tree { display: flex; flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 12px; }
-  #animStudio .as-tree h4 { margin: 8px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  #animStudio .as-tree-hint { margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-  #animStudio .as-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 3px 6px; background: none; border: 1px solid transparent; }
-  #animStudio .as-row:hover { border-color: var(--line); }
-  #animStudio .as-row[aria-pressed="true"] { border-color: var(--accent); background: var(--ink); }
-  #animStudio .as-tree img, #animStudio .as-thumb { width: 28px; height: 28px; flex: none; object-fit: contain; border-radius: 3px;
-    background: #4a515e repeating-conic-gradient(#ffffff26 0 25%, #0000 0 50%) 0 0 / 8px 8px; }
-  #animStudio .as-variant img, #animStudio .as-variant .as-thumb { width: 22px; height: 22px; }
-  #animStudio .as-badge { flex: none; font-size: 10px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
-  #animStudio .as-badge-slot { color: var(--accent); border-color: var(--accent); }
-  #animStudio .as-badge-group { color: var(--warn); border-color: var(--warn); }
-  #animStudio .as-pname { font-weight: 600; }
-  #animStudio .as-keyed { flex: none; font-size: 11px; color: var(--warn); }
-  #animStudio .as-keyed::before { content: "◆ "; }
-  #animStudio .as-muted { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #animStudio .as-variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0 6px 42px; }
-  #animStudio .as-variant { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; font-size: 12px; }
-  #animStudio .as-variant[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  #animStudio .as-variant.as-set { background: var(--ink); }
-  #animStudio .as-drop { outline: 2px dashed var(--accent); }
-  #animStudio .as-bone-fold { padding: 0 6px; margin-right: 4px; }
-  #animStudio .as-poses { padding-left: 0; }
-  #animStudio .as-poses .as-variant { flex-direction: column; align-items: flex-start; gap: 0; padding: 3px 8px; max-width: 100%; }
-  #animStudio .as-place input[type=number] { width: 80px; }
-  #animStudio .as-place-line { font-family: var(--mono, monospace); }
-  #animStudio .as-pick[aria-pressed="true"] { border-color: var(--bad); color: var(--bad); }
-  #animStudio .as-key { max-width: 260px; }
-  #animStudio .as-add { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-  #animStudio .tl-on { fill: var(--accent); stroke: var(--text); stroke-width: 2; }
-  #animStudio .tl-empty { fill: var(--muted); font: 13px system-ui, sans-serif; pointer-events: none; }
-  #animStudio .tl-key { cursor: grab; }
-  #animStudio .as-stage { aspect-ratio: 16 / 9; max-height: 52vh; justify-self: center; width: 100%; background: #0a0c10; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-  #animStudio .as-stage iframe { width: 100%; height: 100%; border: 0; display: block; }
-  #animStudio .as-list { display: flex; flex-direction: column; gap: 3px; }
-  #animStudio .as-list h3 { margin: 8px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  #animStudio .as-list h3:first-child { margin-top: 0; }
-  #animStudio .as-list button { text-align: left; }
-  #animStudio .as-list button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  #animStudio .as-transport { display: flex; align-items: center; gap: 12px; padding: 0 12px 8px; }
-  #animStudio .as-transport label { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
-  #animStudio .as-slider { flex: 1; min-width: 80px; accent-color: var(--accent); }
-  #animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 110px; text-align: right; }
-  #animStudio select { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
-  #animStudio .as-timeline { display: block; width: 100%; background: var(--ink); border-top: 1px solid var(--line); cursor: col-resize; touch-action: none; user-select: none; }
-  #animStudio .tl-bg-a { fill: #12161d; } #animStudio .tl-bg-b { fill: #0e1117; }
-  #animStudio .tl-zero, #animStudio .tl-grid { stroke: var(--line); stroke-width: 1; }
-  #animStudio .tl-label { fill: var(--text); font: 600 12px system-ui, sans-serif; }
-  #animStudio .tl-range, #animStudio .tl-tick { fill: var(--muted); font: 10px ui-monospace, Consolas, monospace; }
-  #animStudio .tl-curve { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-  #animStudio .tl-key { fill: var(--warn); stroke: var(--ink); stroke-width: 1; }
-  #animStudio .tl-play { stroke: var(--bad); stroke-width: 1.5; pointer-events: none; }
-  #animStudio .as-note { padding: 6px 12px; color: var(--muted); font-size: 12px; min-height: 28px; border-top: 1px solid var(--line); }
-  /* Narrow windows: list, stage and inspector stack and the workspace scrolls. */
-  @media (max-width: 900px) {
-    #animStudio .as-body { grid-template-columns: 1fr; flex: none; }
-    #animStudio .as-side { border-right: 0; border-bottom: 1px solid var(--line); max-height: 112px; }
-    #animStudio .as-list { flex-direction: row; flex-wrap: wrap; align-items: center; }
-    #animStudio .as-list h3 { flex-basis: 100%; margin: 2px 0 0; }
-    #animStudio .as-main > .as-stage { flex: none; height: 26vh; }
-    #animStudio .as-inspect { border-left: 0; border-top: 1px solid var(--line); }
-  }
   #outline { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; padding: 24px; }
   #outline[hidden] { display: none; }
   #outline .outline-card { width: min(1200px, 100%); height: min(780px, 100%); display: flex; flex-direction: column;

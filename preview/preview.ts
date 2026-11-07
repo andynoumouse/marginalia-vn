@@ -5,11 +5,16 @@
 // project data from project.json instead of the dev server, no live reload.
 
 import { initDebug } from './debug.js';
-import { attachPreloads, quickMenuSettings, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, chapterItems, chapterProblems, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, type AchievementEntry, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeSplash, Runtime, stageSize, titleFade, type ChapterItem, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
+import { attachPreloads, quickMenuSettings, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeSplash, Runtime, stageSize, titleFade, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
+import { AchievementQueue } from './achievement-queue.js';
+import { SaveCapture } from './save-capture.js';
+import { QuickActions } from './quick-actions.js';
+import { chapterList as chapterListOf, chapterDiagnostics } from './chapters.js';
+import { initScreenSync } from './screen-sync.js';
 import { Menus, type AchievementRow, type GalleryItem, type TitleConfig } from './menus.js';
 import { PixiRenderer } from './pixi-renderer.js';
 import { playSplash } from './splash.js';
-import { isOutdatedSave, newestSave, normalizeSaveVersion, PersistentSet, PersistentValues, readSave, SeenLines, setChoiceSlots, writeChoiceSave, writeSave, type Moment, type SaveData } from './saves.js';
+import { isOutdatedSave, newestSave, normalizeSaveVersion, PersistentSet, PersistentValues, readSave, SeenLines, setChoiceSlots, writeSave,  type SaveData } from './saves.js';
 import { adjustFocused, autoFocus, moveFocus, watchGamepad, type Action } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
 import type { Voice } from './blips.js';
@@ -89,9 +94,22 @@ const embedded = window.parent !== window;
 // The editor's animation dialog embeds this page with ?studio=<char>: one character on a plain stage (studio.ts).
 const studioChar = devMode && embedded ? new URLSearchParams(location.search).get('studio') : null;
 if (studioChar !== null) document.documentElement.dataset.studio = '';
+// `&hosted`: the standalone studio (editor/studio.html) has no game project; its page answers for the project and its files.
+const hosted = studioChar !== null && new URLSearchParams(location.search).has('hosted');
 let studio: Studio | null = null;
 let studioProgram: Program | null = null; // the project's scripts, for the stage behind the studio's character
-const fetchProject = async (): Promise<Project> => (await fetch(devMode ? '/api/project' : 'project.json')).json();
+/** The standalone studio's project: the host page lists the character's files (with the URL of each) and its manifest (editor/anim-stage.ts). */
+const hostProject = () => new Promise<Project>(resolve => {
+  const on = (e: MessageEvent) => {
+    const m = e.data as { type?: string; project?: Partial<Project> } | null;
+    if (e.origin !== location.origin || e.source !== window.parent || m?.type !== 'studioProject' || !m.project) return;
+    window.removeEventListener('message', on);
+    resolve({ locales: {}, assets: [], game: {}, ...m.project });
+  };
+  window.addEventListener('message', on);
+  window.parent.postMessage({ type: 'studioProjectRequest' }, location.origin);
+});
+const fetchProject = async (): Promise<Project> => (hosted ? hostProject() : (await fetch(devMode ? '/api/project' : 'project.json')).json());
 const fetchedLocales = new Map<string, Record<string, string>>();
 /** One exported translation table; a missing or damaged file leaves the language on the source text. */
 async function fetchLocale(lang: string): Promise<Record<string, string>> {
@@ -133,8 +151,9 @@ let saveVersion = 0; // game.json "saveVersion"
 let assetFiles: AssetFile[] = [];
 const timeline = new Timeline();
 let runtime: Runtime | null = null;
-let playing = false;
-let introRunning = false; // the intro cutscene is on screen
+/** What the shell is showing: the title screen, the intro cutscene, or a running game (never two at once). */
+type Scene = 'title' | 'intro' | 'playing';
+let scene: Scene = 'title';
 let game: GameConfig = {};
 let lastLine: LineInfo = { name: null, color: null, text: '' };
 
@@ -151,24 +170,9 @@ function toast(key: string, detail = '') {
 }
 
 // ---- saves (see saves.ts) ----
-/** The moment on screen, as a save; null before the story has shown anything. */
-async function capture(): Promise<SaveData | null> {
-  const at = runtime?.current;
-  if (!runtime || !at) return null;
-  const data: SaveData = {
-    at, choices: [...runtime.choices], ...(runtime.screenSnapshot() ? { screen: runtime.screenSnapshot()! } : {}), name: lastLine.name, text: lastLine.text, time: Date.now(),
-    base: [...runtime.unlockedBase], persistentBase: { ...runtime.persistentBase }, seed: runtime.seed, version: scriptVersion, saveVersion, history: timeline.recent(),
-  };
-  return { ...data, thumb: await renderer.snapshot() };
-}
-let autosaveSeq = 0;
-async function autosave(atChoice: boolean) {
-  const seq = ++autosaveSeq;
-  const data = await capture();
-  if (!data || seq !== autosaveSeq) return; // a newer line may have finished capturing first
-  writeSave('auto', data);
-  if (atChoice) writeChoiceSave(data);
-}
+const saveCapture = new SaveCapture({ runtime: () => runtime, lastLine: () => lastLine, scriptVersion: () => scriptVersion, saveVersion: () => saveVersion, timeline, renderer });
+const capture = () => saveCapture.capture();
+const autosave = (atChoice: boolean) => saveCapture.autosave(atChoice);
 
 /** The languages the project has voice recordings in (set on each load; the voice language option offers these). */
 let voiceAvailable: string[] = [];
@@ -264,38 +268,18 @@ function achievementDiagnostics(program: Program, text: string): Diagnostic[] {
   });
 }
 
-// ---- achievement toasts: one at a time, each for achievementToast.seconds ----
-const achQueue: AchievementEntry[] = [];
-let achShowing = false;
-function queueAchievement(entry: AchievementEntry) {
-  achQueue.push(entry);
-  if (!achShowing) void nextAchievement();
-}
-async function nextAchievement() {
-  const entry = achQueue.shift();
-  if (!entry) { achShowing = false; return; }
-  achShowing = true;
-  const cfg = achievementToastSettings(game.achievementToast);
-  if (cfg.sound && renderer.audio.has('sound', cfg.sound)) void renderer.audio.sound(cfg.sound);
-  const file = uiFile(entry.icon);
-  void renderer.achievementToast(runtime?.achievementToastView({ title: entry.title, description: entry.description, icon: file?.file ?? '', ending: entry.ending, position: cfg.position }) ?? null);
-  await sleep(cfg.seconds * 1000);
-  void renderer.achievementToast(null);
-  await sleep(300); // the fade out
-  void nextAchievement();
-}
+const achievementQueue = new AchievementQueue({
+  settings: () => achievementToastSettings(game.achievementToast),
+  present(entry, cfg) {
+    if (!entry) { void renderer.achievementToast(null); return; }
+    if (cfg.sound && renderer.audio.has('sound', cfg.sound)) void renderer.audio.sound(cfg.sound);
+    const file = uiFile(entry.icon);
+    void renderer.achievementToast(runtime?.achievementToastView({ title: entry.title, description: entry.description, icon: file?.file ?? '', ending: entry.ending, position: cfg.position }) ?? null);
+  },
+});
 
 const musicRoomItems = (): MusicItem[] => musicItems(game.musicRoom, t => tracksHeard.has(t), f => unlocked.has(f));
-const chapterList = (): ChapterItem[] => chapterItems(game.chapters, l => labelsReached.has(l), f => unlocked.has(f));
-
-/** Warnings for chapters whose label no script defines, pointed at the line of game.json that names it. */
-function chapterDiagnostics(labels: Record<string, number>, text: string): Diagnostic[] {
-  const lines = text.split('\n');
-  return chapterProblems(game.chapters, labels).map(message => {
-    const label = /"(.*)"/.exec(message)?.[1] ?? '';
-    return { file: 'game.json', line: Math.max(1, lines.findIndex(l => l.includes(`"${label}"`)) + 1), severity: 'warning', message } as Diagnostic;
-  });
-}
+const chapterList = () => chapterListOf(game.chapters, l => labelsReached.has(l), f => unlocked.has(f));
 
 let themeAssets: AssetFile[] = [];
 /** The stage stylesheet: the theme the player picked in Options (game.json "themes"), else the game's own. */
@@ -309,7 +293,7 @@ function applyGame(assets: AssetFile[]) {
   setChoiceSlots(game.choiceSaves);
   saveVersion = normalizeSaveVersion(game.saveVersion);
   menus.setSaveNames(game.saveNames === true);
-  syncTitle();
+  screenSync.syncAll();
   applyQuickMenu();
   themeAssets = assets;
   const themes = Array.isArray(game.themes) ? game.themes.filter((n): n is string => typeof n === 'string' && !!game.themeLooks?.[n]) : [];
@@ -340,17 +324,21 @@ let curtained = false; // a transition is under way; further clicks are ignored
 
 async function showTitle() {
   if (curtained) return;
-  const fromGame = (playing || introRunning) && !embedded;
+  const fromGame = scene !== 'title' && !embedded;
   if (fromGame) { curtained = true; await curtain(true); }
   runtime?.stop();
-  playing = false;
-  introRunning = false;
+  scene = 'title';
   stopModes();
   setUiHidden(false);
   showQuick(false);
   renderer.paused = true;
-  await renderer.prepare(titleState()); // the title art and music, so the screen is not drawn with a placeholder
-  if (playing) return; // the player started a game meanwhile
+  try {
+    await renderer.prepare(titleState()); // the title art and music, so the screen is not drawn with a placeholder
+  } catch (e) {
+    if (fromGame) { curtained = false; void curtain(false); } // else the screen stays black and clicks are ignored
+    throw e;
+  }
+  if (scene !== 'title') return; // the player started a game meanwhile
   renderer.sync(titleState());
   menus.showTitle();
   statusEl.textContent = 'title screen';
@@ -375,16 +363,15 @@ async function runIntro() {
   runtime.persistentBase = persistent.values();
   timeline.set([]);
   renderer.paused = false;
-  playing = false;
-  introRunning = true;
+  scene = 'intro';
   const finished = await runtime.playLabel(label);
-  if (finished && introRunning) await showTitle(); // else skipped, or replaced by another run
+  if (finished && scene === 'intro') await showTitle(); // else skipped, or replaced by another run
 }
 
 /** Start or continue a game: from the title screen through the curtain, otherwise at once. */
 async function enterGame(run: (rt: Runtime) => Promise<void>, from?: SaveData) {
   if (curtained) return;
-  if (playing || embedded) { play(run, from); return; }
+  if (scene === 'playing' || embedded) { play(run, from); return; }
   curtained = true;
   await curtain(true);
   void renderer.title(null, true); // the curtain is black: the title goes at once instead of playing its `on exit` as the curtain lifts
@@ -405,7 +392,7 @@ function play(run: (rt: Runtime) => Promise<void>, from?: SaveData) {
   if (from?.seed !== undefined) runtime.seed = from.seed;
   timeline.set(from?.version === scriptVersion && from.history ? from.history : []);
   renderer.paused = false;
-  playing = true;
+  scene = 'playing';
   showQuick(true);
   void run(runtime);
 }
@@ -423,7 +410,7 @@ const menus = new Menus(settings, {
     if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s));
   },
   toTitle: () => void showTitle(),
-  isPlaying: () => playing,
+  isPlaying: () => scene === 'playing',
   save: async (slot, label) => {
     const data = await capture();
     return !!data && writeSave(slot, label ? { ...data, label } : data);
@@ -441,7 +428,7 @@ const menus = new Menus(settings, {
   chapterItems: chapterList,
   achievementItems: achievementRows,
   startChapter: label => void enterGame(rt => rt.startAt(label).then(() => {})),
-  screens: open => { renderer.paused = open || !playing; },
+  screens: open => { renderer.paused = open || scene !== 'playing'; },
   changed: lang => {
     applySettings();
     applyTheme();
@@ -459,7 +446,8 @@ function showCrash(error: unknown, at: Src | null) {
   console.error(error);
   crashed = true;
   stopModes();
-  playing = introRunning = curtained = false;
+  scene = 'title';
+  curtained = false;
   curtainEl.dataset.show = 'false';
   menus.hideAll();
   showQuick(false);
@@ -489,37 +477,16 @@ $('crashToTitle').addEventListener('click', () => {
 });
 
 // ---- quick menu actions ----
-const canAct = () => playing && !menus.open;
+const canAct = () => scene === 'playing' && !menus.open;
 
-function rollback() {
-  if (!canAct() || !runtime) return;
-  const prev = timeline.back();
-  if (!prev) return;
-  stopModes();
-  void runtime.restore({ step: prev.step, from: runtime.jumpedFrom ?? undefined }, prev.choices); // steps count from a direct entry
-}
-
-/** A line picked in the history screen (which has closed): roll back to it, however far. */
-function rollbackTo(n: number) {
-  if (!playing || !runtime) return;
-  const to = timeline.backTo(n);
-  if (!to) return;
-  stopModes();
-  void runtime.restore({ step: to.step, from: runtime.jumpedFrom ?? undefined }, to.choices);
-}
-
-async function quickSave() {
-  if (!canAct()) return;
-  const data = await capture();
-  toast(data && writeSave('quick', data) ? 'toast_qsaved' : 'save_failed');
-}
-
-function quickLoad() {
-  if (!canAct()) return;
-  const s = readSave('quick');
-  if (!s) { toast('toast_no_qsave'); return; }
-  menus.confirm('confirm_qload', () => resumeSave(s, () => play(rt => rt.restore(s.at, s.choices, s.screen), s)));
-}
+const quick = new QuickActions({
+  runtime: () => runtime, timeline, canAct, playing: () => scene === 'playing', stopModes: () => stopModes(), capture, toast: key => toast(key),
+  confirm: (key, ok) => menus.confirm(key, ok), resumeSave: (s, go) => resumeSave(s, go), play: (run, from) => play(run, from),
+});
+const rollback = () => quick.rollback();
+const rollbackTo = (n: number) => quick.rollbackTo(n);
+const quickSave = () => quick.quickSave();
+const quickLoad = () => quick.quickLoad();
 
 function toggleSkip(on = !renderer.skipping) {
   if (!canAct()) return;
@@ -549,181 +516,18 @@ function showQuick(on: boolean) {
   applyQuickMenu();
   void renderer.quick(runtime?.quickView() ?? null);
 }
-renderer.onQuickAction = item => {
+renderer.slots.onAction.quick = item => {
   const act = item?.act;
   if (act) quickActions[act]?.();
 };
-/** The title screen (the project's `screen title`, else the starter) is drawn while its menu is up (hidden behind the saves or options opened over it). */
-const titleEl = $('title');
-/** game.json `titleScreen.buttons`, when it lists some: the optional buttons (gallery, music room, chapters, achievements, continue) the starter shows. */
-const titleWants = (button: string) => !Array.isArray(game.titleScreen?.buttons) || !game.titleScreen.buttons.length || game.titleScreen.buttons.includes(button);
-function syncTitle() {
-  const has = (button: string, entries: number) => titleWants(button) && entries > 0;
-  const newest = newestSave();
-  const view = runtime?.titleView(!!newest && titleWants('continue'), has('gallery', Array.isArray(game.gallery) ? galleryItems().length : 0), has('music_room', musicRoomItems().length),
-    has('chapters', chapterList().length), has('achievements', achievementRows().length), game.title ?? 'Untitled', game.titleScreen?.showTitle !== false, newest?.text ?? '') ?? null;
-  titleEl.dataset.custom = String(!!view);
-  void renderer.title(view && !titleEl.hidden ? view : null);
-}
-new MutationObserver(syncTitle).observe(titleEl, { attributes: true, attributeFilter: ['hidden'] });
-const titleActions: Record<string, () => void> = {
-  start: () => menus.act.newGame(),
-  continue: () => menus.act.continueGame(),
-  load: () => menus.openSaves('load'),
-  options: () => menus.openOptions(),
-  gallery: () => menus.showGallery(),
-  music: () => menus.showMusic(),
-  chapters: () => menus.showChapters(),
-  achievements: () => menus.showAchievements(),
-  quit: () => window.close(),
-};
-/** The pause menu (the project's `screen pause`, else the starter), the same way. */
-const pauseEl = $('pause');
-function syncPause() {
-  const view = runtime?.pauseView() ?? null;
-  pauseEl.dataset.custom = String(!!view);
-  void renderer.pause(view && !pauseEl.hidden ? view : null);
-}
-new MutationObserver(syncPause).observe(pauseEl, { attributes: true, attributeFilter: ['hidden'] });
-const pauseActions: Record<string, () => void> = {
-  resume: () => menus.hideAll(),
-  save: () => menus.openSaves('save'),
-  load: () => menus.openSaves('load'),
-  options: () => menus.openOptions(),
-  title: () => menus.confirm('confirm_title', () => void showTitle()),
-};
-/** The project's `screen options` replaces the default options: redrawn whenever the screen opens or a setting or the tab changes. */
-const optionsEl = $('options');
-function syncOptions() {
-  const lists = menus.optionLists();
-  const view = runtime?.optionsView({ ...menus.optionValues(), ...lists.vars }, lists.entries) ?? null;
-  optionsEl.dataset.custom = String(!!view);
-  void renderer.options(view && !optionsEl.hidden ? view : null);
-}
-new MutationObserver(syncOptions).observe(optionsEl, { attributes: true, attributeFilter: ['hidden'] });
-menus.onValues = syncOptions;
-/** The project's `screen saves` replaces the default save/load screen: redrawn whenever the screen opens or its page, mode or slots change. */
-const savesEl = $('saves');
-function syncSaves() {
-  const { vars, entries } = menus.savesValues();
-  const view = runtime?.savesView(vars, entries) ?? null;
-  savesEl.dataset.custom = String(!!view);
-  void renderer.saves(view && !savesEl.hidden ? view : null);
-}
-new MutationObserver(syncSaves).observe(savesEl, { attributes: true, attributeFilter: ['hidden'] });
-menus.onSaves = syncSaves;
-renderer.onSavesAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeSaves();
-  else if (act === 'page') menus.setPage(item!.id);
-  else if (act === 'slot') menus.pickSlot(item!.id);
-  else if (act === 'delete') menus.toggleDelete();
-  else if (act === 'remove') menus.removeSlot(item!.id.slice(0, item!.id.lastIndexOf('.')));
-  else if (act === 'rename') menus.renameSlot(item!.id.slice(0, item!.id.lastIndexOf('.')));
-};
-/** The history screen (the project's `screen history`, else the starter): redrawn when it opens. */
-const historyEl = $('history');
-function syncHistory() {
-  const { vars, entries } = menus.historyValues();
-  const view = runtime?.historyView(vars, entries) ?? null;
-  historyEl.dataset.custom = String(!!view);
-  void renderer.history(view && !historyEl.hidden ? view : null);
-}
-new MutationObserver(syncHistory).observe(historyEl, { attributes: true, attributeFilter: ['hidden'] });
-renderer.onHistoryAction = item => {
-  if (item?.act === 'close') menus.closeHistory();
-  else if (item?.act === 'line') menus.pickLine(item.id);
-  else if (item?.act === 'voice') menus.replayLine(item.id.slice(0, item.id.lastIndexOf('.')));
-};
-/** The project's `screen gallery` replaces the default gallery: drawn when it opens (and again when the viewer closes). */
-const galleryEl = $('gallery');
-function syncGallery() {
-  const { vars, entries } = menus.galleryValues();
-  const view = runtime?.galleryView(vars, entries) ?? null;
-  galleryEl.dataset.custom = String(!!view);
-  void renderer.gallery(view && !galleryEl.hidden ? view : null, menus.lastTile);
-}
-new MutationObserver(syncGallery).observe(galleryEl, { attributes: true, attributeFilter: ['hidden'] });
-renderer.onGalleryAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeGallery();
-  else if (act === 'tile') menus.pickTile(item!.id);
-};
-/** The viewer screen (the project's `screen viewer`, else the starter) opened from a gallery tile: redrawn when it opens and whenever the picture changes. */
-const viewerEl = $('viewer');
-function syncViewer() {
-  const view = runtime?.viewerView(menus.viewerValues()) ?? null;
-  viewerEl.dataset.custom = String(!!view);
-  void renderer.viewer(view && !viewerEl.hidden ? view : null);
-}
-new MutationObserver(syncViewer).observe(viewerEl, { attributes: true, attributeFilter: ['hidden'] });
-menus.onViewer = syncViewer;
-renderer.onViewerAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeViewer();
-  else if (act === 'next') menus.stepViewer(1);
-  else if (act === 'prev') menus.stepViewer(-1);
-};
-/** The project's `screen music` replaces the default music room: redrawn when it opens and whenever the playing track changes. */
-const musicEl = $('musicRoom');
-function syncMusic() {
-  const { vars, entries } = menus.musicValues();
-  const view = runtime?.musicView(vars, entries) ?? null;
-  musicEl.dataset.custom = String(!!view);
-  void renderer.music(view && !musicEl.hidden ? view : null, menus.lastTrack);
-}
-new MutationObserver(syncMusic).observe(musicEl, { attributes: true, attributeFilter: ['hidden'] });
-menus.onMusic = syncMusic;
-renderer.onMusicAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeMusic();
-  else if (act === 'stop') menus.stopMusic();
-  else if (act === 'track') menus.pickTrack(item!.id);
-};
-/** The project's `screen chapters` replaces the default chapter select. */
-const chaptersEl = $('chapters');
-function syncChapters() {
-  const { vars, entries } = menus.chaptersValues();
-  const view = runtime?.chaptersView(vars, entries) ?? null;
-  chaptersEl.dataset.custom = String(!!view);
-  void renderer.chapters(view && !chaptersEl.hidden ? view : null, menus.lastChapter);
-}
-new MutationObserver(syncChapters).observe(chaptersEl, { attributes: true, attributeFilter: ['hidden'] });
-renderer.onChaptersAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeChapters();
-  else if (act === 'chapter') menus.pickChapter(item!.id);
-};
-/** The project's `screen achievements` replaces the default achievements list. */
-const achievementsEl = $('achievements');
-function syncAchievements() {
-  const { vars, entries } = menus.achievementsValues();
-  const view = runtime?.achievementsView(vars, entries) ?? null;
-  achievementsEl.dataset.custom = String(!!view);
-  void renderer.achievements(view && !achievementsEl.hidden ? view : null);
-}
-new MutationObserver(syncAchievements).observe(achievementsEl, { attributes: true, attributeFilter: ['hidden'] });
-renderer.onAchievementsAction = item => {
-  if (item?.act === 'close') menus.closeAchievements();
-};
-renderer.optionsLayer.onSlider =(setting, value) => menus.setNumber(setting, value);
-renderer.onOptionsAction = item => {
-  const act = item?.act;
-  if (act === 'close') menus.closeOptions();
-  else if (act === 'fullscreen') menus.toggleFullscreen();
-  else if (act === 'tab') menus.setTab(item!.id);
-  else if (act === 'cycle') menus.cycle(item!.id);
-  else if (act === 'select') menus.toggleSelect(item!.id);
-  else if (act === 'choose') menus.choose(item!.id);
-};
-renderer.onPauseAction = item => {
-  const act = item?.act;
-  if (act) pauseActions[act]?.();
-};
-renderer.onTitleAction = item => {
-  const act = item?.act;
-  if (act) titleActions[act]?.();
-};
+const screenSync = initScreenSync({
+  menus, renderer,
+  runtime: () => runtime,
+  game: () => game,
+  counts: () => ({ gallery: Array.isArray(game.gallery) ? galleryItems().length : 0, music: musicRoomItems().length, chapters: chapterList().length, achievements: achievementRows().length }),
+  showTitle: () => void showTitle(),
+});
+const { titleEl, pauseEl, optionsEl, savesEl, historyEl, galleryEl, viewerEl, musicEl, chaptersEl } = screenSync;
 renderer.onModeChange = () => {
   const pressed = { auto: renderer.autoOn, skip: renderer.skipping };
   for (const [act, on] of Object.entries(pressed)) for (const el of document.querySelectorAll(`#quickui [data-act="${act}"]`)) el.setAttribute('aria-pressed', String(on));
@@ -731,6 +535,7 @@ renderer.onModeChange = () => {
 
 // ---- project loading / hot reload ----
 function fit() {
+  if (studio) { studio.tools.layout(window.innerWidth, window.innerHeight); return; } // the studio's stage has a viewport of its own
   const vw = window.innerWidth, vh = window.innerHeight - (devMode && studioChar === null ? 44 : 0);
   const s = Math.min(vw / W, vh / H);
   stage.style.transform = `translate(-50%, -50%) scale(${s})`;
@@ -772,31 +577,21 @@ errBanner.addEventListener('click', () => {
   else diagEl.dataset.visible = 'true';
 });
 
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
+  const stale = () => seq !== loadSeq; // a newer load() started: it has fresher data, so this one stops
   let proj: Project;
   try { proj = await fetchProject(); }
   catch { statusEl.textContent = devMode ? 'Cannot reach the dev server' : 'Could not load project.json'; return; }
+  if (stale()) return;
 
-  if (studioChar !== null) {
-    renderer.reduceMotion = true; // no idle loop to fight the studio's pose
-    await renderer.preload(proj.assets ?? [], proj.rigs);
-    const scripts = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), stageSize(proj.game));
-    studioProgram = scripts;
-    studio ??= new Studio(renderer, studioChar, at => sceneAt(studioProgram!, at));
-    await studio.loadScene(); // the scripts may have changed under the scene line
-    await studio.show();
-    return;
-  }
+  if (studioChar !== null) { await loadStudio(proj, studioChar, stale); return; }
   const size = stageSize(proj.game);
   if (size.width !== W || size.height !== H) { location.reload(); return; } // the canvas and the CSS box are sized once
-  let program: Program, precompiled = false;
-  if (proj.program) {
-    try { const f = unpackProgram(proj.program); program = f.program; scriptVersion = f.version; precompiled = true; }
-    catch (e) { statusEl.textContent = (e as Error).message; return; }
-  } else {
-    program = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), size);
-    scriptVersion = scriptsVersion(proj.scripts ?? []);
-  }
+  const built = buildProgram(proj, size);
+  if (!built) return;
+  const { program, precompiled } = built;
   engineVersion = proj.engine ?? '';
   const source = sourceLanguage(proj.game);
   const tables = { ...proj.locales };
@@ -804,6 +599,7 @@ async function load() {
   if (!langs.includes(source)) langs.unshift(source);
   if (!langs.includes(settings.lang)) settings.lang = source;
   if (settings.lang !== source && !tables[settings.lang]) tables[settings.lang] = await fetchLocale(settings.lang);
+  if (stale()) return;
   voiceAvailable = voiceLanguages((proj.assets ?? []).map(a => a.file), source);
   menus.setVoiceLanguages(voiceAvailable);
   applySettings();
@@ -819,6 +615,7 @@ async function load() {
 
   renderer.characters = program.characters;
   await renderer.preload(proj.assets ?? [], proj.rigs);
+  if (stale()) return;
   const index = {
     files: (proj.assets ?? []).map(a => a.file),
     rigs: proj.rigs,
@@ -828,53 +625,80 @@ async function load() {
   };
   if (!precompiled) { // an export checked all this, and baked the preloads in
     attachPreloads(program, index, { gallery: Array.isArray(game.gallery) ? game.gallery.map(g => g?.image).filter(n => typeof n === 'string') : [] });
-    showDiagnostics([...program.diagnostics, ...checkAssets(program, index), ...checkGame(game, index, proj.gameText ?? ''), ...chapterDiagnostics(program.labels, proj.gameText ?? ''), ...achievementDiagnostics(program, proj.gameText ?? '')]);
+    showDiagnostics([...program.diagnostics, ...checkAssets(program, index), ...checkGame(game, index, proj.gameText ?? ''), ...chapterDiagnostics(game.chapters, program.labels,proj.gameText ?? ''), ...achievementDiagnostics(program, proj.gameText ?? '')]);
   }
 
-  if (!runtime) {
-    runtime = new Runtime(program, renderer, locale);
-    // the starter title and pause screens say "New game" in the game's language (game.json "labels", locale `ui.<key>`), through the hidden [data-ui] labels
-    runtime.uiText = raw => menus.uiText(raw);
-    runtime.onUnlock = name => {
-      const fresh = achievementToToast(game.achievements, name, unlocked.has(name));
-      unlocked.add(name);
-      if (fresh) queueAchievement(fresh);
-    };
-    runtime.onSeen = key => optionsTaken.add(key);
-    runtime.onPersist = (name, value) => persistent.set(name, value);
-    runtime.onLabel = name => { if (playing) labelsReached.add(name); };
-    if (!devMode) runtime.onError = showCrash;
-    if (embedded) play(rt => rt.start());
-    else {
-      const cards = normalizeSplash(game.splash);
-      if (cards.length) {
-        void renderer.prepare(titleState()); // the title art loads while the cards play
-        await playSplash(cards, bgUrl, settings.reduceMotion);
-      }
-      await runIntro();
-      runtime.warm();
-    } // the first scene loads in the background while the title is up
-    return;
+  if (!runtime) { await startRuntime(program, locale); return; }
+  await reloadRuntime(runtime, program, locale, stale);
+}
+
+/** The studio frame (?studio=): the character on the stage, no game. */
+async function loadStudio(proj: Project, char: string, stale: () => boolean) {
+  renderer.reduceMotion = true; // no idle loop to fight the studio's pose
+  await renderer.preload(proj.assets ?? [], proj.rigs);
+  if (stale()) return;
+  const scripts = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), stageSize(proj.game));
+  studioProgram = scripts;
+  studio ??= new Studio(renderer, char, at => sceneAt(studioProgram!, at));
+  await studio.loadScene(); // the scripts may have changed under the scene line
+  await studio.show();
+  return;
+}
+
+/** The program of a project: the exported one unpacked, or the scripts compiled. Null (and the status line says why) when the export is unreadable. */
+function buildProgram(proj: Project, size: { width: number; height: number }): { program: Program; precompiled: boolean } | null {
+  let program: Program, precompiled = false;
+  if (proj.program) {
+    try { const f = unpackProgram(proj.program); program = f.program; scriptVersion = f.version; precompiled = true; }
+    catch (e) { statusEl.textContent = (e as Error).message; return null; }
+  } else {
+    program = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), size);
+    scriptVersion = scriptsVersion(proj.scripts ?? []);
   }
-  runtime.setProgram(program, locale);
-  syncTitle();
-  syncPause();
-  syncOptions();
-  syncSaves();
-  syncHistory();
-  syncGallery();
-  syncMusic();
-  syncChapters();
-  syncAchievements();
-  if (playing) {
-    timeline.clear(); // step numbers may have shifted with the edit
-    const pos = runtime.current, open = runtime.screenSnapshot(); // a screen that is up keeps its local state through the reload
-    await renderer.prepare(runtime.state); // edited images load now, so the restore below draws without a gap
-    void (pos ? runtime.restore(pos, undefined, open) : runtime.start());
-  } else if (!introRunning) {
-    await renderer.prepare(titleState());
-    renderer.sync(titleState()); // refresh art/music behind the title; leave the menus as they are
+  return { program, precompiled };
+}
+
+/** The first load: the runtime is made and the game opens at its splash, intro or title. */
+async function startRuntime(program: Program, locale: Locale) {
+  runtime = new Runtime(program, renderer, locale);
+  // the starter title and pause screens say "New game" in the game's language (game.json "labels", locale `ui.<key>`), through the hidden [data-ui] labels
+  runtime.uiText = raw => menus.uiText(raw);
+  runtime.onUnlock = name => {
+    const fresh = achievementToToast(game.achievements, name, unlocked.has(name));
+    unlocked.add(name);
+    if (fresh) achievementQueue.add(fresh);
+  };
+  runtime.onSeen = key => optionsTaken.add(key);
+  runtime.onPersist = (name, value) => persistent.set(name, value);
+  runtime.onLabel = name => { if (scene === 'playing') labelsReached.add(name); };
+  if (!devMode) runtime.onError = showCrash;
+  if (embedded) play(rt => rt.start());
+  else {
+    const cards = normalizeSplash(game.splash);
+    if (cards.length) {
+      void renderer.prepare(titleState()); // the title art loads while the cards play
+      await playSplash(cards, bgUrl, settings.reduceMotion);
+    }
+    await runIntro();
     runtime.warm();
+  } // the first scene loads in the background while the title is up
+}
+
+/** A reload after an edit: the runtime takes the new program and the story picks up where it was. */
+async function reloadRuntime(rt: Runtime, program: Program, locale: Locale, stale: () => boolean) {
+  rt.setProgram(program, locale);
+  screenSync.syncAll();
+  if (scene === 'playing') {
+    timeline.clear(); // step numbers may have shifted with the edit
+    const pos = rt.current, open = rt.screenSnapshot(); // a screen that is up keeps its local state through the reload
+    await renderer.prepare(rt.state); // edited images load now, so the restore below draws without a gap
+    if (stale()) return;
+    void (pos ? rt.restore(pos, undefined, open) : rt.start());
+  } else if (scene !== 'intro') {
+    await renderer.prepare(titleState());
+    if (stale()) return;
+    renderer.sync(titleState()); // refresh art/music behind the title; leave the menus as they are
+    rt.warm();
   }
 }
 
@@ -897,10 +721,10 @@ renderer.onPosition = (src, line) => {
     window.parent.postMessage({ type: 'position', file: src.file, line: src.line }, location.origin);
     postVars();
   }
-  else if (playing) void autosave(!line); // no line text means a choice or a prompt
+  else if (scene === 'playing') void autosave(!line); // no line text means a choice or a prompt
 };
-renderer.onBackground = name => { if (playing) imagesSeen.add(name); };
-renderer.onMusic = name => { if (playing) tracksHeard.add(name); };
+renderer.onBackground = name => { if (scene === 'playing') imagesSeen.add(name); };
+renderer.onMusic = name => { if (scene === 'playing') tracksHeard.add(name); };
 if (!embedded) $('ended').textContent = 'End of script. Click to return to the title screen.';
 renderer.onEnded = () => { if (embedded) void runtime?.start(); else void showTitle(); };
 
@@ -937,7 +761,7 @@ const choiceOpen = () => menuEl.dataset.visible === 'true';
 const screenOpen = () => !crashed && !menus.top && renderer.screens.open; // a custom screen (show screen) is up, with no menu over it
 // A menu's container element stays empty: the screen is drawn in its layer, so focus moves inside the layer, not the container.
 const customRoot = (el: HTMLElement | null): HTMLElement | null =>
-  el?.dataset.custom !== 'true' ? el : el === titleEl ? renderer.titleLayer.root : el === pauseEl ? renderer.pauseLayer.root : el === optionsEl ? renderer.optionsLayer.root : el === savesEl ? renderer.savesLayer.root : el === historyEl ? renderer.historyLayer.root : el === galleryEl ? renderer.galleryLayer.root : el === viewerEl ? renderer.viewerLayer.root : el === musicEl ? renderer.musicLayer.root : el === chaptersEl ? renderer.chaptersLayer.root : el;
+  el?.dataset.custom !== 'true' ? el : el === titleEl ? renderer.slots.layers.title.root : el === pauseEl ? renderer.slots.layers.pause.root : el === optionsEl ? renderer.slots.layers.options.root : el === savesEl ? renderer.slots.layers.saves.root : el === historyEl ? renderer.slots.layers.history.root : el === galleryEl ? renderer.slots.layers.gallery.root : el === viewerEl ? renderer.slots.layers.viewer.root : el === musicEl ? renderer.slots.layers.music.root : el === chaptersEl ? renderer.slots.layers.chapters.root : el;
 const uiRoot = (): HTMLElement | null => crashed ? crashEl : customRoot(menus.top) ?? (renderer.screens.open ? renderer.screens.root : choiceOpen() ? menuEl : renderer.hudLayer.focused ? renderer.hudLayer.root : null);
 const isTab = (e: Element | null) => !!e?.matches('[role="tab"]');
 /** Left/Right on a tab, or the shoulder buttons: click the next (or previous) tab of the row and keep the focus on the lit one. */
@@ -1016,7 +840,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     e.preventDefault();
     if (uiHidden()) setUiHidden(false);
-    else if (introRunning && !menus.open) void showTitle(); // skip the intro
+    else if (scene === 'intro' && !menus.open) void showTitle(); // skip the intro
     else menus.escape();
     return;
   }
@@ -1058,7 +882,7 @@ if (devMode) {
     jump: label => void enterGame(rt => rt.startAt(label).then(() => {})),
     sets: { gallery: imagesSeen, music: tracksHeard, chapters: labelsReached, flags: unlocked, options: optionsTaken },
     persistent, seen,
-    memory: () => residencyReport(renderer.resident(), memoryBudget(game, (navigator as { deviceMemory?: number }).deviceMemory), { lateLoads: renderer.lateLoads }),
+    memory: () => residencyReport(renderer.resident(), memoryBudget(game, (navigator as { deviceMemory?: number }).deviceMemory), { lateLoads: renderer.lateLoads, masks: renderer.maskCount() }),
   });
   $('debugBtn').addEventListener('click', () => { diagEl.dataset.visible = 'false'; });
 }
@@ -1070,7 +894,7 @@ async function previewScreen(name: string) {
   if (name === 'quickmenu') { play(rt => rt.start()); return; }
   if (name === 'achievement_toast') { // a sample notice: the first achievement, or a stand-in
     const first = normalizeAchievements(game.achievements)[0];
-    queueAchievement(first ?? { unlock: 'example', title: 'Example', description: 'What it takes to unlock it.', icon: '', hidden: false, ending: false, toast: true });
+    achievementQueue.add(first ?? { unlock: 'example', title: 'Example', description: 'What it takes to unlock it.', icon: '', hidden: false, ending: false, toast: true });
     return;
   }
   if (!menus.open) await showTitle(); // a base to go back to; a screen already up is replaced
@@ -1112,7 +936,7 @@ window.addEventListener('message', e => {
   }
 });
 
-if (devMode) {
+if (devMode && !hosted) { // a standalone studio has no game to follow (and may be served by nothing that pushes events)
   const events = new EventSource('/__events');
   events.onmessage = e => {
     const msg = JSON.parse(e.data) as { type: string };

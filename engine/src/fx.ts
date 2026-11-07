@@ -112,5 +112,36 @@ export function blindsRects(k: number, count: number, w: number, h: number): Rec
   return Array.from({ length: count }, (_, i) => ({ x: i * slat, y: 0, w: open, h }));
 }
 
+/** What a wipe, iris or blinds transition has revealed at progress `k` (0-1): the shapes of the new picture's mask. A wipe goes from `dir`'s side. */
+export type RevealShape = { circle: { x: number; y: number; r: number } } | { rect: Rect };
+export function revealShapes(transition: 'wipe' | 'iris' | 'blinds', dir: string, k: number, w: number, h: number): RevealShape[] {
+  if (transition === 'iris') return [{ circle: { x: w / 2, y: h / 2, r: irisRadius(k, w, h) } }];
+  if (transition === 'blinds') return blindsRects(k, 12, w, h).map(rect => ({ rect }));
+  if (dir === 'right') return [{ rect: { x: w * (1 - k), y: 0, w: w * k, h } }];
+  if (dir === 'up') return [{ rect: { x: 0, y: 0, w, h: h * k } }];
+  if (dir === 'down') return [{ rect: { x: 0, y: h * (1 - k), w, h: h * k } }];
+  return [{ rect: { x: 0, y: 0, w: w * k, h } }];
+}
+
+/** The screen shake's horizontal offset at progress `k` (0-1): `s` pixels, swinging out and back in with fading swings. */
+export function shakeOffset(s: number, k: number): number {
+  const pts = [0, -s, s, -s * 0.6, s * 0.6, -s * 0.3, 0];
+  const f = k * (pts.length - 1), i = Math.min(Math.floor(f), pts.length - 2);
+  return pts[i] + (pts[i + 1] - pts[i]) * (f - i);
+}
+
+/** The pivot (stage fractions) a camera sits at, recovered from the world container's scale `z` and offset: at zoom 1 the pivot is not recoverable, so `fallback`. */
+export function cameraPivot(z: number, x: number, y: number, w: number, h: number, fallback: { x: number; y: number }): { x: number; y: number } {
+  return z === 1 ? { ...fallback } : { x: x / (w * (1 - z)), y: y / (h * (1 - z)) };
+}
+
+/** Softness of an image-mask edge: the share of the progress range a pixel takes to go from hidden to shown. */
+export const MASK_SOFT = 0.08;
+
+/** Image-mask dissolve: how much (0-1) of the new picture shows where the mask has brightness `m` (0-1) at progress `k` (0-1); dark pixels go first. */
+export function maskReveal(k: number, m: number, soft = MASK_SOFT): number {
+  return Math.max(0, Math.min(1, (Math.max(0, Math.min(1, k)) * (1 + soft) - m) / soft));
+}
+
 /** Pixelate transition: block size in px at progress `k`, growing to a peak at the middle where the picture is swapped, then shrinking. */
 export const pixelBlock = (k: number, max = 96) => Math.max(1, Math.round(1 + (max - 1) * (1 - Math.abs(2 * Math.max(0, Math.min(1, k)) - 1))));

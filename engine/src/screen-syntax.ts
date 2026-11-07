@@ -18,7 +18,6 @@
 //        (children of a row, column or grid omit `at`; a hotspot there is `rect`/`ellipse` with `size`, an image needs `size`)
 //   default <id>   cancel [keep]   textbox off   state <name> = <expr>
 
-import type { Value } from './expr.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import { AnimSyntaxError, animProblem, parseEnter, parseExit, parseLoop, type ElementAnim } from './screen-anim.js';
 import { CYCLE_SETTINGS, type Bind, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
@@ -145,21 +144,9 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
   return p;
 }
 
-function parseElementBody(t: string, inLayout: boolean, stage: StageSize): ParsedElement {
-  const { head, cond, enabled, sets } = splitElementLine(t);
-  const word = /^\S+/.exec(head)?.[0] ?? '';
-  const role = word === 'tab' || word === 'radio' || word === 'toggle' ? word : null; // a button that also sets a local state; the rest of the line reads as a button's
-  const isSelect = word === 'select'; // a button that opens the list of a player setting's values
-  const kind = role || isSelect ? 'button' : word;
-  if (isSelect && Object.keys(sets).length) throw new ElementSyntaxError('A select sets its player setting itself: remove "on ... set"');
-  if (kind === 'bar') {
-    if (enabled !== null) throw new ElementSyntaxError('A bar cannot be disabled: remove "enabled"');
-    return { el: parseBar(head, inLayout), cond, enabled, sets };
-  }
-  if (Object.keys(sets).length && kind !== 'hotspot' && kind !== 'button') throw new ElementSyntaxError(`on ... set goes on a hotspot, button, tab, radio or toggle, not on ${kind}`);
-  const str = kind === 'image' ? null : elementString(head);
-  // the label (and its id) is cut out whole, wherever it stands among the other words
-  let rest = str ? head.slice(word.length, str.start) + ' ' + head.slice(str.end) : head.slice(word.length);
+/** Cuts the quoted and hover clauses out of an element line (`mask "f"`, `hover ...`, `tooltip`, `sub`), checking each belongs on this kind of element. */
+function takeClauses(text: string, kind: string) {
+  let rest = text;
   let maskFile: string | null = null;
   const mm = /\bmask[ \t]+"((?:[^"\\]|\\.)*)"/.exec(rest);
   if (mm) { maskFile = unescapeText(mm[1]); rest = rest.replace(mm[0], 'mask'); }
@@ -223,6 +210,82 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
     tip = false;
     rest = rest.replace(tm[0], ' ');
   }
+  return { rest, maskFile, hover, plain, fx, tooltip, sub, tip };
+}
+
+/** Everything the words of an element line gave, for `buildElement`. */
+interface ElementParts {
+  kind: string; role: Bind['role'] | null; isSelect: boolean; id: string; bind?: Bind; at: [number, number] | null; size: [number, number] | null;
+  str: ReturnType<typeof elementString>; style?: string; font?: number; width?: number; talign?: 'left' | 'center' | 'right'; color?: string; lines?: number;
+  readout: boolean; act: ShellAction | null; actVar: string | null; on: HudHandlers; focus: FocusHints; shape: 'rect' | 'ellipse' | 'poly' | 'mask'; points: [number, number][];
+  cursor: string | null; imageFile: string | null; maskFile: string | null; hover: string | null; plain: boolean; fx: HoverFx; tooltip?: string; sub?: string; tip: boolean;
+  cond: ParsedElement['cond']; enabled: ParsedElement['enabled']; sets: ParsedElement['sets'];
+}
+
+/** The element the parts describe, or the error for a part that is missing. */
+function buildElement(f: ElementParts, stage: StageSize): ParsedElement {
+  const { kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, readout, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets } = f;
+  let { act } = f;
+  switch (kind) {
+    case 'image':
+      return { el: { kind, file: imageFile!, x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? null, h: size?.[1] ?? null }, cond, enabled, sets };
+    case 'text':
+      if (!str) throw new ElementSyntaxError('Use: text at x,y "Text"');
+      if (!at) throw new ElementSyntaxError('text needs a position: text at x,y "Text"');
+      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}), ...(font ? { font } : {}), ...(width ? { width } : {}), ...(talign ? { align: talign } : {}), ...(color ? { color } : {}), ...(lines ? { lines } : {}) }, cond, enabled, sets };
+    case 'slider':
+      if (!(id in SLIDER_SETTINGS)) throw new ElementSyntaxError(`slider needs a setting (${Object.keys(SLIDER_SETTINGS).join(', ')}): slider <setting> at x,y [size w,h]`);
+      if (!at) throw new ElementSyntaxError(`slider ${id} needs a position: at x,y`);
+      return { el: { kind, setting: id, x: at[0], y: at[1], w: size?.[0] ?? 400, h: size?.[1] ?? 48, readout }, cond, enabled, sets };
+    case 'button':
+      if (role === 'toggle' && (!id || !bind)) throw new ElementSyntaxError('Use: toggle <id> <state> at x,y [size w,h] "Label"');
+      if (role && role !== 'toggle' && (!id || !bind)) throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y [size w,h] "Label"`);
+      if (bind && (act || on.click || sets.click)) throw new ElementSyntaxError(`A ${bind.role} sets its state itself: remove "action" and "on click"`);
+      if (isSelect) {
+        if (!(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`select needs a player setting: select <setting> at x,y [size w,h] (${CYCLE_SETTINGS.join(', ')})`);
+        if (act || on.click) throw new ElementSyntaxError('A select opens its list itself: remove "action" and "on click"');
+        act = 'select';
+      }
+      if (!id) throw new ElementSyntaxError('Use: button <id> at x,y [size w,h] "Label"');
+      if (act === 'cycle' && !(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`action cycle steps a player setting, so the id must be one of: ${CYCLE_SETTINGS.join(', ')}`);
+      if (!at) throw new ElementSyntaxError(`button ${id} needs a position: at x,y`);
+      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act, ...(actVar ? { actVar } : {}), ...(style ? { style } : {}), ...(font ? { font } : {}), ...(tooltip ? { tooltip } : {}), ...(sub ? { sub } : {}), ...(isSelect ? { select: true as const } : {}) }, cond, enabled, sets, ...(bind ? { bind } : {}) };
+    case 'hotspot': {
+      if (!id) throw new ElementSyntaxError('Use: hotspot <id> at x,y size w,h "Label"');
+      let s: Shape;
+      if (shape === 'poly') {
+        if (points.length < 3) throw new ElementSyntaxError(`hotspot ${id}: a poly needs at least three points like 1300,560 1420,540 1440,650`);
+        s = { k: 'poly', points };
+      } else if (shape === 'mask') {
+        s = { k: 'mask', file: maskFile ?? '', x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? stage.width, h: size?.[1] ?? stage.height };
+      } else {
+        if (!at || !size) throw new ElementSyntaxError(`hotspot ${id} needs a shape: at x,y size w,h  |  ellipse at x,y size w,h  |  poly x,y x,y x,y  |  mask "file.png"`);
+        s = { k: shape, x: at[0], y: at[1], w: size[0], h: size[1] };
+      }
+      return { el: { kind, id, shape: s, label: str?.text ?? '', labelId: str?.id ?? null, cursor, hover, plain, fx, tip, focus, on, act }, cond, enabled, sets };
+    }
+  }
+  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, tab, radio, toggle, slider, text, bar, panel, scroll, row, column, grid, each, default, cancel)`);
+}
+
+function parseElementBody(t: string, inLayout: boolean, stage: StageSize): ParsedElement {
+  const { head, cond, enabled, sets } = splitElementLine(t);
+  const word = /^\S+/.exec(head)?.[0] ?? '';
+  const role = word === 'tab' || word === 'radio' || word === 'toggle' ? word : null; // a button that also sets a local state; the rest of the line reads as a button's
+  const isSelect = word === 'select'; // a button that opens the list of a player setting's values
+  const kind = role || isSelect ? 'button' : word;
+  if (isSelect && Object.keys(sets).length) throw new ElementSyntaxError('A select sets its player setting itself: remove "on ... set"');
+  if (kind === 'bar') {
+    if (enabled !== null) throw new ElementSyntaxError('A bar cannot be disabled: remove "enabled"');
+    return { el: parseBar(head, inLayout), cond, enabled, sets };
+  }
+  if (Object.keys(sets).length && kind !== 'hotspot' && kind !== 'button') throw new ElementSyntaxError(`on ... set goes on a hotspot, button, tab, radio or toggle, not on ${kind}`);
+  const str = kind === 'image' ? null : elementString(head);
+  // the label (and its id) is cut out whole, wherever it stands among the other words
+  let rest = str ? head.slice(word.length, str.start) + ' ' + head.slice(str.end) : head.slice(word.length);
+  const clauses = takeClauses(rest, kind);
+  const { maskFile, hover, plain, fx, tooltip, sub, tip } = clauses;
+  rest = clauses.rest;
   let imageFile: string | null = null;
   if (kind === 'image') {
     const im = /^[ \t]*"((?:[^"\\]|\\.)*)"/.exec(rest);
@@ -314,46 +377,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
     if (kind === 'hotspot' && !size) throw new ElementSyntaxError(`hotspot ${id} inside a row, column or grid needs size w,h`);
     at = [0, 0];
   }
-  switch (kind) {
-    case 'image':
-      return { el: { kind, file: imageFile!, x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? null, h: size?.[1] ?? null }, cond, enabled, sets };
-    case 'text':
-      if (!str) throw new ElementSyntaxError('Use: text at x,y "Text"');
-      if (!at) throw new ElementSyntaxError('text needs a position: text at x,y "Text"');
-      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}), ...(font ? { font } : {}), ...(width ? { width } : {}), ...(talign ? { align: talign } : {}), ...(color ? { color } : {}), ...(lines ? { lines } : {}) }, cond, enabled, sets };
-    case 'slider':
-      if (!(id in SLIDER_SETTINGS)) throw new ElementSyntaxError(`slider needs a setting (${Object.keys(SLIDER_SETTINGS).join(', ')}): slider <setting> at x,y [size w,h]`);
-      if (!at) throw new ElementSyntaxError(`slider ${id} needs a position: at x,y`);
-      return { el: { kind, setting: id, x: at[0], y: at[1], w: size?.[0] ?? 400, h: size?.[1] ?? 48, readout }, cond, enabled, sets };
-    case 'button':
-      if (role === 'toggle' && (!id || !bind)) throw new ElementSyntaxError('Use: toggle <id> <state> at x,y [size w,h] "Label"');
-      if (role && role !== 'toggle' && (!id || !bind)) throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y [size w,h] "Label"`);
-      if (bind && (act || on.click || sets.click)) throw new ElementSyntaxError(`A ${bind.role} sets its state itself: remove "action" and "on click"`);
-      if (isSelect) {
-        if (!(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`select needs a player setting: select <setting> at x,y [size w,h] (${CYCLE_SETTINGS.join(', ')})`);
-        if (act || on.click) throw new ElementSyntaxError('A select opens its list itself: remove "action" and "on click"');
-        act = 'select';
-      }
-      if (!id) throw new ElementSyntaxError('Use: button <id> at x,y [size w,h] "Label"');
-      if (act === 'cycle' && !(CYCLE_SETTINGS as readonly string[]).includes(id)) throw new ElementSyntaxError(`action cycle steps a player setting, so the id must be one of: ${CYCLE_SETTINGS.join(', ')}`);
-      if (!at) throw new ElementSyntaxError(`button ${id} needs a position: at x,y`);
-      return { el: { kind, id, x: at[0], y: at[1], w: size?.[0] ?? null, h: size?.[1] ?? null, label: str?.text ?? id, labelId: str?.id ?? null, hover, plain, fx, focus, on, act, ...(actVar ? { actVar } : {}), ...(style ? { style } : {}), ...(font ? { font } : {}), ...(tooltip ? { tooltip } : {}), ...(sub ? { sub } : {}), ...(isSelect ? { select: true as const } : {}) }, cond, enabled, sets, ...(bind ? { bind } : {}) };
-    case 'hotspot': {
-      if (!id) throw new ElementSyntaxError('Use: hotspot <id> at x,y size w,h "Label"');
-      let s: Shape;
-      if (shape === 'poly') {
-        if (points.length < 3) throw new ElementSyntaxError(`hotspot ${id}: a poly needs at least three points like 1300,560 1420,540 1440,650`);
-        s = { k: 'poly', points };
-      } else if (shape === 'mask') {
-        s = { k: 'mask', file: maskFile ?? '', x: at?.[0] ?? 0, y: at?.[1] ?? 0, w: size?.[0] ?? stage.width, h: size?.[1] ?? stage.height };
-      } else {
-        if (!at || !size) throw new ElementSyntaxError(`hotspot ${id} needs a shape: at x,y size w,h  |  ellipse at x,y size w,h  |  poly x,y x,y x,y  |  mask "file.png"`);
-        s = { k: shape, x: at[0], y: at[1], w: size[0], h: size[1] };
-      }
-      return { el: { kind, id, shape: s, label: str?.text ?? '', labelId: str?.id ?? null, cursor, hover, plain, fx, tip, focus, on, act }, cond, enabled, sets };
-    }
-  }
-  throw new ElementSyntaxError(`Unknown screen element "${kind}" (image, hotspot, button, tab, radio, toggle, slider, text, bar, panel, scroll, row, column, grid, each, default, cancel)`);
+  return buildElement({ kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, readout, act, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets }, stage);
 }
 
 /** `n` (all sides), `v,h` or `t,r,b,l` slice or padding, in pixels with no spaces; what a frame's `slice` and `padding` take. */

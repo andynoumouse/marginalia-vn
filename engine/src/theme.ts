@@ -1,9 +1,10 @@
 // game.json "theme" -> a stylesheet for the stage: tokens (accent, font) as `--vn-*` variables on #stage, the text box,
-// name tag, choices and text, per-character skins (`define alice ... box=alice` uses theme.skins.alice) and @font-face
+// name tag, choices and text, per-character skins (`define alice ... style=alice` uses theme.skins.alice) and @font-face
 // rules for assets/fonts/*. Coordinates and sizes are in stage pixels. Image frames are 9-slice: `slice` px of each
 // edge stay unscaled (art from masters/ui/<name>.psd -> assets/ui/<name>.png). Design: docs/design/theming.md.
 
 import { isCssColor, parseColor, formatHex } from './colors.js';
+import { isObj } from './util.js';
 
 export interface BoxTheme {
   x?: number; y?: number; width?: number; height?: number;
@@ -79,7 +80,6 @@ export const BUILTIN_THEMES: Record<string, ThemeFile> = {
   },
 };
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function mergeDeep(a: Record<string, unknown>, b: Record<string, unknown>): Record<string, unknown> {
   const out = { ...a };

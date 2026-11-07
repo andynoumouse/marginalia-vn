@@ -2,7 +2,7 @@
 
 `game.json` sits in the game folder and configures everything that is not script: the title screen, menus, text
 sounds, the gallery and the look of the text box. Every key is optional. In the editor's **game.json** tab it has
-completions, hover help and validation (the schema is `updateGameSchema()` in editor/editor.ts); JSON with syntax
+completions, hover help and validation (the schema is `updateGameSchema()` in editor/json-schemas.ts); JSON with syntax
 errors is not saved. Pixel values are on the stage, 1920x1080 unless `stage` says otherwise.
 
 ```json

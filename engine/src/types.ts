@@ -2,10 +2,21 @@ import type { Expr, Value } from './expr.js';
 import type { Segment } from './text.js';
 import type { ScreenDef, ScreenView } from './screens.js';
 
+declare const pcBrand: unique symbol;
+declare const optionBrand: unique symbol;
+/** An index into `Program.ops`. A plain number is no `Pc`; `asPc(n)` marks one. */
+export type Pc = number & { readonly [pcBrand]: true };
+/** The index of a menu option in the `options` the renderer was given; `options.length` is a timeout. Not a `Pc`. */
+export type OptionIndex = number & { readonly [optionBrand]: true };
+export const asPc = (n: number) => n as Pc;
+export const asOptionIndex = (n: number) => n as OptionIndex;
+/** A jump target that `compile` has not resolved yet (and a label that is missing). */
+export const UNRESOLVED = -1 as Pc;
+
 export interface Src { file: string; line: number }
 /** `fix`: the line's `word` is unknown and one of `options` (closest first) is probably what was meant (a quick fix). */
 export interface Diagnostic { file: string; line: number; severity: 'error' | 'warning'; message: string; fix?: { word: string; options: string[] } }
-/** How a character's lines look and sound (define ... text= font= size= italic speed= blip= box=). */
+/** How a character's lines look and sound (define ... text= font= size= italic speed= blip= style=). */
 export interface CharacterStyle {
   textColor?: string;
   font?: string;
@@ -38,7 +49,7 @@ export interface MenuItem {
 /** `menu ... timeout <seconds>:` with its `on timeout:` block; the block is run when the player's answer is one past the last option. */
 export interface MenuTimeout {
   seconds: Expr;
-  target: number;   // pc of the `on timeout` block
+  target: Pc;   // pc of the `on timeout` block
   from: number;     // source line range of the block (for live preview restore)
   to: number;
 }
@@ -50,7 +61,7 @@ export interface MenuOption {
   /** `else "Reason"`: when the condition fails the option is shown disabled with this text instead of being hidden. */
   reason: string | null;
   reasonId: string | null;
-  target: number;   // pc of the option's block
+  target: Pc;   // pc of the option's block
   from: number;     // source line range of the option block (for live preview restore)
   to: number;
 }
@@ -62,18 +73,20 @@ export type Transition = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'iris' | 'blinds
 export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'iris', 'blinds', 'pixelate'];
 
 export type VisualBody =
-  | { op: 'scene'; bg: string; transition: Transition; dir: string | null; dur: number }
-  | { op: 'show'; char: string; pose: string | null; more: string[]; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string } // order/behind: where it goes in the draw order (state.sprites, back to front)
+  | { op: 'scene'; bg: string; transition: Transition; dir: string | null; mask: string | null; dur: number }
+  | { op: 'show'; char: string; pose: string | null; more: string[]; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string; /** `pose=a,b`: rig.json poses laid over the character's parameters */ poses?: string[] } // order/behind: where it goes in the draw order (state.sprites, back to front)
   | { op: 'hide'; char: string; fade: number }
   | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
   | { op: 'shake'; target: string; dur: number; strength: number }
   | { op: 'hop'; char: string; dur: number }
   | { op: 'animate'; char: string; name: string | null; dur: number | null; loop: boolean; strength: number; part: string | null } // name null = stop the loop; dur null = the animation's own length; part = move only that part
+  | { op: 'param'; char: string; poses: string[]; params: Record<string, number>; dur: number; ease: string | null } // `animate <char> pose=... p=v ... over <t>`: poses first, then the values; ease null = each parameter's own
   | { op: 'flash'; color: string; dur: number }
   | { op: 'tint'; color: string | null; strength: number; dur: number } // colour wash over the scene; null clears it
   | { op: 'camera'; zoom: number | null; x: number; y: number; dur: number; ease: string } // zoom about (x, y), both 0-1; zoom null = a pan that keeps the zoom
   | { op: 'weather'; kind: WeatherName | null; intensity: number; dur: number } // falling particles over the scene; null clears them
   | { op: 'filter'; name: FilterName | null; strength: number; dur: number } // screen-wide look (blur, grayscale, ...); null clears it
+  | { op: 'behaviors'; on: boolean } // rig.json "autonomous" (idle, speak, blink) on or off for the story from here
   | { op: 'focus'; on: boolean } // speaker focus (game.json "speakerFocus") on or off for the story from here
   | { op: 'image'; action: 'show'; name: string; file: string; x?: number; y?: number; scale?: number; rotation?: number; alpha?: number; anchor?: [number, number]; layer?: number; fixed?: boolean; keep?: boolean; fade: number } // an overlay picture; fields left out stay as they are
   | { op: 'image'; action: 'hide'; name: string; fade: number }
@@ -85,24 +98,30 @@ export type VisualBody =
 
 export type ControlBody =
   | { op: 'say'; who: string | null; text: string; id: string | null; /** `style=<name>` on the line: a theme style for it alone */ look?: string }
-  | { op: 'menu'; prompt: string | null; promptId: string | null; look?: string; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: number }
+  | { op: 'menu'; prompt: string | null; promptId: string | null; look?: string; options: MenuOption[]; timeout: MenuTimeout | null; /** pc after the last option block (where a menu with nothing choosable goes on) */ end: Pc }
   | { op: 'screen'; name: string; as: string; /** values for the screen's parameters, evaluated each time the screen is drawn */ args?: Expr[]; /** per parameter, the story variable an \`inout\` parameter is written back to (set by compile) */ outs?: (string | null)[] } // show a declared screen and store the id of the element the player chose
   | { op: 'input'; name: string; prompt: string; id: string | null; default: string; max: number } // ask the player for text, stored in a variable
   | { op: 'set'; name: string /* or persistent.<name> */; assign: '=' | '+=' | '-=' | '*=' | '/='; expr: Expr }
-  | { op: 'jump'; label: string; target: number }
-  | { op: 'call'; label: string; target: number; args?: Expr[] } // args bind to the label's parameters (Program.params) for the length of the call
+  | { op: 'jump'; label: string; target: Pc }
+  | { op: 'call'; label: string; target: Pc; args?: Expr[] } // args bind to the label's parameters (Program.params) for the length of the call
   | { op: 'ret' }
   | { op: 'end' }
   | { op: 'hud'; mode: 'on' | 'off'; name: string; keep: boolean } // put a screen up beside the story (`hud on <screen>`), or take it down
   | { op: 'nvl'; mode: 'on' | 'off' | 'clear' } // full-screen narration pages instead of the text box
   | { op: 'textbox'; mode: 'hide' } // hide the text box until the next line shows it again
   | { op: 'unlock'; name: string } // persistent flag (endings, gallery, extras), read as unlocked.<name>
-  | { op: 'branch'; cond: Expr; target: number } // jump to target when cond is false
-  | { op: 'goto'; target: number };
+  | { op: 'branch'; cond: Expr; target: Pc } // jump to target when cond is false
+  | { op: 'goto'; target: Pc };
 
 export type OpBody = (VisualBody & { nowait?: boolean }) | ControlBody;
 export type VisualOp = VisualBody & { nowait?: boolean; src: Src };
 export type Op = VisualOp | (ControlBody & { src: Src });
+/**
+ * The ops that, for control flow, just go on to the next one. A switch over ops that ends in a fall-through `default`
+ * checks the leftover with `op satisfies FallThroughOp`, so a new control op has to get a case there or be listed here.
+ * Visual ops always qualify.
+ */
+export type FallThroughOp = VisualOp | Extract<Op, { op: 'say' | 'screen' | 'input' | 'set' | 'hud' | 'nvl' | 'textbox' | 'unlock' }>;
 
 /** An asset to load ahead (key: see assets.ts) and how many lines of the story away its first use is. */
 export interface PreloadTask { key: string; lines: number }
@@ -120,7 +139,7 @@ export interface Preload {
 
 export interface Program {
   ops: Op[];
-  labels: Record<string, number>;
+  labels: Record<string, Pc>;
   /** Parameter names of the labels that declare any (`label shop(item, price):`). */
   params: Record<string, string[]>;
   characters: Record<string, CharacterDef>;
@@ -137,6 +156,8 @@ export interface Program {
   stage: { width: number; height: number };
   /** Set by attachPreloads once the project's files are known. */
   preload?: Preload;
+  /** Each character's rig.json `poses`, set by attachPreloads so the display state can resolve `pose=`; absent: poses are ignored. */
+  rigPoses?: Record<string, Record<string, Record<string, number>>>;
 }
 
 // ---- runtime-facing types ----
@@ -153,6 +174,8 @@ export interface SpriteState {
   anchor: [number, number];
   /** The looping animation running on it (`animate <char> <name> loop`), if any. */
   anim: SpriteAnim | null;
+  /** Parameter values the script has set (`pose=`, `animate <char> p=v`), by parameter id; the others are at their defaults. */
+  params: Record<string, number>;
 }
 /**
  * An overlay picture (`image show <name> <file>`): an item, a CG, a letter. `x`/`y` are stage pixels of its
@@ -183,6 +206,8 @@ export interface DisplayState {
   hud?: HudState[];
   /** `focus off` is in effect (speaker focus does not dim anyone); absent = on. Survives `scene`. */
   focus?: false;
+  /** `behaviors off` is in effect (no character idles, blinks or talks by itself); absent = on. Survives `scene`. */
+  behaviors?: false;
 }
 
 export interface SayEvent {
@@ -229,7 +254,7 @@ export interface Renderer {
    * Show choices (with the menu's prompt line, if it has one); resolve with the index into `options`. A disabled option cannot be chosen.
    * With a `timer` the player has that many seconds; when they run out, resolve with `options.length` (one past the last option).
    */
-  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<number>;
+  menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<OptionIndex>;
   /** Ask for a line of text; resolve with the answer. */
   input(prompt: string, def: string, max: number, src: Src): Promise<string>;
   /**

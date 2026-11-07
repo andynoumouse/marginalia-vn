@@ -6,22 +6,50 @@
 //   { type: 'studioSeek', name, t, part }                 stop and pose at progress t (0-1)
 //   { type: 'studioPlay', name, dur, loop, part }         play from the start; `studioPause` stops where it is
 //   { type: 'studioPivots', pivots, bones, parts, width, height }   the working copy of rig.json `pivots`, `bones`, `parts` and the PSD canvas size
-//   { type: 'studioFocus', part }                         dim every part but this one (or a bone's parts); null shows all
+//   { type: 'studioFocus', part, extra? }                 dim every part but this one (or a bone's parts) and the extra ones; null shows all
+//   { type: 'studioHidden', parts }                       hide these parts (or a bone's parts) on the stage and from clicks; an export shows them
+//   { type: 'studioParams', values, hold }              the Parameters panel: its values, and the ids the animator is moving by hand (they win over the
+//                                                         animation's tracks; the rest follow the tracks as the game does)
+//   { type: 'studioPhysics', chains, drive }              the working copy of rig.json `physics`; with a `drive` ({ param | bone + channel, amp, hz }) that input is
+//                                                         swung back and forth so the chains can be watched, and settle for a moment after it ends
 //   { type: 'studioPick', part }                          show the character at rest with that part's pivot; a click
 //                                                         answers { type: 'studioPicked', part, x, y, drag } in PSD pixels (a press and each
 //                                                         move are drag 'move', the release 'end'); null ends it
 //   { type: 'studioMarks', on }                           rig inspection: the character at rest with a cross for every pivot, picking or not
 //   { type: 'studioPlace', on, x, y, scale, flip, anchor: [fx, fy] }        where the character stands; with `on` a drag on the stage moves it and
 //                                                         answers { type: 'studioPlaced', x, y } (stage fractions, as `show` takes them)
+//   { type: 'studioGizmo', tool, name, space }            the bone gizmo (tool move / rotate / scale, or null for none), on the chosen part or bone; see studio-gizmo.ts
+//   { type: 'studioRig', parameters, keyforms }           the working copy of rig.json `parameters` and `keyforms` (Model mode writes keyforms): the pose is evaluated from them
+//   { type: 'studioExtra', extra }                        offsets by name laid over the pose (a drag that is not keyed yet); ends a drag
+//   { type: 'studioView', whole }                         fit the view to the character (or to the whole stage)
+//   { type: 'studioDeformers', deformers }                the working copy of rig.json `deformers` (mesh warps); the character is shaped by it
+//   { type: 'studioWarp', part, point }                   the Warp tool: draw the lattice of that part's warp (null part: no tool), `point` the selected one;
+//                                                         answers { type: 'studioWarpBox', part, w, h } (the part's size in animation units) and, for a
+//                                                         lattice point dragged, { type: 'studioWarpDrag', phase, part, point, delta } (see studio-gizmo.ts)
+//   { type: 'studioMasks', masks }                        the working copy of rig.json `masks` (clips of a part to a shape); the character is clipped by it
+//   { type: 'studioMask', part, tool, point }             draw the outline of that part's mask (null part: none); with `tool` a polygon's points are handles,
+//                                                         `point` the selected one; answers { type: 'studioMaskBox', part, x, y, w, h } (the part's image box
+//                                                         in canvas pixels), { type: 'studioMaskDrag', phase, part, point, delta } for a point dragged,
+//                                                         { type: 'studioMaskAdd', part, index, at } for a click on an edge and { type: 'studioMaskRemove', part, point }
 //   { type: 'studioScene', file, line }                   draw the background and the other characters as the story has them
 //                                                         at that script line (null file: a plain stage again); not while picking
+//   { type: 'studioExportBegin', id, name, fps, loop, loops, leadIn, width, height, framing, background }
+//                                                         movie export of animation `name` (see engine/src/movie-export.ts): the character alone, nothing blinking, the chains
+//                                                         at rest (then `leadIn` seconds run unseen); `framing` is 'stage' or 'character' (fitted over the whole animation);
+//                                                         answers { type: 'studioExportReady', id, frames, width, height } or { type: 'studioExportError', id, error }
+//   { type: 'studioExportFrame', id, n }                  pose frame n (in order, from 0), draw it and answer { type: 'studioExportData', id, n, bytes } (a PNG, transferred)
+//   { type: 'studioExportEnd', id }                       the export is over or cancelled: the stage returns to what it showed; answers { type: 'studioExportDone', id }
 
-import { psdToStage, stageToPsd, type AnimDef, type BoneDef, type DisplayState, type PivotFrame, type Pivots } from '../engine/src/index.js';
+import { exportBackground, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type MaskDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
+import { StageTools } from './studio-gizmo.js';
 
+interface Drive { param?: string; bone?: string; channel: keyof Offset; amp: number; hz: number }
 interface Run { name: string; dur: number; loop: boolean; part: string | null; start: number }
-type Msg = { type?: string; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; anims?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown };
+/** A movie export under way: the plan, the piece of the stage drawn, and the next frame the editor may ask for. */
+interface Export { id: number; name: string; plan: MoviePlan; width: number; height: number; frame: Box; background: string | null; next: number }
+type Msg = { type?: string; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; tool?: unknown; space?: unknown; whole?: unknown; anims?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown };
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const num = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
@@ -32,6 +60,7 @@ export class Studio {
   private overrides: Record<string, string> = {};
   private last: { name: string; t: number; part: string | null } | null = null;
   private run: Run | null = null;
+  private panel: { values: Record<string, number>; hold: string[] } = { values: {}, hold: [] };
   private pivots: Pivots = {};
   private bones: Record<string, BoneDef> = {};   // the editor's working copy of rig.json `bones` and `parts`
   private partBones: Record<string, { bone?: string; pivot?: [number, number] }> = {};
@@ -43,21 +72,40 @@ export class Studio {
   private placing = false;                // a drag on the stage moves the character
   private showing = false;                // a sync is under way
   private again = false;                  // and the placement changed meanwhile
+  private showSeq = 0;                    // the newest show(): an older one that finishes loading later must not draw over it
+  private drive: Drive | null = null;      // the shake preview: one input swung by hand
+  private driveStart = 0;
+  private settleUntil = 0;               // after the shake ends the chains run on a little, to settle
+  private physicsAt = 0;                  // when the chains were last stepped
+  private hasChains = false;
+  private chains: unknown = {};           // the chains last sent, so an export can start them at rest again
+  private focusExtra: string[] = [];   // the parts chosen with it (Ctrl-click in Model mode)
+  private hiddenParts: string[] = [];  // parts the editor hides on the stage (an export shows them)
+  private focusPart: string | null = null; // the part last brought forward (an export shows every part at full strength and puts this back)
+  private exp: Export | null = null;
   private marker = document.createElement('div');
   private others: HTMLElement[] = [];     // dim crosses for the other parts' pivots, shown while picking
+  readonly tools: StageTools;
   private sceneLine: { file: string; line: number } | null = null;
   private scene: DisplayState | null = null; // the stage at sceneLine, without this character
 
   /** `sceneAt` replays the project's scripts to a line (the page's current program, so a hot reload is followed). */
   constructor(private renderer: PixiRenderer, readonly char: string, private sceneAt: (at: { file: string; line: number }) => Promise<DisplayState>) {
-    this.marker.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none;z-index:30;display:none';
+    this.marker.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none;z-index:30;display:none;transform:scale(var(--cross-scale,1));transform-origin:0 0'; // the viewport zoom must not grow it
     const bar = (css: string) => `<div style="position:absolute;background:#ff3b6b;box-shadow:0 0 0 2px #000;${css}"></div>`;
     this.marker.innerHTML = bar('left:-30px;top:-1.5px;width:60px;height:3px') + bar('left:-1.5px;top:-30px;width:3px;height:60px');
+    renderer.studio = true;
     stage.append(this.marker);
     this.lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.lines.setAttribute('viewBox', `0 0 ${W} ${H}`);
     this.lines.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:28';
     stage.append(this.lines);
+    this.tools = new StageTools({
+      renderer, char,
+      send: msg => window.parent.postMessage(msg, location.origin),
+      repose: () => { if (!this.run) this.render(); },
+      suspended: () => this.pick !== null || this.placing || this.run !== null,
+    });
     stage.addEventListener('click', e => this.onClick(e), true);
     stage.addEventListener('pointerdown', e => this.onDrag(e));
     window.addEventListener('message', e => {
@@ -71,16 +119,21 @@ export class Studio {
     // Pivots are placed in PSD pixels from a character standing bottom-centre, so picking ignores the placement and the scene.
     const rest = this.pick || this.marks;
     const at = rest ? { x: 0.5, y: 0, scale: 1, flip: false, anchor: [0.5, 1] as [number, number] } : this.place;
-    const scene = rest ? null : this.scene;
+    const scene = rest || this.exp ? null : this.scene;
     const state: DisplayState = {
       bg: scene?.bg ?? null, music: null, musicLoop: false,
-      sprites: [...scene?.sprites ?? [], { char: this.char, pose: this.pose, more: [], overrides: this.overrides, ...at, rotation: 0, alpha: 1, anim: null }],
+      sprites: [...scene?.sprites ?? [], { ...newSprite(this.char), pose: this.pose, overrides: this.overrides, ...at }],
+      ...(this.exp ? { behaviors: false as const } : {}), // an export is the animation alone: no blinking, no talking, no idle loop
     };
+    const seq = ++this.showSeq;
     await this.renderer.prepare(state);
+    if (seq !== this.showSeq) { // a newer show() took over while the art loaded
+      if (announce) window.parent.postMessage({ type: 'studioReady' }, location.origin);
+      return;
+    }
     this.renderer.sync(state);
     if (this.size.width) this.renderer.studioPivots(this.char, this.pivots, this.bones, this.partBones); // the editor's working copy, not the file's
-    if (this.last) this.poseAt(this.last.name, this.last.t, this.last.part);
-    if (rest) this.renderer.studioRest(this.char);
+    this.render();
     if (announce) window.parent.postMessage({ type: 'studioReady' }, location.origin);
   }
 
@@ -161,7 +214,7 @@ export class Studio {
       if (!from || !to) continue;
       const [x1, y1] = psdToStage(this.frame, from[0], from[1]), [x2, y2] = psdToStage(this.frame, to[0], to[1]);
       const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      for (const [k, v] of Object.entries({ x1, y1, x2, y2, stroke: '#ffd23b', 'stroke-width': 3, 'stroke-dasharray': '6 5', 'stroke-opacity': 0.8 })) line.setAttribute(k, String(v));
+      for (const [k, v] of Object.entries({ x1, y1, x2, y2, stroke: '#ffd23b', 'stroke-width': 3, 'stroke-dasharray': '6 5', 'stroke-opacity': 0.8, 'vector-effect': 'non-scaling-stroke' })) line.setAttribute(k, String(v));
       line.dataset.bone = b;
       this.lines.append(line);
     }
@@ -184,7 +237,7 @@ export class Studio {
     }
     while (this.others.length < spots.size) {
       const d = document.createElement('div');
-      d.style.cssText = 'position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border:2px solid #ffd23b;border-radius:50%;box-shadow:0 0 0 1px #000;pointer-events:none;z-index:29';
+      d.style.cssText = 'position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border:2px solid #ffd23b;border-radius:50%;box-shadow:0 0 0 1px #000;pointer-events:none;z-index:29;transform:scale(var(--cross-scale,1))';
       stage.append(d);
       this.others.push(d);
     }
@@ -199,8 +252,7 @@ export class Studio {
     });
     this.drawLines();
     stage.style.cursor = this.pick ? 'crosshair' : '';
-    if (this.pick || this.marks) this.renderer.studioRest(this.char);
-    else if (this.last) this.poseAt(this.last.name, this.last.t, this.last.part);
+    this.render();
   }
 
   /** The press itself placed the pivot (dragPivot); the click after it must not reach the stage's own handlers. */
@@ -208,90 +260,311 @@ export class Studio {
     if (this.pick) e.stopPropagation();
   }
 
-  private poseAt(name: string, t: number, part: string | null) {
+  /** What the shake is driving now (a sine of time), as a parameter value or a bone offset; null when it is not on. */
+  private driven(now: number): number | null {
+    return this.drive ? this.drive.amp * Math.sin(((now - this.driveStart) / 1000) * this.drive.hz * Math.PI * 2) : null;
+  }
+  private poseAt(name: string, t: number, part: string | null, physicsDt: number | null = null) {
     this.last = { name, t, part };
-    if (this.pick || this.marks) return;
-    this.renderer.studioPose(this.char, this.anims, name, Math.min(1, Math.max(0, t)), part);
+    this.render(physicsDt);
+  }
+  /** Draw the pose now. Picking a pivot and Model mode (marks) show the model as its parameters and physics make it, with no animation; otherwise the last animation pose. */
+  private render(physicsDt: number | null = null) {
+    if (this.exp) return; // the export poses the stage itself
+    const model = this.pick !== null || this.marks;
+    if (!model && !this.last) return;
+    let panel = this.panel, extra = this.tools.extraMap();
+    const v = this.driven(performance.now());
+    if (v !== null && this.drive) {
+      if (this.drive.param) panel = { values: { ...panel.values, [this.drive.param]: v }, hold: [...panel.hold, this.drive.param] };
+      else if (this.drive.bone) {
+        extra = new Map(extra);
+        extra.set(this.drive.bone, { dx: 0, dy: 0, sx: 0, sy: 0, rot: 0, ...extra.get(this.drive.bone), [this.drive.channel]: (extra.get(this.drive.bone)?.[this.drive.channel] ?? 0) + v });
+      }
+    }
+    const at = model ? null : this.last!;
+    this.renderer.studioPose(this.char, this.anims, at ? at.name : null, at ? Math.min(1, Math.max(0, at.t)) : 0, at ? at.part : null, panel, extra, this.hasChains ? physicsDt : null);
+    this.tools.draw();
   }
 
   private async handle(m: Msg | null) {
     switch (m?.type) {
-      case 'studioShow': {
-        this.pose = str(m.pose);
-        const o = m.overrides && typeof m.overrides === 'object' ? Object.entries(m.overrides) : [];
-        this.overrides = Object.fromEntries(o.filter((p): p is [string, string] => typeof p[1] === 'string'));
-        await this.show(false);
-        break;
-      }
-      case 'studioPlace':
-        this.placing = m.on === true;
-        this.place = { x: num(m.x, 0.5), y: num(m.y, 0), scale: Math.max(0.05, num(m.scale, 1)), flip: m.flip === true, anchor: Array.isArray(m.anchor) && m.anchor.length === 2 ? [num(m.anchor[0], 0.5), num(m.anchor[1], 1)] : [0.5, 1] };
-        stage.style.cursor = this.placing ? 'move' : '';
-        this.redraw();
-        break;
-      case 'studioScene':
-        this.sceneLine = typeof m.file === 'string' && typeof m.line === 'number' ? { file: m.file, line: m.line } : null;
-        await this.loadScene();
-        this.redraw();
-        break;
-      case 'studioAnims':
-        if (m.anims && typeof m.anims === 'object') this.anims = m.anims as Record<string, AnimDef>;
-        if (this.last && !this.run) this.poseAt(this.last.name, this.last.t, this.last.part);
-        break;
-      case 'studioSeek': {
-        const name = str(m.name);
-        this.run = null;
-        if (name) this.poseAt(name, num(m.t, 0), str(m.part));
-        break;
-      }
-      case 'studioPlay': {
-        const name = str(m.name);
-        if (!name) break;
-        this.run = { name, dur: Math.max(0.05, num(m.dur, 1)), loop: m.loop === true, part: str(m.part), start: performance.now() };
-        requestAnimationFrame(this.tick);
-        break;
-      }
-      case 'studioPivots': {
-        const o = m.pivots && typeof m.pivots === 'object' ? Object.entries(m.pivots) : [];
-        this.pivots = Object.fromEntries(o.filter((p): p is [string, [number, number]] => Array.isArray(p[1]) && p[1].length === 2 && p[1].every(Number.isFinite)));
-        const rec = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, d]) => d && typeof d === 'object' && !Array.isArray(d))) : {});
-        this.bones = rec(m.bones) as Record<string, BoneDef>;
-        this.partBones = rec(m.parts);
-        this.size = { width: num(m.width, 0), height: num(m.height, 0) };
-        this.renderer.studioPivots(this.char, this.pivots, this.bones, this.partBones);
-        this.showPick();
-        break;
-      }
-      case 'studioMarks':
-        this.marks = m.on === true;
-        this.run = null;
-        this.showPick();
-        this.redraw();
-        break;
-      case 'studioPick':
-        this.pick = str(m.part);
-        this.run = null;
-        this.showPick();
-        this.redraw();
-        break;
-      case 'studioPause':
-        this.run = null;
-        break;
-      case 'studioFocus':
-        this.renderer.studioFocus(this.char, str(m.part));
-        break;
+      case 'studioShow': return this.onShow(m);
+      case 'studioPlace': return this.onPlace(m);
+      case 'studioScene': return this.onScene(m);
+      case 'studioAnims': return this.onAnims(m);
+      case 'studioSeek': return this.onSeek(m);
+      case 'studioPlay': return this.onPlay(m);
+      case 'studioPivots': return this.onPivots(m);
+      case 'studioMarks': return this.onMarks(m);
+      case 'studioPick': return this.onPick(m);
+      case 'studioParams': return this.onParams(m);
+      case 'studioPhysics': return this.onPhysics(m);
+      case 'studioPause': return this.onPause(m);
+      case 'studioGizmo': return this.onGizmo(m);
+      case 'studioRig': return this.onRig(m);
+      case 'studioExtra': return this.onExtra(m);
+      case 'studioView': return this.onView(m);
+      case 'studioDeformers': return this.onDeformers(m);
+      case 'studioWarp': return this.onWarp(m);
+      case 'studioMasks': return this.onMasks(m);
+      case 'studioMask': return this.onMask(m);
+      case 'studioHidden': return this.onHidden(m);
+      case 'studioFocus': return this.onFocus(m);
+      case 'studioExportBegin': return this.exportBegin(m);
+      case 'studioExportFrame': return this.exportFrame(m);
+      case 'studioExportEnd': return this.exportEnd(m);
     }
   }
 
+  private async onShow(m: Msg): Promise<void> {
+    this.pose = str(m.pose);
+    const o = m.overrides && typeof m.overrides === 'object' ? Object.entries(m.overrides) : [];
+    this.overrides = Object.fromEntries(o.filter((p): p is [string, string] => typeof p[1] === 'string'));
+    await this.show(false);
+  }
+
+  private onPlace(m: Msg) {
+    this.placing = m.on === true;
+    this.place = { x: num(m.x, 0.5), y: num(m.y, 0), scale: Math.max(0.05, num(m.scale, 1)), flip: m.flip === true, anchor: Array.isArray(m.anchor) && m.anchor.length === 2 ? [num(m.anchor[0], 0.5), num(m.anchor[1], 1)] : [0.5, 1] };
+    stage.style.cursor = this.placing ? 'move' : '';
+    this.redraw();
+  }
+
+  private async onScene(m: Msg): Promise<void> {
+    this.sceneLine = typeof m.file === 'string' && typeof m.line === 'number' ? { file: m.file, line: m.line } : null;
+    await this.loadScene();
+    this.redraw();
+  }
+
+  private onAnims(m: Msg) {
+    if (m.anims && typeof m.anims === 'object') this.anims = m.anims as Record<string, AnimDef>;
+    if (!this.run) this.render();
+  }
+
+  private onSeek(m: Msg) {
+    const name = str(m.name);
+    this.run = null;
+    if (name) this.poseAt(name, num(m.t, 0), str(m.part));
+  }
+
+  private onPlay(m: Msg) {
+    const name = str(m.name);
+    if (!name) return;
+    this.physicsAt = performance.now();
+    this.run = { name, dur: Math.max(0.05, num(m.dur, 1)), loop: m.loop === true, part: str(m.part), start: performance.now() };
+    cancelAnimationFrame(this.tickId); // a Play over a Play, or right after a Pause, must not leave two frame chains
+    this.tickId = requestAnimationFrame(this.tick);
+  }
+
+  private onPivots(m: Msg) {
+    const o = m.pivots && typeof m.pivots === 'object' ? Object.entries(m.pivots) : [];
+    this.pivots = Object.fromEntries(o.filter((p): p is [string, [number, number]] => Array.isArray(p[1]) && p[1].length === 2 && p[1].every(Number.isFinite)));
+    const rec = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([, d]) => d && typeof d === 'object' && !Array.isArray(d))) : {});
+    this.bones = rec(m.bones) as Record<string, BoneDef>;
+    this.partBones = rec(m.parts);
+    this.size = { width: num(m.width, 0), height: num(m.height, 0) };
+    this.renderer.studioPivots(this.char, this.pivots, this.bones, this.partBones);
+    this.showPick();
+  }
+
+  private onMarks(m: Msg) {
+    this.marks = m.on === true;
+    this.run = null;
+    this.showPick();
+    this.redraw();
+  }
+
+  private onPick(m: Msg) {
+    this.pick = str(m.part);
+    this.run = null;
+    this.showPick();
+    this.redraw();
+  }
+
+  private onParams(m: Msg) {
+    const v = m.values && typeof m.values === 'object' ? Object.entries(m.values) : [];
+    this.panel = { values: Object.fromEntries(v.filter((p): p is [string, number] => typeof p[1] === 'number' && Number.isFinite(p[1]))), hold: Array.isArray(m.hold) ? m.hold.filter((x): x is string => typeof x === 'string') : [] };
+    if (!this.run) this.render();
+  }
+
+  private onPhysics(m: Msg) {
+    const chains = m.chains && typeof m.chains === 'object' && !Array.isArray(m.chains) ? m.chains as never : {};
+    this.chains = chains;
+    this.renderer.studioPhysics(this.char, chains);
+    this.hasChains = Object.keys(chains).length > 0;
+    const d = m.drive as Partial<Drive> | null;
+    const was = this.drive;
+    this.drive = d && typeof d === 'object' && (typeof d.param === 'string' || typeof d.bone === 'string') ? { param: d.param, bone: d.bone, channel: (d.channel ?? 'rot') as keyof Offset, amp: num(d.amp, 1), hz: Math.max(0.1, num(d.hz, 1)) } : null;
+    if (this.drive) { if (!was) this.driveStart = performance.now(); this.physicsAt = performance.now(); this.swing(); }
+    else if (was) this.settleUntil = performance.now() + 2500;
+    if (!this.drive && !was && !this.run) this.render();
+  }
+
+  private onPause(m: Msg) {
+    this.run = null;
+  }
+
+  private onGizmo(m: Msg) {
+    const tool = m.tool === 'move' || m.tool === 'rotate' || m.tool === 'scale' ? m.tool : null;
+    this.tools.configure({ tool, name: str(m.name), space: m.space === 'world' ? 'world' : 'local' });
+  }
+
+  private onRig(m: Msg) {
+    this.renderer.studioRig(this.char, Array.isArray(m.parameters) ? m.parameters.filter((d): d is ParamDef => !!d && typeof d === 'object') : [], Array.isArray(m.keyforms) ? m.keyforms.filter((d): d is KeyformDef => !!d && typeof d === 'object') : []);
+    if (!this.run) this.render();
+  }
+
+  private onExtra(m: Msg) {
+    const e = m.extra && typeof m.extra === 'object' ? Object.entries(m.extra as Record<string, Offset>) : [];
+    this.tools.setExtra(Object.fromEntries(e.filter(([, o]) => o && typeof o === 'object')));
+  }
+
+  private onView(m: Msg) {
+    this.tools.fit(m.whole === true);
+  }
+
+  private onDeformers(m: Msg) {
+    this.renderer.studioDeformers(this.char, Array.isArray(m.deformers) ? m.deformers.filter((d): d is DeformerDef => !!d && typeof d === 'object') : []);
+    if (!this.run) this.render();
+  }
+
+  private onWarp(m: Msg) {
+    const part = str(m.part);
+    this.tools.setWarp(part ? { part, point: typeof m.point === 'number' && Number.isInteger(m.point) ? m.point : null } : null);
+  }
+
+  private onMasks(m: Msg) {
+    this.renderer.studioMasks(this.char, Array.isArray(m.masks) ? m.masks.filter((d): d is MaskDef => !!d && typeof d === 'object') : []);
+    if (!this.run) this.render();
+  }
+
+  private onMask(m: Msg) {
+    const part = str(m.part);
+    this.tools.setMask(part ? { part, tool: m.tool === true, point: typeof m.point === 'number' && Number.isInteger(m.point) ? m.point : null } : null);
+  }
+
+  private onHidden(m: Msg) {
+    this.hiddenParts = Array.isArray(m.parts) ? m.parts.filter((x): x is string => typeof x === 'string') : [];
+    if (!this.exp) this.renderer.studioHidden(this.char, this.hiddenParts);
+  }
+
+  private onFocus(m: Msg) {
+    this.focusPart = str(m.part);
+    this.focusExtra = Array.isArray(m.extra) ? m.extra.filter((x): x is string => typeof x === 'string') : [];
+    if (!this.exp) this.renderer.studioFocus(this.char, this.focusPart, this.focusExtra);
+  }
+
+  // ---- movie export ----
+  private reply(msg: object, transfer: Transferable[] = []) { window.parent.postMessage(msg, location.origin, transfer); }
+  private async yieldNow() { await new Promise<void>(r => setTimeout(r)); } // the editor shares this thread: let it breathe during a long loop
+
+  /** Pose frame `n` of the export: the animation at that frame's time, the chains stepped one frame on from where they were. Nothing here reads a clock. */
+  private exportPose(n: number) {
+    const x = this.exp!;
+    this.renderer.studioPose(this.char, this.anims, x.name, frameProgress(x.plan, n), null, { values: this.panel.values, hold: [] }, null, this.hasChains ? frameStep(x.plan) : null);
+  }
+  /** The chains at rest, then the lead-in frames posed (unseen). */
+  private exportRewind() {
+    const x = this.exp!;
+    this.renderer.studioPhysics(this.char, this.chains as never);
+    for (let n = -x.plan.lead; n < 0; n++) this.exportPose(n);
+  }
+
+  private async exportBegin(m: Msg) {
+    const id = num(m.id, 0), name = str(m.name);
+    const fail = (error: string) => this.reply({ type: 'studioExportError', id, error });
+    if (this.exp) return fail('Another export is still running.');
+    if (this.pick || this.marks) return fail('Animations are exported from Animate mode.');
+    const anim = name ? resolveAnim(name, this.anims) : null;
+    if (!name || !anim) return fail(`There is no animation named "${name}".`);
+    const plan = planMovie({ dur: anim.dur, fps: num(m.fps, 30), loop: m.loop === true, loops: num(m.loops, 1), leadIn: num(m.leadIn, 0) });
+    const width = Math.round(num(m.width, 0)), height = Math.round(num(m.height, 0)), problem = movieProblem(plan, width, height);
+    if (problem) return fail(problem);
+    this.run = null;
+    this.drive = null;
+    this.settleUntil = 0;
+    const x = this.exp = { id, name, plan, width, height, frame: fitFrame({ x: 0, y: 0, w: W, h: H }, width, height, 0), background: exportBackground(m.background), next: 0 };
+    try {
+      await this.show(false); // the character alone, as placed
+      if (this.exp !== x) return; // cancelled meanwhile: exportEnd has answered
+      this.renderer.studioFocus(this.char, null);
+      this.renderer.studioHidden(this.char, []);
+      if (m.framing === 'character') {
+        // The box the art covers over the whole animation, so the frame holds still and nothing is cut off.
+        this.exportRewind();
+        let box: Box | null = null, at = performance.now();
+        for (let n = 0; n < plan.frames; n++) {
+          this.exportPose(n);
+          box = unionBox(box, this.renderer.studioBounds(this.char));
+          if (performance.now() - at > 30) {
+            await this.yieldNow();
+            if (this.exp !== x) return;
+            at = performance.now();
+          }
+        }
+        if (box) x.frame = fitFrame(box, width, height);
+      }
+      this.exportRewind();
+      this.reply({ type: 'studioExportReady', id, frames: plan.frames, width, height });
+    } catch (e) {
+      await this.exportEnd({ id });
+      fail(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  private async exportFrame(m: Msg) {
+    const x = this.exp, id = num(m.id, 0), n = num(m.n, -1);
+    const fail = (error: string) => this.reply({ type: 'studioExportError', id, error });
+    if (!x || x.id !== id) return fail('That export is not running.');
+    if (n !== x.next || n >= x.plan.frames) return fail(`Frame ${n} was asked for out of order (next is ${x.next}).`);
+    try {
+      this.exportPose(n);
+      const canvas = this.renderer.studioCapture(x.frame, x.width, x.height, x.background);
+      const blob = await new Promise<Blob | null>(done => canvas.toBlob(done, 'image/png'));
+      if (!blob) throw new Error('The browser could not encode a PNG.');
+      const bytes = await blob.arrayBuffer();
+      x.next = n + 1;
+      this.reply({ type: 'studioExportData', id, n, bytes }, [bytes]);
+    } catch (e) {
+      fail(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  private async exportEnd(m: Msg) {
+    const id = num(m.id, 0);
+    if (!this.exp || this.exp.id !== id) { this.reply({ type: 'studioExportDone', id }); return; }
+    this.exp = null;
+    this.renderer.studioCaptureEnd();
+    this.renderer.studioPhysics(this.char, this.chains as never); // the chains rest again, as Play expects
+    this.renderer.studioFocus(this.char, this.focusPart, this.focusExtra);
+    this.renderer.studioHidden(this.char, this.hiddenParts);
+    await this.show(false);
+    this.reply({ type: 'studioExportDone', id });
+  }
+
+  /** While the shake runs (and a moment after), step the chains each frame and pose again. */
+  private swinging = false;
+  private swing() { if (!this.swinging) { this.swinging = true; requestAnimationFrame(this.swingTick); } }
+  private swingTick = (now: number) => {
+    if ((!this.last && !this.marks && !this.pick) || (!this.drive && now > this.settleUntil)) { this.swinging = false; return; }
+    const dt = (now - this.physicsAt) / 1000;
+    this.physicsAt = now;
+    if (!this.run) this.render(dt);
+    requestAnimationFrame(this.swingTick);
+  };
   private tick = (now: number) => {
     const r = this.run;
     if (!r) return;
     const k = (now - r.start) / 1000 / r.dur;
     const done = !r.loop && k >= 1;
     const t = done ? 1 : r.loop ? k % 1 : k;
-    this.poseAt(r.name, t, r.part);
+    const dt = (now - this.physicsAt) / 1000;
+    this.physicsAt = now;
+    this.poseAt(r.name, t, r.part, dt);
     if (done) this.run = null;
     window.parent.postMessage({ type: 'studioTime', t, playing: !done }, location.origin);
-    if (!done) requestAnimationFrame(this.tick);
+    if (!done) this.tickId = requestAnimationFrame(this.tick);
   };
+  private tickId = 0;
 }

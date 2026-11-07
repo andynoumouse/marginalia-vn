@@ -2,6 +2,7 @@
 // then the export itself for a target and output folder. Errors block the build, warnings need an "I've seen these" tick.
 
 import { CHECK_TITLES, type BuildFinding, type BuildLanguages, type CheckId, type CheckLevel } from '../engine/src/index.js';
+import { esc } from '../engine/src/util.js';
 
 export interface BuildHost {
   /** Show a script line in the editor. */
@@ -44,7 +45,6 @@ const SUMMARY = /Exported ".*?" to .*?: (\d+) files, ([\d.]+) MB/;
 const APP = /^App: (.+)$/m;
 const ZIP = /^Zip: (.+?) \(([\d.]+) MB\)/m;
 
-const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export class BuildDialog {
   private readonly root: HTMLDivElement;
@@ -61,6 +61,7 @@ export class BuildDialog {
   private readonly bot: HTMLInputElement;
   private readonly result: HTMLElement;
   private report: CheckReport | null = null;
+  private checkSeq = 0; // a language toggle or Re-run while a check is in flight makes the older answer stale
   private off = { text: new Set<string>(), voice: new Set<string>() }; // languages the author unticked: kept across re-runs
   private langs: Languages | null = null;
   private building = false;
@@ -144,6 +145,7 @@ export class BuildDialog {
 
   /** Save the tabs, then ask the dev server for the checks. */
   private async check() {
+    const seq = ++this.checkSeq;
     this.report = null;
     this.ack.checked = false;
     this.summary.textContent = 'Running checks...';
@@ -151,13 +153,17 @@ export class BuildDialog {
     this.update();
     try {
       await this.h.saveAll();
+      if (seq !== this.checkSeq) return;
       const q = langQuery(this.selection()) + playtestQuery(this.bot.checked);
       const r = await fetch(`/api/build-check${q && '?' + q.slice(1)}`, { headers: { 'X-VN-Editor': '1' }, cache: 'no-store' });
       if (!r.ok) throw new Error(await r.text());
-      this.report = await r.json() as CheckReport;
+      const report = await r.json() as CheckReport;
+      if (seq !== this.checkSeq) return;
+      this.report = report;
       const langs = this.report.languages;
       if (JSON.stringify(langs) !== JSON.stringify(this.langs)) { this.langs = langs; this.renderLanguages(); } // not on every tick: keeps focus
     } catch (e) {
+      if (seq !== this.checkSeq) return;
       this.summary.textContent = `Could not run the checks: ${e instanceof Error ? e.message : 'dev server unreachable'}`;
       this.update();
       return;

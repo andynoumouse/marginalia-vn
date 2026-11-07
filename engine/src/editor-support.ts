@@ -3,7 +3,8 @@ import { BLIP_PRESETS, type RigManifest } from './assets.js';
 import { rigAnimNames, rigPartNames, rigLookNames, rigSlotNames } from './rig.js';
 import { FILTER_NAMES, WEATHER_NAMES } from './fx.js';
 import { TRANSITIONS, type Program } from './types.js';
-import { childNodes, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
+import type { CommandWord } from './parser.js';
+import { childNodes, isClickable, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
 import { ANCHORS } from './anchor.js';
 import { FUNCTIONS } from './expr.js';
 import { SCREEN_CLAUSE_WORDS, startsWithClause } from './screen-syntax.js';
@@ -30,23 +31,28 @@ const soundNames = (files: string[]): Suggestion[] => folderNames(files, 'sound'
 
 const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]) => ({ label: name, kind: 'keyword', detail: f.help, insertText: `${name}($0)` }));
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
-const COMMANDS: [string, string][] = [
+const COMMANDS = [
   ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
-  ['scene', 'scene <background> [transition] [seconds]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade s]'],
+  ['scene', 'scene <background> [transition] [mask=<image>] [seconds]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade s]'],
   ['hide', 'hide <character> [fade s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <seconds>'],
   ['shake', 'shake <character|screen> [seconds]'], ['hop', 'hop <character> [seconds]'],
-  ['animate', 'animate <character> <name|stop> [seconds] [loop]'],
+  ['animate', 'animate <character> <name|stop> [seconds] [loop]  |  animate <character> pose=<name> | <parameter>=<value> ... [over <seconds>]'],
   ['hud', 'hud on <screen> [keep] | hud off <screen>  (keep a screen up while the story runs)'],
   ['image', 'image show <name> <file> [at x,y] [layer=] | image move <name> ... | image hide <name>'],
   ['flash', 'flash [#color] [seconds]'], ['tint', 'tint <#color> [strength] [seconds] | tint off'],
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
+  ['behaviors', 'behaviors on | behaviors off  (rig.json "autonomous": idling, blinking and talking by themselves)'],
   ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera reset'],
   ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
    ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['textbox', 'textbox hide  (hide the text box until the next line)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
-];
+] as const;
+// The compiler keeps this list and the parser's COMMAND_WORDS in step (`on` is the menu's timeout block, not a statement of its own).
+type CommandsOk = Exclude<CommandWord | 'on', (typeof COMMANDS)[number][0]> | Exclude<(typeof COMMANDS)[number][0], CommandWord | 'on'>;
+const commandsOk: [CommandsOk] extends [never] ? true : CommandsOk = true;
+void commandsOk;
 // Text tags, offered right after a "{" (which is not part of the typed word, so labels leave it out).
 // `$0` marks where the cursor goes; the editor inserts these as snippets.
 const TEXT_TAGS: Suggestion[] = ([
@@ -80,7 +86,7 @@ const SCREEN_ELEMENTS: [string, string][] = [
   ['state', 'state <name> = <value or expression>  (local to the screen while it is up; a parameter or story variable can start it)'],
   ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel [keep]  (the cancel key answers "" and drops the inout changes; cancel keep applies them)'], ['textbox', 'textbox off  (hide the text box while the screen is up)'],
 ];
-const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (n.kind === 'hotspot' || n.kind === 'button' ? [n.id, ...elementIds(childNodes(n))] : childNodes(n).length ? elementIds(childNodes(n)) : []));
+const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (isClickable(n) ? [n.id, ...elementIds(childNodes(n))] : childNodes(n).length ? elementIds(childNodes(n)) : []));
 const DIRECTIONS = ['left', 'right', 'up', 'down'];
 const EASES = EASE_NAMES.map(n => `ease=${n}`);
 
@@ -190,6 +196,21 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
   const arg = prev.length - 1;       // number of completed arguments
   const last = prev[prev.length - 1];
 
+  const c: ArgCtx = { program, files, rigs, prev, cmd, arg, last, word, characters, labels, variables, persistent, flags, states };
+  // Inside a `screen` block its own elements win where a word is both (`image "file"` is not `image show ...`).
+  return (inScreen === true ? screenArguments(c) ?? storyArguments(c) : storyArguments(c) ?? screenArguments(c)) ?? [];
+}
+
+/** What the argument completions of one command line share: the words before the cursor and the names the project offers. */
+interface ArgCtx {
+  program: Program; files: string[]; rigs: Record<string, RigManifest>;
+  prev: string[]; cmd: string; arg: number; last: string; word: string;
+  characters: Suggestion[]; labels: Suggestion[]; variables: Suggestion[]; persistent: Suggestion[]; flags: Suggestion[]; states: string[];
+}
+
+/** Completions for the arguments of a story command (`show`, `scene`, `music`, `set`...); undefined when the word is not one. */
+function storyArguments(c: ArgCtx): Suggestion[] | undefined {
+  const { program, files, rigs, prev, cmd, arg, last, word, characters, labels, variables, persistent, flags } = c;
   switch (cmd) {
     case 'show': {
       if (arg === 0) return [...characters, { label: 'screen', kind: 'keyword' as const, detail: 'show screen <name> [(arguments)] [as <variable>]' }];
@@ -200,17 +221,22 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       const looks = [...(rig ? rigLookNames(rig) : []), ...program.ops.flatMap(o => (o.op === 'show' && o.char === prev[1] && o.pose ? [o.pose, ...o.more] : []))];
       const slots = (rig ? rigSlotNames(rig) : []).map(s => ({ label: `${s}=`, kind: 'keyword' as const, detail: `slot of ${prev[1]}` }));
       const behind = characters.filter(c => c.label !== prev[1]).map(c => ({ label: `behind=${c.label}`, kind: 'keyword' as const, detail: 'draw order' }));
-      return [...assets(looks, `look of ${prev[1]}`), ...slots, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'order=front', 'order=back', 'nowait']), ...behind];
+      const poseWords = Object.keys(rig?.rig?.poses ?? {}).map(p => ({ label: `pose=${p}`, kind: 'keyword' as const, detail: `pose of ${prev[1]}` }));
+      return [...assets(looks, `look of ${prev[1]}`), ...slots, ...poseWords, ...kw(['at', 'fade', 'y=0', 'scale=1', 'flip=on', 'flip=off', ...anchorWords(program), 'order=front', 'order=back', 'nowait']), ...behind];
     }
     case 'hide': return arg === 0 ? characters : kw(['fade', 'nowait']);
     case 'hop': return arg === 0 ? characters : kw(['nowait']);
-    case 'animate':
+    case 'animate': {
       if (arg === 0) return characters;
+      const poseWords = Object.keys(rigs[prev[1]]?.rig?.poses ?? {}).map(p => ({ label: `pose=${p}`, kind: 'keyword' as const, detail: `pose of ${prev[1]}` }));
+      const paramWords = (rigs[prev[1]]?.rig?.parameters ?? []).map(p => ({ label: `${p.id}=${p.default}`, kind: 'keyword' as const, detail: `parameter ${p.min} to ${p.max}` }));
+      if (prev.slice(2).some(t => t.includes('='))) return [...poseWords, ...paramWords, ...kw(['over', ...EASES, 'nowait'])];
       if (arg === 1) {
         const own = rigs[prev[1]] ? rigAnimNames(rigs[prev[1]]) : [];
-        return [...new Set([...own, ...ANIM_NAMES, 'stop'])].map(label => ({ label, kind: 'keyword' as const, detail: label === 'stop' ? 'end the loop' : own.includes(label) ? `animation of ${prev[1]}` : 'animation' }));
+        return [...[...new Set([...own, ...ANIM_NAMES, 'stop'])].map(label => ({ label, kind: 'keyword' as const, detail: label === 'stop' ? 'end the loop' : own.includes(label) ? `animation of ${prev[1]}` : 'animation' })), ...poseWords, ...paramWords];
       }
       return kw(['loop', 'strength=1', ...(rigs[prev[1]] ? rigPartNames(rigs[prev[1]]).map(p => `part=${p}`) : []), 'nowait']);
+    }
     case 'move':
       if (arg === 0) return characters;
       if (last === 'to') return kw(Object.keys(program.positions));
@@ -221,7 +247,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (arg === 0) return assets([...program.ops.flatMap(o => (o.op === 'scene' ? [o.bg] : [])), ...folderNames(files, 'bg', IMAGE_FILE, true)], 'background');
       if (last === 'wipe') return kw(DIRECTIONS);
       if (arg === 1) return kw(TRANSITIONS);
-      return kw(['nowait']);
+      return [...kw(['nowait']), ...folderNames(files, 'transitions', IMAGE_FILE).map(n => ({ label: `mask=${n}`, kind: 'keyword' as const, detail: 'image mask' }))];
     }
     case 'image': {
       if (arg === 0) return kw(['show', 'move', 'hide']);
@@ -240,7 +266,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
     case 'filter': return arg === 0 ? kw([...FILTER_NAMES, 'off']) : kw(['nowait']);
     case 'nvl': return arg === 0 ? kw(['on', 'off', 'clear']) : [];
     case 'textbox': return arg === 0 ? kw(['hide']) : [];
-    case 'focus': return arg === 0 ? kw(['on', 'off']) : [];
+    case 'focus': case 'behaviors': return arg === 0 ? kw(['on', 'off']) : [];
     case 'camera':
       if (arg === 0) return kw(['zoom', 'pan', 'reset']);
       if (last === 'at' || last === 'pan') return kw(Object.keys(program.positions));
@@ -271,7 +297,24 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (arg === 0) return kw(['on', 'off']);
       if (arg === 1) return projectScreens(program).map(label => ({ label, kind: 'keyword' as const, detail: 'screen' }));
       return prev[1] === 'on' ? kw(['keep']) : [];
+    case 'menu': return prev.includes('timeout') ? [] : kw(prev.some(p => p.startsWith('style=')) ? ['timeout'] : ['style=', 'timeout']);
+    case 'on': return arg === 0 ? kw(['timeout']) : [];
+    case 'jump': case 'call': return arg === 0 ? labels : [];
+    case 'set': return arg === 0 ? [...variables, ...persistent, { label: 'persistent.', kind: 'keyword', detail: 'kept across playthroughs' }]
+      : arg >= 2 ? [...variables, ...persistent, ...flags, ...FUNCTION_SNIPPETS] : [];
+    case 'input': return arg === 0 ? variables : arg >= 2 ? kw(['default=""', 'max=16']) : [];
+    case 'if': case 'elif': return [...variables, ...persistent, ...flags, ...FUNCTION_SNIPPETS, ...kw(['and', 'or', 'not', 'true', 'false'])];
+    case 'unlock': return arg === 0 ? assets(program.ops.flatMap(o => (o.op === 'unlock' ? [o.name] : [])), 'flag') : [];
+    default: return undefined;
+  }
+}
+
+/** Completions for the rest of a screen element line (`button`, `text`, `panel`...); undefined when the word is not one. */
+function screenArguments(c: ArgCtx): Suggestion[] | undefined {
+  const { program, prev, cmd, arg, last, labels, variables, states } = c;
+  switch (cmd) {
     case 'cancel': return arg === 0 ? kw(['keep']) : [];
+    case 'image': return arg === 0 ? [] : kw(['at', 'size', 'if']); // the file is a quoted string: typing the quote offers the paths
     case 'hotspot': case 'button': case 'tab': case 'radio': case 'toggle':
       if (arg === 0) return [];
       if (cmd === 'toggle' && arg === 1) return states.map(label => ({ label, kind: 'variable' as const, detail: 'screen state' }));
@@ -283,7 +326,6 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
       if (prev[prev.length - 2] === 'on' && last !== 'enter' && last !== 'exit') return [...kw(['set']), ...labels];
       if (last === 'set' && prev[prev.length - 3] === 'on') return states.map(label => ({ label, kind: 'variable' as const, detail: 'screen state' }));
       return [...bound, ...kw(cmd !== 'hotspot' ? ['at', 'size', 'style=', 'hover', 'tooltip', 'sub', 'up', 'down', 'left', 'right', 'on', 'loop', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'loop', 'action', 'if', 'enabled'])];
-    case 'image': return last === 'on' ? kw(['enter', 'exit']) : last === 'enter' || last === 'exit' ? kw(ENTER_EFFECTS) : last === 'loop' ? kw(LOOP_EFFECTS) : last === 'slide' ? kw(SLIDE_DIRS) : kw(['at', 'size', 'on', 'loop']);
     case 'slider': return arg === 0 ? kw(Object.keys(SLIDER_SETTINGS)) : kw(['at', 'size', 'readout', 'if']);
     case 'select': return arg === 0 ? kw([...SELECT_SETTINGS]) : kw(['at', 'size', 'font', 'if']);
     case 'text': return last === 'on' ? kw(['enter']) : last === 'enter' ? kw(ENTER_EFFECTS) : last === 'loop' ? kw(LOOP_EFFECTS) : last === 'slide' ? kw(SLIDE_DIRS) : last === 'align' ? kw(['left', 'center', 'right']) : last === 'width' ? kw(['full']) : kw(['at', 'style=', 'font', 'width', 'align', 'if', 'on', 'loop']);
@@ -293,14 +335,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
     case 'row': case 'column': case 'grid': return kw(['at', 'anchor', 'margin', 'padding', 'gap', 'align', 'width', 'height', 'if', ...(cmd === 'grid' ? ['cell'] : [])]);
     case 'each': return arg === 1 ? kw(['as']) : arg >= 3 ? kw(['at', 'step', 'limit', 'if']) : [];
     case 'default': return arg === 0 ? [...new Set(Object.values(program.screens ?? {}).flatMap(sc => elementIds(sc.body)))].map(label => ({ label, kind: 'keyword' as const })) : [];
-    case 'menu': return prev.includes('timeout') ? [] : kw(prev.some(p => p.startsWith('style=')) ? ['timeout'] : ['style=', 'timeout']);
-    case 'on': return arg === 0 ? kw(['timeout']) : [];
-    case 'jump': case 'call': return arg === 0 ? labels : [];
-    case 'set': return arg === 0 ? [...variables, ...persistent, { label: 'persistent.', kind: 'keyword', detail: 'kept across playthroughs' }]
-      : arg >= 2 ? [...variables, ...persistent, ...flags, ...FUNCTION_SNIPPETS] : [];
-    case 'input': return arg === 0 ? variables : arg >= 2 ? kw(['default=""', 'max=16']) : [];
-    case 'if': case 'elif': return [...variables, ...persistent, ...flags, ...FUNCTION_SNIPPETS, ...kw(['and', 'or', 'not', 'true', 'false'])];
-    case 'unlock': return arg === 0 ? assets(program.ops.flatMap(o => (o.op === 'unlock' ? [o.name] : [])), 'flag') : [];
-    default: return [];
+    default: return undefined;
   }
 }
+

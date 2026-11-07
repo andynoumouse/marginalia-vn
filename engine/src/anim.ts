@@ -1,6 +1,9 @@
 // Animation math shared by the parser, the editor and the renderer: easing curves and interpolation.
 // Pure functions, no DOM.
 
+import { framesAt, frameTracks, type FrameTrackDef } from './frames.js';
+import { clamp01 } from './util.js';
+
 export type EaseFn = (t: number) => number;
 
 const outBounce: EaseFn = t => {
@@ -24,6 +27,48 @@ export const EASES: Record<string, EaseFn> = {
 export const EASE_NAMES = Object.keys(EASES);
 export const DEFAULT_EASE = 'inout';
 
+/** The control points of a CSS-style cubic Bezier: the curve from (0, 0) to (1, 1) through (x1, y1) and (x2, y2). */
+export type Bezier = [x1: number, y1: number, x2: number, y2: number];
+
+/** A valid Bezier: four numbers, the two x in 0-1 (time never runs backwards), the two y free (past 0-1 overshoots). */
+export const isBezier = (b: unknown): b is Bezier => Array.isArray(b) && b.length === 4 && b.every(n => typeof n === 'number' && Number.isFinite(n)) && b[0] >= 0 && b[0] <= 1 && b[2] >= 0 && b[2] <= 1;
+
+/** The easing curve of a Bezier: for progress `u` the y of the point whose x is `u` (Newton steps, bisection when the slope is flat). */
+export function bezierEase([x1, y1, x2, y2]: Bezier): EaseFn {
+  const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+  const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+  const sx = (s: number) => ((ax * s + bx) * s + cx) * s;
+  const dx = (s: number) => (3 * ax * s + 2 * bx) * s + cx;
+  return u => {
+    if (u <= 0) return 0;
+    if (u >= 1) return 1;
+    let s = u;
+    for (let i = 0; i < 8; i++) {
+      const err = sx(s) - u, slope = dx(s);
+      if (Math.abs(err) < 1e-7) return ((ay * s + by) * s + cy) * s;
+      if (Math.abs(slope) < 1e-6) break;
+      s -= err / slope;
+    }
+    let lo = 0, hi = 1;
+    s = u;
+    for (let i = 0; i < 40; i++) {
+      const x = sx(s);
+      if (Math.abs(x - u) < 1e-7) break;
+      if (x < u) lo = s; else hi = s;
+      s = (lo + hi) / 2;
+    }
+    return ((ay * s + by) * s + cy) * s;
+  };
+}
+
+/** The Bezier closest to the named ease, to start a handle drag from; null for `bounce` and `elastic`, which no Bezier makes. */
+export function presetBezier(name: string | undefined): Bezier | null {
+  const named: Record<string, Bezier> = {
+    linear: [0, 0, 1, 1], in: [0.32, 0, 0.67, 0], out: [0.33, 1, 0.68, 1], inout: [0.65, 0, 0.35, 1], back: [0.34, 1.56, 0.64, 1],
+  };
+  return Object.hasOwn(named, name ?? DEFAULT_EASE) ? [...named[name ?? DEFAULT_EASE]] as Bezier : null;
+}
+
 /** The curve named `name`; an unknown name gives the default curve. */
 export function easing(name: string | undefined): EaseFn {
   return (name !== undefined && Object.hasOwn(EASES, name) ? EASES[name] : EASES[DEFAULT_EASE]);
@@ -37,10 +82,12 @@ export const lerp = (from: number, to: number, k: number) => from + (to - from) 
 // starts and ends at no offset, so a loop repeats without a jump and a one-shot leaves the sprite where it was.
 
 /** How an animation moves a sprite: `dx`/`dy` as fractions of the stage's shorter side (fxUnit), `sx`/`sy` added to the scale, `rot` in degrees. */
-export interface Offset { dx: number; dy: number; sx: number; sy: number; rot: number }
+export interface Offset { dx: number; dy: number; sx: number; sy: number; rot: number; /** A factor on the part's alpha (from keyforms); absent is 1. */ opacity?: number }
 export const NO_OFFSET: Offset = { dx: 0, dy: 0, sx: 0, sy: 0, rot: 0 };
-export const addOffset = (a: Offset, b: Offset): Offset =>
-  ({ dx: a.dx + b.dx, dy: a.dy + b.dy, sx: a.sx + b.sx, sy: a.sy + b.sy, rot: a.rot + b.rot });
+export const addOffset = (a: Offset, b: Offset): Offset => {
+  const sum = { dx: a.dx + b.dx, dy: a.dy + b.dy, sx: a.sx + b.sx, sy: a.sy + b.sy, rot: a.rot + b.rot };
+  return a.opacity === undefined && b.opacity === undefined ? sum : { ...sum, opacity: (a.opacity ?? 1) * (b.opacity ?? 1) };
+};
 
 /** A looping animation on a sprite (`animate <char> <name> loop`); `dur` is the length of one cycle in seconds (null: the animation's own). */
 export interface SpriteAnim { name: string; dur: number | null; strength: number; part: string | null }
@@ -80,9 +127,13 @@ export const ANIM_NAMES = Object.keys(ANIMS);
 export const KEY_CHANNELS = ['x', 'y', 'scale', 'rot'] as const;
 export type KeyChannel = typeof KEY_CHANNELS[number];
 export type KeyDef = { t: number; ease?: string; part?: string } & Partial<Record<KeyChannel, number>>;
-export interface AnimDef { dur?: number; keys: KeyDef[] }
+/** A key of a parameter track: the parameter's value `v` at progress `t` (0-1), eased into from the key before it: along `bezier` when it has one, else the named `ease`. */
+export interface ParamKey { t: number; v: number; ease?: string; bezier?: Bezier }
+/** Parameter tracks by parameter id (`animations.<name>.params`). */
+export type ParamTracks = Record<string, ParamKey[]>;
+/** `physicsOff`: while the animation plays, the rig's physics chains are bypassed (all of them for true, or the listed chain ids). */
+export interface AnimDef { dur?: number; keys: KeyDef[]; params?: ParamTracks; frames?: FrameTrackDef[]; physicsOff?: boolean | string[] }
 
-const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 
 /** One channel of `keys` at progress `t`. */
 function channelAt(keys: KeyDef[], ch: KeyChannel, t: number): number {
@@ -116,13 +167,43 @@ export function keyframeParts(def: AnimDef): ((t: number) => Record<string, Part
   return t => Object.fromEntries([...byPart].map(([part, keys]) => [part, keysAt(keys, clamp01(t))]));
 }
 
-/** An animation: its default length, the body's motion and, for keyframes with `part`s, the parts' motion. */
-export interface Resolved { dur: number; fn: (t: number) => Partial<Offset>; parts?: (t: number) => Record<string, Partial<Offset>> }
+/** The curve a key is reached along: its Bezier, else its named ease. */
+const keyEase = (k: ParamKey): EaseFn => (isBezier(k.bezier) ? bezierEase(k.bezier) : easing(k.ease));
+
+/**
+ * A parameter track at progress `t`: an absolute value (not an offset), held at the first key before it and at the last after it,
+ * eased between keys by the ease of the key being reached. No keys gives null.
+ */
+export function trackAt(keys: ParamKey[], t: number): number | null {
+  const pts = keys.filter(k => Number.isFinite(k.t) && Number.isFinite(k.v)).sort((a, b) => a.t - b.t);
+  if (!pts.length) return null;
+  if (t <= pts[0].t) return pts[0].v;
+  for (let i = 1; i < pts.length; i++) {
+    if (t <= pts[i].t) return pts[i].t === pts[i - 1].t ? pts[i].v : lerp(pts[i - 1].v, pts[i].v, keyEase(pts[i])((t - pts[i - 1].t) / (pts[i].t - pts[i - 1].t)));
+  }
+  return pts[pts.length - 1].v;
+}
+
+/** Every track of `tracks` at progress `t`, by parameter id. */
+export function tracksAt(tracks: ParamTracks, t: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [id, keys] of Object.entries(tracks)) {
+    const v = Array.isArray(keys) ? trackAt(keys, clamp01(t)) : null;
+    if (v !== null) out[id] = v;
+  }
+  return out;
+}
+
+/** An animation: its default length, the body's motion, for keyframes with `part`s the parts' motion, and for ones with `params` the parameter values it sets. */
+export interface Resolved { dur: number; fn: (t: number) => Partial<Offset>; parts?: (t: number) => Record<string, Partial<Offset>>; params?: (t: number) => Record<string, number>; frames?: (t: number, seconds: number) => Record<string, string>; physicsOff?: boolean | string[] }
 
 /** What a name stands for: the character's own keyframe animation (it beats a preset of the same name), else a preset. */
 export function resolveAnim(name: string, custom?: Record<string, AnimDef>): Resolved | null {
   const def = custom && Object.hasOwn(custom, name) ? custom[name] : null;
-  if (def && Array.isArray(def.keys)) return { dur: def.dur !== undefined && def.dur > 0 ? def.dur : 1, fn: keyframeFn(def), parts: keyframeParts(def) ?? undefined };
+  if (def && Array.isArray(def.keys)) {
+    const tracks = def.params && Object.keys(def.params).length ? def.params : null, frames = frameTracks(def.frames);
+    return { dur: def.dur !== undefined && def.dur > 0 ? def.dur : 1, fn: keyframeFn(def), parts: keyframeParts(def) ?? undefined, params: tracks ? t => tracksAt(tracks, t) : undefined, frames: frames.length ? (t, seconds) => framesAt(frames, t, seconds) : undefined, physicsOff: def.physicsOff };
+  }
   return Object.hasOwn(ANIMS, name) ? ANIMS[name] : null;
 }
 

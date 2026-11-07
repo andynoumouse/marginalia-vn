@@ -16,7 +16,7 @@ Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) ·
 
 ### define
 `define <id> "<Name>" [options]` declares a character. Options: `color=` (name tag), `text=` (text color),
-`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `style=` (a [theme style](game-json.md#theme) used while they speak; `box=` is the old name), `focus=off` (always
+`font=`, `size=` and `speed=` (multipliers), `italic`, `blip=` (text sound), `style=` (a [theme style](game-json.md#theme) used while they speak), `focus=off` (always
 lit under [speaker focus](#focus)), `side=` (a portrait in the text box, below).
 
 ```
@@ -199,23 +199,28 @@ alice: This line moves on by itself.{nw}
 `wipe <left|right|up|down>`, `iris` (a circle opening from the middle), `blinds` (twelve vertical slats) and
 `pixelate` (the picture breaks into growing blocks, is swapped, and sharpens again). Background `<name>` is `assets/bg/<name>.png|webp|jpg`.
 
+`dissolve mask=<name>` reveals the new picture by the brightness of a grayscale image: dark pixels show it first and white
+pixels last, with a soft edge (the Ren'Py ImageDissolve look). The mask is `assets/transitions/<name>.png|webp|jpg`,
+stretched to the stage; `mask=<name>` alone means `dissolve`. A missing mask gives a plain dissolve and a warning.
+
 ```
 scene bg_park_evening fade 0.5
 scene bg_park_night dissolve 1.2
 scene bg_room wipe right 0.8
 scene bg_attic iris 1.0
 scene bg_hall pixelate 0.8
+scene bg_park_night dissolve mask=wipe_clock 0.8
 ```
 
 ### show / hide
-`show <char> [look ...] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...]`. For layered
+`show <char> [look ...] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...] [pose=<name>[,<name>]]`. For layered
 (PSD) characters a *look* picks a variant per slot: a name from the character's `rig.json` `looks`, or a variant name or
 tag from the PSD (`show mina smile`), and `slot=variant` overrides one slot (`glasses=none` empties it). Several looks
 may stand on the line and apply left to right, the last winning per slot (`show mina shy casual`); `slot=variant` beats
 every look (see [rig-json.md](rig-json.md#looks)). A look-less show keeps the character's current looks. For a flat
 character the first word names the image (`show iris smile`). `y=`, `scale=` and `flip=` place the character in the same
 units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
-Place mode (Character: Animation Studio) writes the whole line for you: drag the character where it should stand. The line includes the look and slot variants chosen in the Parts tab, and "Insert in script" puts it under the line the cursor was on.
+The **Place in scene** section of the animation studio (Character: Animation Studio, Animate mode) writes the whole line for you: drag the character where it should stand. The line includes the look and slot variants chosen under Look and in the Selection section, and "Insert in script" puts it under the line the cursor was on.
 `hide <char> [fade <seconds>]`.
 
 Characters are drawn in the order they were first shown, the newest in front. `order=front` or `order=back` moves a
@@ -271,6 +276,11 @@ continuous shake use `animate <char> shake loop`.
 Commands refuse arguments they do not know (`shake iris loop`, `scene bg fadee`) with an error rather than ignoring them.
 
 ### animate
+`pose=<name>` sets the rig's parameters from a pose of the character's `rig.json` `poses` (a snapshot of some parameters,
+see [rig-json.md](rig-json.md#poses)); several names after the commas lay over each other, the last winning. It sets the
+values at once, without a tween, and leaves the parameters it does not name where they are (a new character starts at
+the defaults). For a tween see [animate](#animate).
+
 `animate <char> <name> [seconds] [loop] [strength=1] [part=<part>]` plays a named animation on a character (a preset below, or a
 keyframe animation from the character's `rig.json`, see [rig-json.md](rig-json.md)); `animate <char> stop` ends
 its loop. The animation adds to where the character stands (`move`, `show at`), so the two combine. Without `loop`
@@ -297,6 +307,24 @@ animate alice breathe loop
 animate alice nod
 animate alice bounce 1.2 strength=1.5
 animate alice stop
+```
+
+**Poses and parameters.** `animate <char> pose=<name>[,<name>] [<parameter>=<value> ...] [over <seconds>] [ease=<name>]`
+tweens a layered character's rig.json parameters (see [rig-json.md](rig-json.md#parameters--pads--keyforms)) from where they are
+to the values of the pose(s) and of the named parameters (written after the poses, so they win). Each parameter moves
+straight from its current value to the target along its own curve: the `ease` of its definition in rig.json, `linear`
+when it has none, or the line's `ease=` for all of them (the names of [move](#move)). A parameter the line does not name
+stays where it is, as does one the pose leaves out. Without `over` the values change at once; with it the script waits for the
+tween unless `nowait`. Values past a parameter's range are clamped, and the editor warns about them, about unknown
+parameters and about poses the character does not have. Parameter values are part of the character's state: they are kept in
+saves and rollback, and last until changed (`hide` or `scene` resets them). Reduce motion snaps the tween to its end.
+The keyforms turn the values into movement of parts and bones; their opacity is not drawn yet.
+
+```
+show robo pose=happy
+animate robo look_x=0.6 mouth=0.8 over 0.4
+animate robo pose=sad over 0.5 ease=out
+animate robo pose=face_sad,eyes_wide brow=0.2 over 1 nowait
 ```
 
 ### wait
@@ -327,6 +355,20 @@ never dimmed, and players can turn the whole thing off in Options (Game tab).
 focus off
 "Everyone talks at once."
 focus on
+```
+
+### behaviors
+`behaviors off` switches off what characters do by themselves ([`autonomous`](rig-json.md#autonomous) in rig.json: the
+idle loop, blinking, the talking mouth and animation) for everyone, and `behaviors on` brings it back. It is global, not
+per character: a cutscene or a held pose is the usual reason, and a character that must stay still is better left
+without `autonomous` in its rig. It lasts across scenes until the next `behaviors` line, and saves, rollback and hot
+reload keep it. A character that is on stage when the switch flips goes still (or starts moving) at once.
+
+```
+behaviors off
+show mina smile
+"Hold still for the photo."
+behaviors on
 ```
 
 ### tint

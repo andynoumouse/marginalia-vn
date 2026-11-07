@@ -43,7 +43,7 @@ test('sprites and display states list only files that exist', () => {
   assert.deepEqual(spriteKeys({ char: 'bo', pose: 'sad', more: [], overrides: {} }, ctx), []);                  // placeholder
   const state = {
     bg: 'park', music: 'theme', musicLoop: true,
-    sprites: [{ char: 'bo', pose: 'grin', more: [], overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }, { char: 'al', pose: null, overrides: { eyes: 'closed' }, x: 0.2, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null }],
+    sprites: [{ char: 'bo', pose: 'grin', more: [], overrides: {}, x: 0.5, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null, params: {} }, { char: 'al', pose: null, overrides: { eyes: 'closed' }, x: 0.2, y: 0, scale: 1, rotation: 0, alpha: 1, flip: false, anchor: [0.5, 1], anim: null, params: {} }],
   };
   assert.deepEqual(stateAssets(state, ctx), ['bg/park', 'char/bo/grin', 'char/al/body', 'char/al/eyes_closed', 'music/theme']);
   assert.deepEqual(stateAssets({ bg: 'beach', music: 'nope', sprites: [] }, ctx), []);

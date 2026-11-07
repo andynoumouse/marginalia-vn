@@ -2,7 +2,7 @@
 
 - These couple of paragraphs are the only content I type manually in to this project
 - Not yet stable. Subject to breaking changes.
-- This is a very much vibe-coded project over the current weekend (starting on 2026-10-31) born out of frustration of having tried to work with some of the existing engines. This has been very much prompted to alive from fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This project has specific workflows in mind and is not yet fully finished or tested thoroughly. UX experience is not expected to be particularly great from two days of development.
+- This is a very much vibe-coded project born out of frustration of having tried to work with some of the existing engines. This has been very much prompted up from the fundamentals, but no doubt the claude has borrowed many of the concepts and syntax from Renpy in particular. This has some opinionated workflows and is not yet fully finished or tested thoroughly. UX experience is not yet polished
 
 --
 
@@ -27,6 +27,7 @@ any line, Ctrl+P jumps to files, labels and assets, and panels show your variabl
 - Localization with stable string ids, plus voice lines per language
 - PSD art pipeline: layered characters and backgrounds converted to game-ready assets
 - Playtest bot that plays every route and reports dead ends, unreachable lines and unused assets
+- Animation studio (Model and Animate modes: bones, parameters, keyforms, mesh warps, masks, physics, a timeline, PNG-sequence movie export), also [on its own](docs/standalone-studio.md) on a character folder with no game
 - Web export, plus a desktop build; Marginalia Studio as a desktop editor for Windows
 
 ## Quick start
@@ -89,6 +90,7 @@ longer cheat sheet.
 | [Game shell](docs/game-shell.md) | Title screen, saves, options, audio, voice, flags, gallery, randomness |
 | [Look and feel](docs/look-and-feel.md) | Character styles, text sounds, themes |
 | [Art pipeline](docs/art-pipeline.md) / [rig.json](docs/rig-json.md) | PSD masters to assets, layered characters |
+| [Character studio on its own](docs/standalone-studio.md) | Animate a character from its folder, with no game project |
 | [Checks and tools](docs/checks-and-tools.md) | Playtest bot, script statistics, art and audio checks |
 | [Exporting](docs/exporting.md) / [Desktop](docs/desktop.md) | Web and desktop builds |
 | [Marginalia Studio](docs/studio.md) / [Online demo](docs/online.md) | The desktop editor and the browser version |

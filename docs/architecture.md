@@ -5,11 +5,17 @@
 ```
 engine/src/   expr, text, parser, compile, runtime, locale, ids, assets, theme (game.json theme -> CSS)   (no DOM, runs anywhere)
 engine/test/  node:test suite
-preview/      dev-server.mjs (static + /api/project + live reload), index.html, preview.ts (game shell), saves.ts, blips.ts,
-              stage-ui.ts (HTML text box, skip/auto), pixi-renderer.ts (world, WebGL), audio.ts (Web Audio),
+preview/      dev-server.mjs (static + /api/project + live reload), index.html, preview.ts (game shell, with chapters.ts,
+              quick-actions.ts, save-capture.ts, achievement-queue.ts, movies.ts), saves.ts, blips.ts,
+              stage-ui.ts (HTML text box, skip/auto; line-typer.ts, line-text.ts), asset-loader.ts (prefetch),
+              pixi-renderer.ts (world, WebGL; scene-effects.ts weather and filters, picture-layer.ts overlay pictures),
+              screen-ui.ts (custom screens; screen-sync.ts, screen-slots.ts), audio.ts (Web Audio),
               menus.ts (the menu stack and dialogs), settings.ts,
               storage.ts (per-game storage: browser or desktop files), input.ts (keyboard/gamepad navigation), timeline.ts (rollback history)
-editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts
+editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts,
+              commands.ts (palette command list), json-schemas.ts, rename.ts, preview-link.ts, sidebar.ts, state.ts,
+              anim-studio.ts (the Model | Animate studio; anim-bind is the bound-parts block under its Parameters section; anim-timeline, anim-keys, anim-stage, anim-history, anim-tree, anim-pivot, anim-place, anim-dom; anim-export, the movie export dialog),
+              studio.html + studio-page.ts + character-store.ts (the same studio as a page of its own on a character folder, no game; studio.css is shared with index.html), studio-host.ts
 tools/        paths.mjs (engine vs project folder), vn-tool.mjs (ids, strings), psd-convert.mjs (art pipeline),
               export-web.mjs, project-data.mjs
 online/       the online demo: sw.ts (service worker: the dev server's API on IndexedDB), routes.ts, store.ts, projects.ts
@@ -40,7 +46,7 @@ Nothing is fetched at boot except the title screen's background and music.
 - `attachPreloads` (`engine/src/assets.ts`) walks the story's control flow (jumps, calls with their returns, every
   menu option, both sides of an `if`) and attaches preload tasks to the program start and to every label, line, menu
   and input: the images and audio met within the next 40 lines, nearest first.
-- The shell (`prefetch` in `stage-ui.ts`) loads them four at a time, so a scene's background and sprites are usually
+- The shell (`prefetch` in `asset-loader.ts`) loads them four at a time, so a scene's background and sprites are usually
   ready long before it is shown, and the first scene loads behind the title screen.
 - A `scene`, `show` or `music` whose files are not ready yet holds until they are (a loading bar appears after a
   quarter of a second) instead of drawing a placeholder. Skipping cannot outrun this.

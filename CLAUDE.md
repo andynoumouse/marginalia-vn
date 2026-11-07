@@ -6,7 +6,7 @@ README.md describes the features; `docs/commands.md` is the script command refer
 ## Workflow
 
 - `npm test` runs `tsc` and then the fast set (everything but `browser.test.mjs`, a few seconds); `npm run test:browser`
-  runs only the browser file (~30 s) and `npm run test:all` both (`scripts/test.mjs`). `npm run test:studio` runs
+  runs only the browser file (~30 s) and `npm run test:all` both (`scripts/test.mjs`). `npm run test:dock` runs `dock-ui.test.mjs` (the docking layer on its own sandbox page, ~5 s, a browser; in neither the fast nor browser set). `npm run test:studio` runs
   `studio.test.mjs` (Marginalia Studio in Electron, ~15 s); it is in neither set, so run it after changing `studio/`. The browser set is costly: don't
   run it unless the user asks. For a change to `preview/`, `editor/` or the renderer, run `node scripts/browser-gate.mjs`
   once per such change; it keeps a counter in `.claude/browser-test-counter` and prints RUN on every 5th call (then run
@@ -71,8 +71,8 @@ README.md describes the features; `docs/commands.md` is the script command refer
 ## Conventions
 
 - `.gitattributes` forces LF; some working copies are CRLF, so git's CRLF warnings are harmless.
-- `TODO.md` legend: `[ ]` open, `[~]` partly done, `[x]` done, `[-]` deferred. Update it when finishing a task and
-  don't add duplicates. Deliberately deferred: asset unloading (step 4) and verifying asset loading on real
+- `TODO.md` legend: `[ ]` open, `[~]` partly done, `[-]` deferred. When you finish a task, delete its item in the same
+  change (no `[x]`); when you finish part of one, rewrite it to say only what is left. Don't add duplicates. Deliberately deferred: asset unloading (step 4) and verifying asset loading on real
   networks/devices. Don't start those unprompted.
 - When editing regexes with backslashes, use the Edit tool; shell heredocs and template strings mangle them.
 - `assignIds` grows ids past 4 characters when it keeps hitting taken ones, so a stuck `rng` no longer hangs it (still use a varying one in tests).

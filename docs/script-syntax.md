@@ -13,7 +13,7 @@ Ctrl+Enter (Preview from cursor) on a line or a label such as `label animation_s
 define alice "Alice" color=#ff6fa5      # character; optional style (see look-and-feel.md)
 set trust = 0                           # top-level lines run once before the story starts
 label start:                            # entry point is "start" (or the first label)
-  scene bg_park fade 0.5                # transitions: cut | fade | dissolve | wipe <left|right|up|down> | iris | blinds | pixelate
+  scene bg_park fade 0.5                # transitions: cut | fade | dissolve | wipe <left|right|up|down> | iris | blinds | pixelate; dissolve mask=<image in assets/transitions>
   music play theme loop  /  music stop fade 1  /  music pause  /  music resume
   show alice smile at left fade 0.3     # look(s), at left|center|right|0-1|a game.json position, slot=variant overrides
   show alice smile at 0.35 y=0.02 scale=1.1 flip=on   # place without a slide (the animation studio's Place row writes it)
@@ -24,6 +24,7 @@ label start:                            # entry point is "start" (or the first l
   sound loop rain fade 2  /  sound stop rain fade 3   # looping ambience on its own channel (`sound stop` alone ends all)
   movie play opening noskip                           # a fullscreen cutscene, assets/movie/opening.webm|mp4 (loop: repeats until skipped)
   animate alice breathe loop  /  animate alice nod  /  animate alice stop   # breathe bob sway nod shiver pulse bounce hop shake, or a rig.json animation; part=hair moves one part
+  animate robo pose=happy  /  animate robo look_x=0.6 mouth=0.8 over 0.4   # tween a rig's parameters or a pose (show robo pose=happy sets one)
   flash [#ffffff] [0.4]                 # screen flash that fades out
   tint #203060 0.4 1.5  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
   focus off  /  focus on                 # speaker focus (game.json "speakerFocus" dims who is not speaking): off for a group scene

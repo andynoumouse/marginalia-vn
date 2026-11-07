@@ -3,6 +3,7 @@
 // project folder with one message. Nothing here pushes, pulls, switches branches or throws changes away.
 
 import { changeKind, type GitChange } from '../engine/src/index.js';
+import { esc } from '../engine/src/util.js';
 
 export interface GitHost {
   /** Write the unsaved tabs to disk first: a commit takes the files as they are on disk. */
@@ -23,7 +24,6 @@ interface GitStatus {
 }
 
 const MAX_ROWS = 500;
-const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export class GitPanel {
   private readonly bar: HTMLElement;
@@ -37,6 +37,8 @@ export class GitPanel {
   private readonly result: HTMLElement;
   private status: GitStatus | null = null;
   private busy = false;
+  private committing = false; // from the click, through the save that comes first: `busy` only starts at the POST
+  private refreshSeq = 0;
   private edited = false; // the author typed a message: a refresh keeps it
   private returnFocus: (() => void) | null = null;
   private refreshTimer = 0;
@@ -84,10 +86,14 @@ export class GitPanel {
   }
 
   async refresh() {
+    const seq = ++this.refreshSeq;
+    let status: GitStatus | null;
     try {
       const r = await fetch('/api/git', { cache: 'no-store' });
-      this.status = r.ok ? await r.json() as GitStatus : null;
-    } catch { this.status = null; }
+      status = r.ok ? await r.json() as GitStatus : null;
+    } catch { status = null; }
+    if (seq !== this.refreshSeq) return; // a newer read is on its way
+    this.status = status;
     this.renderBar();
     if (this.isOpen && !this.busy) this.render();
   }
@@ -177,7 +183,12 @@ export class GitPanel {
   }
 
   private async commit() {
-    if (this.commitBtn.disabled) return;
+    if (this.commitBtn.disabled || this.committing) return;
+    this.committing = true;
+    try { await this.commitNow(); } finally { this.committing = false; }
+  }
+
+  private async commitNow() {
     await this.h.saveAll();
     const r = await this.post('/api/git/commit', this.message.value.trim());
     if (!r.ok) {

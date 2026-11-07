@@ -80,19 +80,20 @@ let win = null;
 let server = null;
 let port = 0;
 let currentProject = null;
+let currentCharacter = null; // the folder the standalone character studio is open on (editor/studio.html), when it is
 let quitting = false;
 let busy = false;
 const origin = () => `http://localhost:${port}`;
 
-/** Start the dev server on `project`; resolves with its editor URL once it listens. */
-async function startServer(project) {
+/** Start the dev server on `project` (or, for the standalone character studio, on none); resolves with the URL of its page once it listens. */
+async function startServer(project, { studio = false } = {}) {
   // The previous server may still hold the port for a moment; the same port keeps the editor's localStorage.
   for (let i = 0; i < 50 && !await portFree(port); i++) await sleep(100);
   if (!await portFree(port)) port = await studioPort();
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(engineRoot, 'preview', 'dev-server.mjs')], {
       cwd: engineRoot,
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', VN_PROJECT: project, PORT: String(port) },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...(studio ? { VN_STUDIO_ONLY: '1' } : { VN_PROJECT: project }), PORT: String(port) },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       // Its own process group elsewhere, so stopping it also stops the PSD watcher and tsc it starts.
@@ -104,7 +105,7 @@ async function startServer(project) {
     const take = (stream, out) => stream.on('data', chunk => {
       out.write(chunk);
       log = (log + chunk).slice(-4000);
-      if (!ready && /Editor: +http/.test(log)) { ready = true; resolve(`${origin()}/editor/`); }
+      if (!ready && (studio ? /Studio: +http/ : /Editor: +http/).test(log)) { ready = true; resolve(studio ? `${origin()}/editor/studio.html` : `${origin()}/editor/`); }
     });
     take(child.stdout, process.stdout);
     take(child.stderr, process.stderr);
@@ -172,7 +173,7 @@ function buildMenu() {
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     {
       label: 'File', submenu: [
-        { label: 'Switch Project...', enabled: !!currentProject, click: () => void showProjects() },
+        { label: 'Switch Project...', enabled: !!(currentProject || currentCharacter), click: () => void showProjects() },
         { type: 'separator' },
         process.platform === 'darwin' ? { role: 'close' } : { role: 'quit' },
       ],
@@ -183,8 +184,9 @@ function buildMenu() {
   ]));
 }
 
-function setProject(folder, title) {
-  currentProject = folder;
+function setProject(folder, title, character = false) {
+  currentProject = character ? null : folder;
+  currentCharacter = character ? folder : null;
   win?.setTitle(folder ? `${title} - Marginalia Studio` : 'Marginalia Studio');
   buildMenu();
 }
@@ -323,6 +325,26 @@ async function openProject(folder) {
   } finally { busy = false; }
 }
 
+/** The standalone character studio: pick a character folder, start the server with no project and show its studio page. Resolves with { error }, { cancelled } or { ok }. */
+async function openCharacter() {
+  if (busy) return { error: 'Another project is opening.' };
+  const folder = await pickFolder('Open a character folder', lastParent() ?? studioDocuments());
+  if (!folder) return { cancelled: true };
+  busy = true;
+  try {
+    await stopServer();
+    const url = await startServer(null, { studio: true });
+    setProject(folder, path.basename(folder), true);
+    await win.loadURL(url);
+    return { ok: true };
+  } catch (err) {
+    await stopServer();
+    setProject(null);
+    if (win && !win.webContents.getURL().startsWith('file:')) await win.loadFile(projectsPage).catch(() => {});
+    return { error: err.message };
+  } finally { busy = false; }
+}
+
 /** The folder a picker chose, or null. VN_STUDIO_TEST_PICK answers for it in tests. */
 async function pickFolder(title, defaultPath) {
   if (process.env.VN_STUDIO_TEST_PICK) return path.resolve(process.env.VN_STUDIO_TEST_PICK);
@@ -385,7 +407,86 @@ function handle(channel, fn) {
     return fn(...args);
   });
 }
+/** The movie export's calls come from the editor page of the open project (the stage page inside it has no bridge), and nobody else. */
+const fromEditorPage = e => {
+  try { const u = new URL(e.senderFrame.url); return !!port && u.origin === origin() && u.pathname.startsWith('/editor/'); } catch { return false; }
+};
+/** The folder the animator picked for the frames: writes go there and nowhere else, as plain PNG file names. */
+let movieFolder = null;
+function registerMovieBridge() {
+  ipcMain.handle('movie:pick', async (e, title) => {
+    if (!fromEditorPage(e)) throw new Error('Not allowed from this page');
+    const folder = await pickFolder(String(title ?? 'Folder for the frames'), currentProject ?? currentCharacter ?? studioDocuments());
+    if (folder) movieFolder = folder;
+    return folder;
+  });
+  ipcMain.handle('movie:write', async (e, name, bytes) => {
+    if (!fromEditorPage(e)) throw new Error('Not allowed from this page');
+    if (!movieFolder) throw new Error('No folder was chosen');
+    if (typeof name !== 'string' || !/^[A-Za-z0-9_-]+\.png$/.test(name)) throw new Error('Not a frame file name');
+    await fs.promises.writeFile(path.join(movieFolder, name), Buffer.from(bytes));
+  });
+}
+/** The character studio's own page: its folder calls come from there and nowhere else. */
+const fromStudioPage = e => {
+  try { const u = new URL(e.senderFrame.url); return !!port && u.origin === origin() && u.pathname === '/editor/studio.html'; } catch { return false; }
+};
+const HIDDEN_NAME = name => name.startsWith('.') || name === 'node_modules';
+const MAX_LISTED = 20_000;
+/** A path the page named, inside the character folder: no way out of it. */
+function inCharacter(rel) {
+  if (typeof rel !== 'string' || !rel || rel.includes('\\') || rel.startsWith('/') || rel.split('/').some(seg => seg === '..' || seg === '')) throw new Error('Not a path in the character folder');
+  const full = path.resolve(currentCharacter, ...rel.split('/'));
+  if (!full.startsWith(currentCharacter + path.sep)) throw new Error('Not a path in the character folder');
+  return full;
+}
+/**
+ * The standalone studio reads the one folder the author picked (a listing, images and JSON) and writes its rig.json and sprite.json.
+ * Nothing else is read or written, and the folder is the one the main process holds for the window, never one the page names.
+ */
+function registerCharacterBridge() {
+  const allowed = e => { if (!fromStudioPage(e)) throw new Error('Not allowed from this page'); };
+  const held = e => { allowed(e); if (!currentCharacter) throw new Error('No character folder is open'); };
+  ipcMain.handle('character:folder', e => { allowed(e); return currentCharacter ? { name: path.basename(currentCharacter) } : null; });
+  ipcMain.handle('character:pick', async (e, title) => {
+    allowed(e);
+    const folder = await pickFolder(String(title ?? 'Open a character folder'), currentCharacter ?? studioDocuments());
+    if (!folder) return null;
+    setProject(folder, path.basename(folder), true);
+    return { name: path.basename(folder) };
+  });
+  ipcMain.handle('character:list', async e => {
+    held(e);
+    const out = [];
+    const walk = async (dir, prefix) => {
+      for (const entry of await fs.promises.readdir(dir, { withFileTypes: true })) {
+        if (out.length >= MAX_LISTED) return;
+        if (HIDDEN_NAME(entry.name)) continue;
+        if (entry.isDirectory()) await walk(path.join(dir, entry.name), `${prefix}${entry.name}/`);
+        else if (entry.isFile()) out.push(prefix + entry.name);
+      }
+    };
+    await walk(currentCharacter, '');
+    return out;
+  });
+  ipcMain.handle('character:read', async (e, rel) => {
+    held(e);
+    if (typeof rel !== 'string' || !/\.(png|webp|jpe?g|avif|json)$/i.test(rel)) throw new Error('Not a file the studio reads');
+    const full = inCharacter(rel);
+    const [bytes, stat] = await Promise.all([fs.promises.readFile(full), fs.promises.stat(full)]);
+    return { bytes, mtime: stat.mtimeMs };
+  });
+  ipcMain.handle('character:write', async (e, rel, text) => {
+    held(e);
+    if (typeof rel !== 'string' || !/(^|\/)(rig|sprite)\.json$/.test(rel) || typeof text !== 'string') throw new Error('Not a file the studio writes');
+    const full = inCharacter(rel);
+    await fs.promises.mkdir(path.dirname(full), { recursive: true });
+    await fs.promises.writeFile(full, text);
+  });
+}
 function registerBridge() {
+  registerMovieBridge();
+  registerCharacterBridge();
   ipcMain.on('studio:info', e => { e.returnValue = { project: currentProject, engineRoot, version: app.getVersion() }; });
   handle('projects:defaults', async () => {
     const { engineVersion, TEMPLATES, DEFAULT_TEMPLATE } = await loadEngine();
@@ -401,6 +502,7 @@ function registerBridge() {
     const opened = await openProject(made.folder);
     return { ...opened, warning: made.warning };
   });
+  handle('projects:character', () => openCharacter());
   handle('projects:demo', async () => {
     const copy = await demoCopy();
     return copy.error ? copy : openProject(copy.folder);
@@ -424,7 +526,7 @@ if (!app.requestSingleInstanceLock()) {
     buildMenu();
     // Downloads (translation and recording-script CSVs) default to the project folder.
     session.defaultSession.on('will-download', (_e, item) => {
-      item.setSaveDialogOptions({ defaultPath: path.join(currentProject ?? studioDocuments(), item.getFilename()) });
+      item.setSaveDialogOptions({ defaultPath: path.join(currentProject ?? currentCharacter ?? studioDocuments(), item.getFilename()) });
     });
     port = await studioPort();
     createWindow();

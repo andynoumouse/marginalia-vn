@@ -1,6 +1,7 @@
 # Animated screen elements
 
-Status: proposed 2026-11-04; phases 1 and 2 (`on enter`, `loop`, `on exit`) built. Screens are a DOM layer over the stage, so this is CSS animation driven by new
+Status: proposed 2026-11-04; phases 1 and 2 (`on enter`, `loop`, `on exit`) are built, phase 3 is not started (see
+Phases and Open questions). The sections below keep the design as written. Screens are a DOM layer over the stage, so this is CSS animation driven by new
 clauses on an element line. It is separate from the character `animate` command, which moves Pixi sprites.
 
 ## Today
@@ -22,12 +23,12 @@ Three clauses, valid on any element line, written with the other clauses:
 
 ```
 on enter <effect> [seconds] [delay seconds] [stagger seconds] [distance=80]
-on exit  <effect> [seconds] [delay seconds] [distance=80] [cascade]
+on exit  <effect> [seconds] [delay seconds] [distance=80]
 loop <effect> [seconds] [strength=1]
 ```
 
 `distance=` (stage pixels, `slide` only) is a keyword like `strength=` so it cannot be mistaken for the seconds, as in
-`on enter slide left 0.4 distance=200`. `cascade` (`on exit` on a container only) is described under Behaviour.
+`on enter slide left 0.4 distance=200`.
 
 `on enter` and `on exit` sit beside the existing `on click|focus|blur` events. `on` is already a clause-start word, so the
 parser needs no new one: it looks at the word after `on`. Unlike `click`, `focus` and `blur`, these two take an effect and
@@ -103,9 +104,9 @@ one cycle, with the same defaults as `animate`.
   own clause replaces the container's for that effect. `stagger` on an `each` delays entry *i* by *i* times it, for every part
   of that entry. A part's key is its source line plus the `each` entries it sits in, so a list that gains an entry does not
   replay the others. A hotspot inside an animated container keeps only what a hotspot may use (`fade`, `glow`).
-  For `on exit` (phase 2) this means the ghost is a clone of each part that went away, not of a container; `cascade` then
-  has no separate meaning (every part of a container runs its own exit, and the container's `delay`s order them), so it
-  can be dropped from the plan unless a use for it turns up.
+  For `on exit` this means the ghost is a clone of each part that went away, not of a container: every part of a
+  container runs its own exit, and the `delay`s order them. (An earlier draft had a `cascade` flag for this; it was
+  dropped as redundant and was never built.)
 - **Built-in screens.** The clauses are parsed on every screen, so a project's `screen title` can use them. The built-in
   CSS-drawn screens (the options and saves defaults) are left alone.
 
@@ -115,15 +116,15 @@ one cycle, with the same defaults as `animate`.
   (`{ enter?: {fx, dur, delay, stagger, dir}, exit?: {fx, dur, delay, dir}, loop?: {fx, dur, strength} }`); `loop` joins the
   clause-start list, and the `on` clause learns two more events beside `click|focus|blur`. Reject unknown effects with a
   message listing the names, `stagger` outside an `each` line, a displacing effect on a hotspot, numbers that are not positive, `distance=`
-  on anything but `slide`, `cascade` outside an `on exit` on a container, and the same event given twice. `on enter` / `on exit` do not take the `set` form that `on click` does.
-- `screens.ts`: add `anim?: ElementAnim` to the node types and carry it into the view items. Seconds are numbers, not
+  on anything but `slide`, and the same event given twice. `on enter` / `on exit` do not take the `set` form that `on click` does.
+- `engine/src/screens.ts`: add `anim?: ElementAnim` to the node types and carry it into the view items. Seconds are numbers, not
   expressions in v1.
 - `preview/screen-ui.ts`: the entered-key set, the `data-enter` / `data-loop` attributes and the `--dur`, `--delay`, `--dist`
   custom properties on the element; for phase 2 the ghost list.
 - `preview/index.html`: one `@keyframes` per effect and direction, a rule per `data-enter` / `data-exit` value, and the
   reduce-motion override.
 - `editor-support.ts`: completions for the clause words and effect names. `docs/commands.md`: a section under the screen
-  elements. `TODO.md`: tick the item.
+  elements ("Animating elements").
 
 ## Tests
 
@@ -140,11 +141,19 @@ one cycle, with the same defaults as `animate`.
 Decided:
 
 - `slide` takes `distance=<px>`; the default is 80.
-- A container's `on exit` plays only its own effect unless `cascade` is given.
+- A container's clauses apply to every part it holds (see Behaviour), so there is no `cascade` flag.
 - A screen shown over another is drawn on top of the old one's ghosts, with no coordination between them. The two overlap
   for the length of the shorter effect, which is fine for short effects; a full-screen backdrop with a long exit is the
   case to look at once it is built.
-- `cascade` has no stagger of its own: children leave one after another by giving each its `delay`. A stagger can be added
-  later without changing what is written now.
+- `on exit` has no stagger: parts leave one after another by giving each its `delay`. A stagger can be added later
+  without changing what is written now.
 
-Open: nothing.
+- Animation inside screens (a flickering lamp, an idling NPC), decided 2026-11-06: add a frame-sequence image element that
+  reuses the `frames` / `fps` / `loop` clip format of frame tracks in
+  [animation-studio-parameters.md](animation-studio-parameters.md). Screen images are plain `<img>` elements
+  (`preview/screen-ui.ts`), so today only a self-animating file (APNG / animated WebP) moves. Rigs are not rendered
+  inside screens: that would need a second Pixi context inside DOM layout. Not built.
+
+Open:
+
+- Phase 3 (see Phases): animating a change, custom keyframes and a screen-wide stagger, none started.

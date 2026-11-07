@@ -1,0 +1,342 @@
+/* The animation studio's styles (editor/anim-studio.ts), shared by the editor (editor/index.html) and the standalone page (editor/studio.html). They read the page's own --panel, --line, --text, --muted, --accent, --warn, --bad and --ink. */
+/* The context menu (editor/context-menu.ts): the studio's animation menu uses it too. */
+.ctxmenu { position: fixed; z-index: 50; min-width: 180px; padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0,0,0,.5); }
+.ctxmenu[hidden] { display: none; }
+.ctxmenu button { display: block; width: 100%; padding: 4px 10px; border: 0; border-radius: 4px; background: none; color: var(--text); text-align: left; white-space: nowrap; }
+.ctxmenu button:is(:hover, :focus) { background: rgba(95, 209, 195, .16); outline: none; }
+.ctxmenu button:disabled { color: var(--muted); }
+.ctxmenu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* The animation studio: header; three columns (what you work on, the stage and time, properties as collapsible sections); a status line. docs/design/studio-ux.md */
+#animStudio { position: fixed; inset: 0; z-index: 50; background: var(--panel); display: flex; }
+#animStudio[hidden] { display: none; }
+#animStudio .as-card { flex: 1; min-width: 0; display: flex; flex-direction: column; outline: none; overflow: auto; background: var(--panel); }
+#animStudio .as-card > * { flex-shrink: 0; }
+#animStudio .as-body { flex: 1 1 auto; min-height: 0; position: relative; display: grid; grid-template-columns: var(--as-left, 300px) minmax(0, 1fr) var(--as-right, 340px); }
+#animStudio .as-body > * { min-height: 0; }
+#animStudio .as-side { display: flex; flex-direction: column; border-right: 1px solid var(--line); overflow-y: auto; }
+#animStudio .as-main { display: flex; flex-direction: column; min-width: 0; padding-top: 8px; }
+#animStudio .as-main > .as-stage { flex: 1 1 0; min-height: 120px; aspect-ratio: auto; max-height: none; position: relative; margin: 0 12px 8px; width: auto; justify-self: stretch; }
+#animStudio .as-main > :is(.as-transport, .as-tlwrap, .as-gizmo) { flex: none; }
+#animStudio .as-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); pointer-events: none; }
+#animStudio .as-inspect { overflow-y: auto; border-left: 1px solid var(--line); }
+#animStudio header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+#animStudio header .as-spacer { flex: 1; }
+#animStudio .as-modes { display: inline-flex; }
+#animStudio .as-modes button { border-radius: 0; }
+#animStudio .as-modes button:first-child { border-radius: 4px 0 0 4px; }
+#animStudio .as-modes button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
+#animStudio .as-modes button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); position: relative; }
+/* What each mode shows: Model has no animation picker, transport, timeline, keys or Key button (its gizmo drags write keyforms of parameters); Animate has no Pivot tool, no bone editing and no parameter editing. */
+#animStudio[data-mode="model"] :is(.as-picker, .as-name, .as-transport, .as-tlwrap, [data-t="scene"], [data-t="export"], .as-sel-anim, .as-gz-anim) { display: none; }
+/* Animate has no Bind block (the bound parts under the controls belong to Model). */
+#animStudio[data-mode="animate"] .ab { display: none; }
+/* The left column: the Parameters block (up to --as-split of the height, then it scrolls) over the Parts tree (the rest, scrolling); two grips resize them. */
+#animStudio .as-grip { position: absolute; z-index: 2; background: transparent; touch-action: none; }
+#animStudio .as-grip:is(:hover, :focus-visible, :active) { background: var(--accent); opacity: .6; outline: none; }
+#animStudio :is(.as-grip-v, .as-grip-r) { top: 0; bottom: 0; left: calc(var(--as-left, 300px) - 3px); width: 6px; cursor: col-resize; }
+#animStudio .as-grip-r { left: auto; right: calc(var(--as-right, 340px) - 3px); }
+/* A folded side column is a thin rail with a button that brings it back. */
+#animStudio .as-rail { position: absolute; top: 0; bottom: 0; z-index: 1; width: 24px; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--text) 7%, var(--panel)); color: var(--muted); }
+#animStudio .as-rail:hover { color: var(--text); }
+#animStudio .as-rail[hidden] { display: none; }
+#animStudio .as-rail-left { left: 0; border-right: 1px solid var(--line); }
+#animStudio .as-rail-right { right: 0; border-left: 1px solid var(--line); }
+#animStudio .as-grip-h { position: relative; flex: none; height: 6px; margin: -3px 0; cursor: row-resize; }
+@media (min-width: 901px) {
+  #animStudio .as-side { overflow: hidden; }
+  #animStudio .as-side > :not(.as-cols) { flex: none; }
+  #animStudio .as-side > .as-cols { flex: 1 1 0; min-height: 0; display: flex; }
+  #animStudio .as-cols > .as-dock { flex: 1 1 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  #animStudio .as-cols > .as-dock + .as-dock { border-left: 1px solid var(--line); }
+  /* The second left column exists while it holds a section; during a drag an empty one shows as a strip to drop in. */
+  #animStudio .as-cols > .as-dock[data-zone="left2"]:not([data-has]) { display: none; }
+  #animStudio .as-cols > .as-dock[data-zone="left2"][data-dock-drag]:not([data-has]) { display: flex; flex: none; width: 56px; outline: 2px dashed var(--accent); outline-offset: -4px; }
+  #animStudio .as-body[data-fold~="left"] .as-side > * { display: none; }
+  #animStudio .as-body[data-fold~="right"] .as-inspect > * { display: none; }
+  #animStudio .as-cols > .as-dock > .as-sect { display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; overflow: hidden; }
+  #animStudio .as-cols > .as-dock > .as-sect > .as-sect-body { overflow-y: auto; min-height: 0; }
+  #animStudio .as-dock[data-split] > .as-sect[data-sect="params"] { flex: 0 1 auto; max-height: calc(var(--as-split, .5) * 100%); }
+  #animStudio .as-cols > .as-dock > .as-sect[data-sect="tree"] { flex: 1 1 0; min-height: 80px; }
+  #animStudio .as-cols > .as-dock > .as-sect:has(> .as-sect-body[hidden]), #animStudio .as-cols > .as-dock > .as-sect[hidden] { flex: none; min-height: 0; }
+}
+@media (max-width: 900px) { #animStudio .as-grip, #animStudio .as-rail, #animStudio .as-sect-grab { display: none; } }
+#animStudio[data-mode="animate"] :is(.as-sel-model, .ap-model-only, [data-gz="pivot"], [data-gz="warp"], [data-gz="mask"]) { display: none; }
+#animStudio .as-export { position: absolute; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+#animStudio .as-export[hidden] { display: none; }
+#animStudio .ax-card { width: min(560px, 100%); max-height: 100%; overflow-y: auto; padding: 16px 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); box-shadow: 0 8px 32px rgba(0, 0, 0, .5); outline: none; }
+#animStudio .ax-card h2 { margin: 0 0 8px; font-size: 16px; }
+#animStudio .ax-card p { margin: 6px 0; color: var(--muted); font-size: 12px; }
+#animStudio .ax-grid { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+#animStudio .ax-grid > label { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; color: var(--muted); }
+#animStudio .ax-grid > label > span { display: inline-flex; align-items: center; gap: 6px; color: var(--text); }
+#animStudio .ax-grid fieldset { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 6px 10px 8px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); }
+#animStudio .ax-grid legend { padding: 0 4px; }
+#animStudio .ax-grid .ax-inline { display: flex; align-items: center; gap: 6px; color: var(--text); }
+#animStudio .ax-grid [hidden] { display: none; }
+#animStudio .ax-card input[type="text"] { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+#animStudio .ax-card input[type="color"] { width: 36px; height: 24px; padding: 0; border: 1px solid var(--line); background: none; }
+#animStudio .ax-card input[type="color"][hidden] { display: none; }
+#animStudio .ax-status { color: var(--bad) !important; min-height: 1.2em; }
+#animStudio .ax-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+#animStudio .ax-bar { width: 100%; height: 14px; }
+#animStudio .as-note { padding: 6px 12px; color: var(--muted); font-size: 12px; min-height: 28px; border-top: 1px solid var(--line); }
+#animStudio .as-note:empty::before { content: attr(data-hint); }
+/* The animation picker and the look (left column). */
+#animStudio .as-picker { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
+#animStudio .as-picker label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
+#animStudio .as-picker select { width: 100%; font-size: 14px; color: var(--text); }
+#animStudio .as-more { align-self: flex-end; padding: 3px 9px; }
+#animStudio .as-name { display: flex; flex-direction: column; gap: 6px; margin: 0 10px 8px; padding: 8px; border: 1px solid var(--accent); border-radius: 4px; font-size: 12px; color: var(--muted); }
+#animStudio .as-name[hidden] { display: none; }
+#animStudio .as-name input { font: inherit; font-size: 14px; color: var(--text); background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 4px 6px; }
+#animStudio .as-name div { display: flex; gap: 6px; }
+#animStudio .as-looks { display: flex; flex-direction: column; gap: 6px; padding: 4px 10px 8px; }
+#animStudio .as-look { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
+#animStudio .as-look select { width: 100%; font-size: 14px; color: var(--text); }
+#animStudio .as-look-save-row { display: flex; gap: 6px; }
+#animStudio .as-look-save-row input { flex: 1; min-width: 0; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+#animStudio button:disabled { opacity: .45; cursor: default; }
+#animStudio button.primary:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+#animStudio input[type="number"] { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; width: 70px; }
+#animStudio .as-dur { width: 64px !important; }
+#animStudio select { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+/* Collapsible sections: a header button over a body. */
+#animStudio .as-sect { border-top: 1px solid var(--line); }
+#animStudio .as-inspect .as-sect:first-child { border-top: 0; }
+#animStudio .as-sect[hidden], #animStudio .as-dock > .as-sect[hidden], #animStudio .as-sect-body[hidden] { display: none; }
+#animStudio .as-sect > h3 { margin: 0; font-size: inherit; display: flex; align-items: stretch; background: color-mix(in srgb, var(--text) 7%, var(--panel)); }
+#animStudio .as-sect > h3:has(> .as-sect-head[aria-expanded="true"]) { border-bottom: 1px solid var(--line); }
+#animStudio .as-sect > h3 > .as-sect-head { flex: 1 1 auto; width: auto; min-width: 0; }
+/* The grab button of a section head: drag it (or Alt+arrows) to move the section; engine/src/dock.ts, editor/dock-ui.ts */
+#animStudio .as-sect-grab { flex: none; width: 22px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--muted); cursor: grab; touch-action: none; line-height: 1; }
+#animStudio .as-sect-grab:hover { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
+#animStudio .as-sect-grab[hidden] { display: none; }
+#animStudio .as-sect.dock-dragging { opacity: .5; }
+#animStudio .as-sect-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border: 0; border-radius: 0; background: none; text-align: left; color: var(--text); font-weight: 600; }
+#animStudio .as-sect-head:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+#animStudio .as-chev { flex: none; width: 0; height: 0; border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .1s; }
+#animStudio .as-sect-head[aria-expanded="true"] .as-chev { transform: rotate(90deg); }
+#animStudio .as-sect-sum { margin-left: auto; min-width: 0; color: var(--muted); font-weight: 400; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio :is(.as-sel-name, .as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit, .aw-add, .aw-grid, .aw-form, .aw-pt, .aw-tools, .aw-presets, .am-kind, .am-poly) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 12px 8px; }
+#animStudio .as-sect-body > :is(.as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit) , #animStudio .aw > :is(.aw-add, .aw-grid, .aw-form, .aw-pt, .aw-tools, .aw-presets), #animStudio .am > :is(.am-kind, .am-poly) { border-top: 1px solid var(--line); }
+#animStudio .as-sect-body > .as-sel-name { padding-top: 8px; padding-bottom: 2px; }
+#animStudio .as-sect-body label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+#animStudio .as-gz-name { color: var(--text); min-width: 6ch; }
+#animStudio .as-pivot-name { font-weight: 600; min-width: 90px; }
+#animStudio .as-pivot-hint { color: var(--muted); font-size: 12px; }
+#animStudio .aw [hidden] { display: none; }
+#animStudio .aw > p { margin: 0; padding: 8px 12px; }
+#animStudio .aw .aw-cols, #animStudio .aw .aw-rows { width: 56px; }
+#animStudio .aw .aw-amount, #animStudio .aw .aw-dx, #animStudio .aw .aw-dy { width: 72px; }
+#animStudio .aw .aw-keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+#animStudio .aw .aw-key[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
+#animStudio .aw .aw-keyhint, #animStudio .aw .aw-pthint, #animStudio .aw .aw-presethint { flex-basis: 100%; }
+#animStudio .am [hidden] { display: none; }
+#animStudio .am > p { margin: 0; padding: 8px 12px; }
+#animStudio .am .am-x, #animStudio .am .am-y { width: 72px; }
+#animStudio .am .am-hint, #animStudio .am .am-pthint { flex-basis: 100%; }
+#animStudio .am .am-problem { color: var(--warn); }
+#animStudio .as-rest-note { margin: 0; padding: 0 12px 8px; }
+#animStudio .as-share { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+#animStudio .as-key { max-width: 100%; }
+#animStudio .as-add { display: flex; align-items: center; gap: 6px; }
+#animStudio .as-place input[type=number] { width: 80px; }
+#animStudio .as-place-line { font-family: var(--mono, monospace); max-width: 100%; }
+#animStudio .as-pick[aria-pressed="true"] { border-color: var(--bad); color: var(--bad); }
+/* The Parts tree (left column) and the chosen row's details (Selection section): one plain row per part and bone. */
+#animStudio .as-sect[data-sect="tree"] > .as-sect-body { padding: 0 10px 10px; }
+#animStudio .as-tree { display: flex; flex-direction: column; align-items: stretch; gap: 1px; }
+#animStudio .as-tree h4, #animStudio .as-detail h4 { margin: 8px 0 2px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#animStudio .as-tree-hint { margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+#animStudio .as-detail { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 4px 12px 10px; }
+#animStudio .as-detail:empty { display: none; }
+#animStudio .as-detail > .as-tree-hint { margin: 0; }
+#animStudio .as-bone-label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+#animStudio .as-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 2px 6px; background: none; border: 1px solid transparent; }
+#animStudio .as-row:hover { border-color: var(--line); }
+#animStudio .as-row[aria-pressed="true"] { border-color: var(--accent); background: var(--ink); }
+#animStudio .as-row.as-hidden { opacity: .5; }
+#animStudio .as-row.as-stagehidden { opacity: .5; text-decoration: line-through; }
+#animStudio .as-eye { flex: none; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 10px; border-radius: 3px; background: none; }
+#animStudio .as-eye[aria-checked="false"] { border-color: var(--line); }
+#animStudio .as-showall { margin: 2px 0 4px; }
+#animStudio .as-tree img, #animStudio .as-thumb { width: 22px; height: 22px; flex: none; object-fit: contain; border-radius: 3px;
+  background: #4a515e repeating-conic-gradient(#ffffff26 0 25%, #0000 0 50%) 0 0 / 8px 8px; }
+#animStudio .as-variant img, #animStudio .as-variant .as-thumb { width: 22px; height: 22px; }
+#animStudio .as-badge { flex: none; font-size: 10px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
+#animStudio .as-badge-slot { color: var(--accent); border-color: var(--accent); }
+#animStudio .as-badge-group { color: var(--warn); border-color: var(--warn); }
+#animStudio .as-pname { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .as-keyed { flex: none; font-size: 11px; color: var(--warn); }
+#animStudio .as-keyed::before { content: "◆ "; }
+#animStudio .as-muted { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .as-detail .as-bone-parts { white-space: normal; }
+#animStudio .as-variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 0; }
+#animStudio .as-variant { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; font-size: 12px; }
+#animStudio .as-variant[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+#animStudio .as-variant.as-set { background: var(--ink); }
+#animStudio .as-drop { outline: 2px dashed var(--accent); }
+#animStudio .as-bone-fold { padding: 0 6px; margin-right: 4px; }
+#animStudio .as-item.as-bone { display: flex; align-items: center; }
+#animStudio .as-bone-new { align-self: flex-start; margin-top: 6px; }
+/* The stage and its tool row, the transport and the timeline. */
+#animStudio .as-stage { aspect-ratio: 16 / 9; max-height: 52vh; justify-self: center; width: 100%; background: #0a0c10; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+#animStudio .as-stage iframe { width: 100%; height: 100%; border: 0; display: block; }
+#animStudio .as-gizmo, #animStudio .as-gz-anim { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; color: var(--muted); }
+#animStudio .as-gizmo { padding: 0 12px 8px; }
+#animStudio .as-gizmo label { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+#animStudio .as-gz-end { margin-left: auto; }
+/* Icon buttons (editor/studio-icons.ts): a square button round one 18 px icon in the text colour; pressed is the accent. */
+#animStudio .si { display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+#animStudio .si-btn { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; padding: 0; border-color: transparent; border-radius: 5px; background: none; color: var(--muted); }
+#animStudio .si-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line); background: var(--ink); }
+#animStudio .si-btn[aria-pressed="true"]:not(:disabled) { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+#animStudio .si-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (pointer: coarse) { #animStudio .si-btn { width: 38px; height: 38px; } }
+@media (forced-colors: active) { #animStudio .si-btn[aria-pressed="true"] { outline: 2px solid Highlight; outline-offset: -2px; } }
+/* The tool row: the transform tools, the deform tools, the view and (Animate) keying, a hairline between the groups. Which tools a mode shows is above. */
+#animStudio .as-gizmo { column-gap: 6px; }
+#animStudio .as-gz-group { display: inline-flex; align-items: center; gap: 2px; }
+#animStudio .as-gz-group + .as-gz-group::before { content: ""; flex: none; width: 1px; height: 18px; margin-right: 4px; background: var(--line); }
+#animStudio[data-mode="animate"] .as-gz-deform { display: none; }
+#animStudio .as-transport { display: flex; align-items: center; gap: 12px; padding: 0 12px 8px; }
+#animStudio .as-transport label { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+#animStudio .as-slider { flex: 1; min-width: 80px; accent-color: var(--accent); }
+#animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 110px; text-align: right; }
+#animStudio .as-tlwrap { max-height: 38vh; overflow-y: auto; background: var(--ink); border-top: 1px solid var(--line); }
+#animStudio .as-timeline { display: block; width: 100%; background: var(--ink); cursor: col-resize; touch-action: none; user-select: none; }
+#animStudio .tl-on { fill: var(--accent); stroke: var(--text); stroke-width: 2; }
+#animStudio .tl-empty { fill: var(--muted); font: 13px system-ui, sans-serif; pointer-events: none; }
+#animStudio .tl-key { cursor: grab; }
+#animStudio .tl-bg-a { fill: #12161d; } #animStudio .tl-bg-b { fill: #0e1117; }
+#animStudio .tl-zero, #animStudio .tl-grid { stroke: var(--line); stroke-width: 1; }
+#animStudio .tl-label { fill: var(--text); font: 600 12px system-ui, sans-serif; }
+#animStudio .tl-range, #animStudio .tl-tick { fill: var(--muted); font: 10px ui-monospace, Consolas, monospace; }
+#animStudio .tl-curve { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+#animStudio .tl-bg-p { fill: #14181f; stroke: var(--line); stroke-width: 1; }
+#animStudio .tl-pcurve { stroke: #6fc3a8; }
+#animStudio .tl-bg-f { fill: #181520; stroke: var(--line); stroke-width: 1; }
+#animStudio .tl-fblock { cursor: pointer; outline: none; }
+#animStudio .tl-fbody { fill: #4a5f86; stroke: #6a82b0; }
+#animStudio .tl-fnone { fill: #2a2d36; stroke: #4a4f5c; stroke-dasharray: 3 2; }
+#animStudio .tl-fblock.tl-on .tl-fbody, #animStudio .tl-fblock:focus-visible .tl-fbody { fill: var(--accent); stroke: var(--text); }
+#animStudio .tl-ftext { fill: var(--text); font-size: 10px; pointer-events: none; }
+#animStudio .tl-pkey { fill: #6fc3a8; }
+#animStudio .tl-pkey.tl-on { fill: var(--accent); }
+#animStudio .tl-key { fill: var(--warn); stroke: var(--ink); stroke-width: 1; }
+#animStudio .tl-play { stroke: var(--bad); stroke-width: 1.5; pointer-events: none; }
+/* Parameters: groups that fold, sliders and pads. Animate keys them on the timeline; Model keys the chosen part's keyforms (a mark on the track for each key; the active parameter is highlighted) and edits the controls. */
+#animStudio .as-sect-body > .ap { display: block; }
+#animStudio .ap-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+/* Poses: one wrapping row of small groups; the + in the Parameters header adds a control. */
+#animStudio .apo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 12px; }
+#animStudio .apo-group { display: inline-flex; gap: 4px; }
+#animStudio .ap-pose-del { color: var(--bad); padding: 3px 7px; min-width: 0; }
+#animStudio .as-sect > h3 > .ap-add { flex: none; width: 28px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--text); font-size: 16px; line-height: 1; }
+#animStudio .as-sect > h3 > .ap-add:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--accent); }
+#animStudio .ap-group { padding: 0 12px 4px; border-bottom: 1px solid var(--line); }
+#animStudio .ap-group h4 { margin: 4px 0; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#animStudio .ap-fold { display: flex; align-items: center; gap: 6px; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; }
+#animStudio .ap-fold::before { content: ""; width: 0; height: 0; border-left: 5px solid currentColor; border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .1s; }
+#animStudio .ap-fold[aria-expanded="true"]::before { transform: rotate(90deg); }
+#animStudio .ap-rows[hidden] { display: none; }
+/* Categories (Model): the header carries + (add here), rename and delete, shown on hover or focus; a drag lights the section it would land in. */
+#animStudio .ap-group h4 { display: flex; align-items: center; gap: 2px; }
+#animStudio .ap-group h4 .ap-fold { flex: 1 1 auto; min-width: 0; text-align: left; }
+#animStudio .ap-cat-btn { flex: none; padding: 0 6px; min-width: 0; border: 0; background: none; color: var(--muted); font-size: 13px; line-height: 1.4; }
+#animStudio .ap-cat-btn:hover, #animStudio .ap-cat-btn:focus-visible { color: var(--accent); }
+#animStudio .ap-group:not(:hover, :focus-within) :is(.ap-cat-rename, .ap-cat-del) { display: none; }
+#animStudio .ap-cat-name { flex: 1 1 auto; min-width: 0; font: inherit; letter-spacing: inherit; text-transform: none; color: var(--text); background: var(--ink); border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; }
+#animStudio .ap-empty { margin: 4px 0 6px; }
+/* A pad's two sliders sit under it, indented: they are part of it. */
+#animStudio .ap-axisrow { margin-left: 14px; border-left: 1px solid var(--line); padding-left: 6px; }
+#animStudio .ap-model .ap-group h4[draggable="true"] { cursor: grab; }
+#animStudio .ap-model :is(.ap-row, .ap-padrow) label[draggable="true"] { cursor: grab; }
+#animStudio .ap-group.ap-drop { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+#animStudio .ap-row { display: grid; grid-template-columns: 68px minmax(40px, 1fr) 52px auto auto auto auto; align-items: center; gap: 4px; padding: 2px 0; }
+/* One line to a control: in Model only the row that is active (or has focus) shows the reset and edit buttons, so the slider keeps its width. */
+#animStudio .ap-model :is(.ap-row, .ap-padrow):not(.ap-active, :focus-within):not(:has(.ap-edit-btn[aria-expanded="true"])) :is(.ap-reset, .ap-edit-btn, .ap-del-btn) { display: none; }
+#animStudio .ap-filter { flex: 1 1 100%; min-width: 0; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+#animStudio .ap-filter[hidden], #animStudio .ap-filtered { display: none; }
+#animStudio :is(.ap-key, .ap-reset, .ap-edit-btn, .ap-del-btn) { padding: 3px 7px; min-width: 0; }
+#animStudio .ap-row.ap-active, #animStudio .ap-padrow.ap-active { box-shadow: -3px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+#animStudio .ap-row label, #animStudio .ap-padrow > label { cursor: pointer; }
+#animStudio .ap-track { position: relative; min-width: 0; padding-bottom: 7px; }
+#animStudio .ap-track input[type="range"] { width: 100%; margin: 0; }
+#animStudio .ap-ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; pointer-events: none; }
+#animStudio .ap-tick { position: absolute; left: calc(7px + var(--f) * (100% - 14px)); bottom: 0; width: 8px; height: 7px; margin-left: -4px; padding: 0; border: 0; border-radius: 0; background: none; pointer-events: auto; cursor: pointer; }
+#animStudio .ap-tick::before { content: ""; position: absolute; left: 3px; bottom: 0; width: 2px; height: 7px; background: var(--warn); }
+#animStudio .ap-tick:hover::before { background: var(--text); }
+#animStudio .ap-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 8px 8px 12px; margin: 0 0 4px; border-left: 2px solid var(--line); background: color-mix(in srgb, var(--ink) 40%, transparent); }
+#animStudio .ap-editor[hidden], #animStudio .ap-model-only[hidden] { display: none; }
+#animStudio .ap-editor input[type="number"] { width: 72px; }
+#animStudio .ap-edit-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+#animStudio .ap-delete { margin-left: auto; color: var(--bad); }
+#animStudio .ap-del-btn { color: var(--bad); }
+#animStudio .ap-row label, #animStudio .ap-padrow label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .ap-row input[type="range"] { accent-color: var(--accent); min-width: 0; }
+#animStudio .ap-num { width: 52px; }
+#animStudio .ap-padrow { display: grid; grid-template-columns: 64px 112px minmax(0, 1fr); grid-template-areas: "l pad btn" "l pad read" "l axes axes"; gap: 4px 8px; padding: 4px 0; align-items: start; }
+#animStudio .ap-axes { grid-area: axes; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+#animStudio .ap-axis[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#animStudio .ap-corners { position: absolute; inset: 0; pointer-events: none; }
+#animStudio .ap-corner { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; border: 1px solid var(--muted); box-sizing: border-box; }
+#animStudio .ap-corner.ap-authored { background: var(--warn); border-color: var(--warn); }
+#animStudio .ap-corner.ap-near { outline: 2px solid var(--accent); outline-offset: 1px; }
+#animStudio .ap-padrow label { grid-area: l; }
+#animStudio .ap-pad { grid-area: pad; position: relative; width: 112px; height: 112px; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; touch-action: none; cursor: crosshair; background-image: linear-gradient(var(--line), var(--line)), linear-gradient(var(--line), var(--line)); background-size: 1px 100%, 100% 1px; background-position: 50% 0, 0 50%; background-repeat: no-repeat; }
+#animStudio .ap-pad:focus-visible { outline: 2px solid var(--accent); }
+#animStudio .ap-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--accent); border: 2px solid var(--text); pointer-events: none; }
+#animStudio .ap-read { grid-area: read; color: var(--muted); font: 11px ui-monospace, Consolas, monospace; align-self: end; overflow-wrap: anywhere; }
+#animStudio .ap-btns { grid-area: btn; display: flex; flex-wrap: wrap; gap: 4px; }
+#animStudio .ap-key { color: var(--muted); } #animStudio .ap-key.ap-tracked { color: #6fc3a8; } #animStudio .ap-key.ap-keyed { color: var(--warn); border-color: var(--warn); }
+#animStudio .ap-nokey .ap-key-all { display: none; }
+#animStudio[data-mode="model"] .ap-keyedit { display: none; }
+/* Narrow windows: the columns stack in reading order (picker, parts, stage, timeline, sections) and the workspace scrolls. */
+@media (max-width: 1100px) {
+  #animStudio .as-body { grid-template-columns: var(--as-left, 300px) minmax(0, 1fr) min(var(--as-right, 340px), 300px); }
+  #animStudio .as-grip-r { right: calc(min(var(--as-right, 340px), 300px) - 3px); }
+}
+@media (max-width: 900px) {
+  #animStudio .as-body { grid-template-columns: 1fr; flex: none; }
+  #animStudio .as-side { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  #animStudio .as-tree { max-height: 30vh; overflow-y: auto; }
+  #animStudio .as-main > .as-stage { flex: none; height: 36vh; }
+  #animStudio .as-inspect { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  #animStudio header { flex-wrap: wrap; row-gap: 6px; }
+}
+
+/* Model mode: the active parameter's row, the Bind block under the controls, the ticks of the Parts tree. */
+#animStudio .ap-row label[role="button"], #animStudio .ap-padrow > label[role="button"] { cursor: pointer; }
+#animStudio .ap-row label[role="button"]:focus-visible, #animStudio .ap-padrow > label[role="button"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#animStudio .ap-row label[aria-pressed="true"], #animStudio .ap-padrow > label[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+#animStudio .ap-tick.ap-rest::before { background: var(--muted); }
+#animStudio .ap-tick.ap-rest:hover::before { background: var(--text); }
+#animStudio .ab > * { border-top: 1px solid var(--line); }
+#animStudio .ab > [hidden], #animStudio .ab-bound[hidden] { display: none; }
+#animStudio :is(.ab-head, .ab-bindrow, .ab-keys, .ab-form, .ab-copy, .ab-affect) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 12px; }
+#animStudio .ab-hint { margin: 0; padding: 6px 12px; }
+#animStudio .ab-name { color: var(--accent); }
+#animStudio .ab-bound { padding: 4px 12px 6px; }
+#animStudio .ab-h { margin: 2px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#animStudio .ab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+#animStudio .ab-item { display: flex; align-items: center; gap: 4px; }
+#animStudio .ab-part { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; text-align: left; padding: 2px 6px; background: none; border: 1px solid transparent; }
+#animStudio .ab-part:hover { border-color: var(--line); }
+#animStudio .ab-part[aria-pressed="true"] { border-color: var(--accent); background: var(--ink); }
+#animStudio .ab-pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .ab-unbind { padding: 2px 7px; color: var(--muted); }
+#animStudio .ab-keybtns, #animStudio .ab-affbtns { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+#animStudio .ab-key { color: var(--muted); }
+#animStudio .ab-key.ab-posed { color: var(--text); }
+#animStudio .ab-key[aria-pressed="true"], #animStudio .ab-aff[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
+#animStudio .ab-formtext { flex: 1 1 200px; min-width: 0; font-size: 12px; }
+#animStudio .ab-form input[type="number"] { width: 76px; }
+#animStudio .as-bindrow { display: flex; align-items: center; gap: 4px; }
+#animStudio .as-bind { flex: none; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 12px; border-radius: 3px; color: var(--accent); }
+#animStudio .as-bind[aria-checked="true"] { border-color: var(--accent); background: var(--ink); }
+#animStudio .aw-active { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--muted); }
+/* The list of controls scrolls on its own in Model mode, so the Bind block under it (what the active parameter is bound to) stays in view. */
+#animStudio[data-mode="model"] .ap-body:not(:has(.ap-editor:not([hidden]))) { max-height: 40vh; overflow-y: auto; }
+#animStudio .ab-form :is(label, button)[hidden], #animStudio .ab-size[hidden] { display: none; }

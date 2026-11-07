@@ -3,6 +3,8 @@
  * under the cursor. Editor-agnostic (no DOM), so it can be tested in node.
  */
 
+import { esc } from './util.js';
+
 export interface HelpHeading { id: string; title: string; level: number }
 export interface HelpDoc {
   html: string;
@@ -12,7 +14,6 @@ export interface HelpDoc {
 }
 
 export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Inline markdown: `code`, **bold**, [text](#anchor | http url). Everything else is plain text. */
 function inline(src: string): string {

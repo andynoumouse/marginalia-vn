@@ -1,7 +1,7 @@
 # TODO
 
 Format: `- [ ]` open, `- [~]` partly done, `- [-]` deferred (tagged **DEFERRED**).
-Finished items are removed (git history has them; README and docs describe what exists). Each item says what is left.
+When you finish an item, delete it from this file in the same change; never mark it `[x]` or leave it behind (git history has it; README and docs describe what exists). When you finish part of an item, rewrite it so it says only what is left. Each item says what is left.
 
 Phasing (a rough order, not a schedule; sections below are by topic, so use the tags):
 1. **Now**: "Next up", then other untagged open items (`[ ]`, `[~]`), picked by value and size. Tutorial and docs come
@@ -38,8 +38,11 @@ Nothing open right now; pick from the topic sections below.
   (docs/commands.md); left of them: `style=` from the theme on both, a vertical or right-to-left bar, an eased fill, and no
   browser test yet (checked by hand in the preview). Still missing, roughly by payoff; when one is picked up, move it to "Next up":
   - [ ] **NEEDS PLANNING** Make screen elements behave the same in every context (blocking screen, HUD, built-in-replacement
-    screens), as a screen with its own local state, inputs and outputs. It would also deliver the two items above (and the
-    dialog, tooltip and hover-reveal items). Design notes in [docs/design/screen-contexts.md](docs/design/screen-contexts.md).
+    screens), as a screen with its own local state, inputs and outputs. Design notes in [docs/design/screen-contexts.md](docs/design/screen-contexts.md).
+    What it should deliver: a modal / popup dialog over a screen without leaving it; a tooltip on buttons and `each` items
+    (only hotspots have one) and badges or counters ("×3", "NEW"); hover-reveal and a status line showing the hovered
+    element's label ("Use key on door"); and, for touch, where there is no hover, a tap-to-inspect step (first tap names the
+    element, second acts).
     Staged: first local `state` with no outputs (tabs, tooltips, hover-reveal, in-screen dialogs; small, no recording),
     then `inout` outputs for toggle / radio, then shell screens. Steps 2 and 3 are built for blocking screens: `state`, `tab`,
     `on click|focus|blur set`, `toggle`, `radio`, `inout` parameters with one recorded entry per screen and `cancel keep`.
@@ -48,15 +51,17 @@ Nothing open right now; pick from the topic sections below.
   - [ ] Text input field inside a screen (documented out of scope; use `input`).
   - [~] Dropdown: `select <setting>` on the options screen is built (a button showing the value that opens a themed list over the screen; keys, Esc and
     pointer work; the default options use it for language, theme, voice language, skip, auto speed and timed choices). Left: a select bound to a screen's own
-    `state` / `inout` (needs the list drawn by the layer or local state on a HUD, step 4 of the contexts design), a click outside the list closing it, the list
+    `state` / `inout` (step 4 of the contexts design), the list
     opening with the current value focused, and a scrolling list for very many values.
-  - [ ] Modal / popup dialog over a screen, without leaving it.
-  - [ ] Tooltip on buttons and `each` items (only hotspots have one); badges and counters ("×3", "NEW") on items and buttons.
   - [ ] Image-based slider and bar (track and thumb from art, 9-slice or sprite).
-  - [~] Animated screen elements: `on enter fade|slide|pop|zoom` and `loop pulse|bob|sway|breathe|shiver|glow` are built
-    (docs/commands.md, "Animating elements"). `on exit` is built too (inert copies of dropped elements). Left: animating a change
-    (tab switch, bar easing), and a browser test (checked by hand once; not in `browser.test.mjs`). Plan:
-    [docs/design/screen-animation.md](docs/design/screen-animation.md).
+  - [~] Animated screen elements: `on enter fade|slide|pop|zoom`, `on exit` (inert copies of dropped elements) and
+    `loop pulse|bob|sway|breathe|shiver|glow` are built (docs/commands.md, "Animating elements"). Plan:
+    [docs/design/screen-animation.md](docs/design/screen-animation.md). Left:
+    - [ ] Animate a change of state (a tab switch, a bar easing to its new value).
+    - [ ] A browser test in `browser.test.mjs` (checked by hand once).
+    - [ ] Animation inside screens (a flickering lamp, an idling NPC): a frame-sequence image element reusing the `frames` /
+      `fps` / `loop` clip format of the studio's frame tracks. Screen images are plain `<img>` elements
+      (`preview/screen-ui.ts`), so today only APNG/animated WebP moves. Rigs inside screens are not planned.
   - [ ] Fractional placement like Ren'Py's `xalign` / `yalign` / `xanchor` / `yanchor` on screen elements. Today only layout
     containers can be pinned (`anchor <nine places> [margin]`), and `at x,y` is always the element's top-left corner.
 - [~] Sprite/character positioning. Left: anchors from `rig.json` (e.g. `head` at the real neck pixel); no browser test of
@@ -73,80 +78,97 @@ Nothing open right now; pick from the topic sections below.
   following the speaker's pose on stage). Left: a rig pose drawn as the portrait (no separate art); a line naming its own
   expression; keeping the last pose after `hide` (an offstage speaker shows the plain portrait); a place in `theme`
   skins; side art not in the preload plan (the browser fetches all of `assets/side/` at start); no browser test; not in the demo.
-- [ ] Image-mask transitions: `scene bg dissolve mask=wipe_clock 0.8` reveals the next scene by a grayscale image's
-  brightness (the Ren'Py ImageDissolve look); masks in `assets/transitions/`, checked like other assets, a dissolve under
-  reduce motion.
-- [ ] **NEEDS PLANNING** Mesh-warp animation for layered characters (a Live2D-like look without Live2D): rig.json parts get warp
-  deformers (hair sway, breathing, cloth) drawn with Pixi 8 `MeshPlane` / `MeshRope`, on top of the rigid-part animation.
-  Chosen over embedding Live2D (Cubism Core is a proprietary WASM runtime with bundling limits; Pixi wrappers target Pixi 6/7).
-  Other formats (Spine, Inochi2D's parameter-driven deformers) are surveyed in [docs/design/rig-formats.md](docs/design/rig-formats.md).
-  Open questions:
-  - Deformer model: grid size per part, channels (control points? bend/sine/noise presets?), keys on points or on a few
-    parameters (`sway`, `bend`, `stretch`).
-  - Data: place in `rig.json`, validation in `checkRig` / `checkAssets`, what persists in `SpriteState` (persistent motion in
-    state, one-shots transient).
-  - Editing: a studio lane per deformer and draggable control points, or hand-written first.
-  - Rendering cost, reduced motion, interaction with slot variants and `order`.
-  - Whether Live2D import is still wanted later (check Pixi 8 plugin status and the Cubism license first).
-- [~] Part hierarchy for layered characters (a child follows its parent's motion): today groups are
-  flat lists, a member's keys add to its group's, and there is no parent/child transform inheritance (forearm following
-  upper arm, hair following head). Also the natural base for the mesh-warp item above. A survey of Spine, DragonBones,
-  Inochi2D, Rive and Cubism is in [docs/design/rig-formats.md](docs/design/rig-formats.md). The design (schema,
-  composition, keys, `show` syntax, checks, editor, tests, five phases) is in
-  [docs/design/rig-hierarchy.md](docs/design/rig-hierarchy.md); reviewed and its questions settled (the name is
-  "look"; several bare looks on a `show` apply left to right; bone scale is uniform, so no shear). Phase 1 (looks) is done:
-  `looks` replace `poses` and the dressing half of `groups`, `show` takes several bare looks, and mina's rig and the
-  tests are rebuilt. Phase 2 (bones in the data model) is done:
-  `bones` and `parts` keys, `engine/src/bones.ts` (`composeBones`, pivot fallback, cycles) and their `checkRig` checks,
-  with no renderer change yet (`groups` and `pivots` still move parts). Phase 3, first step, is done: the renderer
-  draws every part with a matrix from `placeParts` (bone world matrix, then the part's own offset about its pivot),
-  and `part=` / keys accept bone names (a bone key carries its subtree). Its second step is done too: `groups`,
-  `spreadPartOffsets` and `partGroups` are gone (`checkRig` reports a `groups` key), mina's head is a bone, and the
-  studio lists bones where it listed groups (flat for now; the tree comes in phase 5). `pivots` stays for parts.
-  Phase 4 (converter) is done: `sprite.json` parts carry a `group` (the PSD `+folder` path), and `rigSkeleton` / Update Rig
-  from Reconverted Art make bones from it (new parts only; nothing existing is changed). The look skeleton from slot
-  families needs nothing: PSD variant names already act as implicit looks. Phase 5 (editor) is done:
-  the Parts tab lists bones indented with a parent choice, a bone choice under each part, New bone and Remove, bone pivots
-  are edited like part pivots, Rig mode draws parent-child lines, rig.json completes bone names, bones with children fold,
-  a bone row can be dragged onto another (or onto the Bones heading) to re-parent it, and Save as look under Looks saves the
-  current dress. Left: no browser test of the Parts tab's folding, dragging or Save as look.
-  Decisions:
-  - The hierarchy replaces flat groups as the way to move parts together (no keeping both). No migration: the engine is
-    alpha, so `groups` is removed outright and old rig.json files are not converted. Our own test data (sample and demo
-    characters, tests) is rebuilt for the new format.
-  - Three separate things, as in Spine: **bones** (transform nodes with a parent and a pivot, no image needed), **parts**
-    (the drawn layers and slots, each on one bone and following it, with a draw order independent of the tree, as `order`
-    is now), and **outfits** (named sets of which variant each slot shows). An outfit cuts across the tree (a jacket's
-    pieces sit on different bones), so it is not a subtree or a tag on parts.
-  - Groups' second job, dressing (`outfit=casual` setting several slots, `outfit=none` emptying them), moves to outfits
-    as an explicit map: `"outfits": { "casual": { "top": "tee", "bottom": "jeans" } }`. Variant names may differ per slot;
-    an outfit may cover only some slots (the others keep what they show); an explicit `slot=variant` on the `show` line
-    still wins; a slot may map to `none`; an unknown slot or variant is a `checkRig` error, not a runtime warning.
-  - Stacking by expansion: applying an outfit (`show mina jacket`) writes its slot map into the character's slot
-    overrides, so a later outfit wins per slot and no stack is kept in state. The cost is that an outfit cannot be taken
-    off to restore what was under it; if authors need that, add `+name` / `-name` (or `wear` / `unwear`) with a stack in
-    the state later. A slot always shows one variant; layering clothes means a second slot (`outerwear` over `top`) in
-    the PSD, not several variants visible in one slot.
-  - Outfits and poses / shorthands merge into one concept: a named map from slots to variants that may cover all slots
-    (a pose like `happy`) or only some (an outfit like `casual`), applied by expansion as above. The `rig.json` key
-    replaces both `outfits` and `poses`; pose names tagged on variants in the PSD stay as labels the converter reads and
-    become such maps too. Today's `"pose": "smile"` base inside a shorthand becomes a reference to another look applied
-    first.
-  Open questions:
-  - What the merged thing is called, in `rig.json` and in scripts (`show mina casual`): "look" is the working name; keep
-    "pose" if it reads well enough for clothing.
-  - Data: a `parent` per part in `rig.json` (bones with no image allowed, like a neck or an empty root?); cycles and
-    unknown parents in `checkRig`.
-  - Transform: compose the child's `x`/`y`/`scale`/`rot` onto the parent's; pivots in the parent's space or the PSD's;
-    interaction with `order`, slot variants and a group's first-part pivot fallback.
-  - Scripts: does `animate ... part=<parent>` carry its children (yes), and can a child be keyed alone on top of that?
-  - Editing: Rig mode shows a tree instead of a flat list (drag to re-parent), draws parent-child links on the stage.
-  - A part's own keys vs. its parent's: additive as groups are now, or relative to the parent's motion.
-- [~] Flat characters (rig.json without sprite.json). Left: create the first rig.json from the editor; no browser test.
-- [~] Script ↔ studio links. Left: a hover link; opening the studio from a `show` line starts from that placement; no browser test.
-- [~] Animation studio. Rig mode (Animate | Rig toggle: stage, parts, all pivots at once, click to move a pivot) is in,
-  with a Rig button in the Files panel and a draggable pivot. Left: after Apply the stage shows the rest pose while the
-  playhead sits on a key; Rig mode could add a draw-order/group overview.
+- [~] **Animation and rigs** (layered characters: `rig.json`, the Animation studio, `show` / `animate`). Build order of the
+  planned work (from the design doc's suggested order): part hierarchy (built) → parameters and the timeline on them →
+  poses and script surface → viewport and bone gizmos → mesh-warp deformers → masking → physics → standalone app. Backward
+  compatibility of the rig.json / animation format is not required; it may change freely.
+  - [~] Part hierarchy (bones, parts and looks; a child follows its parent's motion). All five phases are built (design,
+    decisions and the survey of other formats: [docs/design/rig-hierarchy.md](docs/design/rig-hierarchy.md),
+    [docs/design/rig-formats.md](docs/design/rig-formats.md)). Base for the mesh-warp item below. Left: no browser test of
+    the Parts tree's folding, dragging or Save as look.
+  - [~] Flat characters (rig.json without sprite.json). The standalone studio opens a folder of pose images with no rig.json and Save creates it
+    (browser test). Left: the editor still cannot start a rig.json for a flat character that has none (its project data has no manifest for it
+    until the file exists).
+  - [~] Script ↔ studio links. Left: a hover link; opening the studio from a `show` line starts from that placement; no
+    browser test.
+  - [~] Animation studio: **Model | Animate** modes in three columns (animation picker and Parts tree, stage and timeline,
+    collapsible sections; [docs/design/studio-ux.md](docs/design/studio-ux.md), built). Model mode (parts, bones, pivots,
+    parameter preview, physics, by itself) has a Model button in the Files panel and a draggable pivot. Left:
+    - UX follow-ups: the timeline cannot fold to its transport row, the narrow layout has no browser test beyond the dock one, and the Look
+      select shows what a look picks only in a tooltip. Sections can be dragged between the columns (a second left column opens beside the first; the side columns fold to a rail when dragged to the window edge) and reordered (grab button or
+      Alt+arrows, Reset layout; [docs/design/dock-binding.md](docs/design/dock-binding.md), `editor/dock-ui.ts`, bench
+      `editor/dock-sandbox.html`, `npm run test:dock`); left of that: dragging into the centre, touch polish, a layout per mode.
+    - Model mode could add a draw-order / group overview.
+  - [~] Mesh-warp deformers (hair sway, breathing, cloth; Pixi 8 `MeshPlane`, chosen over embedding Live2D, whose Cubism Core is a
+    proprietary WASM runtime; other formats are surveyed in [docs/design/rig-formats.md](docs/design/rig-formats.md)). **Built**
+    ([docs/design/mesh-warp.md](docs/design/mesh-warp.md) steps 1-8): pure core (`params.ts`, `warp.ts`, `checkDeformers`), the
+    renderer (`MeshPlane` per warped part, redrawn only when the deformer's parameters change; the studio preview shares it), and
+    the studio: a Warp tool (**D**) and section in Model mode with the lattice overlay, point drag into a keyform (one undo step),
+    add / remove, grid-size editing, reset, mirror, smooth, exact point fields and the sway / breathe / sine / noise presets
+    (`engine/src/warp-edit.ts`, `editor/anim-warp.ts`); hand-written sample on robo's torso (`breathe`, `animate robo breathe loop`);
+    documented in rig-json.md; browser test. **Left:** editing keyforms driven by two parameters (a pad), soft selection and
+    mirror / smooth on chosen points only, hit-testing through the warp, the "variants differ in size" warning (the manifest has no sizes yet), the rope variant, and Live2D import (only if
+    wanted later: check Pixi 8 plugin status and the Cubism license first).
+  - [ ] Parameter-driven animation studio (more Live2D-like). Designed, with the main questions decided (only a
+    low-end-phone check of stencil masks is open, see below): [docs/design/animation-studio-parameters.md](docs/design/animation-studio-parameters.md),
+    which also has a suggested build order. The parameter model comes first; the mesh-warp item above then plugs into it
+    (warp control points become parameter keyforms). Pieces:
+    - [~] Parameters: built (rig.json `parameters`, `pads`, `keyforms`; `engine/src/params.ts` blends and combines, `checkRig`
+      validates; the game shell evaluates keyforms under the bones' own motion; animations key parameters in `params` tracks,
+      drawn as lanes under the channels, same evaluation in the studio and the game; see docs/rig-json.md). The studio splits
+      the work as Cubism does: **Model mode authors keyforms, parameter first** (2026-11-07; it replaced a part-first flow and the interim Keyforms mode): the author
+      picks the active parameter in the one palette, then the parts it moves (a click on the stage, Shift-click only selects, Ctrl-click, on the stage or a tree row, adds a part to the chosen ones so one drag poses them all by the same delta, or the tick on a row of the Parts tree);
+      each pick binds the part and makes its keys at once at rest (slider: min, default, max; pad: a 2 × 2, 3 × 3 or 5 × 5 grid; a warp or a mask polygon with
+      the Warp or Mask tool on), a click on a key or a pad corner puts the control there, the gizmo or Warp tool poses the part into that key (one undo step per drag),
+      the block under the list shows the bound parts, the keys, the pose and which parameters move the chosen part, + column / + row grow a grid
+      (`engine/src/keyform-edit.ts`, `engine/src/param-bind.ts`, `editor/anim-bind.ts`; docs/design/animation-studio-parameters.md) and Model
+      **edits the parameters and pads** (new, rename through keyforms, poses, tracks, deformers, masks and physics, range, default,
+      category, ease, delete; categories are their own list: add, rename, delete, reorder, drag controls between them; `engine/src/param-edit.ts`); **Animate mode keys the values on the timeline**. Copy keys (the Copy row of the bound list, with Mirror) takes over another part's keys on the same parameter or pad, or any part's on another parameter of the same kind (`copyKeys` in `engine/src/key-copy.ts` maps min to min, default to default). Alt-click on a bone's tick in the Parts tree binds (or unbinds) the bone, the bones below it and their parts at once. Left: a curve editor per track ([plan](docs/design/param-curve-editor.md)), part keys becoming
+      parameters (both kinds of key exist side by side now), easing between keyforms for pad grids, warps and masks (a slider's pose keys have a per-key `ease`, set in the Pose row), a handle for keyform opacity (a field only), a rename that also follows script lines (`animate robo look_x=...`).
+    - [~] Masking: **built** (rig.json `masks`; [docs/rig-json.md](docs/rig-json.md#masks), design in
+      docs/design/animation-studio-parameters.md). A part, mesh-warped or not, is clipped by a Pixi 8 stencil mask to another
+      part's traced silhouette or to a drawn polygon that follows a bone or part; a polygon's points are keyform targets, so a
+      parameter closes an eyelid; one nested level; `checkRig` rejects unknown ids, loops and chains of three; the studio has a
+      Mask tool (**M**) and section (outline on the stage, point drag, picker); sample: robo's `eyelids` on `eye_open` (pose
+      `squint`). Left: soft alpha masks (render textures; only if a real case appears), inverse masks, holes in a traced
+      silhouette are filled, no studio editor for a polygon's keyforms (hand-written; the stage shows them), the studio's hit test
+      ignores masks, clipping a whole bone's parts at once (give each part a mask), a part-shaped sample (iris in the eye) needs
+      art with separate iris and eye-white layers (a browser test builds that case), the outline of a source drawn with soft edges
+      sits a pixel inside the art.
+    - [ ] Measure stencil masks on a low-end phone. The cost is unmeasured (each mask is a stencil push and pop and a batch break
+      every frame); until then the safeguards are `checkRig`'s warning above 8 masks and the renderer's console warning, and
+      the count is in the debug console's `memory` and in `vnStage()`. If it is too much: bake the clip into the texture
+      for parts that do not move relative to their source.
+    - [~] Editor viewport: the studio stage zooms toward the cursor (wheel), pans (middle-drag or Space+drag) and fits (F, Fit
+      button), and the pivot crosses, skeleton and gizmo keep their on-screen size (`preview/studio-gizmo.ts`). Left: zoom and
+      pan on the timeline, and the same viewport on the standalone studio's other canvases (mesh and mask editing).
+    - [~] Bone gizmos on the stage: built (click a part (opacity hit test in `PixiRenderer.studioHit`), a bone handle or the tree
+      to select; W move, E rotate, R scale, Q pivot in Model mode, X local/world; `engine/src/gizmo-rig.ts` for targets, handles
+      and keys; Animate drags write a key at the playhead (Auto-key) or preview until the Key button; Model drags write the keyform
+      of the active parameter at its current value, keeping both scale axes; the pivot is the Q tool's; one undo step per drag;
+      numeric x/y/scale/rot fields in Animate, the Pose fields in Model). Left: Animate keys scale evenly (the `scale` channel), so
+      the scale tool's two axes are averaged there; gizmos while playing; touch input.
+    - [~] Physics for hair and cloth: built (`engine/src/physics.ts` simulation; rig.json `physics` chains reading parameters or
+      bone channels and writing parameters or, as the interim, a part's rotation; `checkRig` rules incl. cycles; the game shell
+      steps them last and additive, paused with the pause menu, at rest after a sync, in skip and reduced motion, kept across
+      scene changes; animation `physicsOff`; the studio's Physics tab with presets, JSON editing and Shake; sample: Mina's
+      `hair_back`; see docs/rig-json.md). Left: a number-field editor instead of JSON, a `physicsOff` for poses and a script
+      switch, wind from game input, no browser test of the Physics tab, and a sample where physics drives a warp parameter.
+    - [ ] Frame tracks: thumbnails in the blocks, onion skinning, a packed spritesheet per slot (asset loading), and a check
+      with warped parts. The rest (format, evaluation, renderer, Frames tab) is done.
+    - [~] Standalone studio and movie export. **Built:** the studio runs with no game project ([docs/standalone-studio.md](docs/standalone-studio.md)):
+      `editor/studio.html` (served by `vn dev` and `vn character`; Chromium's File System Access folder picker) and **Open Character...** on Marginalia
+      Studio's projects screen open a character folder (the PSD converter's output with or without a rig.json, one image per pose, or a game
+      project's characters to choose from), edit in Model and Animate, **Save** (Ctrl+S) writes rig.json into the folder, the unsaved-edits guard, and
+      **Export...** to a PNG sequence with alpha (frame by frame at a fixed timestep; a folder or a zip). The same `AnimStudio` runs in both hosts
+      (`StudioHost.standalone`; `engine/src/studio-doc.ts`, `character-folder.ts`; the stage page's `hosted` mode takes its project and `blob:` URLs from the
+      host; a `vnStudio.character` bridge in the Studio); browser and Studio tests. **Left:** webm / mp4 (WebCodecs, or an ffmpeg the Studio bundles; the
+      PNG frames work in any editor meanwhile); a frame range shorter than the animation; a preview of the framing in the export dialog; a variant that
+      only a not-yet-applied frame track names is not preloaded, so it may not show in the export. Standalone: a folder of loose layer images (no
+      sprite.json) is read as poses, so making a sprite.json from layers (equal-size PNGs, with a way to say layers or poses) is open, and so is
+      converting a PSD inside the page (the converter runs in node and in the online demo's worker); a recent-characters list; a read-only fallback
+      for browsers without the File System Access API (a download of rig.json on Save); reloading art that changes under the open page; the page on
+      the online demo's static site (the stage page there is reached through a project's service-worker route).
 - [~] Outfit variants in the PSD converter. Left: not tried with a real PSD; no PSD-layer preview in the asset viewer.
 - [~] Voice lines. Left: not tried with real recordings or a large project; no completions, music ducking or per-character
   volume; NVL voices each line as it is added; no browser test of the prefetch and auto-advance wait.
@@ -179,16 +201,11 @@ Nothing open right now; pick from the topic sections below.
 - [~] Editor UX evaluation: go over the editor's usability as a whole. (Problems in both the editor and the preview header is on purpose.)
   Start with a fixed list of tasks (new project to first choice, add a character from a PSD, translate, export) timed
   on a fresh Studio install, and note where each one stalls.
-- [~] Debug console. Left: `set` / `jump` are not undoable; no completions or hover; no live variable table
-  (the editor's Variables panel has one); no timers/skip-to-line/force-random utilities; `unlock` only affects the next playthrough.
 - [~] Files panel. Left: renamed images that are character poses are not followed (nor `show alice smile` when a pose
   file is renamed); no rename of characters (converted or flat); no drag-and-drop moves inside the tree; no Undo for Rename.
-- [~] Git in the Files panel. Left: no "set up git" for a project outside a repository (it only says so); no per-file
-  selection, diff view or push.
 - [~] Story outline. Left: back edges arc below the nodes and can cross labels in the same columns; not tried on a large storyline.
 - [~] Variable rename. Left: game.json text is not scanned.
 - [~] "Did you mean" quick fixes. Left: game.json names and rig.json keys.
-- [~] Screens preview. Left: the project's own `screen`s are not listed.
 - [~] Translations dialog. Left: no import of a translated CSV;
   no translator notes; stale ids are counted but not removable; screen/item strings show no file and line.
 - [~] Script statistics (`vn stats`, the palette's **Story: Script Statistics**, `engine/src/stats.ts`). Left: words per
@@ -205,23 +222,21 @@ Nothing open right now; pick from the topic sections below.
 
 - [~] Editor as an Electron app ("Marginalia Studio"), so authors need no Node.js or npm. Steps 1-5 of
   [docs/design/studio.md](docs/design/studio.md) are done (engine preparation, shell, projects screen, portable
-  packaging, desktop export from the Studio's runtime). Left (besides the two items in "Next up"):
+  packaging, desktop export from the Studio's runtime). Left:
   - [-] **DEFERRED (later)** The by-hand checks on a clean Windows: the Studio zip, including the SmartScreen prompt, and a
     zip exported from it. Windows Sandbox is not on Windows 10 Home; needs a VM or a second PC.
   - [ ] An installer for the Studio (electron-builder/NSIS), with a Start menu entry and file association for `game.json`.
   - [ ] The downloads handler is untested (it needs a native save dialog).
   - [ ] `ENGINE_CHANGES` (`engine/src/studio-projects.ts`) needs an entry with every minor release.
-  - [ ] Git features without a system `git`: say so plainly (they are greyed out today), and maybe ship a portable git later.
   - [-] **DEFERRED (later)** Updates: tell the author when a newer Studio is released (a version check against the GitHub
     releases, opt-in), then auto-update.
-  - [-] **DEFERRED (much later)** Studio on Linux and macOS (only Windows is built and verified).
+  - [-] **DEFERRED (much later)** Studio and the desktop export's installer build (`npm run dist`) on Linux and macOS (only
+    Windows is built and verified: `npm start` and the NSIS installer, Electron 45 on Node 24).
 - [~] Online demo (docs/online.md): the editor as a static site with projects in IndexedDB. Left: the first deploy
   (`.github/workflows/online-demo.yml` runs on release tags once Pages is set to GitHub Actions); a browser test that builds it and plays it under a subfolder (the routes have
   node tests; the worker was checked by hand in Chromium only); try it in Firefox and Safari; Build/Export (web) in the
   browser, writing a playable zip.
 - [~] Desktop app (Electron, `vn export --desktop`).
-  - [-] **DEFERRED (much later)** Run the installer build (`npm run dist`) on Linux and macOS; only Windows is verified
-    (`npm start` and the NSIS installer, Electron 45 on Node 24).
   - [ ] Maybe let users drop modifier scripts in the folder that override some variables (needs a definition first).
   - [-] **DEFERRED (later)** Steam: achievements from game.json `achievements` sent to Steamworks (steamworks.js or
     similar, only in the desktop build, only when an app id is set), and the Steam overlay. Unsigned exes and the
@@ -240,8 +255,8 @@ Nothing open right now; pick from the topic sections below.
     eviction yet. Look at those numbers on real art before starting. Only evict over budget, never what is on screen, preloaded
     within the lookahead or in the rollback window, furthest next use first, at safe moments; stream long music; thumbnails for
     the gallery. Order: music streaming, then image/sound eviction, then tuning with a real network.
-- [-] **DEFERRED (much later)** Verify asset loading beyond the synthetic project on localhost: real network, a low-end
-  device, the web export (`npm run export`), the corrupted-PNG fallback, and that no placeholder ever flashes.
+  - Also verify asset loading beyond the synthetic project on localhost: real network, a low-end device, the web export
+    (`npm run export`), the corrupted-PNG fallback, and that no placeholder ever flashes.
 
 ## Gameplay modes beyond VN (ideas, TBD)
 
@@ -260,13 +275,6 @@ Nothing open right now; pick from the topic sections below.
     anchoring a hotspot to a shown sprite or to the camera (transform the layer by the camera state).
   - [ ] Item stacks and combining: lists hold plain entries, so no quantity. Add counts, and a combine flow (pick item A,
     then item B) as a documented pattern or a built-in, with the Mystery template as the example.
-  - [ ] Status line while hovering ("Use key on door"): a text element showing the hovered element's label or a
-    description, updated on hover. Shares its mechanism with hover-reveal above.
-  - [ ] Animation inside screens (a flickering lamp, an idling NPC): checked: screen images are plain `<img>`
-    elements (`preview/screen-ui.ts`), so only a self-animating file (APNG/animated WebP) would move; sprite animation
-    (`animate`, rigs) is not available there. Decide whether to support it.
-  - [ ] Touch: no hover on phones, so tooltips and hover-reveal are gone. Define a tap-to-inspect step (first tap names the
-    hotspot, second acts) for screens that rely on hover text.
   - [~] Playtest bot and screens: checked: the bot already takes every enabled non-`act` element of a blocking screen
     as a choice, and states are deduplicated, so a looping room does not spin. Left: report an element that no route
     could ever enable (today only its unreachable handler lines/labels show); a test with a looping room screen.

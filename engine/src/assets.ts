@@ -8,7 +8,7 @@
 // Asset keys: images are the file path without extension ("bg/park", "char/bo/grin", or "park" at the root),
 // audio is "music/<name>" or "sound/<name>".
 
-import type { CharacterDef, Diagnostic, DisplayState, ImageState, Op, Preload, PreloadTask, Program, SpriteState, Src } from './types.js';
+import type { CharacterDef, Diagnostic, DisplayState, FallThroughOp, ImageState, Op, Preload, PreloadTask, Program, SpriteState, Src } from './types.js';
 import { ANIM_NAMES, resolveAnim } from './anim.js';
 import { anchorProblem } from './anchor.js';
 import { captionProblem } from './captions.js';
@@ -17,7 +17,7 @@ import { stageProblem } from './stage.js';
 import { speakerFocusProblems } from './focus.js';
 import { sideImageProblems } from './side.js';
 import { iconAsset, versionProblem } from './app-info.js';
-import { hudLabels, type ScreenNode } from './screens.js';
+import { hudLabels, isClickable, walkNodes, type ScreenNode } from './screens.js';
 import { expandShow, showLooks, liveOverrides, orderedParts, partName, rigPartNames, rigLookNames, type RigData } from './rig.js';
 import { withFix } from './suggest.js';
 import { splitVoiceName } from './voice.js';
@@ -63,17 +63,10 @@ const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 const MOVIE = /\.(webm|mp4|m4v|ogv)$/i;
 
-export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
-  const out: Diagnostic[] = [];
-  const seen = new Set<string>();
-  /** With `word` and `known`, the message offers the closest known names ("did you mean") instead of `otherwise`. */
-  const warn = (src: Src, message: string, word?: string, known?: Iterable<string>, otherwise = '') => {
-    const key = `${src.file}:${src.line}:${message}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(word !== undefined && known ? withFix(src, 'warning', message, word, known, otherwise) : { file: src.file, line: src.line, severity: 'warning', message: message + otherwise });
-  };
+type Warn = (src: Src, message: string, word?: string, known?: Iterable<string>, otherwise?: string) => void;
 
+/** The asset names the checks look things up in: by folder, and the slots of each layered character. */
+function assetNames(index: AssetIndex) {
   // Names by folder: "bg/park.png" -> bg: park; images at the root also count as backgrounds.
   const names = (dir: string, ext: RegExp) => new Set(index.files.flatMap(f => {
     const parts = f.split('/');
@@ -81,6 +74,7 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   }));
   const bgs = names('bg', IMAGE);
   for (const f of index.files) if (!f.includes('/') && IMAGE.test(f)) bgs.add(f.replace(/\.[^.]+$/, ''));
+  const masks = names('transitions', IMAGE);
   const music = names('music', AUDIO), sounds = names('sound', AUDIO), movies = names('movie', MOVIE);
   const charImages = (char: string) => new Set(index.files.flatMap(f => {
     const parts = f.split('/');
@@ -99,10 +93,31 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
     rigs.set(char, { slots });
   }
 
+  return { bgs, masks, music, sounds, movies, charImages, rigs };
+}
+type AssetNames = ReturnType<typeof assetNames>;
+
+/** Backgrounds, masks, characters, poses, animations, music, sounds and movies the ops name. */
+function checkOps(program: Program, index: AssetIndex, names: AssetNames, warn: Warn) {
+  const { bgs, masks, music, sounds, movies, charImages, rigs } = names;
+  /** `pose=` names and `animate <char> p=v` parameters against the character's rig.json (a character without a rig is not checked). */
+  const checkPoseOp = (src: Src, char: string, poses: string[], values: Record<string, number>) => {
+    const rig = index.rigs?.[char]?.rig;
+    if (!rig || (!poses.length && !Object.keys(values).length)) return;
+    const own = Object.keys(rig.poses ?? {}), ids = (rig.parameters ?? []).map(p => p.id);
+    for (const p of poses) if (!own.includes(p)) warn(src, `${char} has no pose "${p}"`, p, own, ` (${own.join(', ') || 'none: add poses to its rig.json'})`);
+    for (const [id, v] of Object.entries(values)) {
+      const def = (rig.parameters ?? []).find(p => p.id === id);
+      if (!def) warn(src, `${char} has no parameter "${id}"`, id, ids, ` (${ids.join(', ') || 'none: add parameters to its rig.json'})`);
+      else if (v < def.min || v > def.max) warn(src, `${id} of ${char} runs from ${def.min} to ${def.max}, not ${v} (it is clamped)`);
+    }
+  };
+
   for (const op of program.ops) {
     switch (op.op) {
       case 'scene':
         if (bgs.size && !bgs.has(op.bg)) warn(op.src, `No background "${op.bg}" in assets/bg`, op.bg, bgs, ' (a placeholder is drawn)');
+        if (op.mask && !masks.has(op.mask)) warn(op.src, `No mask "${op.mask}" in assets/transitions`, op.mask, masks, ' (a plain dissolve is used)');
         break;
       case 'show': {
         const rig = rigs.get(op.char);
@@ -119,8 +134,12 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
           const images = charImages(op.char);
           if (images.size && !images.has(op.pose)) warn(op.src, `No image for ${op.char} "${op.pose}" in assets/char/${op.char}`, op.pose, images);
         }
+        checkPoseOp(op.src, op.char, op.poses ?? [], {});
         break;
       }
+      case 'param':
+        checkPoseOp(op.src, op.char, op.poses, op.params);
+        break;
       case 'animate': {
         const rigOf = index.rigs?.[op.char], parts = rigOf ? rigPartNames(rigOf) : [];
         if (op.part && !parts.includes(op.part)) warn(op.src, `${op.char} has no part "${op.part}"`, op.part, parts, ` (parts: ${parts.join(', ') || 'none: only layered characters have parts'})`);
@@ -140,24 +159,31 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
         break;
     }
   }
+}
 
-  // Recordings named after no line: the id was edited or the line removed, so the file never plays.
+/** Recordings named after no line: the id was edited or the line removed, so the file never plays. */
+function checkVoiceFiles(program: Program, index: AssetIndex, out: Diagnostic[]) {
   const lineIds = new Set<string>();
   for (const op of program.ops) if (op.op === 'say' && op.id) lineIds.add(op.id);
   for (const f of index.files) {
     const v = voiceId(f);
     if (v && !lineIds.has(v)) out.push({ file: `assets/${f}`, line: 1, severity: 'warning', message: `Voice file matches no dialogue line id "${v}" (it never plays)` });
   }
+}
 
-  // Screens and items: images that do not exist (only reported once there are images at all, like backgrounds).
+/** A style the script uses that the theme, or a theme the player can pick, does not define. */
+function styleChecker(index: AssetIndex, warn: Warn) {
   const skins = new Set(index.skins ?? []);
-  /** A style the script uses that the theme, or a theme the player can pick, does not define. */
-  const styleProblem = (src: Src, style: string) => {
+  return (src: Src, style: string) => {
     if (style === 'title') return; // the default title screen's game name: the theme's `title` component reaches it
     if (!skins.has(style)) return warn(src, `No style "${style}" (add it to the theme's styles)`);
     const lacking = Object.entries(index.themeSkins ?? {}).filter(([, names]) => !names.includes(style)).map(([n]) => n);
     if (lacking.length) warn(src, `Style "${style}" is missing from the selectable theme${lacking.length > 1 ? 's' : ''} ${lacking.join(', ')}`);
   };
+}
+
+/** Screens and items: images that do not exist (only reported once there are images at all, like backgrounds), hover sounds and styles. */
+function checkImages(program: Program, index: AssetIndex, sounds: Set<string>, warn: Warn, styleProblem: (src: Src, style: string) => void) {
   const imageKeys = new Set(index.files.filter(f => IMAGE.test(f)).map(f => f.replace(IMAGE, '')));
   for (const f of index.files) if (MOVIE.test(f) && f.split('/').length === 2) imageKeys.add(f.replace(MOVIE, ''));
   const imageProblem = (src: Src, file: string, what: string) => {
@@ -166,25 +192,23 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
   for (const op of program.ops) if (op.op === 'image' && op.action === 'show') imageProblem(op.src, op.file, `image ${op.name}`);
   for (const it of Object.values(program.items ?? {})) if (it.image) imageProblem(it.src, it.image, `image of item ${it.id}`);
   for (const def of Object.values(program.screens ?? {})) {
-    const walk = (nodes: ScreenNode[]) => {
-      for (const n of nodes) {
-        if (n.kind === 'image') imageProblem(n.src, n.file, `screen ${def.name}`);
-        else if (n.kind === 'hotspot' && n.shape.k === 'mask') imageProblem(n.src, n.shape.file, `mask of hotspot ${n.id}`);
-        else if (n.kind === 'panel' && n.file) imageProblem(n.src, n.file, `frame of a panel in screen ${def.name}`);
-        else if (n.kind === 'bar') {
-          if (n.back) imageProblem(n.src, n.back, `back of a bar in screen ${def.name}`);
-          if (n.fill) imageProblem(n.src, n.fill, `fill of a bar in screen ${def.name}`);
-        }
-        if ((n.kind === 'hotspot' || n.kind === 'button') && n.hover) imageProblem(n.src, n.hover, `hover image of ${n.id}`);
-        if ((n.kind === 'hotspot' || n.kind === 'button') && n.fx.sound && !sounds.has(n.fx.sound)) warn(n.src, `No sound "${n.fx.sound}" in assets/sound (hover sound of ${n.id})`);
-        if ((n.kind === 'button' || n.kind === 'text') && n.style) styleProblem(n.src, n.style);
-        if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
-        else if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
+    walkNodes(def.body, n => {
+      if (n.kind === 'image') imageProblem(n.src, n.file, `screen ${def.name}`);
+      else if (n.kind === 'hotspot' && n.shape.k === 'mask') imageProblem(n.src, n.shape.file, `mask of hotspot ${n.id}`);
+      else if (n.kind === 'panel' && n.file) imageProblem(n.src, n.file, `frame of a panel in screen ${def.name}`);
+      else if (n.kind === 'bar') {
+        if (n.back) imageProblem(n.src, n.back, `back of a bar in screen ${def.name}`);
+        if (n.fill) imageProblem(n.src, n.fill, `fill of a bar in screen ${def.name}`);
       }
-    };
-    walk(def.body);
+      if (isClickable(n) && n.hover) imageProblem(n.src, n.hover, `hover image of ${n.id}`);
+      if (isClickable(n) && n.fx.sound && !sounds.has(n.fx.sound)) warn(n.src, `No sound "${n.fx.sound}" in assets/sound (hover sound of ${n.id})`);
+      if ((n.kind === 'button' || n.kind === 'text') && n.style) styleProblem(n.src, n.style);
+    });
   }
+}
 
+/** Characters: blip voices, text box styles and side portraits; lines and menus with a look. */
+function checkCharacters(program: Program, index: AssetIndex, sounds: Set<string>, warn: Warn, styleProblem: (src: Src, style: string) => void) {
   const voices = new Set([...BLIP_PRESETS, ...(index.blips ?? []), ...sounds]);
   const sides = new Set(index.files.flatMap(f => (IMAGE.test(f) && /^side\/[^/]+$/.test(f) ? [f.slice(5).replace(IMAGE, '')] : [])));
   for (const op of program.ops) {
@@ -197,6 +221,25 @@ export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
     if (c.style.box) styleProblem(c.src, c.style.box);
     if (c.side && !sides.has(c.side)) warn(c.src, `No portrait "${c.side}" in assets/side (side=)`);
   }
+}
+
+export function checkAssets(program: Program, index: AssetIndex): Diagnostic[] {
+  const out: Diagnostic[] = [];
+  const seen = new Set<string>();
+  /** With `word` and `known`, the message offers the closest known names ("did you mean") instead of `otherwise`. */
+  const warn = (src: Src, message: string, word?: string, known?: Iterable<string>, otherwise = '') => {
+    const key = `${src.file}:${src.line}:${message}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(word !== undefined && known ? withFix(src, 'warning', message, word, known, otherwise) : { file: src.file, line: src.line, severity: 'warning', message: message + otherwise });
+  };
+
+  const names = assetNames(index);
+  checkOps(program, index, names, warn);
+  checkVoiceFiles(program, index, out);
+  const styleProblem = styleChecker(index, warn);
+  checkImages(program, index, names.sounds, warn, styleProblem);
+  checkCharacters(program, index, names.sounds, warn, styleProblem);
   return out;
 }
 
@@ -354,6 +397,10 @@ export const VOICE_KEY = 'voice/';
 export const bgKey = (name: string, ctx: AssetContext): string | null =>
   ctx.has(`bg/${name}`) ? `bg/${name}` : ctx.has(name) ? name : null;
 
+/** The grayscale image of a `scene ... mask=<name>` transition: assets/transitions/<name>; null when there is none (a plain dissolve is used). */
+export const maskKey = (name: string, ctx: AssetContext): string | null =>
+  ctx.has(`transitions/${name}`) ? `transitions/${name}` : null;
+
 /** The image an overlay `image show` draws: its path under assets/ (extension optional); null when there is none (a placeholder is drawn). */
 export const imageKey = (file: string, ctx: AssetContext): string | null => {
   const k = file.replace(IMAGE, '').replace(MOVIE, ''); // a movie (`movie/<name>`) is an overlay picture that plays on a loop
@@ -422,8 +469,8 @@ export function screenAssets(program: Pick<Program, 'screens' | 'items'>, name: 
       else if (n.kind === 'hotspot' && n.shape.k === 'mask') add(n.shape.file);
       else if (n.kind === 'panel') add(n.file);
       else if (n.kind === 'bar') { add(n.back); add(n.fill); }
-      if ((n.kind === 'hotspot' || n.kind === 'button') && n.hover) add(n.hover);
-      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body) walk(n.body);
+      if (isClickable(n) && n.hover) add(n.hover);
+      if (isClickable(n) && n.body) walk(n.body);
       if (n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
       else if (n.kind === 'each') { lists = true; walk(n.body); }
     }
@@ -456,16 +503,20 @@ export function opAssets(op: Op, ctx: AssetContext, program?: Pick<Program, 'scr
   switch (op.op) {
     case 'hud': return op.mode === 'on' && program ? hudAssets(program, op.name, ctx) : [];
     case 'screen': return program ? screenAssets(program, op.name, ctx) : [];
-    case 'scene': { const k = bgKey(op.bg, ctx); return k ? [k] : []; }
+    case 'scene': { const k = bgKey(op.bg, ctx), m = op.mask ? maskKey(op.mask, ctx) : null; return [...(k ? [k] : []), ...(m ? [m] : [])]; }
     case 'show': return spriteKeys({ char: op.char, pose: op.pose, more: op.more, overrides: op.overrides }, ctx);
     case 'image': { const k = op.action === 'show' ? imageKey(op.file, ctx) : null; return k ? [k] : []; }
     case 'say': return op.id && ctx.hasVoice(op.id) ? [VOICE_KEY + op.id] : [];
     case 'music': return op.action === 'play' && op.name && ctx.has(`music/${op.name}`) ? [`music/${op.name}`] : [];
     case 'sound': return op.name && op.action !== 'stop' && ctx.has(`sound/${op.name}`) ? [`sound/${op.name}`] : [];
     case 'movie': return ctx.has(`movie/${op.name}`) ? [`movie/${op.name}`] : [];
-    default: return [];
+    default: op satisfies AssetFreeOp; return [];
   }
 }
+
+/** The ops that name no asset: `opAssets` ends with a check against this, so a new op that does has to get a case or be listed here. */
+type AssetFreeOp = Extract<Op, { op: 'hide' | 'move' | 'shake' | 'hop' | 'animate' | 'param' | 'flash' | 'tint' | 'camera' | 'weather' | 'filter' | 'focus' | 'behaviors' | 'wait'
+  | 'menu' | 'input' | 'set' | 'jump' | 'call' | 'ret' | 'end' | 'nvl' | 'textbox' | 'unlock' | 'branch' | 'goto' }>;
 
 /** How far ahead, in lines of the story (says, menus, inputs), preload tasks reach. */
 export const PRELOAD_LINES = 40;
@@ -491,7 +542,7 @@ export function successors(program: Program): number[][] {
       case 'jump': case 'call': return op.target >= 0 ? [op.target] : [pc + 1];
       case 'ret': return callers.get(labelOf(pc)) ?? [];
       case 'end': return [];
-      default: return [pc + 1];
+      default: op satisfies FallThroughOp; return [pc + 1];
     }
   });
 }
@@ -542,5 +593,8 @@ export function attachPreloads(program: Program, index: AssetIndex, opts: { gall
   for (const op of ops) if (op.op === 'show' && !op.pose) for (const k of spriteKeys({ char: op.char, pose: null, more: [], overrides: {} }, ctx)) always.add(k);
   const gallery = (opts.gallery ?? []).map(n => bgKey(n, ctx)).filter((k): k is string => !!k);
 
+  const poses: NonNullable<Program['rigPoses']> = {};
+  for (const [char, rig] of Object.entries(index.rigs ?? {})) if (rig.rig?.poses) poses[char] = rig.rig.poses;
+  program.rigPoses = poses;
   return (program.preload = { lookahead, tasks, always: [...always], gallery });
 }

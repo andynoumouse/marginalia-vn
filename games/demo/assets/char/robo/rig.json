@@ -1,5 +1,5 @@
 {
-  "order": ["legs", "torso", "collar", "hand_r", "lower_r", "upper_r", "hand_l", "lower_l", "upper_l", "antenna", "mouth", "eyes", "face"],
+  "order": ["legs", "torso", "collar", "hand_r", "lower_r", "upper_r", "hand_l", "lower_l", "upper_l", "face", "antenna", "mouth", "eyes"],
   "bones": {
     "root": { "pivot": [270, 1050] },
     "spine": { "parent": "root", "pivot": [270, 700] },
@@ -9,14 +9,20 @@
     "forearm_r": { "parent": "arm_r", "pivot": [160, 590] },
     "arm_l": { "parent": "spine", "pivot": [340, 480] },
     "forearm_l": { "parent": "arm_l", "pivot": [380, 590] }
-  },
+  },  
   "parts": {
     "legs": { "bone": "root" },
     "torso": { "bone": "spine" },
     "collar": { "bone": "neck" },
-    "upper_r": { "bone": "arm_r" }, "lower_r": { "bone": "forearm_r" }, "hand_r": { "bone": "forearm_r" },
-    "upper_l": { "bone": "arm_l" }, "lower_l": { "bone": "forearm_l" }, "hand_l": { "bone": "forearm_l" },
-    "face": { "bone": "head" }, "eyes": { "bone": "head" }, "mouth": { "bone": "head" },
+    "upper_r": { "bone": "arm_r" }, 
+    "lower_r": { "bone": "forearm_r" }, 
+    "hand_r": { "bone": "forearm_r" },
+    "upper_l": { "bone": "arm_l" }, 
+    "lower_l": { "bone": "forearm_l" }, 
+    "hand_l": { "bone": "forearm_l" },  
+    "eyes": { "bone": "head" }, 
+    "mouth": { "bone": "head" },
+    "face": { "bone": "head" }, 
     "antenna": { "bone": "head", "pivot": [272, 260] }
   },
   "looks": {
@@ -24,9 +30,11 @@
     "calm": { "eyes": "open", "mouth": "flat" },
     "asleep": { "eyes": "closed", "mouth": "flat" }
   },
-  "idle": "sway",
-  "speak": { "variants": ["open", "flat"], "rate": 7 },
-  "blink": true,
+  "autonomous": {
+    "idle": "sway",
+    "speak": { "slot": "mouth", "variants": ["open", "flat"], "rate": 7 },
+    "blink": { "slot": "eyes", "variant": "closed" }
+  },
   "animations": {
     "sway": {
       "dur": 3,

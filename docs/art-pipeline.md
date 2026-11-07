@@ -38,7 +38,7 @@ _sketch                   names starting with _ (and hidden top-level layers) ar
 - The folder prefix is `"psdPrefix"` in `game.json` (default `"+"`; `""` turns folders off).
 - The converter writes the folders a part sat in to `sprite.json` as its `group` (`"head"`, or `"arm/forearm"` for nested
   folders). The generated starting `rig.json` makes a bone of each folder, parented along the path, with the folder's
-  parts on it; pivots are left for you to place in the studio's Rig mode.
+  parts on it; pivots are left for you to place in the studio's Model mode.
 - Unknown poses and variants are reported in the preview's console.
 
 ## rig.json

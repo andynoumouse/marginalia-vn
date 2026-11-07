@@ -36,12 +36,16 @@ export interface Moment { step: number; choices: Answer[]; line?: LineInfo }
 export const SLOTS_PER_PAGE = 6;
 export const PAGES = 9;
 const PREFIX = 'save.';
+const CORRUPT = 'corrupt-save.';
 
 export function readSave(slot: string): SaveData | null {
   try {
     const s = JSON.parse(getItem(PREFIX + slot) ?? 'null') as SaveData | null;
     return s && s.at && Array.isArray(s.choices) ? s : null;
-  } catch {
+  } catch (e) {
+    const raw = getItem(PREFIX + slot);
+    if (raw !== null && getItem(CORRUPT + slot) === null) setItem(CORRUPT + slot, raw); // a later write must not destroy the only copy
+    console.warn(`save slot ${slot} is unreadable and will show as empty (raw data kept under ${CORRUPT}${slot}):`, e);
     return null;
   }
 }

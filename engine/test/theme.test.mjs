@@ -279,22 +279,6 @@ test('theme panel: contrast notes for tokens and components', async () => {
   assert.match(contrastNote(['tokens', 'text'], p => (p[1] === 'text' ? '#000' : undefined)), /^Contrast 1\.\d:1/, 'black text on the default dark surface');
 });
 
-test('inline theme in game.json moves to a theme file', async () => {
-  const { moveInlineTheme } = await import('../../dist/engine/src/index.js');
-  const game = JSON.stringify({ title: 'T', theme: { accent: '#e0a050', font: 'Lora', choices: { gap: 20 }, hotFill: 'rgba(1,2,3,.4)', skins: { a: { text: { size: 50 } } }, tokens: { radius: 3 }, mystery: 1 }, width: 1920 });
-  const moved = moveInlineTheme(game, ['default']);
-  assert.equal(moved.name, 'theme');
-  assert.deepEqual(JSON.parse(moved.gameText), { title: 'T', theme: 'theme', width: 1920 });
-  assert.deepEqual(JSON.parse(moved.themeText), {
-    extends: 'base', tokens: { radius: 3, accent: '#e0a050', font: 'Lora' },
-    components: { choice: { gap: 20 }, hotspot: { background: 'rgba(1,2,3,.4)' } },
-    styles: { a: { text: { size: 50 } } }, mystery: 1,
-  });
-  assert.equal(moveInlineTheme('{"theme":"night"}', []), null);
-  assert.equal(moveInlineTheme('{ nope', []), null);
-  assert.equal(moveInlineTheme('{"theme":{}}', []).name, 'default');
-});
-
 test('token references: $name is the token, $name/N its color at N% opacity; unset tokens drop the value', () => {
   const css = themeCss(resolveTheme({
     tokens: { accent: '#ff0000', surface: 'rgb(0, 0, 255)' },

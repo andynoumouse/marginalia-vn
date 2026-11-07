@@ -3,9 +3,15 @@
 // Coordinates are stage pixels (the project's stage size, 1920x1080 unless game.json says otherwise; origin top left, y down).
 
 import { evalExpr, type Expr, type Value } from './expr.js';
-import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
+import { DEFAULT_STAGE, type StageSize } from './stage.js';
 import type { Src, Vars } from './types.js';
 import { partAnim, staggered, type ElementAnim, type PartAnim } from './screen-anim.js';
+import { shapeBounds, shapeCenter, translate } from './screen-geometry.js';
+import { layoutGroups, partBox, shiftPart } from './screen-layout.js';
+
+export * from './screen-geometry.js';
+export * from './screen-validate.js';
+export { shiftPart } from './screen-layout.js';
 
 /** Space on the four sides, in stage pixels: top, right, bottom, left. */
 export type Sides = [number, number, number, number];
@@ -92,6 +98,7 @@ export function sliderReadout(setting: string, value: number): string {
 }
 /** Player settings a button with `action cycle` steps through (its id names the setting); their current word is a variable of the options screen. */
 export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language', 'announce_lines', 'theme', 'voice_language'] as const;
+export type CycleSetting = (typeof CYCLE_SETTINGS)[number];
 /**
  * A `select <setting>` on the options screen: a button showing the setting's current value that opens a list of its values. The shell tells the
  * screen the list as the variable `<setting>_options` (the values) with entries `<setting>_options` carrying each one's `label`, and which select is open
@@ -145,7 +152,14 @@ export type ScreenNode = Common & (
 export interface Bind { role: 'tab' | 'toggle' | 'radio'; name: string; value: Value | null }
 
 /** The nodes inside an `each`, a layout, a scroll area or a panel. */
-export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel' ? n.body : n.kind === 'hotspot' || n.kind === 'button' ? n.body ?? [] : []);
+/** A hotspot or a button: the elements that take clicks, hover and focus, and may hold child elements. */
+export const isClickable = (n: ScreenNode): n is Extract<ScreenNode, { kind: 'hotspot' | 'button' }> => n.kind === 'hotspot' || n.kind === 'button';
+
+/** Calls `visit` on every node of the trees, each parent before its children. */
+export function walkNodes(nodes: ScreenNode[], visit: (n: ScreenNode) => void): void {
+  for (const n of nodes) { visit(n); walkNodes(childNodes(n), visit); }
+}
+export const childNodes = (n: ScreenNode): ScreenNode[] => (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel' ? n.body : isClickable(n) ? n.body ?? [] : []);
 /** Inline handlers of an element, `on click set tip = "x"`: a change to the screen's local state, per event. */
 export type LocalSets = Partial<Record<HudEvent, { name: string; expr: Expr }>>;
 /** The same handlers resolved against the current state: the state to set and the value it gets. */
@@ -226,80 +240,6 @@ export function textSize(text: string, font = 40, width?: number): { w: number; 
 
 const truthy = (v: Value) => (Array.isArray(v) ? v.length > 0 : Boolean(v));
 
-export function shapeBounds(s: Shape): StageRect {
-  if (s.k !== 'poly') return { x: s.x, y: s.y, w: s.w, h: s.h };
-  const xs = s.points.map(p => p[0]), ys = s.points.map(p => p[1]);
-  const x = Math.min(...xs), y = Math.min(...ys);
-  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
-}
-
-/** The point directional focus aims at: the centroid of a polygon (its bounding box centre when it has no area), else the centre. */
-export function shapeCenter(s: Shape): Point {
-  if (s.k === 'poly') {
-    let a = 0, cx = 0, cy = 0;
-    for (let i = 0; i < s.points.length; i++) {
-      const [x0, y0] = s.points[i], [x1, y1] = s.points[(i + 1) % s.points.length];
-      const f = x0 * y1 - x1 * y0;
-      a += f; cx += (x0 + x1) * f; cy += (y0 + y1) * f;
-    }
-    if (Math.abs(a) > 1e-9) return [cx / (3 * a), cy / (3 * a)];
-  }
-  const b = shapeBounds(s);
-  return [b.x + b.w / 2, b.y + b.h / 2];
-}
-
-/** Ray casting; points on an edge count as inside only by luck, which is fine for a mouse. */
-export function pointInPolygon(points: Point[], x: number, y: number): boolean {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const [xi, yi] = points[i], [xj, yj] = points[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-export const pointInRect = (r: StageRect, x: number, y: number) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-export function pointInEllipse(r: StageRect, x: number, y: number): boolean {
-  if (r.w <= 0 || r.h <= 0) return false;
-  const dx = (x - (r.x + r.w / 2)) / (r.w / 2), dy = (y - (r.y + r.h / 2)) / (r.h / 2);
-  return dx * dx + dy * dy <= 1;
-}
-
-/** Whether a stage point is in the shape. A mask is only tested against its box here: the shell checks the pixel. */
-export function hitTest(s: Shape, x: number, y: number): boolean {
-  switch (s.k) {
-    case 'rect': case 'mask': return pointInRect(s, x, y);
-    case 'ellipse': return pointInEllipse(s, x, y);
-    case 'poly': return pointInPolygon(s.points, x, y);
-  }
-}
-
-export function translate(s: Shape, dx: number, dy: number): Shape {
-  if (s.k === 'poly') return { k: 'poly', points: s.points.map(([x, y]) => [x + dx, y + dy] as Point) };
-  return { ...s, x: s.x + dx, y: s.y + dy };
-}
-
-/**
- * The element of a direction from `from`, or -1: of the candidates ahead (at most about 60 degrees off the
- * direction, else any ahead when none is in that cone) the one with the smallest distance along the direction plus
- * twice the distance across it. Used for the arrow keys and the pad on maps, where reading order means nothing.
- */
-export function focusMove(centers: Point[], from: number, dir: 'up' | 'down' | 'left' | 'right'): number {
-  const a = centers[from];
-  if (!a) return -1;
-  const cands: { i: number; along: number; across: number }[] = [];
-  centers.forEach((c, i) => {
-    if (i === from) return;
-    const dx = c[0] - a[0], dy = c[1] - a[1];
-    const along = dir === 'up' ? -dy : dir === 'down' ? dy : dir === 'left' ? -dx : dx;
-    if (along <= 0.5) return;
-    cands.push({ i, along, across: dir === 'up' || dir === 'down' ? Math.abs(dx) : Math.abs(dy) });
-  });
-  if (!cands.length) return -1;
-  const inCone = cands.filter(c => c.across <= c.along * 1.75);
-  const pool = inCone.length ? inCone : cands;
-  return pool.reduce((best, c) => (c.along + 2 * c.across < best.along + 2 * best.across ? c : best)).i;
-}
 
 /** The id of the first `action tab` button of a screen: the tab shown until the player picks another. */
 export function firstTab(def: ScreenDef): string {
@@ -316,117 +256,16 @@ export function firstTab(def: ScreenDef): string {
 /** The labels the elements of a screen call (`on click <label>`), in order, without repeats. */
 export function hudLabels(def: ScreenDef | undefined): string[] {
   const out = new Set<string>();
-  const walk = (nodes: ScreenNode[]) => {
-    for (const n of nodes) {
-      if (n.kind === 'each' || n.kind === 'layout' || n.kind === 'scroll' || n.kind === 'panel') walk(n.body);
-      else if (n.kind === 'hotspot' || n.kind === 'button') { for (const l of Object.values(n.on)) out.add(l); if (n.body) walk(n.body); }
-    }
-  };
-  if (def) walk(def.body);
+  if (def) walkNodes(def.body, n => { if (isClickable(n)) for (const l of Object.values(n.on)) out.add(l); });
   return [...out];
 }
 
-// ---- layout ----
-
-export function shiftPart(p: ViewPart, dx: number, dy: number): ViewPart {
-  if (dx === 0 && dy === 0) return p;
-  if (p.kind === 'image' || p.kind === 'text' || p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { ...p, x: p.x + dx, y: p.y + dy };
-  const shape = translate(p.shape, dx, dy);
-  return { ...p, shape, bounds: shapeBounds(shape), center: shapeCenter(shape) };
-}
-
-/** The box a part occupies for layout purposes (an image needs its size; text and buttons use the size guesses). */
-function partBox(p: ViewPart): StageRect {
-  if (p.kind === 'image') return { x: p.x, y: p.y, w: p.w ?? 0, h: p.h ?? 0 };
-  if (p.kind === 'text') return { x: p.x, y: p.y, ...textSize(p.text, p.font, p.width) };
-  if (p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { x: p.x, y: p.y, w: p.w, h: p.h };
-  return p.bounds;
-}
-
-function groupBox(g: ViewPart[]): StageRect {
-  const boxes = g.map(partBox);
-  const x = Math.min(...boxes.map(b => b.x)), y = Math.min(...boxes.map(b => b.y));
-  return { x, y, w: Math.max(...boxes.map(b => b.x + b.w)) - x, h: Math.max(...boxes.map(b => b.y + b.h)) - y };
-}
-
-/** Room left over after `align stretch` only exists for parts that cannot grow (text height, images): those are centred. */
 /** A text's `color`: a CSS color, or `[variable]` worked out (nothing when the variable is empty, so the default colour stays). */
 function textColor(raw: string, env: ScreenEnv, vars: Vars): { color?: string } {
   const c = env.text(null, raw, vars);
   return c ? { color: c } : {};
 }
 
-const alignOffset =(align: LayoutAlign, room: number) => (align === 'center' || align === 'stretch' ? room / 2 : align === 'end' ? room : 0);
-
-/**
- * `align stretch`: a group's parts that span its box on an axis grow to `w` / `h` (null: leave that axis). Only boxes that can be
- * resized without distorting are touched: text (a wider box), buttons and hotspots with a rectangle, panels, bars, sliders and scrolls.
- * Children placed inside a panel keep their place.
- */
-function stretchGroup(g: ViewPart[], w: number | null, h: number | null): ViewPart[] {
-  const box = groupBox(g);
-  return g.map(p => {
-    const b = partBox(p);
-    const sw = w !== null && b.x === box.x && b.w === box.w ? w : null, sh = h !== null && b.y === box.y && b.h === box.h ? h : null;
-    if (sw === null && sh === null) return p;
-    if (p.kind === 'text') return sw === null ? p : { ...p, width: sw };
-    if (p.kind === 'slider' || p.kind === 'scroll' || p.kind === 'panel' || p.kind === 'bar') return { ...p, w: sw ?? p.w, h: sh ?? p.h };
-    if (p.kind === 'button' || p.kind === 'hotspot') {
-      if (p.shape.k !== 'rect') return p;
-      const shape: Shape = { ...p.shape, w: sw ?? p.shape.w, h: sh ?? p.shape.h };
-      return { ...p, shape, bounds: shapeBounds(shape), center: shapeCenter(shape) };
-    }
-    return p;
-  });
-}
-
-/** Where a layout's box goes on the stage: `at`, or an anchor with a margin (a layout inside another is placed by its parent: 0,0). */
-function anchorOrigin(n: Extract<ScreenNode, { kind: 'layout' }>, w: number, h: number, stage: StageSize, vars: Vars): Point {
-  if (n.at) return n.at;
-  const named = n.anchorVar ? String(vars[n.anchorVar]) : null;
-  const a = named !== null ? ((LAYOUT_ANCHORS as readonly string[]).includes(named) ? named : 'center') as LayoutAnchor : n.anchor;
-  if (!a) return [0, 0];
-  const [mt, mr, mb, ml] = n.margin;
-  const x = a.endsWith('left') || a === 'left' ? ml : a.endsWith('right') ? stage.width - mr - w : (stage.width - w + ml - mr) / 2;
-  const y = a.startsWith('top') ? mt : a.startsWith('bottom') ? stage.height - mb - h : (stage.height - h + mt - mb) / 2;
-  return [x, y];
-}
-
-/** Places the groups of a row, column or grid: every part comes back moved to its cell, the whole at `at` or the anchor. */
-function layoutGroups(n: Extract<ScreenNode, { kind: 'layout' }>, groups: ViewPart[][], stage: StageSize, vars: Vars): ViewPart[] {
-  if (!groups.length) return [];
-  let boxes = groups.map(groupBox);
-  const stretch = n.align === 'stretch';
-  const moves: Point[] = [];
-  let width: number, height: number;
-  if (n.type === 'grid') {
-    const cols = Math.max(1, n.columns), rows = Math.ceil(groups.length / cols);
-    const cw = n.cell?.[0] ?? Math.max(...boxes.map(b => b.w)), ch = n.cell?.[1] ?? Math.max(...boxes.map(b => b.h));
-    if (stretch) { groups = groups.map(g => stretchGroup(g, cw, ch)); boxes = groups.map(groupBox); }
-    boxes.forEach((b, i) => {
-      const cx = (i % cols) * (cw + n.gap), cy = Math.floor(i / cols) * (ch + n.gap);
-      moves.push([cx + alignOffset(n.align, cw - b.w) - b.x, cy + alignOffset(n.align, ch - b.h) - b.y]);
-    });
-    width = cols * cw + (cols - 1) * n.gap;
-    height = rows * ch + (rows - 1) * n.gap;
-  } else {
-    const row = n.type === 'row';
-    const across = Math.max((row ? n.height : n.width) ?? 0, ...boxes.map(b => (row ? b.h : b.w)));
-    if (stretch) { groups = groups.map(g => stretchGroup(g, row ? null : across, row ? across : null)); boxes = groups.map(groupBox); }
-    let at = 0;
-    for (const b of boxes) {
-      const cross = alignOffset(n.align, across - (row ? b.h : b.w));
-      moves.push(row ? [at - b.x, cross - b.y] : [cross - b.x, at - b.y]);
-      at += (row ? b.w : b.h) + n.gap;
-    }
-    const total = Math.max(at - n.gap, (row ? n.width : n.height) ?? 0);
-    width = row ? total : across;
-    height = row ? across : total;
-  }
-  const [pt, pr, pb, pl] = n.padding;
-  const [ox, oy] = anchorOrigin(n, width + pl + pr, height + pt + pb, stage, vars);
-  return groups.flatMap((g, i) => g.map(p => shiftPart(p, moves[i][0] + ox + pl, moves[i][1] + oy + pt)));
-}
 
 // ---- resolution ----
 
@@ -655,72 +494,3 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
   return { name: def.name, parts, default: def.default, cancel: def.cancel, ...(def.hideBox ? { hideBox: true as const } : {}) };
 }
 
-// ---- validation ----
-
-export interface ScreenProblem { src: Src; severity: 'error' | 'warning'; message: string }
-
-/** Problems in one screen declaration that need no variables: ids, shapes, an empty screen. */
-export function validateScreen(def: ScreenDef, stage: StageSize = DEFAULT_STAGE): ScreenProblem[] {
-  const out: ScreenProblem[] = [];
-  const stock = def.src.file.startsWith('stock/'); // the starters are laid out for the default stage: no off-stage warnings about them
-  const problem = (src: Src, severity: 'error' | 'warning', message: string) => { if (!(stock && severity === 'warning')) out.push({ src, severity, message }); };
-  const ids = new Set<string>();
-  const hinted: { src: Src; from: string; to: string }[] = [];
-  let interactive = 0, hasEach = false;
-  const walk = (nodes: ScreenNode[], loop: string | null, area = false, nested = false) => {
-    for (const n of nodes) {
-      if (n.kind === 'scroll') {
-        if (area) problem(n.src, 'error', 'A scroll area cannot be inside another scroll area');
-        else if (nested) problem(n.src, 'error', 'A scroll area goes directly in the screen, not inside each, row, column or grid');
-        if (n.w <= 0 || n.h <= 0) problem(n.src, 'error', 'A scroll area needs a size above zero');
-        walk(n.body, loop, true, nested);
-        continue;
-      }
-      if (n.kind === 'each') { hasEach = true; walk(n.body, n.as, area, true); continue; }
-      if (n.kind === 'panel') {
-        if ((n.w !== null && n.w <= 0) || (n.h !== null && n.h <= 0)) problem(n.src, 'error', 'A panel needs a size above zero');
-        else if (n.w === null && n.h === null && !n.body.length && !n.file) problem(n.src, 'warning', 'An empty panel without a size or an image draws nothing useful (give it size w,h)');
-        if (n.slice.some(s => s < 0)) problem(n.src, 'error', 'A panel slice cannot be negative');
-        walk(n.body, loop, area, nested);
-        continue;
-      }
-      if (n.kind === 'bar') {
-        if (n.w <= 0 || n.h <= 0) problem(n.src, 'error', 'A bar needs a size above zero');
-        continue;
-      }
-      if (n.kind === 'layout') {
-        if (n.type === 'grid' && n.cell && (n.cell[0] <= 0 || n.cell[1] <= 0)) problem(n.src, 'error', 'A grid cell needs a size above zero');
-        walk(n.body, loop, area, true);
-        continue;
-      }
-      if (area && n.kind === 'hotspot' && (n.shape.k === 'poly' || n.shape.k === 'mask')) problem(n.src, 'error', 'A poly or mask hotspot cannot be inside a scroll area (use a rect or ellipse)');
-      if (area && n.kind === 'slider') problem(n.src, 'error', 'A slider cannot be inside a scroll area');
-      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body?.length && loop !== null) problem(n.src, 'error', `"${n.id}" has child elements, which "each" cannot repeat (every copy would share the children's ids); put the group outside the each`);
-      if (n.kind === 'hotspot' || n.kind === 'button') {
-        interactive++;
-        if (loop !== null && n.id !== loop && !n.id.startsWith(`${loop}.`)) problem(n.src, 'error', `Inside "each", the element id must be "${loop}" (the entry) or "${loop}.<word>", or every copy would share one id`);
-        else if (loop === null && ids.has(n.id)) problem(n.src, 'error', `Duplicate element id "${n.id}" in screen ${def.name}`);
-        if (loop === null) ids.add(n.id);
-        if (loop === null) for (const to of Object.values(n.focus)) hinted.push({ src: n.src, from: n.id, to });
-        if (n.id === '') problem(n.src, 'error', 'An element id cannot be empty (an empty answer means cancel)');
-      }
-      if (n.kind === 'hotspot') {
-        const s = n.shape, b = shapeBounds(s);
-        if (s.k === 'poly' && s.points.length < 3) problem(n.src, 'error', 'A poly needs at least three points');
-        if (s.k !== 'poly' && (s.w <= 0 || s.h <= 0)) problem(n.src, 'error', 'A hotspot needs a size above zero');
-        if (loop === null && (b.x + b.w < 0 || b.y + b.h < 0 || b.x > stage.width || b.y > stage.height)) {
-          problem(n.src, 'warning', `Hotspot "${n.id}" is outside the ${stageLabel(stage)} stage (coordinates are stage pixels)`);
-        }
-      }
-      if (n.kind === 'button' && loop === null && (n.x < 0 || n.y < 0 || n.x > stage.width || n.y > stage.height)) {
-        problem(n.src, 'warning', `Button "${n.id}" is outside the ${stageLabel(stage)} stage (coordinates are stage pixels)`);
-      }
-      if ((n.kind === 'hotspot' || n.kind === 'button') && n.body?.length) walk(n.body, loop, area, nested);
-    }
-  };
-  walk(def.body, null);
-  if (!hasEach) for (const h of hinted) if (!ids.has(h.to)) problem(h.src, 'error', `"${h.from}" moves focus to "${h.to}", which is not an element of screen ${def.name}`);
-  if (!interactive && !def.cancel && def.name !== ACHIEVEMENT_TOAST_SCREEN) problem(def.src, 'warning', `Screen ${def.name} has nothing to choose (it would return at once)`);
-  if (def.default !== null && !ids.has(def.default) && !hasEach) problem(def.src, 'error', `Default "${def.default}" is not an element of screen ${def.name}`);
-  return out;
-}

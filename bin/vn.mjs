@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // The vn command: runs the engine's tools on a game project (the current folder, or --project <dir>).
 //   vn dev [--no-build] [--no-art]   editor + live preview, http://localhost:5173 (PORT to change)
+//   vn character [--no-build]        the character studio on its own, with no game project: http://localhost:5173/editor/studio.html
 //   vn export [--out <dir>]          static web build (default build/web in the project)
 //   vn export --desktop [--out <dir>] Electron app folder with packed assets (default build/desktop)
 //   vn export --desktop --portable    the app ready to run, zipped (default build/portable; only inside Marginalia Studio)
@@ -50,6 +51,10 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
 } else if (cmd === 'init') {
   const title = flag('--title'), stage = flag('--stage'), template = flag('--template');
   await init(argv[1], title, stage, template);
+} else if (cmd === 'character') {
+  // No project to find: the server serves the pages and the page reads the character folder you pick (docs/standalone-studio.md).
+  const r = spawnSync(process.execPath, [path.join(engineRoot, 'preview', 'dev-server.mjs'), '--studio-only', ...argv.slice(1)], { cwd: engineRoot, stdio: 'inherit', env: { ...process.env, VN_STUDIO_ONLY: '1' } });
+  process.exit(r.status ?? 1);
 } else if (TOOLS[cmd]) {
   const projectArg = flag('--project');
   const project = findProject(projectArg ?? process.cwd());

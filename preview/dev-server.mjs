@@ -5,19 +5,24 @@
 // Code comes from the engine folder, content from the project (see tools/paths.mjs).
 //
 //   vn dev [--no-build] [--no-art]      (or node preview/dev-server.mjs; PORT=5173 by default)
-//   Preview:  http://localhost:5173/        Editor:  http://localhost:5173/editor/
+//   Preview:  http://localhost:5173/        Editor:  http://localhost:5173/editor/        Studio:  http://localhost:5173/editor/studio.html
+//   vn character [--no-build]           the same server with no game project (--studio-only, or VN_STUDIO_ONLY=1): it serves the pages and
+//                                       nothing of a project, for the standalone character studio (docs/standalone-studio.md)
 
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile, spawn, spawnSync } from 'node:child_process';
 import { buildPlan } from '../tools/build-plan.mjs';
 import { pathToFileURL } from 'node:url';
 import { checkEngineVersion, engineRoot as root, projectRoot } from '../tools/paths.mjs';
 
-const project = projectRoot();
-checkEngineVersion(project);
+// Studio-only: the standalone studio runs on a character folder the page itself reads, so there is no project here (the folder below is never made).
+const studioOnly = process.argv.includes('--studio-only') || process.env.VN_STUDIO_ONLY === '1';
+const project = studioOnly ? path.join(os.tmpdir(), 'marginalia-no-project') : projectRoot();
+if (!studioOnly) checkEngineVersion(project);
 const port = Number(process.env.PORT) || 5173;
 const scriptDir = path.join(project, 'script');
 const localeDir = path.join(project, 'locale');
@@ -61,7 +66,7 @@ const { projectData: readProject } = await import('../tools/project-data.mjs');
 const { isLocalHost, isOwnOrigin, isOpenable } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'request-guard.js')).href);
 
 // ---- art pipeline ----
-if (!process.argv.includes('--no-art')) {
+if (!process.argv.includes('--no-art') && !studioOnly) {
   spawn(process.execPath, [path.join(root, 'tools', 'psd-convert.mjs'), '--watch'], { cwd: root, stdio: 'inherit', env: childEnv });
 }
 
@@ -94,13 +99,15 @@ function watch(dir, type) {
     });
   } catch (e) { console.warn(`Cannot watch ${dir}: ${e.message}`); }
 }
-watch(scriptDir, 'content');
-watch(localeDir, 'content');
-watch(path.join(distRoot, 'dist'), 'engine');
-watch(assetDir, 'content');
-watch(path.join(project, 'themes'), 'content');
-watch(path.join(project, 'masters'), 'masters'); // only the editor's files panel listens (the converter's output arrives as 'content')
-fs.watchFile(gameFile, { interval: 300 }, () => broadcast('content', 'game.json')); // also notices it being created
+if (!studioOnly) {
+  watch(scriptDir, 'content');
+  watch(localeDir, 'content');
+  watch(path.join(distRoot, 'dist'), 'engine');
+  watch(assetDir, 'content');
+  watch(path.join(project, 'themes'), 'content');
+  watch(path.join(project, 'masters'), 'masters'); // only the editor's files panel listens (the converter's output arrives as 'content')
+  fs.watchFile(gameFile, { interval: 300 }, () => broadcast('content', 'game.json')); // also notices it being created
+}
 
 // ---- script saving (used by the editor) ----
 // Bound to localhost only, and every request must name a local Host (blocks DNS rebinding; see engine/src/request-guard.ts).
@@ -290,7 +297,7 @@ async function emptyTrash(req, res, url) {
     res.end(JSON.stringify({ ok: true, removed: ids.length }));
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
 }
-purgeTrash().catch(() => {}); // dist/ may not be built yet on a first start: the next delete purges
+if (!studioOnly) purgeTrash().catch(() => {}); // dist/ may not be built yet on a first start: the next delete purges
 
 // ---- git (the Files panel's branch, changes and Commit) ----
 // `GET /api/git` gathers the facts (engine/src/git.ts decides what blocks or warns), `POST /api/git/commit` (body: the message)
@@ -442,17 +449,23 @@ function readLocales(res) {
   res.end(JSON.stringify(out));
 }
 
-async function saveLocale(req, res, url) {
-  const file = url.searchParams.get('file') ?? '';
-  if (!isLocalRequest(req) || !localeName(file)) { res.writeHead(403); res.end('Forbidden'); return; }
+// Shared by the JSON save routes: local requests only, `allowed` false is a 403, a body that is not JSON a 400 (unless `json` is
+// false), `write(body)` stores it, anything thrown a 500.
+async function saveBody(req, res, { allowed = true, max, json = true, write }) {
+  if (!isLocalRequest(req) || !allowed) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
-    const body = await readBody(req, 50_000_000); // a big project's table is several MB
-    try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; }
-    fs.mkdirSync(localeDir, { recursive: true });
-    fs.writeFileSync(path.join(localeDir, file), body);
+    const body = await readBody(req, max);
+    if (json) { try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; } }
+    write(body);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('{"ok":true}');
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+}
+
+async function saveLocale(req, res, url) {
+  const file = url.searchParams.get('file') ?? '';
+  // a big project's table is several MB
+  await saveBody(req, res, { allowed: localeName(file), max: 50_000_000, write: body => { fs.mkdirSync(localeDir, { recursive: true }); fs.writeFileSync(path.join(localeDir, file), body); } });
 }
 
 // Voice recordings and what the lock remembers of them; the editor's Voice dialog compares them with the lines (voice.lock.json).
@@ -477,14 +490,7 @@ async function saveVoice(req, res) {
 }
 
 async function saveGame(req, res) {
-  if (!isLocalRequest(req)) { res.writeHead(403); res.end('Forbidden'); return; }
-  try {
-    const body = await readBody(req);
-    try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; }
-    fs.writeFileSync(gameFile, body);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"ok":true}');
-  } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+  await saveBody(req, res, { write: body => fs.writeFileSync(gameFile, body) });
 }
 
 // A character's hand-written rig.json (the editor's rig tab); the character must already have art.
@@ -492,28 +498,16 @@ async function saveRig(req, res, url) {
   const char = url.searchParams.get('char') ?? '';
   const dir = path.resolve(assetDir, 'char', char);
   const ok = /^[\w\-]+$/.test(char) && dir.startsWith(path.join(assetDir, 'char') + path.sep) && fs.existsSync(dir);
-  if (!isLocalRequest(req) || !ok) { res.writeHead(403); res.end('Forbidden'); return; }
-  try {
-    const body = await readBody(req);
-    try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; }
-    fs.writeFileSync(path.join(dir, 'rig.json'), body);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"ok":true}');
-  } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+  await saveBody(req, res, { allowed: ok, write: body => fs.writeFileSync(path.join(dir, 'rig.json'), body) });
 }
 
 async function saveTheme(req, res, url) {
   const name = url.searchParams.get('name') ?? '';
-  if (!isLocalRequest(req) || !/^[\w\-]+$/.test(name)) { res.writeHead(403); res.end('Forbidden'); return; }
-  try {
-    const body = await readBody(req);
-    const css = url.searchParams.get('ext') === 'css'; // themes/<name>.css is free-form CSS
-    if (!css) { try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; } }
-    fs.mkdirSync(path.join(project, 'themes'), { recursive: true });
-    fs.writeFileSync(path.join(project, 'themes', `${name}.${css ? 'css' : 'json'}`), body);
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end('{"ok":true}');
-  } catch (e) { res.writeHead(500); res.end(String(e.message)); }
+  const css = url.searchParams.get('ext') === 'css'; // themes/<name>.css is free-form CSS
+  await saveBody(req, res, {
+    allowed: /^[\w\-]+$/.test(name), json: !css,
+    write: body => { fs.mkdirSync(path.join(project, 'themes'), { recursive: true }); fs.writeFileSync(path.join(project, 'themes', `${name}.${css ? 'css' : 'json'}`), body); },
+  });
 }
 
 // ---- project tasks (editor command palette) ----
@@ -586,6 +580,18 @@ async function readBuildCheck(req, res, url) {
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
 }
 
+// A route handler that rejects (a dist/ import racing tsc's rewrite, say) must not take the server down; Node would exit on it.
+process.on('unhandledRejection', e => console.error('[server] unhandled rejection:', e));
+
+/** Answers 500 for an async route handler that rejects, so the request does not hang. */
+function guard(res, promise) {
+  promise.catch(e => {
+    console.error('[server] route failed:', e);
+    if (!res.headersSent) res.writeHead(500);
+    res.end(String(e?.message ?? e));
+  });
+}
+
 // ---- http ----
 http.createServer((req, res) => {
   if (!isLocalHost(req.headers.host)) { res.writeHead(403); res.end('Forbidden host'); return; } // reads too: script text must not leak
@@ -597,26 +603,27 @@ http.createServer((req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  if (url.pathname === '/api/script' && req.method === 'PUT') { saveScript(req, res, url); return; }
-  if (url.pathname === '/api/asset' && req.method === 'PUT') { saveAsset(req, res, url); return; }
+  if (studioOnly && url.pathname.startsWith('/api/')) { res.writeHead(404); res.end('No game project: this server only serves the character studio'); return; }
+  if (url.pathname === '/api/script' && req.method === 'PUT') { guard(res, saveScript(req, res, url)); return; }
+  if (url.pathname === '/api/asset' && req.method === 'PUT') { guard(res, saveAsset(req, res, url)); return; }
   if (url.pathname === '/api/folder' && req.method === 'PUT') { saveFolder(req, res, url); return; }
-  if (url.pathname === '/api/move' && req.method === 'POST') { void movePath(req, res, url); return; }
-  if (url.pathname === '/api/delete' && req.method === 'POST') { void deletePath(req, res, url); return; }
-  if (url.pathname === '/api/trash' && req.method === 'GET') { void listTrash(res); return; }
-  if (url.pathname === '/api/trash/restore' && req.method === 'POST') { void restoreTrash(req, res, url); return; }
-  if (url.pathname === '/api/trash/empty' && req.method === 'POST') { void emptyTrash(req, res, url); return; }
-  if (url.pathname === '/api/git' && req.method === 'GET') { void readGit(res); return; }
-  if (url.pathname === '/api/git/commit' && req.method === 'POST') { void commitGit(req, res); return; }
-  if (url.pathname === '/api/git/ignore' && req.method === 'POST') { void ignoreGit(req, res); return; }
+  if (url.pathname === '/api/move' && req.method === 'POST') { guard(res, movePath(req, res, url)); return; }
+  if (url.pathname === '/api/delete' && req.method === 'POST') { guard(res, deletePath(req, res, url)); return; }
+  if (url.pathname === '/api/trash' && req.method === 'GET') { guard(res, listTrash(res)); return; }
+  if (url.pathname === '/api/trash/restore' && req.method === 'POST') { guard(res, restoreTrash(req, res, url)); return; }
+  if (url.pathname === '/api/trash/empty' && req.method === 'POST') { guard(res, emptyTrash(req, res, url)); return; }
+  if (url.pathname === '/api/git' && req.method === 'GET') { guard(res, readGit(res)); return; }
+  if (url.pathname === '/api/git/commit' && req.method === 'POST') { guard(res, commitGit(req, res)); return; }
+  if (url.pathname === '/api/git/ignore' && req.method === 'POST') { guard(res, ignoreGit(req, res)); return; }
   if ((url.pathname === '/api/reveal' || url.pathname === '/api/open') && req.method === 'POST') { showPath(req, res, url, url.pathname.slice(5)); return; }
-  if (url.pathname === '/api/game' && req.method === 'PUT') { saveGame(req, res); return; }
+  if (url.pathname === '/api/game' && req.method === 'PUT') { guard(res, saveGame(req, res)); return; }
   if (url.pathname === '/api/locales' && req.method === 'GET') { readLocales(res); return; }
-  if (url.pathname === '/api/locale' && req.method === 'PUT') { saveLocale(req, res, url); return; }
-  if (url.pathname === '/api/voice' && req.method === 'GET') { void readVoice(res); return; }
-  if (url.pathname === '/api/voice' && req.method === 'PUT') { void saveVoice(req, res); return; }
-  if (url.pathname === '/api/rig' && req.method === 'PUT') { saveRig(req, res, url); return; }
-  if (url.pathname === '/api/theme' && req.method === 'PUT') { void saveTheme(req, res, url); return; }
-  if (url.pathname === '/api/build-check' && req.method === 'GET') { void readBuildCheck(req, res, url); return; }
+  if (url.pathname === '/api/locale' && req.method === 'PUT') { guard(res, saveLocale(req, res, url)); return; }
+  if (url.pathname === '/api/voice' && req.method === 'GET') { guard(res, readVoice(res)); return; }
+  if (url.pathname === '/api/voice' && req.method === 'PUT') { guard(res, saveVoice(req, res)); return; }
+  if (url.pathname === '/api/rig' && req.method === 'PUT') { guard(res, saveRig(req, res, url)); return; }
+  if (url.pathname === '/api/theme' && req.method === 'PUT') { guard(res, saveTheme(req, res, url)); return; }
+  if (url.pathname === '/api/build-check' && req.method === 'GET') { guard(res, readBuildCheck(req, res, url)); return; }
   if (url.pathname === '/api/task' && req.method === 'POST') { runTask(req, res, url); return; }
   if (url.pathname === '/api/capabilities') { // engine/src/capabilities.ts; the online demo's service worker answers with less
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -628,7 +635,8 @@ http.createServer((req, res) => {
     res.end(JSON.stringify(projectData()));
     return;
   }
-  let rel = decodeURIComponent(url.pathname);
+  let rel;
+  try { rel = decodeURIComponent(url.pathname); } catch { res.writeHead(400); res.end('Bad request'); return; } // a stray % is a URIError
   if (rel === '/') rel = '/preview/index.html';
   if (rel === '/editor') { res.writeHead(302, { Location: '/editor/' + url.search }); res.end(); return; } // the page's relative URLs (help.css, ../docs/) need the slash
   if (rel.endsWith('/')) rel += 'index.html'; // folders: /editor/, /build/web/
@@ -649,5 +657,7 @@ http.createServer((req, res) => {
     res.writeHead(404); res.end('Not found'); return;
   }
   res.writeHead(200, { 'Content-Type': mime[path.extname(full)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
-  fs.createReadStream(full).pipe(res);
-}).listen(port, '127.0.0.1', () => console.log(`Project: ${project}\nPreview: http://localhost:${port}\nEditor:  http://localhost:${port}/editor/`));
+  fs.createReadStream(full).on('error', () => res.destroy()).pipe(res); // a file tsc is rewriting can vanish mid-read
+}).listen(port, '127.0.0.1', () => console.log(studioOnly
+  ? `Project: none (character studio only)\nStudio:  http://localhost:${port}/editor/studio.html`
+  : `Project: ${project}\nPreview: http://localhost:${port}\nEditor:  http://localhost:${port}/editor/\nStudio:  http://localhost:${port}/editor/studio.html  (a character folder, no game)`));

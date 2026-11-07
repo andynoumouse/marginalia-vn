@@ -122,7 +122,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
 
 - Focus order is **declaration order** by default; `focus` hints can override with `up/down/left/right <id>`.
   Without hints, directional navigation picks the nearest element in that direction by centre distance (a pure
-  function in `engine/src/screens.ts`, unit-tested on grids, rings and rows). That is enough for a map; explicit hints
+  function in `engine/src/screen-geometry.ts`, unit-tested on grids, rings and rows). That is enough for a map; explicit hints
   are only for awkward layouts.
 - Confirm picks the focused element; cancel returns `""` if the screen declares `cancel` (otherwise it is ignored, so a
   required choice cannot be skipped).
@@ -146,7 +146,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
 
 ## Build steps (after the list type exists and the open questions are settled)
 
-1. **Types and pure core.** `engine/src/screens.ts`: screen definition types, validation (unknown ids, duplicate ids,
+1. **Types and pure core.** `engine/src/screens.ts` (definition types), `screen-validate.ts` (validation: unknown ids, duplicate ids,
    out-of-range rectangles, empty screens), directional focus, hit-testing, the default answer. Tested first, no runtime.
 2. **Parser, compile, ids.** `screen` blocks (indented body, like `menu`) and `show screen`. `ids.ts` and
    `compile.ts` (`registerString`) for labels. Variables referenced by `if`/`enabled` are checked like elsewhere.
@@ -185,7 +185,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
    `mask "file"`: a PNG whose opaque pixels are the region, tested on pointer move against a canvas copy of the mask
    (`getImageData`, cached per file, region bounding box first for speed). Keyboard focus ring for any shape is its
    bounding box or its outline stroked, in the theme's focus colour. Directional focus uses the shape's centroid.
-   The pure side (`engine/src/screens.ts`) holds point-in-polygon, bounding box and centroid, tested without a DOM.
+   The pure side (`engine/src/screen-geometry.ts`) holds point-in-polygon, bounding box and centroid, tested without a DOM.
 
 ## Persistent HUD (planned for, built after blocking screens)
 

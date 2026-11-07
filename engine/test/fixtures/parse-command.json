@@ -1,0 +1,2132 @@
+{
+ "scene park": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "park",
+    "transition": "cut",
+    "dir": null,
+    "mask": null,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene park fade 2": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "park",
+    "transition": "fade",
+    "dir": null,
+    "mask": null,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene park dissolve 1.5": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "park",
+    "transition": "dissolve",
+    "dir": null,
+    "mask": null,
+    "dur": 1.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene park slide left": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+  ]
+ },
+ "scene park slide left 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+  ]
+ },
+ "scene park mask=ui/m.png dissolve 1": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "park",
+    "transition": "dissolve",
+    "dir": null,
+    "mask": "ui/m.png",
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"scene\" needs a background name"
+  ]
+ },
+ "scene park wobble": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"wobble\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+  ]
+ },
+ "scene park fade x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"x\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+  ]
+ },
+ "show ann": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": null,
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann happy": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann happy at left": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {},
+    "x": 0.2,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann at right": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": null,
+    "more": [],
+    "overrides": {},
+    "x": 0.8,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann happy at 0.3": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {},
+    "x": 0.3,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann happy at center y=0.1 scale=1.2": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {},
+    "x": 0.5,
+    "fade": 0,
+    "y": 0.1,
+    "scale": 1.2
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann flip=on": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": null,
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0,
+    "flip": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann anchor=0.5,1": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": null,
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0,
+    "anchor": [
+     0.5,
+     1
+    ]
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann behind bob": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "behind",
+    "more": [
+     "bob"
+    ],
+    "overrides": {},
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann front": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "front",
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann back": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "back",
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann happy eyes=closed": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {
+     "eyes": "closed"
+    },
+    "x": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann pose=calm,blush": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": null,
+    "more": [],
+    "overrides": {},
+    "x": null,
+    "fade": 0,
+    "poses": [
+     "calm",
+     "blush"
+    ]
+   }
+  ],
+  "diagnostics": []
+ },
+ "show ann at nowhere": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown position \"nowhere\" (left, center, right; more in game.json \"positions\")"
+  ]
+ },
+ "show ann scale=x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for scale"
+  ]
+ },
+ "show": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"show\" needs a character"
+  ]
+ },
+ "show ann happy at left nowait": {
+  "ops": [
+   {
+    "op": "show",
+    "char": "ann",
+    "pose": "happy",
+    "more": [],
+    "overrides": {},
+    "x": 0.2,
+    "fade": 0,
+    "nowait": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "hide ann": {
+  "ops": [
+   {
+    "op": "hide",
+    "char": "ann",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "hide ann fade 1": {
+  "ops": [
+   {
+    "op": "hide",
+    "char": "ann",
+    "fade": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "hide": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"hide\" needs a character"
+  ]
+ },
+ "hide ann nowait": {
+  "ops": [
+   {
+    "op": "hide",
+    "char": "ann",
+    "fade": 0,
+    "nowait": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to right": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.8,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to right 1.5": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.8,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 1.5,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann y=0.2 scale=1.5 rot=10 alpha=0.5": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": null,
+    "y": 0.2,
+    "scale": 1.5,
+    "rotation": 10,
+    "alpha": 0.5,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann flip=off": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": null,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": false,
+    "anchor": null,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to left ease=out": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.2,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "out"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to left ease=wobble": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown ease \"wobble\" (linear, in, out, inout, back, bounce, elastic)"
+  ]
+ },
+ "move ann": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [flip=on|off] [anchor=] [seconds] [ease=]"
+  ]
+ },
+ "move ann to": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a position (left, center, right or a number 0-1)"
+  ]
+ },
+ "move ann bogus": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [flip=on|off] [anchor=] [seconds] [ease=]"
+  ]
+ },
+ "move ann to right nowait": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.8,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "inout",
+    "nowait": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "shake screen": {
+  "ops": [
+   {
+    "op": "shake",
+    "target": "screen",
+    "dur": 0.3,
+    "strength": 8
+   }
+  ],
+  "diagnostics": []
+ },
+ "shake screen 1": {
+  "ops": [
+   {
+    "op": "shake",
+    "target": "screen",
+    "dur": 1,
+    "strength": 8
+   }
+  ],
+  "diagnostics": []
+ },
+ "shake ann 0.5 strength=12": {
+  "ops": [
+   {
+    "op": "shake",
+    "target": "ann",
+    "dur": 0.5,
+    "strength": 12
+   }
+  ],
+  "diagnostics": []
+ },
+ "shake screen strength=x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for strength"
+  ]
+ },
+ "shake": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"shake\" needs a character or \"screen\""
+  ]
+ },
+ "shake screen 1 2 3": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: shake <char|screen> [seconds] [strength=8]"
+  ]
+ },
+ "animate ann bob": {
+  "ops": [
+   {
+    "op": "animate",
+    "char": "ann",
+    "name": "bob",
+    "dur": null,
+    "loop": false,
+    "strength": 1,
+    "part": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann bob 2 loop": {
+  "ops": [
+   {
+    "op": "animate",
+    "char": "ann",
+    "name": "bob",
+    "dur": 2,
+    "loop": true,
+    "strength": 1,
+    "part": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann bob loop strength=0.5 part=hair": {
+  "ops": [
+   {
+    "op": "animate",
+    "char": "ann",
+    "name": "bob",
+    "dur": null,
+    "loop": true,
+    "strength": 0.5,
+    "part": "hair"
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann stop": {
+  "ops": [
+   {
+    "op": "animate",
+    "char": "ann",
+    "name": null,
+    "dur": null,
+    "loop": false,
+    "strength": 1,
+    "part": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"animate\" needs an animation (breathe, bob, sway, nod, shiver, pulse, bounce, hop, shake), pose=<name>, a parameter=value, or stop"
+  ]
+ },
+ "animate ann pose=calm": {
+  "ops": [
+   {
+    "op": "param",
+    "char": "ann",
+    "poses": [
+     "calm"
+    ],
+    "params": {},
+    "dur": 0,
+    "ease": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann turn=10 over 2 ease=out": {
+  "ops": [
+   {
+    "op": "param",
+    "char": "ann",
+    "poses": [],
+    "params": {
+     "turn": 10
+    },
+    "dur": 2,
+    "ease": "out"
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann pose=calm,blush turn=5": {
+  "ops": [
+   {
+    "op": "param",
+    "char": "ann",
+    "poses": [
+     "calm",
+     "blush"
+    ],
+    "params": {
+     "turn": 5
+    },
+    "dur": 0,
+    "ease": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "animate ann turn=x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for turn"
+  ]
+ },
+ "animate ann bob nowait": {
+  "ops": [
+   {
+    "op": "animate",
+    "char": "ann",
+    "name": "bob",
+    "dur": null,
+    "loop": false,
+    "strength": 1,
+    "part": null,
+    "nowait": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "hop ann": {
+  "ops": [
+   {
+    "op": "hop",
+    "char": "ann",
+    "dur": 0.25
+   }
+  ],
+  "diagnostics": []
+ },
+ "hop ann 0.5": {
+  "ops": [
+   {
+    "op": "hop",
+    "char": "ann",
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "hop": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"hop\" needs a character"
+  ]
+ },
+ "hop ann x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: hop <char> [seconds]"
+  ]
+ },
+ "flash": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.4
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash #ffffff": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.4
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash #ff0000 0.5": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ff0000",
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash 0.5": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash red": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for duration"
+  ]
+ },
+ "flash #fff 1 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: flash [#rrggbb] [seconds]"
+  ]
+ },
+ "tint #ff8800": {
+  "ops": [
+   {
+    "op": "tint",
+    "color": "#ff8800",
+    "strength": 0.4,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "tint #ff8800 0.5": {
+  "ops": [
+   {
+    "op": "tint",
+    "color": "#ff8800",
+    "strength": 0.5,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "tint #ff8800 0.5 2": {
+  "ops": [
+   {
+    "op": "tint",
+    "color": "#ff8800",
+    "strength": 0.5,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "tint off": {
+  "ops": [
+   {
+    "op": "tint",
+    "color": null,
+    "strength": 0,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "tint off 2": {
+  "ops": [
+   {
+    "op": "tint",
+    "color": null,
+    "strength": 0,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "tint": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"tint\" needs a color like #203060, or \"off\""
+  ]
+ },
+ "tint red": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]"
+  ]
+ },
+ "tint #ff8800 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Tint strength is 0 to 1"
+  ]
+ },
+ "tint off x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]"
+  ]
+ },
+ "camera zoom 1.5": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 1.5,
+    "x": 0.5,
+    "y": 0.5,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera zoom 2 at left": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 2,
+    "x": 0.2,
+    "y": 0.5,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera zoom 2 at left y=0.3 1": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 2,
+    "x": 0.2,
+    "y": 0.3,
+    "dur": 1,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera pan right": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": null,
+    "x": 0.8,
+    "y": 0.5,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera pan 0.3 y=0.4 2": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": null,
+    "x": 0.3,
+    "y": 0.4,
+    "dur": 2,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera reset": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 1,
+    "x": 0.5,
+    "y": 0.5,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera reset 1": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 1,
+    "x": 0.5,
+    "y": 0.5,
+    "dur": 1,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]"
+  ]
+ },
+ "camera tilt": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]"
+  ]
+ },
+ "camera zoom": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for zoom factor"
+  ]
+ },
+ "weather rain": {
+  "ops": [
+   {
+    "op": "weather",
+    "kind": "rain",
+    "intensity": 0.6,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "weather snow 0.5": {
+  "ops": [
+   {
+    "op": "weather",
+    "kind": "snow",
+    "intensity": 0.5,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "weather petals 0.5 3": {
+  "ops": [
+   {
+    "op": "weather",
+    "kind": "petals",
+    "intensity": 0.5,
+    "dur": 3
+   }
+  ],
+  "diagnostics": []
+ },
+ "weather off": {
+  "ops": [
+   {
+    "op": "weather",
+    "kind": null,
+    "intensity": 0,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "weather off 2": {
+  "ops": [
+   {
+    "op": "weather",
+    "kind": null,
+    "intensity": 0,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "weather": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [seconds], or weather off [seconds]"
+  ]
+ },
+ "weather fog": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [seconds], or weather off [seconds]"
+  ]
+ },
+ "weather rain 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Weather intensity is 0 to 1"
+  ]
+ },
+ "filter blur": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": "blur",
+    "strength": 1,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter sepia 0.5 2": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": "sepia",
+    "strength": 0.5,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter off": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": null,
+    "strength": 0,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter off 1": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": null,
+    "strength": 0,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+  ]
+ },
+ "filter glitter": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+  ]
+ },
+ "filter night x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+  ]
+ },
+ "focus on": {
+  "ops": [
+   {
+    "op": "focus",
+    "on": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "focus off": {
+  "ops": [
+   {
+    "op": "focus",
+    "on": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "focus": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: focus on  |  focus off"
+  ]
+ },
+ "focus maybe": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: focus on  |  focus off"
+  ]
+ },
+ "focus on off": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: focus on  |  focus off"
+  ]
+ },
+ "behaviors on": {
+  "ops": [
+   {
+    "op": "behaviors",
+    "on": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "behaviors off": {
+  "ops": [
+   {
+    "op": "behaviors",
+    "on": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "behaviors": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: behaviors on  |  behaviors off"
+  ]
+ },
+ "hud on bar": {
+  "ops": [
+   {
+    "op": "hud",
+    "mode": "on",
+    "name": "bar",
+    "keep": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "hud on bar keep": {
+  "ops": [
+   {
+    "op": "hud",
+    "mode": "on",
+    "name": "bar",
+    "keep": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "hud off bar": {
+  "ops": [
+   {
+    "op": "hud",
+    "mode": "off",
+    "name": "bar",
+    "keep": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "hud on": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: hud on <screen> [keep]  or  hud off <screen>"
+  ]
+ },
+ "hud on bar stay": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: hud on <screen> [keep]  or  hud off <screen>"
+  ]
+ },
+ "hud toggle bar": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: hud on <screen> [keep]  or  hud off <screen>"
+  ]
+ },
+ "hud on 1bad": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: hud on <screen> [keep]  or  hud off <screen>"
+  ]
+ },
+ "image show logo ui/logo.png": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "show",
+    "name": "logo",
+    "file": "ui/logo.png",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "image show logo ui/logo.png at 10,20": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "show",
+    "name": "logo",
+    "file": "ui/logo.png",
+    "fade": 0,
+    "x": 10,
+    "y": 20
+   }
+  ],
+  "diagnostics": []
+ },
+ "image show logo ui/logo.png scale=2 rot=5 alpha=0.5 anchor=0.5,0.5 layer=2 fixed keep fade 1": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "show",
+    "name": "logo",
+    "file": "ui/logo.png",
+    "fade": 1,
+    "scale": 2,
+    "rotation": 5,
+    "alpha": 0.5,
+    "anchor": [
+     0.5,
+     0.5
+    ],
+    "layer": 2,
+    "fixed": true,
+    "keep": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "image move logo to 5,6": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "move",
+    "name": "logo",
+    "x": 5,
+    "y": 6,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "image move logo scale=2 1.5 ease=out": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "move",
+    "name": "logo",
+    "x": null,
+    "y": null,
+    "scale": 2,
+    "rotation": null,
+    "alpha": null,
+    "anchor": null,
+    "dur": 1.5,
+    "ease": "out"
+   }
+  ],
+  "diagnostics": []
+ },
+ "image move logo": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image hide logo": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "hide",
+    "name": "logo",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "image hide logo fade 1": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "hide",
+    "name": "logo",
+    "fade": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "image hide logo fade": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image show": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image show logo": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image dance logo": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "image show 1x f.png": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+  ]
+ },
+ "music play theme": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "play",
+    "name": "theme",
+    "loop": false,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "music play theme loop": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "play",
+    "name": "theme",
+    "loop": true,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "music play theme loop fade 2": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "play",
+    "name": "theme",
+    "loop": true,
+    "fade": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "music play theme fade 1": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "play",
+    "name": "theme",
+    "loop": false,
+    "fade": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "music stop": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "stop",
+    "name": null,
+    "loop": false,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "music stop fade 2": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "stop",
+    "name": null,
+    "loop": false,
+    "fade": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "music pause": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "pause",
+    "name": null,
+    "loop": false,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "music resume fade 1": {
+  "ops": [
+   {
+    "op": "music",
+    "action": "resume",
+    "name": null,
+    "loop": false,
+    "fade": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "music": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"music\" needs \"play\", \"stop\", \"pause\" or \"resume\""
+  ]
+ },
+ "music play": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"music\" needs a track name"
+  ]
+ },
+ "music rewind": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: music play <name> [loop] [fade n], music stop [fade n], music pause [fade n] or music resume [fade n]"
+  ]
+ },
+ "music stop fade": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for fade duration"
+  ]
+ },
+ "sound play click": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "play",
+    "name": "click",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound play click duck": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "play",
+    "name": "click",
+    "fade": 0,
+    "duck": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound loop rain": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "loop",
+    "name": "rain",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound loop rain fade 2": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "loop",
+    "name": "rain",
+    "fade": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound stop": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "stop",
+    "name": null,
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound stop rain": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "stop",
+    "name": "rain",
+    "fade": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound stop rain fade 1": {
+  "ops": [
+   {
+    "op": "sound",
+    "action": "stop",
+    "name": "rain",
+    "fade": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "sound": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"sound\" needs \"play\", \"loop\" or \"stop\""
+  ]
+ },
+ "sound play": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+  ]
+ },
+ "sound play a b": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+  ]
+ },
+ "sound stop duck": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+  ]
+ },
+ "sound play click fade 1": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+  ]
+ },
+ "movie play intro": {
+  "ops": [
+   {
+    "op": "movie",
+    "name": "intro",
+    "noskip": false,
+    "loop": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "movie play intro noskip": {
+  "ops": [
+   {
+    "op": "movie",
+    "name": "intro",
+    "noskip": true,
+    "loop": false
+   }
+  ],
+  "diagnostics": []
+ },
+ "movie play intro loop": {
+  "ops": [
+   {
+    "op": "movie",
+    "name": "intro",
+    "noskip": false,
+    "loop": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "movie play intro noskip loop": {
+  "ops": [],
+  "diagnostics": [
+   "error: A looping movie only ends when the player skips it, so loop cannot be combined with noskip"
+  ]
+ },
+ "movie play intro loop loop": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: movie play <name> [noskip | loop]"
+  ]
+ },
+ "movie": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: movie play <name> [noskip | loop]"
+  ]
+ },
+ "movie play": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: movie play <name> [noskip | loop]"
+  ]
+ },
+ "movie stop": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: movie play <name> [noskip | loop]"
+  ]
+ },
+ "wait": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for seconds"
+  ]
+ },
+ "wait 2": {
+  "ops": [
+   {
+    "op": "wait",
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "wait 0.5": {
+  "ops": [
+   {
+    "op": "wait",
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "wait x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for seconds"
+  ]
+ },
+ "wait 1 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"2\" in wait (use: wait <seconds>)"
+  ]
+ },
+ "call other": {
+  "ops": [
+   {
+    "op": "call",
+    "label": "other",
+    "target": 3
+   }
+  ],
+  "diagnostics": []
+ },
+ "call other(1, \"a\")": {
+  "ops": [
+   {
+    "op": "call",
+    "label": "other",
+    "target": 3,
+    "args": [
+     {
+      "t": "num",
+      "v": 1
+     },
+     {
+      "t": "str",
+      "v": "a"
+     }
+    ]
+   }
+  ],
+  "diagnostics": [
+   "error: \"other\" takes 0 arguments, but the call gives 2"
+  ]
+ },
+ "call nowhere": {
+  "ops": [
+   {
+    "op": "call",
+    "label": "nowhere",
+    "target": -1
+   }
+  ],
+  "diagnostics": [
+   "error: Unknown label \"nowhere\""
+  ]
+ },
+ "call": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: call <label>  or  call <label>(arguments)"
+  ]
+ },
+ "call other(": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: call <label>  or  call <label>(arguments)"
+  ]
+ },
+ "jump other": {
+  "ops": [
+   {
+    "op": "jump",
+    "label": "other",
+    "target": 3
+   }
+  ],
+  "diagnostics": []
+ },
+ "jump nowhere": {
+  "ops": [
+   {
+    "op": "jump",
+    "label": "nowhere",
+    "target": -1
+   }
+  ],
+  "diagnostics": [
+   "error: Unknown label \"nowhere\""
+  ]
+ },
+ "jump": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"jump\" needs a label name"
+  ]
+ },
+ "jump other extra": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"extra\" in jump (use: jump <label>)"
+  ]
+ },
+ "return": {
+  "ops": [
+   {
+    "op": "ret"
+   }
+  ],
+  "diagnostics": []
+ },
+ "return 1": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unexpected \"1\" in return"
+  ]
+ },
+ "end": {
+  "ops": [
+   {
+    "op": "end"
+   },
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": []
+ },
+ "end now": {
+  "ops": [
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": [
+   "error: Unexpected \"now\" in end"
+  ]
+ },
+ "nvl on": {
+  "ops": [
+   {
+    "op": "nvl",
+    "mode": "on"
+   }
+  ],
+  "diagnostics": []
+ },
+ "nvl off": {
+  "ops": [
+   {
+    "op": "nvl",
+    "mode": "off"
+   }
+  ],
+  "diagnostics": []
+ },
+ "nvl clear": {
+  "ops": [
+   {
+    "op": "nvl",
+    "mode": "clear"
+   }
+  ],
+  "diagnostics": []
+ },
+ "nvl": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: nvl on  |  nvl off  |  nvl clear"
+  ]
+ },
+ "nvl maybe": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: nvl on  |  nvl off  |  nvl clear"
+  ]
+ },
+ "nvl on off": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: nvl on  |  nvl off  |  nvl clear"
+  ]
+ },
+ "textbox hide": {
+  "ops": [
+   {
+    "op": "textbox",
+    "mode": "hide"
+   }
+  ],
+  "diagnostics": []
+ },
+ "textbox": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: textbox hide  (the next line shows the text box again)"
+  ]
+ },
+ "textbox show": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: textbox hide  (the next line shows the text box again)"
+  ]
+ },
+ "textbox hide now": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: textbox hide  (the next line shows the text box again)"
+  ]
+ },
+ "unlock secret": {
+  "ops": [
+   {
+    "op": "unlock",
+    "name": "secret"
+   }
+  ],
+  "diagnostics": []
+ },
+ "unlock": {
+  "ops": [],
+  "diagnostics": [
+   "error: \"unlock\" needs a flag name"
+  ]
+ },
+ "unlock a-b": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: unlock <name> (letters, digits, _)"
+  ]
+ },
+ "unlock a b": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: unlock <name> (letters, digits, _)"
+  ]
+ },
+ "input name \"Your name?\"": {
+  "ops": [
+   {
+    "op": "input",
+    "name": "name",
+    "prompt": "Your name?",
+    "id": null,
+    "default": "",
+    "max": 24
+   }
+  ],
+  "diagnostics": []
+ },
+ "input name \"Your name?\" default=\"Ann\"": {
+  "ops": [
+   {
+    "op": "input",
+    "name": "name",
+    "prompt": "Your name?",
+    "id": null,
+    "default": "Ann",
+    "max": 24
+   }
+  ],
+  "diagnostics": []
+ },
+ "input name \"Your name?\" max=8": {
+  "ops": [
+   {
+    "op": "input",
+    "name": "name",
+    "prompt": "Your name?",
+    "id": null,
+    "default": "",
+    "max": 8
+   }
+  ],
+  "diagnostics": []
+ },
+ "input name \"Your name?\" default=\"Ann\" max=8": {
+  "ops": [
+   {
+    "op": "input",
+    "name": "name",
+    "prompt": "Your name?",
+    "id": null,
+    "default": "Ann",
+    "max": 8
+   }
+  ],
+  "diagnostics": []
+ },
+ "input name": {
+  "ops": [
+   {
+    "op": "input",
+    "name": "name",
+    "prompt": "",
+    "id": null,
+    "default": "",
+    "max": 24
+   }
+  ],
+  "diagnostics": []
+ },
+ "input 1x \"p\"": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: input <variable> \"Prompt\" [default=\"Name\"] [max=16]"
+  ]
+ },
+ "input name \"p\" max=x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for max"
+  ]
+ },
+ "set x = 1": {
+  "ops": [
+   {
+    "op": "set",
+    "name": "x",
+    "assign": "=",
+    "expr": {
+     "t": "num",
+     "v": 1
+    }
+   }
+  ],
+  "diagnostics": []
+ },
+ "set x += 1": {
+  "ops": [
+   {
+    "op": "set",
+    "name": "x",
+    "assign": "+=",
+    "expr": {
+     "t": "num",
+     "v": 1
+    }
+   }
+  ],
+  "diagnostics": []
+ },
+ "set x -= 1": {
+  "ops": [
+   {
+    "op": "set",
+    "name": "x",
+    "assign": "-=",
+    "expr": {
+     "t": "num",
+     "v": 1
+    }
+   }
+  ],
+  "diagnostics": []
+ },
+ "set x = random(1, 6)": {
+  "ops": [
+   {
+    "op": "set",
+    "name": "x",
+    "assign": "=",
+    "expr": {
+     "t": "call",
+     "name": "random",
+     "args": [
+      {
+       "t": "num",
+       "v": 1
+      },
+      {
+       "t": "num",
+       "v": 6
+      }
+     ]
+    }
+   }
+  ],
+  "diagnostics": []
+ },
+ "set x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"set\""
+  ]
+ },
+ "set x =": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"set\""
+  ]
+ },
+ "set 1x = 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"set\""
+  ]
+ },
+ "show screen map": {
+  "ops": [
+   {
+    "op": "screen",
+    "name": "map",
+    "as": "screen"
+   }
+  ],
+  "diagnostics": []
+ },
+ "show screen map as pick": {
+  "ops": [
+   {
+    "op": "screen",
+    "name": "map",
+    "as": "pick"
+   }
+  ],
+  "diagnostics": []
+ },
+ "show screen room(\"hall\", 2)": {
+  "ops": [
+   {
+    "op": "screen",
+    "name": "room",
+    "as": "screen",
+    "args": [
+     {
+      "t": "str",
+      "v": "hall"
+     },
+     {
+      "t": "num",
+      "v": 2
+     }
+    ]
+   }
+  ],
+  "diagnostics": []
+ },
+ "show screen room(\"hall\") as pick": {
+  "ops": [
+   {
+    "op": "screen",
+    "name": "room",
+    "as": "pick",
+    "args": [
+     {
+      "t": "str",
+      "v": "hall"
+     }
+    ]
+   }
+  ],
+  "diagnostics": [
+   "error: Screen \"room\" takes 2 arguments (a, b), but show screen gives 1"
+  ]
+ },
+ "show screen": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: show screen <name> [(arguments)] [as <variable>]"
+  ]
+ },
+ "wobble": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"wobble\""
+  ]
+ },
+ "Wobble up": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"Wobble\""
+  ]
+ },
+ "scenery park": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown command \"scenery\" (did you mean \"scene\"?)"
+  ]
+ }
+}

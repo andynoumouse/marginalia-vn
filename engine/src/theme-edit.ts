@@ -3,11 +3,11 @@
 
 import { UI_COMPONENTS } from './theme.js';
 import { contrast } from './colors.js';
+import { isObj } from './util.js';
 
 export type FieldKind = 'color' | 'number' | 'font' | 'text';
 export interface ThemeField { path: string[]; label: string; kind: FieldKind }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export const TOKEN_FIELDS: ThemeField[] = [
   ...(['accent', 'text', 'muted', 'surface', 'line', 'danger', 'warn'] as const).map(k => ({ path: ['tokens', k], label: k, kind: 'color' as const })),
@@ -147,42 +147,4 @@ export function contrastNote(path: string[], get: (path: string[]) => unknown): 
   const fg = pick('color') ?? tok('text'), bg = pick('background') ?? tok('surface');
   if (pick(last) === undefined) return null;
   return check(fg, bg, last === 'color' ? 'its background' : 'its text color', 4.5);
-}
-
-const LEGACY_MOVES: [string, string[]][] = [
-  ['accent', ['tokens', 'accent']], ['font', ['tokens', 'font']],
-  ['textbox', ['components', 'textbox']], ['namebox', ['components', 'namebox']], ['text', ['components', 'text']],
-  ['choices', ['components', 'choice']],
-  ['hotFill', ['components', 'hotspot', 'background']], ['hotBorder', ['components', 'hotspot', 'border']],
-  ['hotBorderWidth', ['components', 'hotspot', 'borderWidth']],
-  ['tipBackground', ['components', 'tooltip', 'background']], ['tipColor', ['components', 'tooltip', 'color']],
-  ['tipFont', ['components', 'tooltip', 'font']],
-  ['skins', ['styles']],
-];
-
-/**
- * The quick fix for an inline `theme` object in game.json: the theme as a layered theme file (legacy keys mapped onto
- * their new places, docs/design/theming.md) and the game.json text with `"theme": "<name>"` in its place. `name` is the
- * first of `default`, `theme`, `theme2`... not in `taken`. Null if game.json has no inline theme object.
- */
-export function moveInlineTheme(gameText: string, taken: string[]): { name: string; themeText: string; gameText: string } | null {
-  let game: unknown;
-  try { game = JSON.parse(gameText); } catch { return null; }
-  if (!isObj(game) || !isObj(game.theme)) return null;
-  const inline = game.theme;
-  const out: Record<string, unknown> = {};
-  const layered = new Set(['extends', 'tokens', 'components', 'styles']);
-  for (const k of layered) if (Object.hasOwn(inline, k)) out[k] = structuredClone(inline[k]);
-  if (out.extends === undefined) out.extends = 'base';
-  const moved = new Set(LEGACY_MOVES.map(([k]) => k));
-  for (const [key, to] of LEGACY_MOVES) {
-    if (!Object.hasOwn(inline, key) || inline[key] === undefined) continue;
-    if (getValue(out, to) !== undefined) continue; // the layered form wins, as in normalizeTheme
-    const next = setValue(JSON.stringify(out), to, structuredClone(inline[key]));
-    if (next !== null) Object.assign(out, JSON.parse(next));
-  }
-  for (const [k, v] of Object.entries(inline)) if (!layered.has(k) && !moved.has(k)) out[k] = structuredClone(v); // keys this fix does not know stay
-  const name = ['default', 'theme', ...Array.from({ length: 98 }, (_, i) => `theme${i + 2}`)].find(n => !taken.includes(n)) ?? 'theme-moved';
-  game.theme = name;
-  return { name, themeText: `${JSON.stringify(out, null, 2)}\n`, gameText: `${JSON.stringify(game, null, 2)}\n` };
 }

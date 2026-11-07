@@ -34,7 +34,7 @@ vocabulary.
 | Slots and attachments | A slot shows one of several attachments | Slots and variants |
 | Skins | Named sets of attachments (outfits) | Poses and `rig.json` shorthands |
 | Weighted meshes | One image bends under several bones | Missing (mesh-warp item) |
-| Constraints | IK, sometimes physics for hair and cloth | Missing |
+| Constraints | IK, sometimes physics for hair and cloth | Missing; physics is designed in [animation-studio-parameters.md](animation-studio-parameters.md) |
 | Timelines | Per-property keys with easing | Keys with `t` and `ease` |
 | Parameters | Named values driving several deformers (Live2D, Inochi2D) | Missing; a script could set one (`look=left`) |
 
@@ -61,6 +61,9 @@ vocabulary.
   need the same, since a part's pivot and its parent are otherwise tied to a drawn image.
 - For a **Live2D-like look**, Inochi2D's parameter-driven deformers fit a visual novel, where a script wants to say
   "look left" or "smile" and not write keys.
+- Physics for hair and cloth is much of the Live2D feel. Live2D and Inochi2D both model it as chains whose inputs
+  and outputs are parameters (Spine uses a physics constraint on bones), so the plan follows the parameter model and
+  needs the mesh deformers to look right on hair.
 - Mesh work in Pixi 8 uses `MeshPlane` and `MeshRope` (see the mesh-warp item).
 - An **importer** for Spine or DragonBones is a separate question. DragonBones is permissive; Spine's license terms for
   shipping its runtime or data in another engine need reading first.

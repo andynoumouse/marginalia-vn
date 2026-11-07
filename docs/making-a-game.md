@@ -33,7 +33,7 @@ The game folder holds only content:
 | `build/` | Export output (git-ignored) |
 
 Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which runs the engine's tools on the
-current folder.
+current folder. `vn character` needs no project: it serves only the [character studio](standalone-studio.md).
 
 ## Engine versions
 

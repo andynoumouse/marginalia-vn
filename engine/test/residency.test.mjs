@@ -44,6 +44,13 @@ test('the report totals per kind, names the largest and flags going over', () =>
   assert.doesNotMatch(residencyReport(resident, 100 * MB, { lateLoads: 0 }, 1).join('\n'), /bg\/park/);
 });
 
+test('the report counts the stencil masks on stage, and says nothing when there are none', () => {
+  const resident = [{ key: 'bg/park', kind: 'image', bytes: MB }];
+  assert.match(residencyReport(resident, 100 * MB, { lateLoads: 0, masks: 3 }).join('\n'), /stencil masks 3 on stage \(.*unmeasured/);
+  assert.doesNotMatch(residencyReport(resident, 100 * MB, { lateLoads: 0, masks: 0 }).join('\n'), /stencil/);
+  assert.doesNotMatch(residencyReport(resident, 100 * MB, { lateLoads: 0 }).join('\n'), /stencil/);
+});
+
 test('an empty report still reads', () => {
   const lines = residencyReport([], 512 * MB, { lateLoads: 0 });
   assert.match(lines[0], /resident 0 B of 512\.0 MB budget \(0%\)/);

@@ -753,6 +753,16 @@ test('a new line offers screen elements inside a screen block and story commands
   assert.equal(insideScreen([], true), false);
 });
 
+test('inside a screen block `image` is the element, outside it the story command', () => {
+  const p = build(MAP);
+  const at = (prefix, inScreen) => getCompletions(p, prefix, {}, [], inScreen, ['ui/map.png']).map(s => s.label);
+  assert.deepEqual(at('  image ', true), []); // the file is a quoted string
+  assert.deepEqual(at('  image "a" ', true), ['at', 'size', 'if']);
+  assert.deepEqual(at('  image "ui/', true), ['ui/map.png']); // typing the quote offers the paths
+  assert.deepEqual(at('image ', false), ['show', 'move', 'hide']);
+  assert.deepEqual(at('image ', undefined), ['show', 'move', 'hide']);
+});
+
 test('completions offer the project files for asset parameters', () => {
   const p = build(MAP);
   const files = ['bg/park.png', 'cafe.jpg', 'music/theme.ogg', 'sound/click.wav', 'movie/rain.webm', 'ui/map.png', 'char/alice/neutral.png'];

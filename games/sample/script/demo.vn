@@ -22,6 +22,11 @@ label demo:
   alice: This line moves on by itself.{nw} #x1xs
   alice: ...like that. #es2o
 
+  # --- scene transitions: `dissolve mask=<image in assets/transitions>` reveals the next picture by a grayscale image ---
+  scene bg_park_night dissolve mask=wipe_clock 1.0
+  show alice neutral at center fade 0.4
+  alice: That change followed a clock hand drawn by an image. Dark pixels of the mask show the new picture first. #fre3
+
   # --- flash: a screen flash that fades out ---
   alice: Watch the screen. #k01e
   flash

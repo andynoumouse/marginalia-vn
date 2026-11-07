@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   addKey, setKey, deleteKey, setDur, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset,
   uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, saveLook,
-  sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, readRigSettings, speakValue, blinkValue, speakPart, blinkPart, noRigSettings,
+  sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, readRigSettings, speakValue, blinkValue, autonomousValue, speakPart, blinkPart, noRigSettings,
 } from '../../dist/engine/src/index.js';
 
 const wave = { dur: 1.2, keys: [{ t: 0.2, rot: 7 }, { t: 0.8, rot: 4 }] };
@@ -164,16 +164,19 @@ test('setPivots gives several parts one pivot; showLine writes the show line for
 });
 
 test('readRigSettings, speakValue and blinkValue round-trip the studio fields and keep the rest', () => {
-  const data = { idle: 'bob', speak: { anim: 'nod', variants: ['open', 'neutral'], rate: 6, extra: 1 }, blink: { variant: 'shut', every: [2, 4] } };
+  const data = { autonomous: { idle: 'bob', speak: { anim: 'nod', slot: 'mouth', variants: ['open', 'neutral'], rate: 6, extra: 1 }, blink: { slot: 'eyes', variant: 'shut', every: [2, 4] } } };
   const s = readRigSettings(data);
   assert.deepEqual([s.idle, s.speakAnim, s.speakVariants, s.speakRate, s.blink, s.blinkVariant, s.blinkEvery], ['bob', 'nod', ['open', 'neutral'], 6, true, 'shut', [2, 4]]);
-  assert.deepEqual(speakValue(data.speak, s), data.speak);
-  assert.deepEqual(speakValue(data.speak, { ...s, speakAnim: null, speakRate: null, speakSlot: 'lips' }), { variants: ['open', 'neutral'], extra: 1, slot: 'lips' });
-  assert.equal(speakValue({ anim: 'nod' }, { ...s, speakAnim: null, speakVariants: [], speakRate: null }), null);
-  assert.deepEqual(blinkValue(data.blink, { ...s, blinkDur: 0.2 }), { variant: 'shut', every: [2, 4], dur: 0.2 });
-  assert.equal(blinkValue(true, { ...s, blinkVariant: null, blinkEvery: null }), true);
-  assert.equal(blinkValue(data.blink, { ...s, blink: false }), null);
-  assert.deepEqual(readRigSettings({ blink: true, speak: 5 }), { ...noRigSettings(), blink: true });
+  assert.deepEqual(speakValue(data.autonomous.speak, s), data.autonomous.speak);
+  assert.deepEqual(speakValue(data.autonomous.speak, { ...s, speakAnim: null, speakRate: null, speakSlot: 'lips' }), { slot: 'lips', variants: ['open', 'neutral'], extra: 1 });
+  assert.equal(speakValue({ anim: 'nod' }, { ...s, speakAnim: null, speakSlot: null, speakVariants: [], speakRate: null }), null);
+  assert.deepEqual(blinkValue(data.autonomous.blink, { ...s, blinkDur: 0.2 }), { slot: 'eyes', variant: 'shut', every: [2, 4], dur: 0.2 });
+  assert.deepEqual(blinkValue({}, { ...s, blinkSlot: null, blinkVariant: null, blinkEvery: null }), { slot: 'eyes', variant: 'closed' }); // written out, not left to a default
+  assert.equal(blinkValue(data.autonomous.blink, { ...s, blink: false }), null);
+  assert.deepEqual(readRigSettings({ autonomous: { blink: {}, speak: 5 } }), { ...noRigSettings(), blink: true });
+  assert.deepEqual(autonomousValue(data.autonomous, s), data.autonomous);
+  assert.deepEqual(autonomousValue({ idle: 'bob', other: 1 }, { ...noRigSettings(), idle: 'sway' }), { idle: 'sway', other: 1 });
+  assert.equal(autonomousValue({ idle: 'bob' }, noRigSettings()), null);
   assert.notEqual(speakPart(s), speakPart({ ...s, speakRate: 7 }));
   assert.equal(blinkPart(s), blinkPart({ ...s }));
 });
@@ -185,8 +188,10 @@ const rigText = [
   '  "pivots": {',
   '    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380]',
   '  },',
-  '  "idle": "breathe",',
-  '  "speak": { "variants": ["open", "neutral"], "rate": 7 },',
+  '  "autonomous": {',
+  '    "idle": "breathe",',
+  '    "speak": { "slot": "mouth", "variants": ["open", "neutral"], "rate": 7 }',
+  '  },',
   '  "animations": {',
   '    "wave": {',
   '      "dur": 1.2,',
@@ -208,7 +213,7 @@ const changedLines = (a, b) => {
 };
 
 test('writeRigText leaves an unchanged rig exactly as written', () => {
-  const writes = [{ key: 'animations', value: structuredClone(rigData.animations) }, { key: 'pivots', value: structuredClone(rigData.pivots) }, { key: 'idle', value: 'breathe' }];
+  const writes = [{ key: 'animations', value: structuredClone(rigData.animations) }, { key: 'pivots', value: structuredClone(rigData.pivots) }, { key: 'autonomous', value: structuredClone(rigData.autonomous) }];
   assert.equal(writeRigText(rigText, writes), rigText);
   // the order of keys inside a value does not count as a change
   const shuffled = { giggle: { keys: [{ y: -0.015, t: 0.15 }], dur: 0.6 }, wave: rigData.animations.wave };
@@ -217,15 +222,15 @@ test('writeRigText leaves an unchanged rig exactly as written', () => {
   // and so does the sample's mina, whatever its line endings in this working copy
   const mina = readFileSync(new URL('../../games/sample/assets/char/mina/rig.json', import.meta.url), 'utf8');
   const data = JSON.parse(mina);
-  assert.equal(writeRigText(mina, [{ key: 'animations', value: data.animations }, { key: 'pivots', value: data.pivots }, { key: 'idle', value: data.idle }]), mina);
+  assert.equal(writeRigText(mina, [{ key: 'animations', value: data.animations }, { key: 'pivots', value: data.pivots }, { key: 'autonomous', value: data.autonomous }]), mina);
 });
 
 test('writeRigText rewrites only the animation that changed', () => {
   const anims = structuredClone(rigData.animations);
   anims.wave.keys[1].rot = -6;
   const out = writeRigText(rigText, [{ key: 'animations', value: anims }, { key: 'pivots', value: rigData.pivots }]);
-  assert.deepEqual(changedLines(rigText, out), [12]);
-  assert.equal(out.split('\n')[12], '        { "t": 0.5, "rot": -6 }');
+  assert.deepEqual(changedLines(rigText, out), [14]);
+  assert.equal(out.split('\n')[14], '        { "t": 0.5, "rot": -6 }');
   assert.deepEqual(JSON.parse(out).animations, anims);
   // a changed one-line animation is written anew; the one before it keeps its text
   anims.giggle.dur = 0.7;

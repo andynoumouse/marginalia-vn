@@ -101,6 +101,7 @@ async function serveProject(id: string, rest: string): Promise<Response> {
   }
   if (/^(dist|vendor|docs)\//.test(rest)) return fresh(new URL(rest, scope));
   if (rest === 'editor/help.html' || rest === 'editor/help.css') return fresh(new URL(rest, scope)); // F1 help's own window
+  if (rest === 'editor/studio.css') return fresh(new URL(rest, scope)); // the animation studio's styles, linked by the editor page
   if (rest === 'project.zip') return zip(id);
   if (/^(assets|locale|masters|script)\//.test(rest)) {
     const bytes = await projectStore(id).read(rest);

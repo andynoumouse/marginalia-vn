@@ -117,6 +117,11 @@ export function partsUnder(bones: Record<string, BoneDef>, onBone: Record<string
  * offset. `pivotOf` gives a legacy pivot by part name (rig.json `pivots`). All coordinates share one space (the caller's).
  */
 export function placeParts(bones: Record<string, BoneDef>, parts: Record<string, PlacedPart>, offsets: ReadonlyMap<string, Offset>, pivotOf: (part: string) => [number, number] | null, origin: [number, number], unit: number): Record<string, Matrix> {
+  return placeRig(bones, parts, offsets, pivotOf, origin, unit).parts;
+}
+
+/** placeParts, and the world matrix of every bone too (what something that follows a bone but is no part, such as a mask polygon, is drawn with). */
+export function placeRig(bones: Record<string, BoneDef>, parts: Record<string, PlacedPart>, offsets: ReadonlyMap<string, Offset>, pivotOf: (part: string) => [number, number] | null, origin: [number, number], unit: number): { parts: Record<string, Matrix>; bones: Record<string, Matrix> } {
   const boxes: Record<string, Box[]> = {};
   for (const [, p] of Object.entries(parts)) if (p.bone !== undefined && Object.hasOwn(bones, p.bone)) (boxes[p.bone] ??= []).push(p.box);
   const pivots = resolvePivots(bones, boxes, origin);
@@ -130,7 +135,7 @@ export function placeParts(bones: Record<string, BoneDef>, parts: Record<string,
     const pv = pivotOf(name) ?? (isPoint(p.pivot) ? p.pivot : bone ? pivots[bone] : [p.box.x + p.box.w / 2, p.box.y + p.box.h / 2] as [number, number]);
     out[name] = mulMatrix(base, offsetMatrix(own, pv, unit));
   }
-  return out;
+  return { parts: out, bones: world };
 }
 
 /**

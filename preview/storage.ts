@@ -14,9 +14,6 @@ export function gameId(game: { id?: string; title?: string }): string {
   return raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'game';
 }
 
-export const storageKey = (key: string) => ns + key;
-export const isStorageKey = (k: string) => k.startsWith(ns);
-
 /** Where values live. Keys are full, namespace included. */
 export interface Backend {
   get(key: string): string | null;
@@ -57,7 +54,6 @@ export function desktopBackend(bridge: DesktopBridge): Backend {
 }
 
 let backend: Backend = browserBackend;
-export function useBackend(b: Backend) { backend = b; }
 const bridge = (globalThis as { vnDesktop?: DesktopBridge }).vnDesktop;
 if (bridge) backend = desktopBackend(bridge);
 

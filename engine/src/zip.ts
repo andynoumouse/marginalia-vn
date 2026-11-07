@@ -14,38 +14,79 @@ function dosTime(ms: number): [number, number] {
   return [(d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()];
 }
 
+/** The local file header and the central directory record of one file (`method` 0 stored, 8 deflated; `size` the file's, `packed` what is written). */
+function fileHeaders(name: Uint8Array, method: number, mtime: number, crc: number, packed: number, size: number, offset: number): { head: Uint8Array; dir: Uint8Array } {
+  const [time, date] = dosTime(mtime);
+  const head = new Uint8Array(30 + name.length), h = new DataView(head.buffer);
+  h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, method, true);
+  h.setUint16(10, time, true); h.setUint16(12, date, true); h.setUint32(14, crc, true);
+  h.setUint32(18, packed, true); h.setUint32(22, size, true); h.setUint16(26, name.length, true);
+  head.set(name, 30);
+  const dir = new Uint8Array(46 + name.length), c = new DataView(dir.buffer);
+  c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
+  c.setUint16(10, method, true); c.setUint16(12, time, true); c.setUint16(14, date, true); c.setUint32(16, crc, true);
+  c.setUint32(20, packed, true); c.setUint32(24, size, true); c.setUint16(28, name.length, true);
+  c.setUint32(42, offset, true);
+  dir.set(name, 46);
+  return { head, dir };
+}
+
+/** The end-of-central-directory record for `count` files whose directory is `dirSize` bytes long at `dirAt`. */
+function endRecord(count: number, dirSize: number, dirAt: number): Uint8Array {
+  const end = new Uint8Array(22), v = new DataView(end.buffer);
+  v.setUint32(0, 0x06054b50, true); v.setUint16(8, count, true); v.setUint16(10, count, true);
+  v.setUint32(12, dirSize, true); v.setUint32(16, dirAt, true);
+  return end;
+}
+
 /** A zip of `entries` (paths '/'-separated, UTF-8 names). A file deflate does not shrink is stored. */
 export async function writeZip(entries: readonly ZipEntry[], deflate?: RawDeflate): Promise<Uint8Array> {
   const enc = new TextEncoder(), locals: Uint8Array[] = [], central: Uint8Array[] = [];
   let offset = 0;
   for (const e of entries) {
-    const name = enc.encode(e.path), crc = crc32(e.bytes);
     const packed = deflate && e.bytes.length > 64 ? await deflate(e.bytes) : null;
     const [data, method] = packed && packed.length < e.bytes.length ? [packed, 8] : [e.bytes, 0];
-    const [time, date] = dosTime(e.mtime ?? Date.now());
-    const head = new Uint8Array(30 + name.length), h = new DataView(head.buffer);
-    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, method, true);
-    h.setUint16(10, time, true); h.setUint16(12, date, true); h.setUint32(14, crc, true);
-    h.setUint32(18, data.length, true); h.setUint32(22, e.bytes.length, true); h.setUint16(26, name.length, true);
-    head.set(name, 30);
-    const dir = new Uint8Array(46 + name.length), c = new DataView(dir.buffer);
-    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true);
-    c.setUint16(10, method, true); c.setUint16(12, time, true); c.setUint16(14, date, true); c.setUint32(16, crc, true);
-    c.setUint32(20, data.length, true); c.setUint32(24, e.bytes.length, true); c.setUint16(28, name.length, true);
-    c.setUint32(42, offset, true);
-    dir.set(name, 46);
+    const { head, dir } = fileHeaders(enc.encode(e.path), method, e.mtime ?? Date.now(), crc32(e.bytes), data.length, e.bytes.length, offset);
     locals.push(head, data);
     central.push(dir);
     offset += head.length + data.length;
   }
   const dirSize = central.reduce((n, p) => n + p.length, 0);
-  const end = new Uint8Array(22), v = new DataView(end.buffer);
-  v.setUint32(0, 0x06054b50, true); v.setUint16(8, entries.length, true); v.setUint16(10, entries.length, true);
-  v.setUint32(12, dirSize, true); v.setUint32(16, offset, true);
   const out = new Uint8Array(offset + dirSize + 22);
   let at = 0;
-  for (const p of [...locals, ...central, end]) { out.set(p, at); at += p.length; }
+  for (const p of [...locals, ...central, endRecord(entries.length, dirSize, offset)]) { out.set(p, at); at += p.length; }
   return out;
+}
+
+/** The most a `ZipStream` holds: no zip64 here, so the offsets and the file count must fit the classic fields. */
+export const ZIP_STREAM_MAX_BYTES = 0xffffffff - 1024 * 1024;
+export const ZIP_STREAM_MAX_FILES = 0xfffe;
+
+/**
+ * A store-only zip written piece by piece, for a long run of files that are already compressed (the studio's PNG frames): `add` returns the
+ * bytes to write for one file, `finish` the directory that closes the archive. The caller keeps the pieces wherever it likes (a Blob, a file
+ * stream), so the frames never have to sit in one buffer. Throws instead of writing an archive that classic zip cannot describe.
+ */
+export class ZipStream {
+  private readonly enc = new TextEncoder();
+  private readonly central: Uint8Array[] = [];
+  private offset = 0;
+  get files(): number { return this.central.length; }
+  get bytes(): number { return this.offset; }
+
+  add(path: string, bytes: Uint8Array, mtime = Date.now()): Uint8Array[] {
+    if (this.central.length >= ZIP_STREAM_MAX_FILES || this.offset + bytes.length + 1024 > ZIP_STREAM_MAX_BYTES) throw new Error('too much for one zip file');
+    const { head, dir } = fileHeaders(this.enc.encode(path), 0, mtime, crc32(bytes), bytes.length, bytes.length, this.offset);
+    this.central.push(dir);
+    this.offset += head.length + bytes.length;
+    return [head, bytes];
+  }
+
+  /** The central directory and the end record; the archive is every piece `add` returned, then these. */
+  finish(): Uint8Array[] {
+    const dirSize = this.central.reduce((n, p) => n + p.length, 0);
+    return [...this.central, endRecord(this.central.length, dirSize, this.offset)];
+  }
 }
 
 /** The files in a zip (folders left out), inflating with `inflate` (raw deflate). Throws on what it cannot read. */

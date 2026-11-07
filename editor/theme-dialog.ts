@@ -4,6 +4,7 @@
 
 import { ThemeGallery } from './theme-gallery.js';
 import { TOKEN_FIELDS, componentKeys, componentStates, componentFields, setThemeValue, themeValueSource, contrastNote, COMMON_FONTS, fontNote, type ThemeField } from '../engine/src/index.js';
+import { esc } from '../engine/src/util.js';
 
 export interface ThemeHost {
   /** Names of the theme files. */
@@ -28,7 +29,6 @@ export interface ThemeHost {
   stage(): { width: number; height: number };
 }
 
-const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 export class ThemeDialog {
   private readonly root: HTMLDivElement;

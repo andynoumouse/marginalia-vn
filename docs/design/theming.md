@@ -6,7 +6,7 @@ result and finer control is there when it is needed. The editor gets a visual pa
 
 ## Where things stood before phase 1 (verified)
 
-- **`game.json` `theme`** (then `preview/theme.ts`, documented in [../game-json.md](../game-json.md#theme)) styles the text box,
+- **`game.json` `theme`** (then `engine/src/theme.ts`, documented in [../game-json.md](../game-json.md#theme)) styles the text box,
   name tag, text, choice buttons, hotspot highlight and tooltip, plus `accent` and `font`. `skins.<name>` overrides the
   text box, name tag and text while a character with `define ... box=<name>` speaks (`#stage[data-skin="<name>"]`).
 - **Everything else is fixed CSS** in `preview/index.html`: about 50 hard-coded `rgba(...)` values, and `--accent` and
@@ -168,8 +168,8 @@ Example:
 - `checkTheme(theme, assets)`: warnings with a JSON path (unknown key, placement in a style, a bad color, an unknown
   token, a missing font or `ui/` image). This replaces the theme part of `checkAssets`. Color checking moves into the
   engine, so node can do it (the color parser in `engine/src/colors.ts` gets extended to `rgb()`, `hsl()` and named colors).
-- `themeCss(theme, assets)`: emits CSS rules. Values go through the same filter as today. It moves here from
-  `preview/theme.ts`, which shrinks to putting the result into the page.
+- `themeCss(theme, assets)`: emits CSS rules. Values go through the same filter as today. It lives in
+  `engine/src/theme.ts` (it was `preview/theme.ts`, which now only puts the result into the page).
 - `explainValue(theme, path)`: says which layer a value comes from ("inherited from `$accent`" or "set in
   `screens.options`"). The editor uses it for its markers.
 - `contrast(a, b)`: WCAG contrast ratio, for editor warnings (text on `surface`, `onAccent` on `accent`).
@@ -233,8 +233,8 @@ Each phase ends usable, with tests (`engine/test/theme.test.mjs`; one browser te
 3. **Full component set.** Every component in the table, with states and screen overrides; docs for all keys.
    *Started:* color tokens and `button`, `panel`, `tab`, `row`, `pager`, `toast` (variants and states) are emitted as
    direct `#stage <selector>` overrides from a selector table in `theme.ts`, so the stage CSS did not need to change.
-4. **Editor panel (built).** Palette and component tabs, screen gallery (iframes of the preview's own stage with fixed sample data), inspect, markers, contrast, and the quick fix for an inline theme.
-5. **Styles from the script (built).** `define ... style=` (`box=` stays as the old name), `style=` at the end of a
+4. **Editor panel (built).** Palette and component tabs, screen gallery (iframes of the preview's own stage with fixed sample data), inspect, markers, contrast.
+5. **Styles from the script (built).** `define ... style=`, `style=` at the end of a
    dialogue or narration line (before the `#id`), `menu "..." style=` (the style's `choice`), and `style=` on screen
    `button` and `text` elements (the style's `button`, or `text` color and size). Styles drop placement keys (`x`, `y`,
    `width`, `height`). An unknown style name is a warning. Hotspots, images and sliders take no `style=`.

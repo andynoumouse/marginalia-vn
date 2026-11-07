@@ -101,7 +101,7 @@ text box opacity, reduce motion, sound captions, screen reader dialogue, languag
 Game and Accessibility tabs. They are saved per browser in localStorage.
 
 - **Reduce motion** (on by default when the system asks for it) drops shake, hop, flash and weather, makes wipes,
-  iris, blinds and pixelate into dissolves, snaps `camera` and stops wavy/shaking text.
+  iris, blinds, pixelate and image-mask transitions into dissolves, snaps `camera` and stops wavy/shaking text.
 - **Box opacity** fades the default box; a `theme` background or image keeps its own look.
 
 ## Audio and voice

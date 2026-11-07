@@ -99,21 +99,24 @@ export class TranslationsDialog {
     this.returnFocus = returnFocus;
     this.root.hidden = false;
     this.summary.textContent = 'Loading...';
-    this.tables = {};
-    this.snaps = {};
+    this.flushPending(); // so the GET below cannot return a table older than an edit still waiting for its debounce
     this.rows = this.allRows(); // the labels are already known after the first open
+    // Read into locals: the rows still on screen keep their table until the new ones are whole.
+    const tables: Record<string, StringTable> = {}, snaps: Record<string, SourceSnapshot> = {};
     try {
       const all = await (await fetch('/api/locales')).json() as Record<string, string>;
       for (const [file, text] of Object.entries(all)) {
         const lang = file.replace(/^locale\/|\.(json|src)$/g, '');
         try {
-          if (file.endsWith('.src')) this.snaps[lang] = JSON.parse(text) as SourceSnapshot;
-          else this.tables[lang] = JSON.parse(text) as StringTable;
+          if (file.endsWith('.src')) snaps[lang] = JSON.parse(text) as SourceSnapshot;
+          else tables[lang] = JSON.parse(text) as StringTable;
         } catch { /* a broken file is left alone */ }
       }
     } catch { /* no locale folder yet */ }
     if (!Object.keys(this.uiDefaults).length) { this.uiDefaults = await this.loadUiDefaults(); this.rows = this.allRows(); } // read once: the page does not change while the editor is open
-    delete this.tables[this.h.source()]; // <source>.json is only an export of the script, which is the source language
+    delete tables[this.h.source()]; // <source>.json is only an export of the script, which is the source language
+    this.tables = tables;
+    this.snaps = snaps;
     const langs = Object.keys(this.tables).sort();
     if (!langs.includes(this.lang)) this.lang = langs[0] ?? '';
     this.fillLanguages();
@@ -140,10 +143,15 @@ export class TranslationsDialog {
 
   close() {
     if (this.root.hidden) return;
-    for (const lang of [...this.saves.keys()]) this.flush(lang);
-    for (const lang of [...this.snapSaves.keys()]) this.flushSnap(lang);
+    this.flushPending();
     this.root.hidden = true;
     this.returnFocus?.();
+  }
+
+  /** Writes the edits still waiting for their debounce (on close, before a reload, and when the editor is left). */
+  flushPending() {
+    for (const lang of [...this.saves.keys()]) this.flush(lang);
+    for (const lang of [...this.snapSaves.keys()]) this.flushSnap(lang);
   }
 
   private fillLanguages() {
@@ -247,7 +255,7 @@ export class TranslationsDialog {
     void fetch(`/api/locale?file=${encodeURIComponent(`${lang}.src`)}`, {
       method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: `${JSON.stringify(snap, null, 2)}
 `,
-    }).then(r => { if (!r.ok) this.summary.textContent = `Could not save locale/${lang}.src`; });
+    }).then(r => r.ok, () => false).then(ok => { if (!ok) this.summary.textContent = `Could not save locale/${lang}.src`; });
   }
 
   private queueSave(lang: string) {
@@ -263,7 +271,7 @@ export class TranslationsDialog {
     if (lang === this.lang) this.updateSummary();
     void fetch(`/api/locale?file=${encodeURIComponent(`${lang}.json`)}`, {
       method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: `${JSON.stringify(table, null, 2)}\n`,
-    }).then(r => { if (!r.ok) this.summary.textContent = `Could not save locale/${lang}.json`; });
+    }).then(r => r.ok, () => false).then(ok => { if (!ok) this.summary.textContent = `Could not save locale/${lang}.json`; });
   }
 
   private exportCsv() {

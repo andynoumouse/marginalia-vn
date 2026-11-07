@@ -46,7 +46,7 @@ concept, the **look**. Background and the survey of other formats: [rig-formats.
     "casual":  { "top": "casual", "bottom": "casual" },
     "naked":   { "top": "none", "bottom": "none" }
   },
-  "animations": {}, "idle": "breathe", "speak": {}, "blink": true
+  "animations": {}, "autonomous": { "idle": "breathe", "speak": {}, "blink": { "slot": "eyes", "variant": "closed" } }
 }
 ```
 
@@ -78,7 +78,7 @@ Recommendation:
   Nested folders give a path (`"arm/forearm"`). Nothing else about conversion changes.
 - `rigSkeleton` (the generated starting `rig.json`, and **Update Rig from Reconverted Art**) turns each distinct folder
   path into a bone named after it, parented along the path, and puts the folder's parts on it. Pivots are left out, so
-  the studio's Rig mode is where they get placed. Existing bones are never changed by a reconvert; new folders add
+  the studio's Model mode is where they get placed. Existing bones are never changed by a reconvert; new folders add
   bones, as new parts are added to `order` today.
 - **PSD pose tags become looks.** Variant names such as `"open, neutral"` keep meaning "this variant is also called
   `neutral`". For `show alice neutral` to keep working without a hand-written look, a name tagged on variants is treated
@@ -108,7 +108,7 @@ today, with the same units: `x`/`y` as a fraction of stage height, `scale` added
   its bone's pivot. A part that needs its own pivot (the sample's `hair_back` today) gets an optional `pivot` in its
   `parts` entry (`"hair_back": { "bone": "neck", "pivot": [270, 380] }`); the part's key offset is then composed about
   that pivot, below the bone's world transform. A part with no bone entry and no `pivot` keeps turning about the middle
-  of its own image. Rig mode's pivot tool edits the chosen node's pivot, bone or part.
+  of its own image. Model mode's pivot tool edits the chosen node's pivot, bone or part.
 - **Scale and flip.** A bone's `scale` multiplies its children's positions as well, like a normal transform
   hierarchy. The `scale` channel is a single number, so scale is always uniform and a rotated child never shears; if
   separate x and y scale channels are ever added, the shear question comes back with them. The character-level flip and
@@ -182,12 +182,12 @@ Warnings (still loads):
 
 ## Editor impact
 
-- **Rig mode / Parts tab.** The Parts tree becomes the bone tree: bones as nodes, each with its parts under it
+- **Model mode / Parts tree.** The Parts tree becomes the bone tree: bones as nodes, each with its parts under it
   (slots with their variant thumbnails, layers), and parts with no bone at the top. **Drag** a bone or a part onto a
   bone to re-parent it (one undo step, written to `bones` / `parts`); drag to the top level to detach. A **New bone**
   button adds an imageless bone under the selected one. The arrow keys that move between rows today keep working, with
   Left/Right collapsing and expanding a bone and still switching a slot's variants on a slot row.
-- **Stage.** Rig mode draws a line from each bone's pivot to its children's pivots and a cross on each pivot (one cross
+- **Stage.** Model mode draws a line from each bone's pivot to its children's pivots and a cross on each pivot (one cross
   per distinct pivot, as now); the chosen bone is highlighted along with its subtree, and dimming covers everything
   outside it (the existing `focus`). Dragging a pivot moves the bone's `pivot` and keeps the children's world pivots
   fixed (their local numbers do not change, since pivots are canvas-space).
@@ -241,7 +241,7 @@ Each phase ends with `npm test` green.
    replacement message); mina's rig moves fully to bones.
 4. **Converter.** `group` carried into `sprite.json`, `rigSkeleton` and **Update Rig from Reconverted Art** create
    bones from folders and looks from slot families.
-5. **Editor.** Rig mode tree with drag to re-parent, parent-child lines on the stage, New bone, Looks list and save
+5. **Editor.** Model mode tree with drag to re-parent, parent-child lines on the stage, New bone, Looks list and save
    look, completions, F1 help keys. Run `npm run test:studio` and the browser gate after this phase.
 
 ## Settled and open questions

@@ -47,6 +47,12 @@ test('animOffset: strength scales, unknown names and out-of-range progress are h
   assert.deepEqual(addOffset(animOffset('bob', 0.5), NO_OFFSET), animOffset('bob', 0.5));
 });
 
+test('addOffset multiplies keyform opacity and leaves it out when neither side has one', () => {
+  assert.equal('opacity' in addOffset(NO_OFFSET, NO_OFFSET), false);
+  assert.equal(addOffset({ ...NO_OFFSET, opacity: 0.5 }, NO_OFFSET).opacity, 0.5);
+  assert.equal(addOffset({ ...NO_OFFSET, opacity: 0.5 }, { ...NO_OFFSET, rot: 3, opacity: 0.5 }).opacity, 0.25);
+});
+
 test('keyframe animations: channels ease between their own keys and are 0 at the ends', () => {
   const wave = { dur: 2, keys: [{ t: 0.5, rot: 10, ease: 'linear' }, { t: 0.25, y: -0.1, ease: 'linear' }] }; // unsorted on purpose
   const at = t => animOffset('wave', t, 1, { wave });

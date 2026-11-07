@@ -1,0 +1,119 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { checkRig, restStates, stepPhysics, addPhysicsParams, resolveAnim } from '../../dist/engine/src/index.js';
+
+const chain = (over = {}) => ({
+  inputs: [{ param: 'turn', weight: 1 }],
+  segments: [{ length: 1, mass: 1, damping: 3, stiffness: 90, limit: 25 }],
+  outputs: [{ param: 'sway', scale: 1, min: -30, max: 30 }],
+  ...over,
+});
+const rig = (physics, extra = {}) => ({
+  parts: [{ name: 'face', file: 'face.png' }, { name: 'hair', file: 'hair.png' }],
+  rig: {
+    parameters: [{ id: 'turn', min: -30, max: 30, default: 0 }, { id: 'sway', min: -30, max: 30, default: 0 }],
+    bones: { head: { pivot: [0, 0] } }, parts: { face: { bone: 'head' } },
+    physics, ...extra,
+  },
+});
+const problems = r => checkRig(r).map(p => p.message);
+
+test('a valid physics section has no problems', () => {
+  assert.deepEqual(problems(rig({ hair: chain() })), []);
+  assert.deepEqual(problems(rig({ hair: chain({ outputs: [{ part: 'hair', scale: 1 }] }) })), []);
+});
+
+test('unknown ids, bad numbers and shape errors are reported', () => {
+  assert.match(problems(rig({ hair: chain({ inputs: [{ param: 'nope', weight: 1 }] }) })).join('\n'), /no parameter "nope"/);
+  assert.match(problems(rig({ hair: chain({ inputs: [{ bone: 'ghost', weight: 1 }] }) })).join('\n'), /no part or bone named "ghost"/);
+  assert.match(problems(rig({ hair: chain({ outputs: [{ part: 'ghost', scale: 1 }] }) })).join('\n'), /no part or bone named "ghost"/);
+  assert.match(problems(rig({ hair: chain({ inputs: [{ param: 'turn', bone: 'head', weight: 1 }] }) })).join('\n'), /either a param or a bone/);
+  assert.match(problems(rig({ hair: chain({ segments: [{ length: 0, mass: 1, damping: 1, stiffness: 1, limit: 1 }] }) })).join('\n'), /length: must be more than 0/);
+  assert.match(problems(rig({ hair: chain({ inputs: [{ param: 'turn', weight: 1, smoothing: 1 }] }) })).join('\n'), /smoothing/);
+  assert.match(problems(rig({ hair: chain({ outputs: [{ param: 'sway', scale: 1, min: 5, max: 1 }] }) })).join('\n'), /min is above max/);
+  assert.match(problems(rig({ hair: chain({ outputs: [{ param: 'sway', scale: 1, segment: 3 }] }) })).join('\n'), /no segment 3/);
+  assert.match(problems(rig({ hair: chain({ inputs: [{ bone: 'head', channel: 'spin', weight: 1 }] }) })).join('\n'), /unknown channel/);
+  assert.match(problems(rig([])).join('\n'), /physics: needs an object/);
+});
+
+test('an output that feeds its own input is a cycle', () => {
+  assert.match(problems(rig({ hair: chain({ inputs: [{ param: 'sway', weight: 1 }] }) })).join('\n'), /cycle/);
+  // through a keyform: sway drives the head bone, which the chain reads
+  const keyforms = [{ target: 'head', param: 'sway', keys: [{ at: -30, rot: -10 }, { at: 30, rot: 10 }] }];
+  assert.match(problems(rig({ hair: chain({ inputs: [{ bone: 'head', weight: 1 }] }) }, { keyforms })).join('\n'), /cycle/);
+  // through two chains
+  const two = { a: chain({ inputs: [{ param: 'turn', weight: 1 }], outputs: [{ param: 'sway', scale: 1 }] }), b: chain({ inputs: [{ param: 'sway', weight: 1 }], outputs: [{ param: 'turn', scale: 1 }] }) };
+  assert.match(problems(rig(two)).join('\n'), /cycle \(/);
+  // a one-way hand-off is fine
+  assert.deepEqual(problems(rig({ a: chain(), b: chain({ inputs: [{ param: 'sway', weight: 1 }], outputs: [{ part: 'hair', scale: 1 }] }) })), []);
+});
+
+test('physicsOff on an animation must name chains of the rig', () => {
+  const r = rig({ hair: chain() }, { animations: { still: { keys: [{ t: 0.5, rot: 1 }], physicsOff: ['hair'] }, bad: { keys: [{ t: 0.5, rot: 1 }], physicsOff: ['ghost'] } } });
+  const m = problems(r);
+  assert.equal(m.length, 1);
+  assert.match(m[0], /bad\.physicsOff/);
+  assert.deepEqual(resolveAnim('still', r.rig.animations).physicsOff, ['hair']);
+});
+
+test('stepPhysics reads bone channels and writes parameters and part rotations', () => {
+  const def = {
+    a: chain({ inputs: [{ bone: 'head', channel: 'rot', weight: 1 }], outputs: [{ param: 'sway', scale: 1 }, { part: 'hair', scale: 0.5 }] }),
+  };
+  let states = restStates(def);
+  const run = (rot, n) => {
+    let res;
+    for (let i = 0; i < n; i++) {
+      res = stepPhysics(def, states, {}, new Map([['head', { dx: 0, dy: 0, sx: 0, sy: 0, rot }]]), 1 / 60);
+      states = res.states;
+    }
+    return res;
+  };
+  assert.equal(run(0, 10).params.sway, 0);
+  const swing = run(20, 8);
+  assert.ok(Math.abs(swing.params.sway) > 0.5, `moves: ${swing.params.sway}`);
+  assert.ok(Math.abs(swing.rot.hair - swing.params.sway * 0.5) < 1e-9, 'the part output is scaled');
+  const off = stepPhysics(def, states, {}, new Map(), 1 / 60, true);
+  assert.deepEqual(off.params, {});
+  assert.equal(off.states.a.primed, false, 'a bypassed chain is held at rest');
+  const listed = stepPhysics(def, states, {}, new Map(), 1 / 60, ['other']);
+  assert.ok(listed.states.a.primed, 'a chain not named stays on');
+});
+
+test('the same frames give the same swing (no hidden state)', () => {
+  const def = { a: chain() };
+  const go = () => {
+    let st = restStates(def), last;
+    for (let i = 0; i < 90; i++) { last = stepPhysics(def, st, { turn: i < 30 ? 0 : 20 }, new Map(), 1 / 60); st = last.states; }
+    return last.params.sway;
+  };
+  assert.equal(go(), go());
+});
+
+test('addPhysicsParams adds and keeps each parameter inside its range', () => {
+  const defs = [{ id: 'sway', min: -10, max: 10, default: 0 }];
+  assert.equal(addPhysicsParams(defs, { sway: 4 }, { sway: 3 }).sway, 7);
+  assert.equal(addPhysicsParams(defs, { sway: 8 }, { sway: 9 }).sway, 10);
+  assert.deepEqual(addPhysicsParams(defs, { sway: 1 }, {}), { sway: 1 });
+});
+
+test('chain shape errors: ids, empty lists, entries that are not objects, wrong field types, wind', () => {
+  const msgs = (physics) => problems(rig(physics)).join('\n');
+  assert.match(msgs({ '2bad': chain() }), /"2bad" is not a usable chain id/);
+  assert.match(msgs({ hair: 3 }), /physics\.hair: needs an object with inputs, segments and outputs/);
+  assert.match(msgs({ hair: chain({ inputs: [] }) }), /inputs: needs at least one input/);
+  assert.match(msgs({ hair: chain({ segments: [] }) }), /segments: needs at least one segment/);
+  assert.match(msgs({ hair: chain({ outputs: [] }) }), /outputs: needs at least one output/);
+  assert.match(msgs({ hair: chain({ inputs: [null] }) }), /inputs\[0\]: not an input/);
+  assert.match(msgs({ hair: chain({ segments: [null] }) }), /segments\[0\]: not a segment/);
+  assert.match(msgs({ hair: chain({ outputs: [null] }) }), /outputs\[0\]: not an output/);
+  assert.match(msgs({ hair: chain({ inputs: [{ param: 'turn', channel: 'rot', weight: 1 }] }) }), /channel belongs to a bone input/);
+  assert.match(msgs({ hair: chain({ inputs: [{ param: 'turn' }] }) }), /inputs\[0\]\.weight: must be a number/);
+  assert.match(msgs({ hair: chain({ segments: [{ length: 1, mass: 1, damping: -1, stiffness: 1, limit: 1 }] }) }), /damping: must be 0 or more/);
+  assert.match(msgs({ hair: chain({ outputs: [{ param: 'sway', part: 'hair', scale: 1 }] }) }), /either a param or a part/);
+  assert.match(msgs({ hair: chain({ outputs: [{ param: 'ghost', scale: 1 }] }) }), /outputs\[0\]: no parameter "ghost"/);
+  assert.match(msgs({ hair: chain({ outputs: [{ param: 'sway' }] }) }), /outputs\[0\]\.scale: must be a number/);
+  assert.match(msgs({ hair: chain({ outputs: [{ param: 'sway', scale: 1, min: 'a', max: 'b' }] }) }), /\.min: must be a number[\s\S]*\.max: must be a number/);
+  assert.match(msgs({ hair: chain({ wind: { strength: 'x' } }) }), /wind: needs a numeric strength/);
+  assert.deepEqual(problems(rig({ hair: chain({ wind: { strength: 2 } }) })), []);
+});

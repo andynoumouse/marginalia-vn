@@ -1,5 +1,5 @@
 import { defaultAnswer, type ScreenView } from './screens.js';
-import type { DisplayState, MenuItem, Renderer, SayEvent, ScreenLive, Src, VisualOp } from './types.js';
+import { asOptionIndex, type DisplayState, type MenuItem, type Renderer, type SayEvent, type ScreenLive, type Src, type VisualOp } from './types.js';
 
 /** Headless renderer for tests and tools: records everything and never waits. */
 export class NullRenderer implements Renderer {
@@ -28,7 +28,7 @@ export class NullRenderer implements Renderer {
     this.menus.push(options.map(o => o.text));
     this.menuItems.push(options.map(o => ({ ...o })));
     this.prompts.push(prompt ?? null);
-    return this.chooser(options);
+    return asOptionIndex(this.chooser(options));
   }
   /** Decide the answer to an input; defaults to its default text. */
   answerer: (prompt: string, def: string) => string = (_p, def) => def;

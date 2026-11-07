@@ -5,11 +5,11 @@ import { ANCHORS, anchorToken, type Anchor, type Anchors } from './anchor.js';
 import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { boneCycles, type BoneDef } from './bones.js';
 import { ANIMS, KEY_CHANNELS, keyframeFn, keyframeParts, type AnimDef, type KeyChannel, type KeyDef, type Offset } from './anim.js';
+import { clamp01 } from './util.js';
 
 export type Anims = Record<string, AnimDef>;
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
-const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
 const sortKeys = (keys: KeyDef[]) => [...keys].sort((a, b) => a.t - b.t);
 
 /** The `Offset` field a key channel drives. */
@@ -454,6 +454,15 @@ export function boneRows(bones: Bones): { name: string; depth: number }[] {
   return out;
 }
 
+/** `bone` with every bone below it, and the parts that sit on any of them: what one pick binds to a parameter. Bones come parent first. */
+export function boneSubtree(bones: Bones, parts: PartBones, bone: string): { bones: string[]; parts: string[] } {
+  if (!Object.hasOwn(bones, bone)) return { bones: [], parts: [] };
+  const below = boneRows(bones), at = below.findIndex(r => r.name === bone);
+  const set = new Set<string>([bone]);
+  for (let i = at + 1; i < below.length && below[i].depth > below[at].depth; i++) set.add(below[i].name);
+  return { bones: [...set], parts: Object.keys(parts).filter(p => { const b = parts[p]?.bone; return typeof b === 'string' && set.has(b); }) };
+}
+
 /** What the animation studio edits of rig.json besides `animations` and `pivots`: null means "not written, use the default". */
 export interface RigSettings {
   idle: string | null;
@@ -472,7 +481,7 @@ const positive = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null);
 
 /** The studio's settings as a parsed rig.json states them. */
 export function readRigSettings(data: unknown): RigSettings {
-  const d = obj(data), speak = obj(d.speak), blink = obj(d.blink);
+  const d = obj(obj(data).autonomous), speak = obj(d.speak), blink = obj(d.blink);
   const every = blink.every;
   return {
     idle: nonEmpty(d.idle),
@@ -492,27 +501,36 @@ function withKey(base: Record<string, unknown>, key: string, value: unknown): Re
   return key in base ? { ...base, [key]: value } : { ...rest, [key]: value };
 }
 
-/** The new `speak` value: `current` (the file's) with the studio's fields set; null when nothing is left to write. */
+/** The new `autonomous.speak` value: `current` (the file's) with the studio's fields set (variants get their slot written out, `mouth` unless set); null when nothing is left. */
 export function speakValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
   let out = obj(current);
   out = withKey(out, 'anim', s.speakAnim);
-  out = withKey(out, 'slot', s.speakSlot);
+  out = withKey(out, 'slot', s.speakSlot ?? (s.speakVariants.length ? 'mouth' : null));
   out = withKey(out, 'variants', s.speakVariants.length ? s.speakVariants : null);
   out = withKey(out, 'rate', s.speakRate);
   return Object.keys(out).length ? out : null;
 }
 
-/** The new `blink` value: true for the defaults, an object when something differs, null when blinking is off. */
-export function blinkValue(current: unknown, s: RigSettings): true | Record<string, unknown> | null {
+/** The new `autonomous.blink` value: the slot and variant are always written out (`eyes` / `closed` unless set); null when blinking is off. */
+export function blinkValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
   if (!s.blink) return null;
   let out = obj(current);
-  out = withKey(out, 'slot', s.blinkSlot);
-  out = withKey(out, 'variant', s.blinkVariant);
+  out = withKey(out, 'slot', s.blinkSlot ?? 'eyes');
+  out = withKey(out, 'variant', s.blinkVariant ?? 'closed');
   out = withKey(out, 'every', s.blinkEvery);
   out = withKey(out, 'dur', s.blinkDur);
-  return Object.keys(out).length ? out : true;
+  return out;
 }
 
-/** The parts of the settings that end up in `speak` / `blink`, to tell whether the file needs rewriting. */
+/** The new `autonomous` value: `current` (the file's) with the studio's idle, speak and blink set; null when nothing is left. */
+export function autonomousValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
+  let out = obj(current);
+  out = withKey(out, 'idle', s.idle);
+  out = withKey(out, 'speak', speakValue(out.speak, s));
+  out = withKey(out, 'blink', blinkValue(out.blink, s));
+  return Object.keys(out).length ? out : null;
+}
+
+/** The parts of the settings that end up in `autonomous.speak` / `autonomous.blink`, to tell whether the file needs rewriting. */
 export const speakPart = (s: RigSettings) => JSON.stringify([s.speakAnim, s.speakSlot, s.speakVariants, s.speakRate]);
 export const blinkPart = (s: RigSettings) => JSON.stringify([s.blink, s.blinkSlot, s.blinkVariant, s.blinkEvery, s.blinkDur]);

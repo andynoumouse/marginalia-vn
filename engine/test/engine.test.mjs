@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   compile, Runtime, NullRenderer, Locale, assignIds, existingIds, parseExpr, evalExpr, parseRich, interpolate, getCompletions,
-  checkAssets, checkGame, parseVarValue, parseHelp, helpTopicAt, rigHelpTopicAt, buildOutline, outlineCrossings, backEdgeLanes, fitView, zoomAt, centerOn, searchOutline, MIN_SCALE, MAX_SCALE, normalizeSplash, titleFade,
+  COMMAND_WORDS, QUICK_ITEMS, checkAssets, checkGame, parseVarValue, parseHelp, helpTopicAt, rigHelpTopicAt, buildOutline, outlineCrossings, backEdgeLanes, fitView, zoomAt, centerOn, searchOutline, MIN_SCALE, MAX_SCALE, normalizeSplash, titleFade,
 } from '../../dist/engine/src/index.js';
 
 const raw = readFileSync(new URL('../../games/sample/script/park.vn', import.meta.url), 'utf8');
@@ -123,7 +123,7 @@ test('restore by step lands on that exact line (rollback)', async () => {
 
 test('character styles from define, narrator style for narration', async () => {
   const p = compile([{ file: 'a.vn', text: [
-    'define al "Al" color=#f0a text=#ffe font="Georgia" size=1.2 italic speed=0.5 blip=bip box=al',
+    'define al "Al" color=#f0a text=#ffe font="Georgia" size=1.2 italic speed=0.5 blip=bip style=al',
     'define narrator "" text=#ccc',
     'define thought "" italic',
     'define bad "B" size=big wobble',
@@ -149,7 +149,7 @@ test('character styles from define, narrator style for narration', async () => {
 
 test('asset checks: missing art, poses, slots, audio, voices, skins', () => {
   const p = compile([{ file: 'a.vn', text: [
-    'define al "Al" blip=hihg box=al',
+    'define al "Al" blip=hihg style=al',
     'define bo "Bo" blip=high',
     'label start:',
     '  scene park',
@@ -649,10 +649,22 @@ test('help: commands.md renders, and every statement the parser knows has a topi
     'music', 'sound', 'set', 'if', 'elif', 'else', 'jump', 'call', 'return', 'end', 'input', 'unlock', 'text-tags', 'speech-and-narration']) {
     assert.ok(doc.find(cmd), `topic for ${cmd}`);
   }
+  for (const w of COMMAND_WORDS) assert.ok(doc.find(w), `commands.md has a heading for the statement "${w}"`);
   assert.equal(doc.find('hide'), doc.find('show'));
   assert.equal(doc.find('elif'), doc.find('else'));
   assert.equal(doc.find('nope'), undefined);
   assert.ok(doc.outline.every(h => doc.html.includes(`id="${h.id}"`)));
+});
+
+test('game.json label schema lists exactly the data-ui keys of preview/index.html', () => {
+  const schema = readFileSync(new URL('../../editor/json-schemas.ts', import.meta.url), 'utf8');
+  const listed = schema.match(/const LABEL_KEYS = \[([\s\S]*?)\.\.\.QUICK_ITEMS/)[1];
+  const keys = new Set([...listed.matchAll(/'([a-z_]+)'/g)].map(m => m[1]));
+  for (const q of QUICK_ITEMS) keys.add(`q_${q}`);
+  const html = readFileSync(new URL('../../preview/index.html', import.meta.url), 'utf8');
+  const ui = new Set([...html.matchAll(/data-ui="([a-z_]+)"/g)].map(m => m[1]));
+  assert.deepEqual([...ui].filter(k => !keys.has(k)), [], 'data-ui keys missing from LABEL_KEYS');
+  assert.deepEqual([...keys].filter(k => !ui.has(k)), [], 'LABEL_KEYS entries with no data-ui element');
 });
 
 test('help: topic under the cursor', () => {
@@ -861,7 +873,7 @@ test('move: position, transforms and flip update the sprite state', async () => 
   assert.deepEqual([mv[1].x, mv[1].y, mv[1].scale, mv[1].dur], [null, null, 1, 0]);
   const rt = new Runtime(p, new NullRenderer());
   await rt.start();
-  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: -0.05, scale: 1, rotation: -8, alpha: 0.5, flip: true, anchor: [0.5, 1], anim: null }]);
+  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: -0.05, scale: 1, rotation: -8, alpha: 0.5, flip: true, anchor: [0.5, 1], anim: null, params: {} }]);
 });
 
 test('move: bad arguments are parse errors', () => {
@@ -871,6 +883,17 @@ test('move: bad arguments are parse errors', () => {
   assert.match(run('move alice spin=3'), /Unknown property/);
   assert.match(run('move alice flip=maybe'), /on or off/);
   assert.match(run('move alice y=abc'), /number/);
+});
+
+test('camera: an unknown ease is a parse error', () => {
+  const run = line => compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
+  assert.match(run('camera zoom 1.5 1 ease=wobble'), /Unknown ease/);
+  assert.equal(run('camera zoom 1.5 1 ease=back'), '');
+});
+
+test('define: "screen" is reserved for `shake screen`', () => {
+  const p = compile([{ file: 't.vn', text: 'define screen "Screen"\nlabel start:\n  shake screen\n  end\n' }]);
+  assert.match(p.diagnostics.map(d => d.message).join('|'), /not a valid character id/);
 });
 
 test('animate: one-shots leave no state, loops are kept on the sprite until stopped or hidden', async () => {
@@ -915,7 +938,7 @@ test('show: y=, scale= and flip= place the sprite without a move, and are kept w
   assert.deepEqual([sh[1].y, sh[1].scale, sh[1].flip], [undefined, undefined, undefined]);
   const rt = new Runtime(p, new NullRenderer());
   await rt.start();
-  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: 0.02, scale: 1.1, rotation: 0, alpha: 1, flip: true, anchor: [0.5, 1], anim: null }]);
+  assert.deepEqual(rt.state.sprites, [{ char: 'alice', pose: null, more: [], overrides: {}, x: 0.8, y: 0.02, scale: 1.1, rotation: 0, alpha: 1, flip: true, anchor: [0.5, 1], anim: null, params: {} }]);
   const run = line => compile([{ file: 't.vn', text: `define alice "Alice"\nlabel start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
   assert.match(run('show alice flip=maybe'), /on or off/);
   assert.match(run('show alice y=abc'), /number/);

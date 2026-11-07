@@ -40,91 +40,85 @@ export interface OutlineNode {
 
 export interface Outline { nodes: OutlineNode[]; edges: OutlineEdge[]; layers: number }
 
-export function buildOutline(program: Program): Outline {
+/** The label's node, and the edges its ops lead out along (pushed onto `edges`). */
+function scanLabel(program: Program, succ: number[][], labelAt: Map<number, string>, names: string[], i: number, entryName: string, edges: OutlineEdge[]): OutlineNode {
   const { ops, labels } = program;
-  // Labels by start pc; labels without statements share the pc of the next one and just fall through.
-  const names = Object.keys(labels).sort((a, b) => labels[a] - labels[b]);
-  if (!names.length) return { nodes: [], edges: [], layers: 0 };
-  const succ = successors(program);
-  const entryName = 'start' in labels ? 'start' : names[0];
-  const labelAt = new Map<number, string>(); // first label name at a pc
-  for (const n of names) if (!labelAt.has(labels[n])) labelAt.set(labels[n], n);
-
-  const nodes: OutlineNode[] = [], edges: OutlineEdge[] = [];
-  names.forEach((name, i) => {
-    const start = labels[name];
-    const next = names[i + 1];
-    const end = next === undefined ? ops.length : labels[next];
-    const node: OutlineNode = {
-      name, src: ops[start]?.src ?? { file: '', line: 1 }, lines: 0, menus: 0, ends: false, returns: false,
-      entry: name === entryName, reachable: false, layer: 0, row: 0,
-    };
-    nodes.push(node);
-    if (start >= end) { // empty body: runs on into the next label
-      if (next !== undefined) edges.push({ from: name, to: next, kind: 'next', src: node.src });
-      return;
+  const name = names[i];
+  const start = labels[name];
+  const next = names[i + 1];
+  const end = next === undefined ? ops.length : labels[next];
+  const node: OutlineNode = {
+    name, src: ops[start]?.src ?? { file: '', line: 1 }, lines: 0, menus: 0, ends: false, returns: false,
+    entry: name === entryName, reachable: false, layer: 0, row: 0,
+  };
+  if (start >= end) { // empty body: runs on into the next label
+    if (next !== undefined) edges.push({ from: name, to: next, kind: 'next', src: node.src });
+    return node;
+  }
+  // Menu option block ranges, to name the choice a jump sits in.
+  const optionAt = (pc: number): { text: string; cond: string | null } | undefined => {
+    for (let m = start; m < end; m++) {
+      const op = ops[m];
+      if (op.op !== 'menu') continue;
+      if (op.timeout && pc >= op.timeout.target && pc < op.end) return { text: 'timeout', cond: null };
+      const t = op.options.map(o => o.target);
+      for (let k = 0; k < t.length; k++) {
+        const stop = k + 1 < t.length ? t[k + 1] : op.timeout?.target ?? Infinity;
+        if (pc >= t[k] && pc < stop && pc > m) return { text: op.options[k].text, cond: op.options[k].cond ? formatExpr(op.options[k].cond!) : null };
+      }
     }
-    // Menu option block ranges, to name the choice a jump sits in.
-    const optionAt = (pc: number): { text: string; cond: string | null } | undefined => {
-      for (let m = start; m < end; m++) {
-        const op = ops[m];
-        if (op.op !== 'menu') continue;
-        if (op.timeout && pc >= op.timeout.target && pc < op.end) return { text: 'timeout', cond: null };
-        const t = op.options.map(o => o.target);
-        for (let k = 0; k < t.length; k++) {
-          const stop = k + 1 < t.length ? t[k + 1] : op.timeout?.target ?? Infinity;
-          if (pc >= t[k] && pc < stop && pc > m) return { text: op.options[k].text, cond: op.options[k].cond ? formatExpr(op.options[k].cond!) : null };
-        }
+    return undefined;
+  };
+  const seen = new Set<string>();
+  // Conditions in force at each pc: `if` branches skip to their target when false; the part after a branch's closing
+  // goto (elif / else) runs when that branch's condition was false.
+  const active: { text: string; end: number; cond?: string }[] = [];
+  const condAt = (pc: number, opt?: { cond: string | null }) =>
+    [...active.map(a => a.text), ...(opt?.cond ? [opt.cond] : [])].join(' and ') || undefined;
+  const add = (kind: OutlineEdgeKind, to: string | undefined, pc: number, opt?: { text: string; cond: string | null }) => {
+    if (to === undefined) return;
+    const text = opt?.text, cond = condAt(pc, opt);
+    const key = `${kind}|${to}|${text ?? ''}|${cond ?? ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({ from: name, to, kind, text, cond, src: ops[pc].src });
+  };
+  for (let pc = start; pc < end; pc++) {
+    const op = ops[pc];
+    while (active.length && active[active.length - 1].end <= pc) {
+      const done = active.pop()!;
+      const closing = ops[done.end - 1];
+      if (done.cond && closing.op === 'goto' && closing.target > done.end) {
+        active.push({ text: `not (${done.cond})`, end: closing.target }); // the elif / else part
       }
-      return undefined;
-    };
-    const seen = new Set<string>();
-    // Conditions in force at each pc: `if` branches skip to their target when false; the part after a branch's closing
-    // goto (elif / else) runs when that branch's condition was false.
-    const active: { text: string; end: number; cond?: string }[] = [];
-    const condAt = (pc: number, opt?: { cond: string | null }) =>
-      [...active.map(a => a.text), ...(opt?.cond ? [opt.cond] : [])].join(' and ') || undefined;
-    const add = (kind: OutlineEdgeKind, to: string | undefined, pc: number, opt?: { text: string; cond: string | null }) => {
-      if (to === undefined) return;
-      const text = opt?.text, cond = condAt(pc, opt);
-      const key = `${kind}|${to}|${text ?? ''}|${cond ?? ''}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      edges.push({ from: name, to, kind, text, cond, src: ops[pc].src });
-    };
-    for (let pc = start; pc < end; pc++) {
-      const op = ops[pc];
-      while (active.length && active[active.length - 1].end <= pc) {
-        const done = active.pop()!;
-        const closing = ops[done.end - 1];
-        if (done.cond && closing.op === 'goto' && closing.target > done.end) {
-          active.push({ text: `not (${done.cond})`, end: closing.target }); // the elif / else part
-        }
-      }
-      switch (op.op) {
-        case 'say': node.lines++; break;
-        case 'end': node.ends = true; break;
-        case 'ret': node.returns = true; break;
-        case 'menu':
-          node.menus++;
-          break;
-        case 'jump': case 'call':
-          if (op.target >= 0) add(op.op, labelAt.get(op.target), pc, optionAt(pc));
-          break;
-        case 'hud': // the labels its elements call (shown as calls: the story returns from them)
-          if (op.mode === 'on') for (const l of hudLabels(program.screens[op.name])) { const t = labels[l]; if (t !== undefined) add('call', labelAt.get(t), pc, optionAt(pc)); }
-          break;
-      }
-      // Running off the end of the body: the last op, the end of a menu option or an if block, or a call returning.
-      const after = next === undefined ? -1 : labels[next];
-      const dead = pc > start && ['jump', 'end', 'ret'].includes(ops[pc - 1].op) && op.op === 'goto'; // the compiler's closing goto of a menu option
-      if (!dead && after >= 0 && op.op !== 'jump' && op.op !== 'end' && op.op !== 'ret' && (op.op === 'call' ? pc + 1 === after : succ[pc].includes(after))) {
-        add('next', next, pc, optionAt(pc));
-      }
-      if (op.op === 'branch') active.push({ text: formatExpr(op.cond), end: op.target, cond: formatExpr(op.cond) });
     }
-  });
+    switch (op.op) {
+      case 'say': node.lines++; break;
+      case 'end': node.ends = true; break;
+      case 'ret': node.returns = true; break;
+      case 'menu':
+        node.menus++;
+        break;
+      case 'jump': case 'call':
+        if (op.target >= 0) add(op.op, labelAt.get(op.target), pc, optionAt(pc));
+        break;
+      case 'hud': // the labels its elements call (shown as calls: the story returns from them)
+        if (op.mode === 'on') for (const l of hudLabels(program.screens[op.name])) { const t = labels[l]; if (t !== undefined) add('call', labelAt.get(t), pc, optionAt(pc)); }
+        break;
+    }
+    // Running off the end of the body: the last op, the end of a menu option or an if block, or a call returning.
+    const after = next === undefined ? -1 : labels[next];
+    const dead = pc > start && ['jump', 'end', 'ret'].includes(ops[pc - 1].op) && op.op === 'goto'; // the compiler's closing goto of a menu option
+    if (!dead && after >= 0 && op.op !== 'jump' && op.op !== 'end' && op.op !== 'ret' && (op.op === 'call' ? pc + 1 === after : succ[pc].includes(after))) {
+      add('next', next, pc, optionAt(pc));
+    }
+    if (op.op === 'branch') active.push({ text: formatExpr(op.cond), end: op.target, cond: formatExpr(op.cond) });
+  }
+  return node;
+}
 
+/** Gives every node its column and row, and every long edge its route; returns the number of columns. */
+function placeNodes(nodes: OutlineNode[], edges: OutlineEdge[], entryName: string): number {
   // Layout: labels the entry reaches form one chart; labels it never reaches form charts of their own below it
   // (rooted at labels nothing else leads to, in definition order), so a second chapter reads as a chart too.
   const out = new Map<string, string[]>(), incoming = new Set<string>();
@@ -157,7 +151,21 @@ export function buildOutline(program: Program): Outline {
     const a = byName.get(e.from)!, b = byName.get(e.to)!;
     if (b.layer - a.layer > 1) e.via = routes.get(`${e.from}>${e.to}`);
   }
-  return { nodes, edges, layers };
+  return layers;
+}
+
+export function buildOutline(program: Program): Outline {
+  const { labels } = program;
+  // Labels by start pc; labels without statements share the pc of the next one and just fall through.
+  const names = Object.keys(labels).sort((a, b) => labels[a] - labels[b]);
+  if (!names.length) return { nodes: [], edges: [], layers: 0 };
+  const succ = successors(program);
+  const entryName = 'start' in labels ? 'start' : names[0];
+  const labelAt = new Map<number, string>(); // first label name at a pc
+  for (const n of names) if (!labelAt.has(labels[n])) labelAt.set(labels[n], n);
+  const edges: OutlineEdge[] = [];
+  const nodes = names.map((_, i) => scanLabel(program, succ, labelAt, names, i, entryName, edges));
+  return { nodes, edges, layers: placeNodes(nodes, edges, entryName) };
 }
 
 interface GroupLayout { layer: Map<string, number>; row: Map<string, number>; routes: Map<string, number[]>; layers: number; rows: number }

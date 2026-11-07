@@ -96,11 +96,6 @@ test('looks: a bare word is a look, then an implicit look from PSD names and tag
   assert.ok(checkRig(m).some(p => p.message.includes('"angry" is also a variant or pose name in the PSD; the look wins')));
 });
 
-test('checkRig: poses was replaced by looks', () => {
-  const found = checkRig(manifest({ poses: { a: {} } }));
-  assert.deepEqual(found.map(p => p.message), ['poses was replaced by looks; see rig-json.md']);
-});
-
 test('show parses several bare words and runs them left to right', async () => {
   const src = 'define al "Al"\nlabel start:\n  show al shy plain eyes=down\n  end\n';
   const p = compile([{ file: 't.vn', text: src }]);
@@ -289,4 +284,33 @@ test('folderBones, rigSkeleton and mergeRig: PSD folders become bones, nothing t
   assert.deepEqual(merged.rig.parts.eyes, { bone: 'head' });
   // a folder whose parts are all already in order adds no empty bone
   assert.deepEqual(mergeRig({ order: ['body', 'face', 'eyes', 'hand', 'cuff'] }, m).bonesAdded, []);
+});
+
+test('checkRig: deformers', () => {
+  const params = [{ id: 'sway', min: -1, max: 1, default: 0 }, { id: 'tilt', min: 0, max: 1, default: 0 }];
+  const ok = { id: 'hw', part: 'hair', grid: [2, 2], keyforms: [{ param: 'sway', keys: [{ at: -1, pts: { 0: [0.1, 0] } }, { at: 1, pts: { 8: [0, 0.1] } }] }] };
+  const msgs = (deformers, extra = {}) => checkRig(manifest({ parameters: params, deformers, ...extra })).map(p => p.message);
+  assert.deepEqual(msgs([ok]), []);
+  assert.ok(msgs([ok, ok]).some(m => m.includes('"hw" is defined twice')));
+  assert.ok(msgs([{ ...ok, part: 'nope' }]).some(m => m.includes('no part named "nope"')));
+  assert.ok(msgs([{ ...ok, part: 'torso' }], { bones: { torso: {} } }).some(m => m.includes('"torso" is a bone')));
+  assert.ok(msgs([ok, { ...ok, id: 'hw2' }]).some(m => m.includes('already has deformer "hw"')));
+  for (const grid of [[0, 2], [13, 2], [2.5, 2], [2], 'x']) assert.ok(msgs([{ ...ok, grid }]).some(m => m.includes('grid: use [cols, rows]')), String(grid));
+  assert.ok(msgs([{ ...ok, keyforms: 'x' }]).some(m => m.includes('keyforms: needs a list')));
+  assert.ok(msgs([{ ...ok, keyforms: [{}] }]).some(m => m.includes('use either param + keys')));
+  assert.ok(msgs([{ ...ok, keyforms: [{ param: 'nope', keys: [{ at: 0 }] }] }]).some(m => m.includes('no parameter "nope"')));
+  assert.ok(msgs([{ ...ok, keyforms: [{ param: 'sway', keys: [{ at: -2 }, { at: 1 }] }] }]).some(m => m.includes('outside "sway"')));
+  assert.ok(msgs([{ ...ok, keyforms: [{ param: 'sway', keys: [{ at: 0 }, { at: 0 }] }] }]).some(m => m.includes('two keys at the same value')));
+  assert.ok(msgs([{ ...ok, keyforms: [{ param: 'sway', keys: [{ at: 0, pts: { 9: [0, 0] } }] }] }]).some(m => m.includes('point "9" is outside the lattice (0 to 8)')));
+  assert.ok(msgs([{ ...ok, keyforms: [{ param: 'sway', keys: [{ at: 0, pts: { 1: [0] } }] }] }]).some(m => m.includes('use [dx, dy]')));
+  const two = (patch) => [{ ...ok, grid: [1, 1], keyforms: [{ params: ['sway', 'tilt'], grid: { x: [-1, 1], y: [0, 1] }, forms: [{}, {}, {}, {}], ...patch }] }];
+  assert.deepEqual(msgs(two({})), []);
+  assert.ok(msgs(two({ forms: [{}] })).some(m => m.includes('needs 4 forms')));
+  assert.ok(msgs(two({ params: ['sway', 'sway'] })).some(m => m.includes('must differ')));
+  assert.ok(msgs(two({ grid: { x: [1, -1], y: [0, 1] } })).some(m => m.includes('ascending')));
+  assert.ok(msgs(two({ grid: { x: [-1, 2], y: [0, 1] } })).some(m => m.includes('outside "sway"')));
+  assert.ok(msgs('x').some(m => m.includes('deformers: needs a list')));
+  const framed = { animations: { a: { dur: 1, keys: [], frames: [{ slot: 'eyes', frames: ['open', 'down'] }] } } };
+  assert.deepEqual(msgs([{ ...ok, part: 'hair' }], framed), []);
+  assert.ok(msgs([{ ...ok, part: 'eyes' }], framed).some(m => m.includes('has a frame track')));
 });

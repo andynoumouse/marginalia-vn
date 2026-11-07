@@ -45,6 +45,7 @@ await build({
 copy('editor/index.html');
 copy('editor/help.html');
 copy('editor/help.css');
+copy('editor/studio.css');
 copy('preview/index.html');
 for (const f of fs.readdirSync(path.join(root, 'docs')).filter(f => f.endsWith('.md'))) copy(`docs/${f}`);
 copy('templates/assets');
