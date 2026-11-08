@@ -5,6 +5,7 @@
 
 import { translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
+import { trapModal } from './modal.js';
 
 export interface TranslationsHost {
   /** The strings of the current scripts, in script order. */
@@ -77,6 +78,7 @@ export class TranslationsDialog {
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     q('.close').addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
+    trapModal(this.root, () => this.close());
     this.langSel.addEventListener('change', () => { this.lang = this.langSel.value; this.refilter(); });
     this.filter.addEventListener('input', () => { window.clearTimeout(this.filterTimer); this.filterTimer = window.setTimeout(() => this.refilter(), FILTER_DELAY); });
     this.todo.addEventListener('change', () => this.refilter());

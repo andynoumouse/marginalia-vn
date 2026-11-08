@@ -98,6 +98,15 @@ label animation_showcase:
   mina: And open again. #wekj
   show mina eyes=open
 
+  # --- 8. wind: the scene's wind pushes every physics chain (rig.json "physics") ---
+  "8. wind: it pushes every physics chain of a rig.json, here my hair. It lasts until wind off or the next scene." #cee5
+  wind right 0.6 gusts=0.4 1.5
+  mina: A breeze from the left. My hair streams out to the right and picks up the gusts. #ivqi
+  wind left 0.9 gusts=0.8 1
+  mina: And now a strong one from the other side. #xiqt
+  wind off 2
+  mina: Calm again. A chain's windScale sets how much of the wind it feels: 0 ignores it, a negative number mirrors it. #ldu8
+
   # --- the end ---
   "That is all of them. Reduce motion (Options) turns the loops, shakes and hops off." #feof
   menu:

@@ -1,8 +1,10 @@
 import { ANCHORS, parseAnchor, type Anchor, type Anchors } from './anchor.js';
-import { ANIM_NAMES, DEFAULT_EASE, EASE_NAMES } from './anim.js';
+import { ANIM_NAMES, DEFAULT_EASE, easeProblem, isEaseSpec } from './anim.js';
+import { parseCondition, type AutoDef } from './auto-anim.js';
+import { parseTransformLine, type ChoreographyDef, type ChoreographyLine, type TransformDef, type TransformParam, type TransformRepeat, type TransformStep } from './transform.js';
 import { BUILTIN_POSITIONS, type Position, type Positions } from './positions.js';
 import { parseExpr, parseExprList, usesRandom, ExprError, type Expr } from './expr.js';
-import { FILTER_NAMES, WEATHER_NAMES, isFilterName, isWeatherName, type FilterName, type WeatherName } from './fx.js';
+import { BURST_NAMES, FILTER_NAMES, WEATHER_NAMES, isBurstName, isFilterName, isWeatherName, type BurstName, type FilterName, type WeatherName } from './fx.js';
 import type { LocalSets, ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import { withFix } from './suggest.js';
@@ -22,9 +24,33 @@ export const RE_OPT = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?(?:[ \t
 const RE_LABEL = /^label[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:$/;
 const RE_CALL = /^call[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\((.*)\))?[ \t]*(?:#.*)?$/;
 const RESERVED_WORDS = ['true', 'false', 'and', 'or', 'not'];
+/** What each block opener looks like, for a line that starts with one but is not written right (see FileParser.slip). */
+const OPENER_USAGE: Record<string, string> = {
+  label: 'Use: label <name>:  or  label <name>(<parameters>):',
+  menu: 'Use: menu:  or  menu "Prompt":  (with timeout <seconds> before the colon for a clock)',
+  if: 'Use: if <condition>:',
+  elif: 'Use: elif <condition>:',
+  else: 'Use: else:',
+  transform: 'Use: transform <name>:  or  transform <name>(<parameters>):',
+  choreography: 'Use: choreography <name>:',
+};
+/** The line without a trailing `# comment`: a # with a space before and after it, outside quotes (`#ff6fa5` and `#ab12` are a colour and an id). */
+function withoutComment(t: string): string {
+  let quoted = false;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === '\\') i++;
+    else if (t[i] === '"') quoted = !quoted;
+    else if (t[i] === '#' && !quoted && i > 0 && /\s/.test(t[i - 1]) && (i + 1 === t.length || /\s/.test(t[i + 1]))) return t.slice(0, i).trimEnd();
+  }
+  return t;
+}
 // `menu ["Prompt" [#id]] [timeout <seconds>]:`
 export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?(?:[ \t]+style=(\w+))?(?:[ \t]+timeout[ \t]+(.+?))?[ \t]*:$/;
 const RE_ON_TIMEOUT = /^on[ \t]+timeout[ \t]*:$/;
+const RE_TRANSFORM = /^transform[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?(?:[ \t]+((?:every|while)\b.*?))?[ \t]*:$/;
+const RE_CHOREO = /^choreography[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:$/;
+const RE_CHOREO_LINE = /^(\d+(?:\.\d+)?|\.\d+)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*(\S.*)$/;
+const RE_TRANSFORM_AUTO = /^(?:every[ \t]+(\d+(?:\.\d+)?|\.\d+)(?:\.\.(\d+(?:\.\d+)?|\.\d+))?)?(?:[ \t]*while[ \t]+(.+))?$/;
 const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:?$/;
 const RE_SHOW_SCREEN = /^show[ \t]+screen[ \t]+([A-Za-z_]\w*)[ \t]*(?:\((.*)\))?(?:[ \t]+as[ \t]+([A-Za-z_]\w*))?[ \t]*(?:#.*)?$/;
 export const RE_DEFINE_ITEM = /^define[ \t]+item[ \t]+[A-Za-z_]\w*(?=[ \t]|$)/;
@@ -42,7 +68,7 @@ export type Node =
       /** `timeout <seconds>` on the header together with the `on timeout:` block; null: no clock. */
       timeout: { seconds: Expr; src: Src; to: number; body: Node[] } | null };
 
-export interface ParsedFile { file: string; nodes: Node[]; characters: CharacterDef[]; items: ItemDef[]; screens: ScreenDef[] }
+export interface ParsedFile { file: string; nodes: Node[]; characters: CharacterDef[]; items: ItemDef[]; screens: ScreenDef[]; transforms: TransformDef[]; choreographies: ChoreographyDef[] }
 
 class ParseError extends Error {}
 /** The first word of a line is not a command; `word` gets "did you mean" fixes from COMMAND_WORDS. */
@@ -51,8 +77,8 @@ class UnknownCommand extends ParseError {
   constructor(cmd: string) { super(`Unknown command "${cmd}"`); this.word = cmd.replace(/:$/, ''); } // `mnue:` is `menu:` mistyped
 }
 /** Every word a statement can start with (for "did you mean" on an unknown one). */
-export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
-  'animate', 'hop', 'flash', 'tint', 'focus', 'behaviors', 'camera', 'weather', 'filter', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
+export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'transform', 'choreography', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
+  'animate', 'hop', 'perform', 'burst', 'flash', 'tint', 'focus', 'behaviors', 'camera', 'weather', 'wind', 'gravity', 'filter', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
   'textbox', 'unlock', 'input', 'return', 'end'] as const;
 export type CommandWord = (typeof COMMAND_WORDS)[number];
 /** `parts`: the physical lines of a screen element written over several (this line first, then its clause continuations); `text` is then all of them joined. */
@@ -236,8 +262,8 @@ function parseMoveCommand(c: Cmd): OpBody {
   const { need, visual, positions, anchors } = c;
   const a = c.a;
   const char = need(0, 'a character');
-  const usage = 'Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [flip=on|off] [anchor=] [seconds] [ease=]';
-  let x: number | null = null, dur = 0, ease = DEFAULT_EASE;
+  const usage = 'Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]';
+  let x: number | null = null, dur = 0, ease = DEFAULT_EASE, tint: string | null | undefined;
   const props: Record<string, number> = {};
   let flip: boolean | null = null, anchor: Anchor | null = null, posY: number | undefined;
   for (let i = 1; i < a.length;) {
@@ -245,7 +271,7 @@ function parseMoveCommand(c: Cmd): OpBody {
     if (t === 'to') { const p = parsePos(a[i + 1], positions); x = p.x; posY = p.y; i += 2; }
     else if (t.startsWith('ease=')) {
       ease = t.slice(5);
-      if (!EASE_NAMES.includes(ease)) throw new ParseError(`Unknown ease "${ease}" (${EASE_NAMES.join(', ')})`);
+      if (!isEaseSpec(ease)) throw new ParseError(easeProblem(ease));
       i++;
     }
     else if (t.startsWith('flip=')) {
@@ -254,6 +280,7 @@ function parseMoveCommand(c: Cmd): OpBody {
       flip = v === 'on'; i++;
     }
     else if (t.startsWith('anchor=')) { anchor = anchorArg(t, anchors); i++; }
+    else if (t.startsWith('tint=')) { tint = tintArg(t); i++; }
     else if (t.includes('=')) {
       const [k, v] = t.split('=');
       if (!['y', 'scale', 'rot', 'alpha'].includes(k)) throw new ParseError(`Unknown property "${k}" in move`);
@@ -262,8 +289,16 @@ function parseMoveCommand(c: Cmd): OpBody {
     else if (isNum(t)) { dur = Number(t); i++; }
     else throw new ParseError(usage);
   }
-  if (x === null && flip === null && anchor === null && Object.keys(props).length === 0) throw new ParseError(usage);
-  return visual({ op: 'move', char, x, y: props.y ?? posY ?? null, scale: props.scale ?? null, rotation: props.rot ?? null, alpha: props.alpha ?? null, flip, anchor, dur, ease });
+  if (x === null && flip === null && anchor === null && tint === undefined && Object.keys(props).length === 0) throw new ParseError(usage);
+  return visual({ op: 'move', char, x, y: props.y ?? posY ?? null, scale: props.scale ?? null, rotation: props.rot ?? null, alpha: props.alpha ?? null, flip, anchor, ...(tint !== undefined ? { tint } : {}), dur, ease });
+}
+
+/** `tint=#rrggbb` (a color to multiply by) or `tint=none` (back to the art's own colors, null). */
+function tintArg(t: string): string | null {
+  const v = t.slice(5);
+  if (v === 'none') return null;
+  if (!COLOR.test(v)) throw new ParseError('tint= takes a color like #ff8080, or none');
+  return v;
 }
 
 function parseShakeCommand(c: Cmd): OpBody {
@@ -285,7 +320,17 @@ function parseAnimateCommand(c: Cmd): OpBody {
   const { need, visual } = c;
   const a = c.a;
   const char = need(0, 'a character');
-  const name = need(1, `an animation (${ANIM_NAMES.join(', ')}), pose=<name>, a parameter=value, or stop`);
+  let name = need(1, `an animation (${ANIM_NAMES.join(', ')}), pose=<name>, a parameter=value, or stop`);
+  let argsAt = 2, args: Expr[] | undefined; // `animate alice nervous(2, trust)`: a transform's arguments
+  const open = name.indexOf('(');
+  if (open > 0 && !name.includes('=')) {
+    let text = name;
+    while ((text.match(/\(/g) ?? []).length > (text.match(/\)/g) ?? []).length && argsAt < a.length) text += ' ' + a[argsAt++];
+    const close = text.lastIndexOf(')');
+    if (close !== text.length - 1 || (text.match(/\(/g) ?? []).length !== (text.match(/\)/g) ?? []).length) throw new ParseError('Use: animate <char> name(arguments) [seconds] [loop] [strength=1]');
+    try { args = parseExprList(text.slice(open + 1, close)); } catch (e) { throw new ParseError(e instanceof ExprError ? e.message : String(e)); }
+    name = text.slice(0, open);
+  }
   if (name.includes('=')) { // animate <char> pose=<name> / <param>=<value> ... [over <seconds>] [ease=<name>]
     const usage = 'Use: animate <char> [pose=<name>[,<name>]] [<parameter>=<value> ...] [over <seconds>] [ease=<name>]';
     const poses: string[] = [], params: Record<string, number> = {};
@@ -296,7 +341,7 @@ function parseAnimateCommand(c: Cmd): OpBody {
       else if (t.startsWith('pose=')) { poses.push(...poseNames(t)); i++; }
       else if (t.startsWith('ease=')) {
         ease = t.slice(5);
-        if (!EASE_NAMES.includes(ease)) throw new ParseError(`Unknown ease "${ease}" (${EASE_NAMES.join(', ')})`);
+        if (!isEaseSpec(ease)) throw new ParseError(easeProblem(ease));
         i++;
       } else if (t.includes('=')) {
         const [k, v] = t.split('=');
@@ -309,15 +354,18 @@ function parseAnimateCommand(c: Cmd): OpBody {
   }
   if (name === 'stop') return visual({ op: 'animate', char, name: null, dur: null, loop: false, strength: 1, part: null });
   if (!/^[A-Za-z_]\w*$/.test(name)) throw new ParseError(`"${name}" is not an animation name (presets: ${ANIM_NAMES.join(', ')}; a character's rig.json can add more)`);
-  let dur: number | null = null, loop = false, strength = 1, part: string | null = null;
-  for (const t of a.slice(2)) {
+  let dur: number | null = null, loop = false, strength = 1, part: string | null = null, auto: 'on' | 'off' | undefined;
+  for (const t of a.slice(argsAt)) {
     if (t === 'loop') loop = true;
+    else if (t === 'auto' && !auto) auto = 'on';
+    else if (t === 'off' && auto === 'on') auto = 'off';
     else if (t.startsWith('strength=')) strength = num(t.slice(9), 'strength');
     else if (t.startsWith('part=') && t.length > 5) part = t.slice(5);
     else if (isNum(t) && Number(t) > 0) dur = Number(t);
-    else throw new ParseError('Use: animate <char> <name> [seconds] [loop] [strength=1] [part=name], or animate <char> stop');
+    else throw new ParseError('Use: animate <char> <name> [seconds] [loop] [strength=1] [part=name], animate <char> <name> auto [off], or animate <char> stop');
   }
-  return visual({ op: 'animate', char, name, dur, loop, strength, part });
+  if (auto && (loop || dur !== null || strength !== 1 || part !== null || args)) throw new ParseError('animate <target> <name> auto [off] attaches or detaches an automatic transform: it takes no seconds, loop, strength, part or arguments');
+  return visual({ op: 'animate', char, name, dur, loop, strength, part, ...(args ? { args } : {}), ...(auto ? { auto } : {}) });
 }
 
 function parseHopCommand(c: Cmd): OpBody {
@@ -328,13 +376,49 @@ function parseHopCommand(c: Cmd): OpBody {
   return visual({ op: 'hop', char, dur: isNum(a[1]) ? Number(a[1]) : 0.25 });
 }
 
+function parsePerformCommand(c: Cmd): OpBody {
+  const { need, extra, visual } = c;
+  const name = need(0, 'a choreography');
+  extra(1, 'Use: perform <choreography>');
+  return visual({ op: 'perform', name });
+}
+
+function parseBurstCommand(c: Cmd): OpBody {
+  const { visual, positions } = c;
+  const a = c.a;
+  const usage = `Use: burst <${BURST_NAMES.join('|')}> [at <character|position>] [y=0-1] [count=] [seconds]`;
+  if (!isBurstName(a[0] ?? '')) throw new ParseError(usage);
+  let char: string | undefined, x: number | undefined, y: number | undefined, count: number | null = null, dur: number | null = null;
+  for (let i = 1; i < a.length;) {
+    const t = a[i];
+    if (t === 'at' && a[i + 1] !== undefined) {
+      const where = a[i + 1];
+      if (Object.hasOwn(positions, where) || isNum(where)) x = parsePos(where, positions).x; else char = where; // not a position: a character, checked by compile
+      i += 2;
+    }
+    else if (t.startsWith('y=')) { y = num(t.slice(2), 'y'); i++; }
+    else if (t.startsWith('count=')) {
+      count = num(t.slice(6), 'count');
+      if (!Number.isInteger(count) || count < 1 || count > 500) throw new ParseError('count= is a whole number from 1 to 500');
+      i++;
+    }
+    else if (isNum(t) && dur === null && Number(t) > 0) { dur = Number(t); i++; }
+    else throw new ParseError(usage);
+  }
+  if (char !== undefined && y !== undefined) throw new ParseError('y= places a burst at a point; at a character it comes from the character');
+  return visual({ op: 'burst', kind: a[0] as BurstName, ...(char !== undefined ? { char } : {}), ...(x !== undefined ? { x } : {}), ...(y !== undefined ? { y } : {}), count, dur });
+}
+
 function parseFlashCommand(c: Cmd): OpBody {
   const { visual } = c;
   const a = c.a;
-  const color = a.find(t => COLOR.test(t)) ?? '#ffffff';
-  const rest = a.filter(t => t !== color);
-  if (rest.length > 1) throw new ParseError('Use: flash [#rrggbb] [seconds]');
-  return visual({ op: 'flash', color, dur: rest.length ? num(rest[0], 'duration') : 0.4 });
+  // A first word that is neither a color nor a number names the character or picture to flash instead of the screen.
+  const char = a[0] !== undefined && !COLOR.test(a[0]) && !isNum(a[0]) ? a[0] : undefined;
+  const args = char ? a.slice(1) : a;
+  const color = args.find(t => COLOR.test(t)) ?? '#ffffff';
+  const rest = args.filter(t => t !== color);
+  if (rest.length > 1) throw new ParseError('Use: flash [<character or picture>] [#rrggbb] [seconds]');
+  return visual({ op: 'flash', color, dur: rest.length ? num(rest[0], 'duration') : 0.4, ...(char ? { char } : {}) });
 }
 
 function parseTintCommand(c: Cmd): OpBody {
@@ -364,10 +448,17 @@ function parseCameraCommand(c: Cmd): OpBody {
   const easeArg = a.find(t => t.startsWith('ease=')), yArg = a.find(t => t.startsWith('y='));
   const rest = a.filter(t => !t.startsWith('ease=') && !t.startsWith('y='));
   const ease = easeArg ? easeArg.slice(5) : 'inout';
-  if (!EASE_NAMES.includes(ease)) throw new ParseError(`Unknown ease "${ease}" (${EASE_NAMES.join(', ')})`);
-  const usage = 'Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]';
+  if (!isEaseSpec(ease)) throw new ParseError(easeProblem(ease));
+  const usage = 'Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]';
   const tail = (from: number) => { if (rest.length > from + 1 || (rest[from] !== undefined && !isNum(rest[from]))) throw new ParseError(usage); };
-  if (rest[0] === 'reset') { tail(1); return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, dur: isNum(rest[1]) ? Number(rest[1]) : 0, ease }); }
+  if (rest[0] === 'reset') { tail(1); return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, roll: 0, dur: isNum(rest[1]) ? Number(rest[1]) : 0, ease }); }
+  if (rest[0] === 'roll') {
+    // Turns the view about the current pivot, keeping zoom and pan.
+    if (yArg) throw new ParseError(usage);
+    const roll = num(rest[1], 'roll angle');
+    tail(2);
+    return visual({ op: 'camera', zoom: null, x: null, y: null, roll, dur: isNum(rest[2]) ? Number(rest[2]) : 0, ease });
+  }
   if (rest[0] === 'pan') {
     // Moves the point the zoom is about, keeping the zoom: only visible while zoomed in.
     const x = parsePos(rest[1], positions).x;
@@ -395,6 +486,34 @@ function parseWeatherCommand(c: Cmd): OpBody {
   return visual({ op: 'weather', kind: a[0] as WeatherName, intensity, dur });
 }
 
+function parseWindCommand(c: Cmd): OpBody {
+  const { offDur, visual } = c;
+  const usage = 'Use: wind <right|left> [strength 0-2] [gusts=0-1] [seconds], or wind off [seconds]';
+  const gustArg = c.a.find(t => t.startsWith('gusts='));
+  const a = c.a.filter(t => t !== gustArg);
+  if (a[0] === 'off') {
+    if (gustArg) throw new ParseError(usage);
+    return visual({ op: 'wind', strength: 0, gusts: 0, dur: offDur(usage) });
+  }
+  if (a[0] !== 'right' && a[0] !== 'left') throw new ParseError(usage);
+  if (a.length > 3 || a.slice(1).some(t => !isNum(t))) throw new ParseError(usage);
+  const level = isNum(a[1]) ? Number(a[1]) : 0.5;
+  if (level < 0 || level > 2) throw new ParseError('Wind strength is 0 to 2');
+  const gusts = gustArg ? Number(gustArg.slice(6)) : 0.4;
+  if (!isNum(gustArg ? gustArg.slice(6) : '0') || gusts < 0 || gusts > 1) throw new ParseError('Wind gusts are 0 (steady) to 1 (fully gusting)');
+  return visual({ op: 'wind', strength: a[0] === 'right' ? level : -level, gusts, dur: isNum(a[2]) ? Number(a[2]) : 0 });
+}
+
+function parseGravityCommand(c: Cmd): OpBody {
+  const usage = 'Use: gravity <factor -3 to 3> (1 = normal, 0 = none, negative = things rise), or gravity reset';
+  c.extra(1, usage);
+  if (c.a[0] === 'reset') return c.visual({ op: 'gravity', factor: 1 });
+  if (!isNum(c.a[0])) throw new ParseError(usage);
+  const factor = Number(c.a[0]);
+  if (factor < -3 || factor > 3) throw new ParseError('Gravity is -3 to 3');
+  return c.visual({ op: 'gravity', factor });
+}
+
 function parseFilterCommand(c: Cmd): OpBody {
   const { parseLevel, offDur, visual } = c;
   const a = c.a;
@@ -415,7 +534,7 @@ function parseHudCommand(c: Cmd): OpBody {
 function parseImageCommand(c: Cmd): OpBody {
   const { visual, anchors, stage } = c;
   const a = c.a;
-  const usage = 'Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]';
+  const usage = 'Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]';
   const verb = a[0], name = a[1];
   if (!name || !/^[A-Za-z_]\w*$/.test(name)) throw new ParseError(usage);
   const xy = (tok: string | undefined) => {
@@ -430,13 +549,18 @@ function parseImageCommand(c: Cmd): OpBody {
   if (verb !== 'show' && verb !== 'move') throw new ParseError(usage);
   const props: Record<string, number> = {};
   let pos: { x: number; y: number } | null = null, anchor: Anchor | null = null, dur = 0, fade = 0, ease = DEFAULT_EASE;
-  let layer: number | undefined, fixed = false, keep = false, file: string | null = null;
+  let layer: number | undefined, fixed = false, keep = false, parallax: number | undefined, file: string | null = null, tint: string | null | undefined;
   for (let i = 2; i < a.length;) {
     const t = a[i];
     if (t === (verb === 'show' ? 'at' : 'to')) { pos = xy(a[i + 1]); i += 2; }
     else if (verb === 'show' && t === 'fade') { fade = num(a[i + 1], 'fade duration'); i += 2; }
     else if (verb === 'show' && t === 'fixed') { fixed = true; i++; }
     else if (verb === 'show' && t === 'keep') { keep = true; i++; }
+    else if (verb === 'show' && t.startsWith('parallax=')) {
+      parallax = num(t.slice(9), 'parallax');
+      if (parallax < 0) throw new ParseError('parallax= is 0 (stays on the screen) to 1 (moves with the camera), or more for a nearer picture');
+      i++;
+    }
     else if (verb === 'show' && t.startsWith('layer=')) {
       layer = num(t.slice(6), 'layer');
       if (!Number.isInteger(layer)) throw new ParseError('layer= is a whole number (below 0 draws behind the characters)');
@@ -444,10 +568,11 @@ function parseImageCommand(c: Cmd): OpBody {
     }
     else if (verb === 'move' && t.startsWith('ease=')) {
       ease = t.slice(5);
-      if (!EASE_NAMES.includes(ease)) throw new ParseError(`Unknown ease "${ease}" (${EASE_NAMES.join(', ')})`);
+      if (!isEaseSpec(ease)) throw new ParseError(easeProblem(ease));
       i++;
     }
     else if (t.startsWith('anchor=')) { anchor = anchorArg(t, anchors); i++; }
+    else if (t.startsWith('tint=')) { tint = tintArg(t); i++; }
     else if (t.includes('=')) {
       const [k, v] = t.split('=');
       if (!['scale', 'rot', 'alpha'].includes(k)) throw new ParseError(`Unknown property "${k}" in image ${verb}`);
@@ -460,8 +585,8 @@ function parseImageCommand(c: Cmd): OpBody {
   if (props.scale !== undefined && props.scale <= 0) throw new ParseError('scale= must be above 0');
   if (props.alpha !== undefined && (props.alpha < 0 || props.alpha > 1)) throw new ParseError('alpha= is 0 to 1');
   if (verb === 'move') {
-    if (!pos && !anchor && Object.keys(props).length === 0) throw new ParseError(usage);
-    return visual({ op: 'image', action: 'move', name, x: pos?.x ?? null, y: pos?.y ?? null, scale: props.scale ?? null, rotation: props.rot ?? null, alpha: props.alpha ?? null, anchor, dur, ease });
+    if (!pos && !anchor && tint === undefined && Object.keys(props).length === 0) throw new ParseError(usage);
+    return visual({ op: 'image', action: 'move', name, x: pos?.x ?? null, y: pos?.y ?? null, scale: props.scale ?? null, rotation: props.rot ?? null, alpha: props.alpha ?? null, anchor, ...(tint !== undefined ? { tint } : {}), dur, ease });
   }
   if (file === null) throw new ParseError(usage);
   return visual({
@@ -469,6 +594,8 @@ function parseImageCommand(c: Cmd): OpBody {
     ...(pos ? { x: pos.x, y: pos.y } : {}), ...(props.scale !== undefined ? { scale: props.scale } : {}),
     ...(props.rot !== undefined ? { rotation: props.rot } : {}), ...(props.alpha !== undefined ? { alpha: props.alpha } : {}),
     ...(anchor ? { anchor } : {}), ...(layer !== undefined ? { layer } : {}), ...(fixed ? { fixed } : {}), ...(keep ? { keep } : {}),
+    ...(parallax !== undefined ? { parallax } : {}),
+    ...(typeof tint === 'string' ? { tint } : {}),
   });
 }
 
@@ -600,12 +727,16 @@ const COMMAND_PARSERS: Record<string, (c: Cmd) => OpBody> = {
   shake: parseShakeCommand,
   animate: parseAnimateCommand,
   hop: parseHopCommand,
+  perform: parsePerformCommand,
+  burst: parseBurstCommand,
   flash: parseFlashCommand,
   tint: parseTintCommand,
   focus: parseFocusCommand,
   behaviors: parseBehaviorsCommand,
   camera: parseCameraCommand,
   weather: parseWeatherCommand,
+  wind: parseWindCommand,
+  gravity: parseGravityCommand,
   filter: parseFilterCommand,
   hud: parseHudCommand,
   image: parseImageCommand,
@@ -637,6 +768,8 @@ class FileParser {
   private characters: CharacterDef[] = [];
   private items: ItemDef[] = [];
   private screens: ScreenDef[] = [];
+  private transforms: TransformDef[] = [];
+  private choreographies: ChoreographyDef[] = [];
 
   constructor(private file: string, private diags: Diagnostic[], private positions: Positions, private anchors: Anchors, private stage: StageSize) {}
 
@@ -648,7 +781,7 @@ class FileParser {
       this.lines.push({ no, indent: raw.length - raw.trimStart().length, text: raw.trim() });
     });
     const top = this.parseBlock(0);
-    return { file: this.file, nodes: top.nodes, characters: this.characters, items: this.items, screens: this.screens };
+    return { file: this.file, nodes: top.nodes, characters: this.characters, items: this.items, screens: this.screens, transforms: this.transforms, choreographies: this.choreographies };
   }
 
   private err(ln: RawLine, message: string) { this.diags.push({ file: this.file, line: ln.no, severity: 'error', message }); }
@@ -841,6 +974,175 @@ class FileParser {
     return def;
   }
 
+  /** The body of a `choreography name:` block: lines `<seconds> <target>: <step>` (the step is a tween, a wait or a preset, as in a transform). */
+  private parseChoreography(header: RawLine, name: string): ChoreographyDef {
+    const def: ChoreographyDef = { name, src: this.src(header), lines: [] };
+    const first = this.lines[this.i];
+    if (!first || first.indent <= header.indent) { this.err(header, 'Expected an indented block after this line'); return def; }
+    while (this.i < this.lines.length && this.lines[this.i].indent >= first.indent) {
+      const l = this.lines[this.i++];
+      if (l.indent > first.indent) { this.err(l, 'Unexpected indentation (a choreography line is <seconds> <target>: <step>)'); continue; }
+      const m = RE_CHOREO_LINE.exec(l.text);
+      if (!m) { this.err(l, 'Use: <seconds> <character, picture or camera>: <step>   (for example: 0.6 alice: hop)'); continue; }
+      let step: ReturnType<typeof parseTransformLine>;
+      try { step = parseTransformLine(m[3], this.src(l)); } catch (e) { this.err(l, e instanceof Error ? e.message : String(e)); continue; }
+      if (!('kind' in step) || (step.kind !== 'tween' && step.kind !== 'wait' && step.kind !== 'preset')) { this.err(l, 'A choreography step is a tween, wait or preset (no parallel, if, pick or repeat: give two actors two lines)'); continue; }
+      def.lines.push({ at: Number(m[1]), target: m[2], step, src: this.src(l) } as ChoreographyLine);
+    }
+    return def;
+  }
+
+  /** The body of a `transform name:` block: tween and wait lines, and `repeat` last. */
+  private parseTransform(header: RawLine, name: string, paramText: string | undefined, autoText: string | undefined): TransformDef {
+    const params: TransformParam[] = [];
+    for (const raw of (paramText ?? '').split(',').map(x => x.trim()).filter(Boolean)) {
+      const pm = /^([A-Za-z_]\w*)(?:\s*=\s*(-?\d+(?:\.\d+)?|-?\.\d+))?$/.exec(raw);
+      if (!pm || RESERVED_WORDS.includes(pm[1])) this.err(header, `"${raw}" is not a parameter (a name, optionally = a number: transform nervous(amount=1):)`);
+      else if (params.some(q => q.name === pm[1])) this.err(header, `Parameter "${pm[1]}" is listed twice`);
+      else params.push({ name: pm[1], def: pm[2] === undefined ? 0 : Number(pm[2]) });
+    }
+    const def: TransformDef = { name, src: this.src(header), params, steps: [], repeat: null };
+    if (autoText) {
+      const am = RE_TRANSFORM_AUTO.exec(autoText.trim());
+      if (!am) this.err(header, 'Use: transform name every <seconds>[..<seconds>] [while <condition>]:  (or while <condition>: alone)');
+      else {
+        const auto: AutoDef = {};
+        if (am[1] !== undefined) {
+          const lo = Number(am[1]), hi = am[2] === undefined ? lo : Number(am[2]);
+          if (!(lo > 0) || hi < lo) this.err(header, 'every needs seconds above 0, and the second number of a range cannot be smaller than the first');
+          else auto.every = am[2] === undefined ? lo : { min: lo, max: hi };
+        }
+        if (am[3] !== undefined) {
+          if (!parseCondition(am[3])) this.err(header, `"${am[3]}" is not a condition`);
+          else auto.while = am[3].trim();
+        }
+        if (auto.every !== undefined || auto.while !== undefined) def.auto = auto;
+      }
+    }
+    def.repeat = this.parseTransformSteps(header, def.steps, true);
+    return def;
+  }
+
+  /**
+   * The indented lines under `header` as steps appended to `steps`. A `parallel:` line with its block is one branch, and
+   * `parallel:` lines that follow each other at one level are the branches of one step; `if` / `elif` / `else` chain the
+   * same way, and `pick:` holds `choice:` blocks. Returns the `repeat` (top level only).
+   */
+  private parseTransformSteps(header: RawLine, steps: TransformStep[], top: boolean): TransformRepeat {
+    const first = this.lines[this.i];
+    if (!first || first.indent <= header.indent) { this.err(header, 'Expected an indented block after this line'); return null; }
+    const indent = first.indent;
+    let repeat: TransformRepeat = null, group: Extract<TransformStep, { kind: 'parallel' }> | null = null, chain: Extract<TransformStep, { kind: 'if' }> | null = null;
+    while (this.i < this.lines.length && this.lines[this.i].indent >= indent) {
+      const l = this.lines[this.i++];
+      if (l.indent > indent) { // reported once for the whole run of lines indented too far
+        this.err(l, 'Unexpected indentation (indent only under parallel:, if, elif, else, pick: and choice:)');
+        while (this.i < this.lines.length && this.lines[this.i].indent > indent) this.i++;
+        continue;
+      }
+      if (repeat !== null) { this.err(l, 'repeat must be the last line of the transform'); continue; }
+      let step: ReturnType<typeof parseTransformLine>;
+      try { step = parseTransformLine(l.text, this.src(l)); } catch (e) { this.err(l, e instanceof Error ? e.message : String(e)); group = chain = null; continue; }
+      if ('block' in step) {
+        const kind = step.block;
+        if (kind === 'parallel') {
+          chain = null;
+          const branch: TransformStep[] = [];
+          this.parseTransformSteps(l, branch, false);
+          if (!group) { group = { kind: 'parallel', branches: [], src: this.src(l) }; steps.push(group); }
+          group.branches.push(branch);
+        } else if (kind === 'if' || kind === 'elif' || kind === 'else') {
+          group = null;
+          const cond = 'cond' in step ? step.cond : null;
+          const branch: TransformStep[] = [];
+          if (kind === 'if') { chain = { kind: 'if', branches: [], src: this.src(l) }; steps.push(chain); }
+          else if (!chain || chain.branches[chain.branches.length - 1].cond === null) { this.err(l, `${kind} needs an if before it`); this.parseTransformSteps(l, branch, false); continue; }
+          chain.branches.push({ cond, steps: branch });
+          this.parseTransformSteps(l, branch, false);
+        } else if (kind === 'pick') {
+          group = chain = null;
+          const branches: TransformStep[][] = [];
+          const inner = this.lines[this.i];
+          if (!inner || inner.indent <= l.indent) { this.err(l, 'Expected choice: blocks after pick:'); continue; }
+          while (this.i < this.lines.length && this.lines[this.i].indent >= inner.indent) {
+            const c = this.lines[this.i++];
+            if (c.indent > inner.indent || c.text !== 'choice:') {
+              this.err(c, 'pick: holds choice: blocks (each is one possible branch)');
+              while (this.i < this.lines.length && this.lines[this.i].indent > inner.indent) this.i++;
+              continue;
+            }
+            const branch: TransformStep[] = [];
+            this.parseTransformSteps(c, branch, false);
+            branches.push(branch);
+          }
+          steps.push({ kind: 'pick', branches, src: this.src(l) });
+        } else {
+          group = chain = null;
+          this.err(l, 'choice: belongs inside pick:');
+          this.parseTransformSteps(l, [], false);
+        }
+        continue;
+      }
+      group = chain = null;
+      if ('repeat' in step) {
+        if (!top) this.err(l, 'repeat belongs at the end of the transform, not inside a block');
+        else repeat = step.repeat;
+      } else steps.push(step);
+    }
+    return repeat;
+  }
+
+  /**
+   * A line that would read as `Unknown command` but is a known slip: a block opener without its colon, a label name with a character
+   * the language does not allow, `$ x = 1`, a `set` that is not `name = value`, or `hero "text"`. Says what to write. Where the line
+   * can be read as meant (the colon, `$`), it is read that way, so its block does not add errors of its own. Null: not a slip.
+   */
+  private slip(ln: RawLine, t: string, word: string): { node: Node | null } | null {
+    const reread = (text: string) => { ln.text = text; this.i--; return { node: this.parseStatement(ln) }; };
+    if (t.startsWith('$')) {
+      const body = t.slice(1).trim();
+      if (!RE_SET.test(`set ${body}`)) { this.err(ln, 'Use: set <name> = <value>  ($ is not used)'); return { node: null }; }
+      this.err(ln, `Use set instead of $: set ${body}`);
+      return reread(`set ${body}`);
+    }
+    if (word === 'set') { this.err(ln, 'Use: set <name> = <value>  (also +=, -=, *= and /=)'); return { node: null }; }
+    if (word === 'label') {
+      const name = /^label[ \t]+([^\s(:]+)/.exec(withoutComment(t))?.[1];
+      if (!name) { this.err(ln, OPENER_USAGE.label); return { node: null }; }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+        const bad = [...name].find((c, i) => !(i ? /\w/ : /[A-Za-z_]/).test(c))!;
+        this.err(ln, `Label names use the letters a-z, digits and _, and do not start with a digit: "${name}" has "${bad}"`);
+        if (withoutComment(t).endsWith(':')) this.parseChild(ln); // its block is read, not reported as stray indentation
+        return { node: null };
+      }
+    }
+    if (Object.hasOwn(OPENER_USAGE, word)) {
+      const bare = withoutComment(t);
+      if (bare === t && t.endsWith(':')) { this.err(ln, OPENER_USAGE[word]); return { node: null }; }
+      return reread(this.repairOpener(ln, word));
+    }
+    if (/^[A-Za-z_]\w*$/.test(word) && /^[ \t]*"/.test(t.slice(word.length))) {
+      this.err(ln, `Dialogue is written ${word}: text  (a colon after the name, no quotes); a quoted "text" on its own line is narration`);
+      return { node: null };
+    }
+    return null;
+  }
+
+  /** Dialogue text with an `#id` and more words after it, or a `# comment`: all of it is shown to the player. */
+  private warnLeak(ln: RawLine, text: string) {
+    const id = /[ \t](#(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,8})[ \t]+\S/.exec(text);
+    if (id) this.warn(ln, `The text goes on after the id ${id[1]}, and the player sees it: the #id is the last thing on the line`);
+    else if (/[ \t]#(?:[ \t]+\S|$)/.test(text)) this.warn(ln, 'Everything after the colon is dialogue, so the player sees this "#" and what follows it: a # comment goes on a line of its own');
+  }
+
+  /** A block opener with no colon at its end, or a # comment after it: says so, and returns the line as it should be written. */
+  private repairOpener(ln: RawLine, word: string): string {
+    const bare = withoutComment(ln.text), fixed = bare.endsWith(':') ? bare : `${bare}:`;
+    const note = bare === ln.text ? '' : '  (a # comment goes on a line of its own)';
+    this.err(ln, bare.endsWith(':') ? `A # comment goes on a line of its own, not after "${word}...:"` : `"${word}" needs a colon at the end of the line: ${fixed}${note}`);
+    return fixed;
+  }
+
   private parseStatement(ln: RawLine): Node | null {
     const t = ln.text;
     this.i++;
@@ -898,6 +1200,11 @@ class FileParser {
       for (;;) {
         const nx = this.lines[this.i];
         if (!nx || nx.indent !== ln.indent) break;
+        const bareWord = /^(?:elif(?=[ \t])|else(?=[ \t:]|$))/.exec(nx.text)?.[0];
+        if (bareWord) { // no colon, or a comment after it: read as if it were written right
+          const bare = withoutComment(nx.text);
+          if (bare.includes(':') ? bare.endsWith(':') && bare !== nx.text : true) nx.text = this.repairOpener(nx, bareWord);
+        }
         let em: RegExpExecArray | null;
         if ((em = RE_ELIF.exec(nx.text))) {
           this.i++;
@@ -927,12 +1234,23 @@ class FileParser {
       return { k: 'op', src: this.src(ln), body: { op: 'say', who: null, text, id: m[3] ?? null, ...(m[2] ? { look: m[2] } : {}) } };
     }
     if ((m = RE_SAY.exec(t))) {
+      this.warnLeak(ln, m[2]);
       return { k: 'op', src: this.src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[4] ?? null, ...(m[3] ? { look: m[3] } : {}) } };
     }
     if ((m = RE_SET.exec(t))) {
       const e = this.exprOf(ln, m[3]);
       if (!e) return null;
       return { k: 'op', src: this.src(ln), body: { op: 'set', name: m[1], assign: m[2] as '=', expr: e } };
+    }
+    if ((m = RE_TRANSFORM.exec(t))) {
+      if (this.depth > 0) this.err(ln, 'Transforms must be at the top level');
+      this.transforms.push(this.parseTransform(ln, m[1], m[2], m[3]));
+      return null;
+    }
+    if ((m = RE_CHOREO.exec(t))) {
+      if (this.depth > 0) this.err(ln, 'Choreographies must be at the top level');
+      this.choreographies.push(this.parseChoreography(ln, m[1]));
+      return null;
     }
     if ((m = RE_SCREEN.exec(t))) {
       if (this.depth > 0) this.err(ln, 'Screens must be at the top level');
@@ -966,11 +1284,20 @@ class FileParser {
       this.characters.push(def);
       return null;
     }
+    if (t.startsWith('"')) {
+      // Not narration and not an option: say so, not `Unknown command "The rain falls."` (a missing or doubled closing quote).
+      const quotes = t.replace(/\\./g, '').split('"').length - 1;
+      this.err(ln, quotes % 2 === 1 ? 'Missing or extra quote: narration is "text" with one closing quote' : 'Narration is one "quoted text" per line, then an optional style= and #id');
+      return null;
+    }
     try {
       return { k: 'op', src: this.src(ln), body: parseCommand(t, this.positions, this.anchors, this.stage) };
     } catch (e) {
-      if (e instanceof UnknownCommand) this.diags.push(withFix(this.src(ln), 'error', e.message, e.word, COMMAND_WORDS));
-      else this.err(ln, e instanceof ParseError ? e.message : String(e));
+      if (e instanceof UnknownCommand) {
+        const slip = this.slip(ln, t, e.word);
+        if (slip) return slip.node;
+        this.diags.push(withFix(this.src(ln), 'error', e.message, e.word, COMMAND_WORDS));
+      } else this.err(ln, e instanceof ParseError ? e.message + (withoutComment(t) !== t ? ' (a # comment goes on a line of its own)' : '') : String(e));
       return null;
     }
   }

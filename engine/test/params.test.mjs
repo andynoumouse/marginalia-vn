@@ -146,3 +146,65 @@ test('paramsKey joins the deformer\'s own parameter values', () => {
   assert.equal(paramsKey(sway, { head_x: 0.5, smile: 1 }), '0.5');
   assert.notEqual(paramsKey(sway, { head_x: 0.5 }), paramsKey(sway, { head_x: 0.6 }));
 });
+
+// ---- free-mesh deformers ----
+import { checkDeformers as checkMeshDeformers, MESH_MAX_VERTS } from '../../dist/engine/src/index.js';
+
+const meshParams = [{ id: 'head_x', min: -1, max: 1, default: 0 }];
+const quad = (extra = {}) => ({ id: 'm', part: 'hair', mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 1, 2, 2, 1, 3] }, keyforms: [], ...extra });
+const meshProblems = (def, boxes, framed = new Set()) => {
+  const out = [];
+  checkMeshDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: meshParams }, new Set(['hair', 'cloak']), new Set(), framed, m => out.push(m), new Map(), new Set(), boxes);
+  return out;
+};
+const has = (list, text) => assert.ok(list.some(m => m.includes(text)), `${text} not in ${JSON.stringify(list)}`);
+
+test('a free mesh is valid and counts its vertices as points', () => {
+  assert.deepEqual(meshProblems(quad()), []);
+  assert.equal(deformerPoints(quad()), 4);
+  const def = quad({ keyforms: [{ param: 'head_x', keys: [{ at: -1, pts: { 3: [0.1, 0] } }, { at: 1 }] }] });
+  assert.deepEqual(meshProblems(def), []);
+  const d = evalDeformer(def, { head_x: -1 });
+  assert.equal(d.length, 8);
+  near(d[6], 0.1);
+  assert.equal(paramsKey(def, { head_x: 0.5 }), '0.5');
+});
+
+test('a free mesh rejects grid, members, bad data and bad point indices', () => {
+  has(meshProblems(quad({ grid: [2, 2] })), 'both grid and mesh');
+  has(meshProblems(quad({ part: undefined, members: ['hair'] })), 'group warp');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 1], tris: [0, 0, 0] } })), 'verts');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, NaN, 0, 0, 1], tris: [0, 1, 2] } })), 'verts');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 1, 0, 0, 1], tris: [] } })), 'at least one triangle');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 1, 0, 0, 1], tris: [0, 1] } })), 'at least one triangle');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 1, 0, 0, 1], tris: [0, 1, 3] } })), 'indices');
+  has(meshProblems(quad({ mesh: 'x' })), 'needs { verts, tris }');
+  has(meshProblems(quad({ keyforms: [{ param: 'head_x', keys: [{ at: 0, pts: { 4: [0, 0] } }] }] })), 'outside the mesh (0 to 3)');
+});
+
+test('a free mesh rejects degenerate and mixed-winding triangles', () => {
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 5, 0, 10, 0], tris: [0, 1, 2] } })), 'no area');
+  has(meshProblems(quad({ mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 1, 2, 1, 2, 3] } })), 'wound');
+  assert.deepEqual(meshProblems(quad({ mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 2, 1, 1, 2, 3] } })), [], 'clockwise throughout is fine');
+});
+
+test('a free mesh is capped at MESH_MAX_VERTS vertices', () => {
+  assert.equal(MESH_MAX_VERTS, 500);
+  const withVerts = n => quad({ mesh: { verts: Array.from({ length: n * 2 }, (_, i) => (i % 2 ? (i >> 1) % 13 : (i >> 1) % 17)), tris: [0, 1, 2] } });
+  assert.deepEqual(meshProblems(withVerts(500)).filter(m => m.includes('at most')), []);
+  has(meshProblems(withVerts(501)), 'at most 500');
+});
+
+test('a free mesh stays within the part box plus a margin when the box is known', () => {
+  const near100 = quad({ mesh: { verts: [-50, -50, 150, -50, -50, 150], tris: [0, 1, 2] } });
+  assert.deepEqual(meshProblems(near100, new Map([['hair', [100, 100]]])), []);
+  const way = quad({ mesh: { verts: [-500, 0, 150, -50, -50, 150], tris: [0, 1, 2] } });
+  has(meshProblems(way, new Map([['hair', [100, 100]]])), 'vertex 0');
+  assert.deepEqual(meshProblems(way), [], 'unknown box: skipped');
+});
+
+test('a free mesh follows the one-deformer-per-part and frame-track rules', () => {
+  has(meshProblems([quad(), quad({ id: 'm2' })]), 'already has deformer');
+  has(meshProblems([quad(), { id: 'l', part: 'hair', grid: [2, 2], keyforms: [] }]), 'already has deformer');
+  has(meshProblems(quad(), undefined, new Set(['hair'])), 'frame track');
+});

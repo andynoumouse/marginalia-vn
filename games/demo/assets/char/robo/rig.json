@@ -20,24 +20,80 @@
     "upper_l": { "bone": "arm_l" }, 
     "lower_l": { "bone": "forearm_l" }, 
     "hand_l": { "bone": "forearm_l" },  
-    "eyes": { "bone": "head" }, 
+    "eyes": { "bone": "head", "clip": "eyelids" },
     "mouth": { "bone": "head" },
     "face": { "bone": "head" }, 
-    "antenna": { "bone": "head", "pivot": [272, 260] }
+    "antenna": { "bone": "head", "pivot": [272, 260] },
+    "eyelids": { "bone": "head", "polygon": [[214, 294], [326, 294], [326, 346], [214, 346]], "keyforms": [
+      { "param": "eye_open", "keys": [{ "at": 0, "pts": { "0": [0, 0.0241], "1": [0, 0.0241], "2": [0, -0.0241], "3": [0, -0.0241] } }, { "at": 1 }] }
+    ] }
+  },
+  "categories": ["Head", "Arms", "Body"],
+  "parameters": [
+    { "id": "head_x", "min": -1, "max": 1, "default": 0, "group": "Head" },
+    { "id": "head_y", "min": -1, "max": 1, "default": 0, "group": "Head" },
+    { "id": "arm_r_lift", "min": 0, "max": 1, "default": 0, "group": "Arms", "ease": "inout" },
+    { "id": "lean", "min": -1, "max": 1, "default": 0, "group": "Body" },
+    { "id": "breathe", "min": 0, "max": 1, "default": 0, "group": "Body", "ease": "inout" },
+    { "id": "eye_open", "min": 0, "max": 1, "default": 1, "group": "Head", "ease": "inout" }
+  ],
+  "pads": [{ "id": "head_turn", "x": "head_x", "y": "head_y", "group": "Head" }],
+  "keyforms": [
+    { "target": "head", "param": "head_x", "keys": [{ "at": -1, "rot": -8, "dx": -0.012 }, { "at": 0 }, { "at": 1, "rot": 8, "dx": 0.012 }] },
+    { "target": "head", "param": "head_y", "keys": [{ "at": -1, "dy": 0.012 }, { "at": 0 }, { "at": 1, "dy": -0.012 }] },
+    { "target": "arm_r", "param": "arm_r_lift", "keys": [{ "at": 0 }, { "at": 1, "rot": 70 }] },
+    { "target": "spine", "param": "lean", "keys": [{ "at": -1, "rot": -4 }, { "at": 0 }, { "at": 1, "rot": 4 }] }
+  ],
+  "deformers": [
+    { "id": "torso_warp", "part": "torso", "grid": [2, 3], "keyforms": [
+      { "param": "breathe", "keys": [{ "at": 0 }, { "at": 1, "pts": { "3": [-0.006, 0], "5": [0.006, 0], "6": [-0.007, 0], "8": [0.007, 0], "1": [0, -0.003] } }] }
+    ] }
+  ],
+  "poses": {
+    "squint": { "eye_open": 0.35 },
+    "salute": {
+      "arm_r_lift": 1,
+      "head_y": 0.4
+    },
+    "lookleft": {
+      "head_x": -0.8571,
+      "head_y": 0.6
+    }
   },
   "looks": {
     "cheerful": { "eyes": "happy", "mouth": "smile" },
     "calm": { "eyes": "open", "mouth": "flat" },
     "asleep": { "eyes": "closed", "mouth": "flat" }
   },
-  "autonomous": {
-    "idle": "sway",
-    "speak": { "slot": "mouth", "variants": ["open", "flat"], "rate": 7 },
-    "blink": { "slot": "eyes", "variant": "closed" }
-  },
   "animations": {
+    "blink": {
+      "dur": 0.12,
+      "keys": [],
+      "frames": [{ "slot": "eyes", "keys": [{ "t": 0, "frame": "closed" }] }],
+      "auto": { "every": { "min": 3, "max": 6 } }
+    },
+    "talk": {
+      "dur": 0.286,
+      "keys": [],
+      "frames": [{ "slot": "mouth", "frames": ["open", "flat"], "fps": 7, "loop": true }],
+      "auto": { "while": "speaking" }
+    },
+    "breathe": {
+      "dur": 3.2,
+      "keys": [],
+      "params": { "breathe": [{ "t": 0, "v": 0 }, { "t": 0.5, "v": 1, "ease": "inout" }, { "t": 1, "v": 0, "ease": "inout" }] }
+    },
+    "lookaround": {
+      "dur": 2.4,
+      "keys": [],
+      "params": {
+        "head_x": [{ "t": 0, "v": 0 }, { "t": 0.3, "v": -1, "ease": "inout" }, { "t": 0.7, "v": 1, "ease": "inout" }, { "t": 1, "v": 0, "ease": "inout" }],
+        "head_y": [{ "t": 0, "v": 0 }, { "t": 0.5, "v": 0.5, "ease": "inout" }, { "t": 1, "v": 0, "ease": "inout" }]
+      }
+    },
     "sway": {
       "dur": 3,
+      "auto": { "while": "always" },
       "keys": [
         { "part": "spine", "t": 0.5, "rot": 1.5, "ease": "inout" },
         { "part": "head", "t": 0.5, "rot": -2.5, "ease": "inout" },

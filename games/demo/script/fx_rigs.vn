@@ -1,0 +1,256 @@
+# fx_rigs.vn - feature index cards about a rigged character: robo, the layered PSD in robo.vn, with the bones, parameters, poses
+# and the mesh-warped torso of assets/char/robo/rig.json (docs/rig-json.md). The pattern is the one in fx_stage.vn. Every card
+# stops what it started and hides robo when it ends, so a loop does not carry over.
+
+label fx_robo_animations:
+  scene bg_reading_room fade 0.4
+  show robo cheerful at 0.35 fade 0.4
+  call fx_open("Rig animations", "Robo is a layered PSD with bones: arms swing on the spine, forearms on the arms. Pick a move and play it.")
+  set fx_a_label = "Animation"
+  set fx_a1 = "wave"
+  set fx_a2 = "nod"
+  set fx_a3 = "shrug"
+  set fx_a4 = "dance"
+  set fx_b_label = "Plays"
+  set fx_b1 = "Once"
+  set fx_b2 = "Loop"
+  set fx_b3 = "Slow"
+
+label fx_robo_animations_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "animate robo wave"
+        animate robo wave
+      elif fx_pb == 2:
+        set fx_fired = "animate robo wave loop"
+        animate robo wave loop
+      else:
+        set fx_fired = "animate robo wave 3"
+        animate robo wave 3
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "animate robo nod"
+        animate robo nod
+      elif fx_pb == 2:
+        set fx_fired = "animate robo nod loop"
+        animate robo nod loop
+      else:
+        set fx_fired = "animate robo nod 2"
+        animate robo nod 2
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "animate robo shrug"
+        animate robo shrug
+      elif fx_pb == 2:
+        set fx_fired = "animate robo shrug loop"
+        animate robo shrug loop
+      else:
+        set fx_fired = "animate robo shrug 3"
+        animate robo shrug 3
+    else:
+      if fx_pb == 1:
+        set fx_fired = "animate robo dance"
+        animate robo dance
+      elif fx_pb == 2:
+        set fx_fired = "animate robo dance loop"
+        animate robo dance loop
+      else:
+        set fx_fired = "animate robo dance 3"
+        animate robo dance 3
+    jump fx_robo_animations_loop
+  elif act == "reset":
+    set fx_fired = "animate robo stop"
+    animate robo stop
+    jump fx_robo_animations_loop
+  animate robo stop
+  hide robo fade 0.2
+  return
+
+# Parameters are sliders in rig.json that the keyforms turn into movement of bones and a warp of the head. A pose is a saved
+# set of them. The tween is a line of its own, so it can be quick, slow or instant.
+label fx_robo_params:
+  scene bg_reading_room fade 0.4
+  show robo cheerful at 0.35 fade 0.4
+  call fx_open("Rig parameters", "Parameters bend the rig: head, lean, arm, eyelids. A pose sets several at once. Try quick and slow tweens.")
+  set fx_a_label = "Parameter or pose"
+  set fx_a1 = "Look left"
+  set fx_a2 = "Look right"
+  set fx_a3 = "Lean"
+  set fx_a4 = "Arm up"
+  set fx_a5 = "Eyes shut"
+  set fx_a6 = "salute"
+  set fx_a7 = "lookleft"
+  set fx_a8 = "squint"
+  set fx_b_label = "Takes"
+  set fx_b1 = "Now"
+  set fx_b2 = "0.5 s"
+  set fx_b3 = "2 s"
+
+label fx_robo_params_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "animate robo head_x=-1"
+        animate robo head_x=-1
+      elif fx_pb == 2:
+        set fx_fired = "animate robo head_x=-1 over 0.5"
+        animate robo head_x=-1 over 0.5
+      else:
+        set fx_fired = "animate robo head_x=-1 over 2"
+        animate robo head_x=-1 over 2
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "animate robo head_x=1"
+        animate robo head_x=1
+      elif fx_pb == 2:
+        set fx_fired = "animate robo head_x=1 over 0.5"
+        animate robo head_x=1 over 0.5
+      else:
+        set fx_fired = "animate robo head_x=1 over 2"
+        animate robo head_x=1 over 2
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "animate robo lean=1"
+        animate robo lean=1
+      elif fx_pb == 2:
+        set fx_fired = "animate robo lean=1 over 0.5"
+        animate robo lean=1 over 0.5
+      else:
+        set fx_fired = "animate robo lean=1 over 2"
+        animate robo lean=1 over 2
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "animate robo arm_r_lift=1"
+        animate robo arm_r_lift=1
+      elif fx_pb == 2:
+        set fx_fired = "animate robo arm_r_lift=1 over 0.5"
+        animate robo arm_r_lift=1 over 0.5
+      else:
+        set fx_fired = "animate robo arm_r_lift=1 over 2"
+        animate robo arm_r_lift=1 over 2
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "animate robo eye_open=0"
+        animate robo eye_open=0
+      elif fx_pb == 2:
+        set fx_fired = "animate robo eye_open=0 over 0.5"
+        animate robo eye_open=0 over 0.5
+      else:
+        set fx_fired = "animate robo eye_open=0 over 2"
+        animate robo eye_open=0 over 2
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "animate robo pose=salute"
+        animate robo pose=salute
+      elif fx_pb == 2:
+        set fx_fired = "animate robo pose=salute over 0.5"
+        animate robo pose=salute over 0.5
+      else:
+        set fx_fired = "animate robo pose=salute over 2"
+        animate robo pose=salute over 2
+    elif fx_pa == 7:
+      if fx_pb == 1:
+        set fx_fired = "animate robo pose=lookleft"
+        animate robo pose=lookleft
+      elif fx_pb == 2:
+        set fx_fired = "animate robo pose=lookleft over 0.5"
+        animate robo pose=lookleft over 0.5
+      else:
+        set fx_fired = "animate robo pose=lookleft over 2"
+        animate robo pose=lookleft over 2
+    else:
+      if fx_pb == 1:
+        set fx_fired = "animate robo pose=squint"
+        animate robo pose=squint
+      elif fx_pb == 2:
+        set fx_fired = "animate robo pose=squint over 0.5"
+        animate robo pose=squint over 0.5
+      else:
+        set fx_fired = "animate robo pose=squint over 2"
+        animate robo pose=squint over 2
+    jump fx_robo_params_loop
+  elif act == "reset":
+    set fx_fired = "animate robo head_x=0 head_y=0 lean=0 arm_r_lift=0 eye_open=1 over 0.5"
+    animate robo head_x=0 head_y=0 lean=0 arm_r_lift=0 eye_open=1 over 0.5
+    jump fx_robo_params_loop
+  animate robo head_x=0 head_y=0 lean=0 arm_r_lift=0 eye_open=1
+  hide robo fade 0.2
+  return
+
+# The torso is a warped mesh (a deformer in rig.json) that the breathe parameter pushes out a little at the chest. The rig's
+# own breathe animation drives that parameter along a curve, so the name plays that, not the animate preset of the same name.
+# The swell is a few pixels (it is meant to look like breathing), so the camera leans in on the chest while the card is open.
+label fx_robo_warp:
+  scene bg_reading_room fade 0.4
+  show robo cheerful at 0.35 fade 0.4
+  camera zoom 2.2 at 0.35 y=0.56 0.8 ease=out
+  call fx_open("Mesh warp", "The torso is a mesh warped by a breathe parameter. Loop the animation, or hold the chest out or in.")
+  set fx_a_label = "Breathe"
+  set fx_a1 = "Loop"
+  set fx_a2 = "Once"
+  set fx_a3 = "Chest out"
+  set fx_a4 = "Chest in"
+  set fx_b_label = "Seconds"
+  set fx_b1 = "1.5"
+  set fx_b2 = "3"
+  set fx_b3 = "6"
+
+label fx_robo_warp_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "animate robo breathe 1.5 loop"
+        animate robo breathe 1.5 loop
+      elif fx_pb == 2:
+        set fx_fired = "animate robo breathe 3 loop"
+        animate robo breathe 3 loop
+      else:
+        set fx_fired = "animate robo breathe 6 loop"
+        animate robo breathe 6 loop
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "animate robo breathe 1.5"
+        animate robo breathe 1.5
+      elif fx_pb == 2:
+        set fx_fired = "animate robo breathe 3"
+        animate robo breathe 3
+      else:
+        set fx_fired = "animate robo breathe 6"
+        animate robo breathe 6
+    elif fx_pa == 3:
+      animate robo stop
+      if fx_pb == 1:
+        set fx_fired = "animate robo breathe=1 over 1.5"
+        animate robo breathe=1 over 1.5
+      elif fx_pb == 2:
+        set fx_fired = "animate robo breathe=1 over 3"
+        animate robo breathe=1 over 3
+      else:
+        set fx_fired = "animate robo breathe=1 over 6"
+        animate robo breathe=1 over 6
+    else:
+      animate robo stop
+      if fx_pb == 1:
+        set fx_fired = "animate robo breathe=0 over 1.5"
+        animate robo breathe=0 over 1.5
+      elif fx_pb == 2:
+        set fx_fired = "animate robo breathe=0 over 3"
+        animate robo breathe=0 over 3
+      else:
+        set fx_fired = "animate robo breathe=0 over 6"
+        animate robo breathe=0 over 6
+    jump fx_robo_warp_loop
+  elif act == "reset":
+    set fx_fired = "animate robo stop"
+    animate robo stop
+    animate robo breathe=0 over 0.5
+    jump fx_robo_warp_loop
+  animate robo stop
+  animate robo breathe=0
+  camera reset 0.3
+  hide robo fade 0.2
+  return

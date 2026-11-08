@@ -15,7 +15,7 @@ import { appendRuns } from './line-text.js';
 export { W, H } from './stage-size.js';
 
 /** Visual ops that change the picture; music, sound and wait are handled here. */
-export type WorldOp = Exclude<VisualOp, { op: 'music' | 'sound' | 'movie' | 'wait' }>;
+export type WorldOp = Exclude<VisualOp, { op: 'music' | 'sound' | 'movie' | 'wait' | 'perform' }>;
 /** A file under assets/ as listed by the dev server; `v` changes when the file does. */
 /** One file of the project's assets/ folder and its version stamp; `url` says where to load it from when that is not assets/<file> (the standalone studio's host hands over blob: URLs). */
 export interface AssetFile { file: string; v: number; url?: string }
@@ -27,11 +27,33 @@ export const hue = (s: string) => { let h = 0; for (const c of s) h = (h * 31 + 
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 export const stage = $('stage');
+
+// A key must not pick for the player as the choices come up (UX round PC-1). Space or Enter pressed to read the line, tapped again
+// or held (auto-repeat) as the menu appears, clicked the focused first option about 55 ms later. A click a Space or Enter made
+// (detail 0, in the same moment as the key) is ignored for a moment after the choices show, and while a key is still repeating.
+export const CHOICE_GUARD_MS = 300;
+let lastRepeatAt = -Infinity, lastActivationKeyAt = -Infinity;
+const noteKey = (e: KeyboardEvent) => {
+  const now = performance.now();
+  if (e.repeat) lastRepeatAt = now;
+  if (e.key === ' ' || e.key === 'Enter') lastActivationKeyAt = now;
+};
+window.addEventListener('keydown', noteKey, true);
+window.addEventListener('keyup', noteKey, true);
+/** A gamepad's confirm is an activation like Space or Enter: it clicks the focused button, so the choices' guard sees it too (UX round PC-1). */
+export const notePadConfirm = () => { lastActivationKeyAt = performance.now(); };
+/** True for a click that came from Space or Enter too soon after the choices were shown at `shownAt`, or from a held key. */
+const keyStrayedIn = (e: MouseEvent, shownAt: number) => {
+  const now = performance.now();
+  return e.detail === 0 && now - lastActivationKeyAt < 50 && (now - shownAt < CHOICE_GUARD_MS || now - lastRepeatAt < CHOICE_GUARD_MS);
+};
 const nvlEl = $('nvl'), nvlPage = $('nvl-page');
 const box = $('box'), sideEl = $<HTMLImageElement>('side'), nameEl = $('name'), textEl = $('text'), menuEl = $('menu'), hud = $('hud'), endedEl = $('ended');
 
 /** A line as the shell sees it (history, saves). */
 export interface LineInfo { name: string | null; color: string | null; text: string; /** localization id, for the line's voice recording */ id?: string }
+
+const lineInfoOf = (ev: SayEvent): LineInfo => ({ name: ev.name, color: ev.color, text: ev.segments.map(s => (s.kind === 'text' ? s.text : '')).join(''), ...(ev.id ? { id: ev.id } : {}) });
 
 
 export abstract class StageRenderer implements Renderer {
@@ -93,6 +115,8 @@ export abstract class StageRenderer implements Renderer {
   onMusic: (name: string) => void = () => {};
   /** Called for every line and choice; `line` is the line shown (none for choices). */
   onPosition: (src: Src, line?: LineInfo) => void = () => {};
+  /** A line was put back in the box without being played (showLine): it is the line on screen for a save, but not a moment of the history. */
+  onLineShown: (line: LineInfo) => void = () => {};
   onEnded: () => void = () => {};
   /** The language of the voice recordings played (assets/voice/<id>.<lang>.*): the player's voice setting, which defaults to the text language. */
   lang = 'en';
@@ -359,6 +383,8 @@ export abstract class StageRenderer implements Renderer {
       case 'wait':
         if (!this.skipping) await sleep(op.dur * 1000);
         return;
+      case 'perform': // the runtime has already turned it into the actors' own `animate` ops
+        return;
       default:
         if (op.op === 'scene') this.onBackground(op.bg);
         // While skipping, jump straight to the result instead of animating.
@@ -425,8 +451,9 @@ export abstract class StageRenderer implements Renderer {
 
   say(ev: SayEvent): Promise<void> {
     this.screens.unlinger();
-    const plain = ev.segments.map(s => (s.kind === 'text' ? s.text : '')).join('');
-    this.onPosition(ev.src, { name: ev.name, color: ev.color, text: plain, ...(ev.id ? { id: ev.id } : {}) });
+    const info = lineInfoOf(ev);
+    const plain = info.text;
+    this.onPosition(ev.src, info);
     const wasSeen = this.isSeen(ev);
     this.markSeen(ev);
     this.lineSpeaker = ev.who;
@@ -441,15 +468,32 @@ export abstract class StageRenderer implements Renderer {
     this.showSide(ev);
     frame.dataset.done = 'false';
     target.replaceChildren();
-    // The speaker's style (define ... text= font= size= italic style=); theme skins are keyed by `box`.
+    this.dressText(ev, target);
+    const blip = this.blips.forLine(ev.style.blip);
+    return typeLine(this.typeHost, { ev, frame, target, plain, skippable, blip });
+  }
+
+  /** The speaker's style (define ... text= font= size= italic style=); theme skins are keyed by `box`. */
+  private dressText(ev: SayEvent, target: HTMLElement) {
     const st = ev.style;
     stage.dataset.skin = ev.nvl ? '' : ev.look ?? st.box ?? '';
     target.style.color = st.textColor ?? '';
     target.style.fontFamily = st.font ? `"${st.font}", var(--vn-font)` : '';
     target.style.fontSize = st.size ? `calc(var(--text-size, 44px) * var(--text-scale, 1) * ${st.size})` : '';
     target.style.fontStyle = st.italic ? 'italic' : '';
-    const blip = this.blips.forLine(st.blip);
-    return typeLine(this.typeHost, { ev, frame, target, plain, skippable, blip });
+  }
+
+  /** A restore ended at a choice, prompt or screen: the line before it is in the box in full, as it was on the first visit. It is not announced or recorded again. */
+  showLine(ev: SayEvent) {
+    box.dataset.visible = 'true';
+    box.dataset.done = 'true';
+    nameEl.textContent = ev.name ?? '';
+    nameEl.style.setProperty('--ncolor', ev.color ?? '#ffffff');
+    this.showSide(ev);
+    textEl.replaceChildren();
+    appendRuns(textEl, ev.segments);
+    this.dressText(ev, textEl);
+    this.onLineShown(lineInfoOf(ev));
   }
 
   menu(options: MenuItem[], src: Src, prompt?: string, timer?: { seconds: number }, style?: string): Promise<OptionIndex> {
@@ -459,6 +503,7 @@ export abstract class StageRenderer implements Renderer {
     this.dropSkipping(); // choices are always the player's
     return new Promise<OptionIndex>(resolve => {
       this.menuOpen = true;
+      const shownAt = performance.now();
       const head: HTMLElement[] = [];
       if (prompt) {
         const p = document.createElement('div');
@@ -491,10 +536,13 @@ export abstract class StageRenderer implements Renderer {
         b.addEventListener('click', e => {
           e.stopPropagation();
           if (o.disabled) return;
+          if (keyStrayedIn(e, shownAt)) return;
           clearInterval(this.menuClock);
           menuEl.querySelector('.timer')?.remove();
           this.menuOpen = false;
           menuEl.dataset.visible = 'false';
+          // Focus left on a button outside the choices (Tab went on to the quick menu's Back) would take the next Space or Enter.
+          if (document.activeElement instanceof HTMLElement && !menuEl.contains(document.activeElement)) document.activeElement.blur();
           resolve(asOptionIndex(i));
         });
         return b;
@@ -590,7 +638,7 @@ export abstract class StageRenderer implements Renderer {
   achievementToast(view: ScreenView | null) { return this.slots.draw('achToast', view, { guardEpoch: false }); }
 
   /** Draw the project's title screen (null: hide it; `instant`: without its `on exit`, for when the curtain hides the change). */
-  title(view: ScreenView | null, instant = false) { return this.slots.draw('title', view, { focus: 'always', leave: !instant }); }
+  title(view: ScreenView | null, instant = false, focusId = '') { return this.slots.draw('title', view, { focus: 'always', leave: !instant, focusId }); }
 
   /** Show a custom screen: its images are loaded first, then it waits for the player to pick an element. */
   async screen(view: ScreenView, src: Src, live?: ScreenLive): Promise<string> {
@@ -656,7 +704,12 @@ export abstract class StageRenderer implements Renderer {
   end() {
     box.dataset.visible = 'false';
     this.clearPage();
-    endedEl.style.display = 'block';
+    // The words are the translated hidden labels (game.json `labels`, `ui.end_title` / `ui.end_hint`); the editor's preview says what an author means.
+    const dev = endedEl.dataset.dev === 'true';
+    const word = (key: string, fallback: string) => document.querySelector(`[data-ui="${key}"]`)?.textContent ?? fallback;
+    endedEl.querySelector('.end-title')!.textContent = dev ? 'End of script' : word('end_title', 'The End');
+    endedEl.querySelector('.end-hint')!.textContent = dev ? 'Click to restart' : word('end_hint', 'Click to return to the title screen');
+    endedEl.style.display = 'flex';
     this.advanceFn = () => { this.advanceFn = null; this.onEnded(); };
   }
 }

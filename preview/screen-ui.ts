@@ -394,10 +394,11 @@ export class ScreenLayer {
       input.min = String(part.min); input.max = String(part.max); input.step = String(part.step);
       input.value = String(part.value);
       input.dataset.setting = part.setting;
-      input.setAttribute('aria-label', part.setting.replace(/_/g, ' '));
+      input.setAttribute('aria-label', part.name ?? part.setting.replace(/_/g, ' '));
+      input.setAttribute('aria-valuetext', sliderReadout(part.setting, part.value)); // "80%", not the raw 0.8
       input.style.left = px(part.x); input.style.top = px(part.y); input.style.width = px(part.w); input.style.height = px(part.h);
       if (!part.readout) {
-        input.addEventListener('input', () => this.onSlider(part.setting, Number(input.value)));
+        input.addEventListener('input', () => { input.setAttribute('aria-valuetext', sliderReadout(part.setting, Number(input.value))); this.onSlider(part.setting, Number(input.value)); });
         return [input];
       }
       const out = document.createElement('div');
@@ -406,6 +407,7 @@ export class ScreenLayer {
       out.textContent = sliderReadout(part.setting, part.value);
       input.addEventListener('input', () => {
         out.textContent = sliderReadout(part.setting, Number(input.value));
+        input.setAttribute('aria-valuetext', out.textContent);
         this.onSlider(part.setting, Number(input.value));
       });
       return [input, out];
@@ -525,7 +527,7 @@ export class ScreenLayer {
       }
       el = b; host = b;
     }
-    el.setAttribute('aria-label', (it.kind === 'button' && it.sub ? `${it.label}, ${it.sub}` : it.label) || it.id);
+    el.setAttribute('aria-label', (it.kind === 'button' && it.name) || (it.kind === 'button' && it.sub ? `${it.label}, ${it.sub}` : it.label) || it.id);
     el.dataset.id = it.id;
     el.dataset.kind = it.kind;
     if (it.act) el.dataset.act = it.act;

@@ -1,19 +1,21 @@
-// Masks (rig.json `masks`): a part is clipped to a shape, so an iris stays inside the eye and a tongue inside the mouth.
+// Masks: a part is clipped to a shape, so an iris stays inside the eye and a tongue inside the mouth.
 // Pure data and geometry; the renderer (preview/pixi-renderer.ts) turns a shape into a Pixi stencil mask and nothing here draws.
 //
-//   mask:    { id, part, from | polygon, on?, keyforms? }. `part` is the part that is clipped (a slot or layer, one mask each).
-//   shape:   `from` is another part, whose visible silhouette (its opaque pixels, traced by traceOutline) is the shape; it
-//            follows that part's bone, animation, keyforms and warp. `polygon` is a drawn shape, points [x, y] in pixels
-//            of the PSD canvas; `on` names the bone or part it follows (the character when left out), and `keyforms`
-//            (the shape of DeformerKeyform: `pts` are per-vertex displacements in stage fractions) reshape it with
-//            parameters, so the eyelid of a blink can close its mask.
-//   nesting: a part whose `from` part is itself masked is clipped by both shapes (nested stencils). One level of nesting is
+//   A SHAPE is an imageless entry of `parts` (`eyelids: { bone?, follow?, polygon, keyforms? }`) and a clip is a link on the clipped
+//   part (`eyes: { bone, clip: "eyelids" }`). `clip` names a shape part or an image part (that part's visible silhouette, its opaque
+//   pixels traced by traceOutline). `polygon` is points [x, y] in pixels of the PSD canvas; `keyforms` (the shape of DeformerKeyform:
+//   `pts` are per-vertex displacements in stage fractions) reshape it with parameters, so the eyelid of a blink can close its mask.
+//   `bone` places the shape with that bone, `follow` hangs it on an image part's drawn mesh (its own warp and its group warp). A shape
+//   is not in `order` and has no layer; it may clip many parts, a part has one clip.
+//   nesting: a part whose clip source is itself clipped is clipped by both shapes (nested stencils). One level of nesting is
 //            allowed (two shapes in all); a loop, or a chain of three, is a checkRig error.
+//   maskView gives the clips as the list of MaskDef (one per clipped part) that the renderer and the studio work with.
 //
 // Stencil masks are hard-edged; soft alpha masks would need render textures and are not offered (docs/design/animation-studio-parameters.md).
 
 import { checkPointKeyforms, type DeformerKeyform, type ParamDef } from './params.js';
 import { isNum } from './util.js';
+import { sampleLattice, type GroupStage } from './warp.js';
 
 export type MaskPoint = [number, number];
 
@@ -29,6 +31,8 @@ export interface MaskDef {
   on?: string;
   /** For a polygon: per-vertex displacements driven by parameters (stage fractions, as a deformer's). */
   keyforms?: DeformerKeyform[];
+  /** For a polygon read from a shape part: that shape's name (several masks, one per clipped part, share a shape). */
+  shape?: string;
 }
 
 export const MASK_MIN_POINTS = 3;
@@ -37,8 +41,6 @@ export const MASK_MAX_POINTS = 64;
 export const MASK_MAX_SHAPES = 2;
 /** Masks per character above which checkRig and the renderer warn: each is stencil passes and batch breaks every frame, unmeasured on weak phones. */
 export const MASK_WARN_COUNT = 8;
-
-const MASK_KEYS = ['id', 'part', 'from', 'polygon', 'on', 'keyforms'];
 
 export const maskOf = (masks: readonly MaskDef[] | undefined, part: string): MaskDef | undefined => masks?.find(m => m?.part === part);
 
@@ -92,6 +94,28 @@ export function warpPoints(points: ArrayLike<number>, box: { w: number; h: numbe
       const top = at(i, j, k) * (1 - fu) + at(i + 1, j, k) * fu, bottom = at(i, j + 1, k) * (1 - fu) + at(i + 1, j + 1, k) * fu;
       out[n + k] = top * (1 - fv) + bottom * fv;
     }
+  }
+  return out;
+}
+
+/**
+ * Whether a group warp bends a shape that is one of its members. A shape that `follow`s an image part of that same group is not bent
+ * again: the followed part's mesh buffer already holds the group's displacement and warpPoints carries the shape along with it.
+ * `members` are the group's member names; `follow` is the shape's follow part, if any.
+ */
+export const shapeBentByGroup = (follow: string | undefined, members: readonly string[] | undefined): boolean => !(follow !== undefined && !!members?.includes(follow));
+
+/**
+ * A shape's points (`base`, default `sample`) moved by a group warp's lattice. `sample` are the points in drawn space (canvas pixels less
+ * `at`), whose canvas position (plus `at`) is looked up in the group's box; the displacement (stage fractions) times `unit` is added.
+ * Writes into `out` (same length).
+ */
+export function bendShapeByGroup(sample: ArrayLike<number>, at: readonly [number, number], group: GroupStage, unit: number, base: ArrayLike<number> = sample, out: Float32Array = new Float32Array(sample.length)): Float32Array {
+  const [bx, by, bw, bh] = group.box;
+  for (let n = 0; n + 1 < sample.length; n += 2) {
+    const [dx, dy] = sampleLattice(group.disp, group.grid, bw > 0 ? (sample[n] + at[0] - bx) / bw : 0, bh > 0 ? (sample[n + 1] + at[1] - by) / bh : 0);
+    out[n] = base[n] + dx * unit;
+    out[n + 1] = base[n + 1] + dy * unit;
   }
   return out;
 }
@@ -220,74 +244,171 @@ export function traceOutline(alpha: ArrayLike<number>, w: number, h: number, opt
   return out;
 }
 
-// ---- checks ----
+// ---- shape parts and the normalised form ----
 
+/** An entry of rig.json `parts`: a drawn part's bone, pivot and `clip`; or, with a `polygon`, a shape (imageless) part. */
+export interface PartEntry {
+  bone?: string;
+  pivot?: [number, number];
+  /** The shape part or image part this part is clipped to. */
+  clip?: string;
+  /** A shape part: its outline, points [x, y] in pixels of the PSD canvas. */
+  polygon?: MaskPoint[];
+  /** A shape part: the image part whose drawn mesh (own warp and group warp) bends it; with `bone` only, it follows that bone. */
+  follow?: string;
+  /** A shape part: per-vertex displacements driven by parameters (stage fractions, as a deformer's). */
+  keyforms?: DeformerKeyform[];
+}
+export interface ShapeDef { bone?: string; follow?: string; polygon: MaskPoint[]; keyforms?: DeformerKeyform[] }
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** Whether a `parts` entry is a shape part (it has a `polygon`, whatever else is wrong with it; checkRig says what). */
+export const isShapeEntry = (def: unknown): boolean => isObj(def) && def.polygon !== undefined;
+
+/** The names of the shape parts in rig.json `parts`. */
+export function shapePartNames(parts: unknown): string[] {
+  return isObj(parts) ? Object.keys(parts).filter(k => isShapeEntry(parts[k])) : [];
+}
+
+export interface MaskSet {
+  /** Shape parts by name: those of `parts` and the converted polygon masks. */
+  shapes: Record<string, ShapeDef>;
+  /** Clipped part to the shape part or image part it is clipped to. */
+  clips: Record<string, string>;
+}
+
+const validPoly = (v: unknown): v is MaskPoint[] => Array.isArray(v) && v.length >= MASK_MIN_POINTS && v.length <= MASK_MAX_POINTS && v.every(p => Array.isArray(p) && p.length === 2 && p.every(isNum));
 
 /**
- * Problems in the `masks` section. `parts` are the part names, `bones` the bone names (a mask clips a part; a polygon may follow
- * a bone or a part). Unknown ids, a part with two masks, a mask that names neither or both of `from` and `polygon`, loops of
- * `from`, nesting beyond MASK_MAX_SHAPES, bad polygons and keyforms, and too many masks.
+ * The masks of a rig.json as shape parts and clip links, read from `parts`. Entries that are not usable (checkRig says why) are skipped.
  */
-export function checkMasks(data: { masks?: unknown; parameters?: unknown }, parts: Set<string>, bones: Set<string>, problem: (message: string, at: string) => void): void {
-  if (data.masks === undefined) return;
-  if (!Array.isArray(data.masks)) { problem('masks: needs a list of { id, part, from or polygon }', 'masks'); return; }
+export function normalizeMasks(data: { parts?: unknown } | undefined): MaskSet {
+  const shapes: Record<string, ShapeDef> = {}, clips: Record<string, string> = {};
+  const parts = isObj(data?.parts) ? data!.parts as Record<string, unknown> : {};
+  for (const [name, def] of Object.entries(parts)) {
+    if (!isObj(def)) continue;
+    if (isShapeEntry(def)) {
+      if (!validPoly(def.polygon)) continue;
+      shapes[name] = { polygon: def.polygon, ...(typeof def.bone === 'string' ? { bone: def.bone } : {}), ...(typeof def.follow === 'string' ? { follow: def.follow } : {}), ...(Array.isArray(def.keyforms) ? { keyforms: def.keyforms as DeformerKeyform[] } : {}) };
+    } else if (typeof def.clip === 'string' && def.clip) clips[name] = def.clip;
+  }
+  for (const [part, to] of Object.entries(clips)) if (to === part) delete clips[part];
+  return { shapes, clips };
+}
+
+/**
+ * The masks as the list the renderer works with: one MaskDef per clipped part, in clip order. A polygon mask's id is its
+ * shape's name (the others of a shape that clips several parts are `name:part`) and `shape` names the shape; a clip to an image part is
+ * `from` with the id `<part>_mask`. `on` is the shape's `follow`, else its `bone`. With `unclipped` the shapes that clip nothing follow,
+ * with an empty `part` (the studio draws them so they can be chosen).
+ */
+export function maskView(data: { parts?: unknown } | undefined, unclipped = false): MaskDef[] {
+  const { shapes, clips } = normalizeMasks(data);
+  const out: MaskDef[] = [], used = new Set<string>();
+  const unique = (id: string) => { let x = id; for (let i = 2; used.has(x); i++) x = `${id}~${i}`; used.add(x); return x; };
+  const polygonOf = (name: string, s: ShapeDef) => { const on = s.follow ?? s.bone; return { polygon: s.polygon, ...(on !== undefined ? { on } : {}), ...(s.keyforms ? { keyforms: s.keyforms } : {}), shape: name }; };
+  for (const [part, to] of Object.entries(clips)) {
+    const s = shapes[to];
+    if (!s) { out.push({ id: unique(`${part}_mask`), part, from: to }); continue; }
+    out.push({ id: unique(used.has(to) ? `${to}:${part}` : to), part, ...polygonOf(to, s) });
+  }
+  if (unclipped) for (const [name, s] of Object.entries(shapes)) if (!Object.values(clips).includes(name)) out.push({ id: unique(name), part: '', ...polygonOf(name, s) });
+  return out;
+}
+
+/** `parts` without its shape parts and without `clip`, which is what the studio keeps as its own bones-and-pivots `parts`; an entry left empty goes. */
+export function stripMasks<T extends PartEntry>(parts: Record<string, T> | undefined): Record<string, Omit<T, 'clip'>> {
+  const out: Record<string, Omit<T, 'clip'>> = {};
+  for (const [k, def] of Object.entries(parts ?? {})) {
+    if (isShapeEntry(def)) continue;
+    if (isObj(def) && def.clip !== undefined) {
+      const { clip: _clip, ...rest } = def;
+      if (Object.keys(rest).length) out[k] = rest as Omit<T, 'clip'>;
+    } else out[k] = def;
+  }
+  return out;
+}
+
+/**
+ * `parts` (shapes and clips replaced, see stripMasks) with the studio's `shapes` as shape parts and each `clips` link on its clipped part.
+ * A shape's entry is its `bone`, `follow`, `polygon` and `keyforms`. The caller drops the `masks` key.
+ */
+export function writeShapes(parts: Record<string, PartEntry>, shapes: Readonly<Record<string, ShapeDef>>, clips: Readonly<Record<string, string>>): Record<string, PartEntry> {
+  const out: Record<string, PartEntry> = { ...stripMasks(parts) };
+  for (const [name, s] of Object.entries(shapes)) {
+    out[name] = { ...(s.bone !== undefined ? { bone: s.bone } : {}), ...(s.follow !== undefined ? { follow: s.follow } : {}), polygon: s.polygon.map(p => [p[0], p[1]] as MaskPoint), ...(s.keyforms ? { keyforms: s.keyforms } : {}) };
+  }
+  for (const [part, to] of Object.entries(clips)) out[part] = { ...(out[part] ?? {}), clip: to };
+  return out;
+}
+
+// ---- checks ----
+
+/**
+ * Warnings for a clipped part that a group warp bends while the shape (or part) it is clipped to is not bent with it: the art would
+ * move and its clip would stay. A clip source counts as bent with the group when it is a member, or a shape that `follow`s a member.
+ * Nothing is said when neither is in a group.
+ */
+export function checkClipGroups(data: { deformers?: unknown; parts?: unknown }, problem: (message: string, at: string) => void): void {
+  if (!Array.isArray(data.deformers)) return;
+  const groupOf = new Map<string, string>();
+  for (const d of data.deformers as { id?: unknown; members?: unknown }[]) {
+    if (!isObj(d) || typeof d.id !== 'string' || !Array.isArray(d.members)) continue;
+    for (const m of d.members) if (typeof m === 'string' && !groupOf.has(m)) groupOf.set(m, d.id);
+  }
+  if (!groupOf.size) return;
+  const { shapes, clips } = normalizeMasks(data);
+  for (const [part, src] of Object.entries(clips)) {
+    const g = groupOf.get(part);
+    if (g === undefined) continue;
+    const shape = shapes[src], follow = shape?.follow;
+    if (groupOf.get(src) === g || (follow !== undefined && groupOf.get(follow) === g)) continue;
+    problem(`masks: ${part} is bent by ${g} but its clip ${shape ? 'shape' : 'part'} ${src} is not${shape ? ` (add ${src} to the members of ${g}, or make it follow a member)` : ` (add ${src} to the members of ${g})`}`, part);
+  }
+}
+
+/**
+ * Problems in the masks of a rig: the shape parts and `clip` links of `parts`. `parts` are the image part
+ * names, `bones` the bone names. Shape names that clash with a part or bone, bad polygons and keyforms, `follow` that is no image part,
+ * unknown `clip` targets, a part clipped to itself, loops, nesting beyond MASK_MAX_SHAPES, and too many masks.
+ */
+export function checkMasks(data: { parameters?: unknown; parts?: unknown }, parts: Set<string>, bones: Set<string>, problem: (message: string, at: string) => void): void {
+  const entries = isObj(data.parts) ? data.parts : {};
   const defs = new Map<string, ParamDef>();
   if (Array.isArray(data.parameters)) for (const p of data.parameters as ParamDef[]) if (p && typeof p.id === 'string') defs.set(p.id, p);
-  const partList = () => [...parts].join(', ') || 'none';
-  const ids = new Set<string>(), onPart = new Map<string, string>();
-  const good: MaskDef[] = [];
-  const needPart = (v: unknown, where: string, id: string): boolean => {
-    if (typeof v === 'string' && parts.has(v)) return true;
-    problem(`${where}: ${typeof v === 'string' && bones.has(v) ? `"${v}" is a bone, a mask needs a part` : `no part named "${String(v)}"`} (parts: ${partList()})`, id);
-    return false;
-  };
-  (data.masks as MaskDef[]).forEach((m, i) => {
-    const at = `masks[${i}]`;
-    if (!m || typeof m !== 'object' || Array.isArray(m)) { problem(`${at}: not a mask`, 'masks'); return; }
-    if (typeof m.id !== 'string' || !m.id) { problem(`${at}: needs an id`, 'masks'); return; }
-    const where = `masks.${m.id}`;
-    if (ids.has(m.id)) problem(`masks: "${m.id}" is defined twice`, m.id);
-    ids.add(m.id);
-    for (const k of Object.keys(m)) if (!MASK_KEYS.includes(k)) problem(`${where}.${k}: unknown field (${MASK_KEYS.join(', ')})`, m.id);
-    const partOk = needPart(m.part, `${where}.part`, m.id);
-    if (partOk) {
-      const other = onPart.get(m.part);
-      if (other !== undefined) problem(`${where}.part: part "${m.part}" already has mask "${other}" (one per part)`, m.id);
-      else onPart.set(m.part, m.id);
+  const shapes = new Set(shapePartNames(entries));
+  for (const name of shapes) {
+    const def = entries[name] as PartEntry, where = `parts.${name}`;
+    if (parts.has(name)) { problem(`${where}.polygon: "${name}" is a part with art; a shape needs a name of its own`, name); continue; }
+    if (bones.has(name)) problem(`${where}: shape "${name}" has the name of a bone; names are unique across parts and bones`, name);
+    const poly = def.polygon as unknown;
+    if (!Array.isArray(poly) || poly.length < MASK_MIN_POINTS || poly.length > MASK_MAX_POINTS) problem(`${where}.polygon: needs ${MASK_MIN_POINTS} to ${MASK_MAX_POINTS} points [x, y] in pixels of the PSD canvas`, name);
+    else poly.forEach((p, k) => { if (!Array.isArray(p) || p.length !== 2 || !p.every(isNum)) problem(`${where}.polygon[${k}]: use [x, y] in pixels of the PSD canvas`, name); });
+    if (def.follow !== undefined && (typeof def.follow !== 'string' || !parts.has(def.follow))) problem(`${where}.follow: no part with art named "${String(def.follow)}" (a shape follows a bone with "bone", or the drawn mesh of a part with "follow"; parts: ${[...parts].join(', ') || 'none'})`, name);
+    if (def.clip !== undefined) problem(`${where}.clip: a shape part is not itself clipped`, name);
+    if (def.keyforms !== undefined) {
+      if (!Array.isArray(def.keyforms)) problem(`${where}.keyforms: needs a list`, name);
+      else if (Array.isArray(poly) && poly.length >= MASK_MIN_POINTS && poly.length <= MASK_MAX_POINTS) checkPointKeyforms(def.keyforms, poly.length, `${where}.keyforms`, 'the polygon', defs, name, problem);
     }
-    const hasFrom = m.from !== undefined, hasPoly = m.polygon !== undefined;
-    if (hasFrom === hasPoly) problem(`${where}: give either "from" (a part whose shape clips it) or "polygon" (points [x, y]), ${hasFrom ? 'not both' : 'one of them'}`, m.id);
-    let fromOk = false;
-    if (hasFrom && needPart(m.from, `${where}.from`, m.id)) {
-      fromOk = true;
-      if (m.from === m.part) { problem(`${where}.from: a part cannot be clipped to its own shape`, m.id); fromOk = false; }
-    }
-    let n = 0;
-    if (hasPoly) {
-      const poly = m.polygon as unknown;
-      if (!Array.isArray(poly) || poly.length < MASK_MIN_POINTS || poly.length > MASK_MAX_POINTS) problem(`${where}.polygon: needs ${MASK_MIN_POINTS} to ${MASK_MAX_POINTS} points [x, y] in pixels of the PSD canvas`, m.id);
-      else {
-        n = poly.length;
-        poly.forEach((p, k) => { if (!Array.isArray(p) || p.length !== 2 || !p.every(isNum)) problem(`${where}.polygon[${k}]: use [x, y] in pixels of the PSD canvas`, m.id); });
-      }
-    }
-    if (m.on !== undefined) {
-      if (!hasPoly) problem(`${where}.on: only a polygon has "on"; a "from" mask follows that part`, m.id);
-      else if (typeof m.on !== 'string' || !(parts.has(m.on) || bones.has(m.on))) problem(`${where}.on: no part or bone named "${String(m.on)}"`, m.id);
-    }
-    if (m.keyforms !== undefined) {
-      if (!hasPoly) problem(`${where}.keyforms: only a polygon can be reshaped by parameters; a "from" mask takes the shape of its part`, m.id);
-      else if (!Array.isArray(m.keyforms)) problem(`${where}.keyforms: needs a list`, m.id);
-      else if (n) checkPointKeyforms(m.keyforms, n, `${where}.keyforms`, 'the polygon', defs, m.id, problem);
-    }
-    if (partOk && (fromOk || hasPoly)) good.push(m);
-  });
-  for (const loop of maskCycles(good)) problem(`masks: shapes form a loop (${[...loop, loop[0]].join(' > ')})`, onPart.get(loop[0]) ?? 'masks');
-  const looped = new Set(maskCycles(good).flat());
-  for (const m of good) {
-    if (looped.has(m.part)) continue;
-    const chain = maskChain(good, m.part);
-    if (chain.length > MASK_MAX_SHAPES) problem(`masks.${m.id}: "${m.part}" would be clipped through ${chain.length} shapes (${chain.map(c => c.id).join(', ')}); at most ${MASK_MAX_SHAPES} (one nested level): clip it to a part that is not itself clipped, or a polygon`, m.id);
   }
-  if (ids.size > MASK_WARN_COUNT) problem(`masks: ${ids.size} masks on one character (more than ${MASK_WARN_COUNT}); each is stencil passes and batch breaks every frame, which has not been measured on weak phones`, 'masks');
+  for (const [part, def] of Object.entries(entries)) {
+    if (!isObj(def) || def.clip === undefined || shapes.has(part) || !parts.has(part)) continue;
+    const at = `parts.${part}.clip`, to = def.clip;
+    if (typeof to !== 'string' || !(parts.has(to) || shapes.has(to))) { problem(`${at}: ${typeof to === 'string' && bones.has(to) ? `"${to}" is a bone, a clip needs a shape or a part` : `no shape or part named "${String(to)}"`} (shapes: ${[...shapes].join(', ') || 'none'})`, part); continue; }
+    if (to === part) problem(`${at}: a part cannot be clipped to its own shape`, part);
+  }
+  // The nesting rules run on the whole set: a clip to an image part chains; a clip to a shape ends the chain.
+  const all = maskView({ parts: entries });
+  const loops = maskCycles(all);
+  for (const loop of loops) problem(`masks: shapes form a loop (${[...loop, loop[0]].join(' > ')})`, loop[0]);
+  const looped = new Set(loops.flat());
+  const seen = new Set<string>();
+  for (const m of all) {
+    if (looped.has(m.part) || seen.has(m.part)) continue;
+    seen.add(m.part);
+    const chain = maskChain(all, m.part);
+    if (chain.length > MASK_MAX_SHAPES) problem(`masks: "${m.part}" would be clipped through ${chain.length} shapes (${chain.map(c => c.part).join(', ')}); at most ${MASK_MAX_SHAPES} (one nested level): clip it to a part that is not itself clipped, or to a shape`, m.part);
+  }
+  if (all.length > MASK_WARN_COUNT) problem(`masks: ${all.length} masks on one character (more than ${MASK_WARN_COUNT}); each is stencil passes and batch breaks every frame, which has not been measured on weak phones`, 'masks');
 }

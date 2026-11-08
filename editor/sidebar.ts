@@ -3,7 +3,7 @@
 // owns the tabs and the editor and hands the panel what it calls back into (see initSidebar).
 
 import {
-  buildFileTree, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, UI_SCREENS,
+  buildFileTree, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, screenStarter, UI_SCREENS,
   type FileTreeFolder, type LabelEdit, type RigManifest, type UiScreen,
 } from '../engine/src/index.js';
 import { type Mode } from './anim-studio.js';
@@ -11,13 +11,14 @@ import { confirmAsk } from './ask.js';
 import { canView } from './asset-viewer.js';
 import { ContextMenu, type MenuEntry, type MenuItem } from './context-menu.js';
 import { updateGameSchema } from './json-schemas.js';
+import { narrowWindow } from './preview-pane.js';
 import { $, errorCount, files, GAME, isDirty, NEW_ASSET_FOLDER, NOT_IN_DEMO, openTabs, postPreview, problemCounts, projectFiles, recentFiles, rigName, S, scripts, setStatus, THEME_PICK, themeFileName, type FileState } from './state.js';
 
 /** What the panel calls back into editor.ts. */
 export interface SidebarHost {
   showStock(u: UiScreen): void;
   activate(name: string, focus?: boolean): void;
-  closeTab(name: string): void;
+  dropScript(f: FileState): void;
   recompile(): void;
   save(f: FileState): Promise<void>;
   previewScreen(name: string): void;
@@ -36,7 +37,7 @@ let host: SidebarHost;
 export function initSidebar(h: SidebarHost) { host = h; }
 const showStock: SidebarHost['showStock'] = (...a) => host.showStock(...a);
 const activate: SidebarHost['activate'] = (...a) => host.activate(...a);
-const closeTab: SidebarHost['closeTab'] = (...a) => host.closeTab(...a);
+const dropScript: SidebarHost['dropScript'] = (...a) => host.dropScript(...a);
 const recompile: SidebarHost['recompile'] = (...a) => host.recompile(...a);
 const save: SidebarHost['save'] = (...a) => host.save(...a);
 const previewScreen: SidebarHost['previewScreen'] = (...a) => host.previewScreen(...a);
@@ -143,6 +144,31 @@ $('sbList').addEventListener('dblclick', e => {
   const key = (e.target as HTMLElement).closest<HTMLElement>('.item[data-key]')?.dataset.key;
   if (key === GAME || key?.startsWith('script/')) S.editor.focus();
 });
+// One Tab stop for the whole panel (UX round EL-6): the row last focused (else the first) is tabbable, the others are reached with
+// Up, Down, Home and End. The panel redraws itself often, so the stops are set again after each redraw.
+const SB_STOPS = 'button, summary, .fold, [role="button"]';
+let sbStop: string | undefined;
+const sbStops = () => [...$('sbList').querySelectorAll<HTMLElement>(SB_STOPS)].filter(el => !el.closest('[hidden]') && el.getClientRects().length > 0);
+const stopKey = (el: HTMLElement) => el.dataset.key ?? `${el.tagName}:${el.textContent?.trim()}:${el.title}`;
+function setSbStops() {
+  const stops = sbStops();
+  const at = stops.find(el => stopKey(el) === sbStop) ?? stops[0];
+  for (const el of stops) el.tabIndex = el === at ? 0 : -1;
+}
+$('sbList').addEventListener('focusin', e => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(SB_STOPS);
+  if (el) { sbStop = stopKey(el); setSbStops(); }
+});
+$('sbList').addEventListener('keydown', e => {
+  const dir = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+  if (!dir && e.key !== 'Home' && e.key !== 'End') return;
+  if (e.ctrlKey || e.altKey || e.metaKey || (e.target as HTMLElement).closest('input, select, textarea')) return;
+  const stops = sbStops(), from = stops.indexOf((e.target as HTMLElement).closest<HTMLElement>(SB_STOPS)!);
+  if (from < 0) return;
+  e.preventDefault();
+  stops[e.key === 'Home' ? 0 : e.key === 'End' ? stops.length - 1 : Math.min(Math.max(from + dir, 0), stops.length - 1)]?.focus();
+});
+new MutationObserver(() => setSbStops()).observe($('sbList'), { childList: true, subtree: true });
 // F2 renames and Delete deletes the focused row, when its menu offers that.
 $('sbList').addEventListener('keydown', e => {
   const label = e.key === 'F2' ? 'Rename…' : e.key === 'Delete' ? 'Delete' : '';
@@ -154,8 +180,9 @@ $('sbList').addEventListener('keydown', e => {
 });
 
 const SECTIONS_KEY = 'vn.editor.sections';
-/** Sidebar sections the user folded, by heading text (they stay open while filtering). */
-const foldedSections = new Set<string>((() => { try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '[]') as string[]; } catch { return []; } })());
+/** Sidebar sections the user folded, by heading text (they stay open while filtering). The built-in screens start folded, so the
+ *  Characters and Assets sections, where art is added, are on screen at 900 px (UX round EP-5). */
+const foldedSections = new Set<string>((() => { try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '["Built-in screens"]') as string[]; } catch { return ['Built-in screens']; } })());
 const sectionFolded = (text: string) => foldedSections.has(text) && sbFilter.value.trim() === '';
 function toggleSection(text: string) {
   if (foldedSections.has(text)) foldedSections.delete(text); else foldedSections.add(text);
@@ -216,12 +243,12 @@ async function fileRequest(url: string, fail: string): Promise<Response | null> 
 // Delete and Replace move what they remove to the project's .trash/ folder (dev server: /api/trash...). The toast offers Undo
 // for a while; Restore from Trash (palette, or the Project heading's menu) lists everything still there.
 let toastTimer = 0;
-function toast(text: string, undo?: () => void) {
+export function toast(text: string, undo?: () => void) {
   showToast(text, undo ? { label: 'Undo', run: undo } : undefined);
 }
 
 /** A refused action: red, wraps instead of cutting off, and stays until dismissed; also logged to the preview's debug console. */
-function toastError(text: string) {
+export function toastError(text: string) {
   postPreview({ type: 'log', kind: 'err', text });
   showToast(text, { label: 'Dismiss', run: () => {} }, true);
 }
@@ -256,7 +283,7 @@ export async function restoreTrash(id: string) {
 }
 
 export async function emptyTrash() {
-  if (!await confirmAsk('Delete everything in the project trash for good? This cannot be undone.', 'Delete')) return;
+  if (!await confirmAsk('Delete everything in the project trash for good? This cannot be undone.', 'Empty Trash', true)) return;
   const r = await fileRequest('/api/trash/empty', 'could not empty the trash');
   if (r) toast(`emptied the trash (${(await r.json() as { removed: number }).removed} entries)`);
 }
@@ -333,16 +360,7 @@ async function deletePath(rel: string, isDir = false, question?: string) {
   toast(`deleted ${rel}`, trash ? () => void restoreTrash(trash) : undefined);
   if (!inScript(rel)) { void syncFromDisk(); return; }
   const a = scriptName(rel);
-  for (const f of scripts()) {
-    if (!isUnder(f.name, a)) continue;
-    clearTimeout(f.timer);
-    f.saved = f.model.getValue(); // closing a tab saves it; this one is gone
-    closeTab(f.name);
-    files.delete(f.name);
-    const seen = recentFiles.indexOf(f.name);
-    if (seen >= 0) recentFiles.splice(seen, 1);
-    f.model.dispose();
-  }
+  for (const f of scripts()) if (isUnder(f.name, a)) dropScript(f);
   S.scriptDirs = S.scriptDirs.filter(d => !isUnder(d, a));
   recompile();
   renderSidebarFiles();
@@ -415,7 +433,7 @@ export function renderSidebarFiles() {
     key: f.kind === 'game' ? GAME : `script/${f.name}`,
     title: f.name, current: f.name === S.active, errors: errorCount(f) > 0, problems: problemCounts(f),
     meta: [isDirty(f) ? '•' : '', overrideFiles.has(f.name) ? 'screen' : ''].filter(Boolean).join(' '),
-    run: e => activate(f.name, toEditor(e)),
+    run: e => { activate(f.name, toEditor(e)); if (narrowWindow()) setSidebar(false, false); }, // a narrow window shows the panel over the code
   }), () => f.kind === 'game' ? [{ label: 'Open', run: () => activate(f.name) }, null, copyItem('Copy Path', GAME), revealItem(GAME)] : [
     { label: 'Open', run: () => activate(f.name) },
     { label: 'Preview from Start of File', run: () => void previewFile(f.name) },
@@ -498,7 +516,7 @@ export function renderSidebarFiles() {
         null, copyItem('Copy Path', `script/${file.name}`), revealItem(`script/${file.name}`),
       ] : [
         { label: 'Show Default Code', run: () => showStock(u) },
-        { label: 'Edit This Screen', title: `Create script/${u.file} with the default screen's code`, run: () => void newFile(u.file, u.starter) },
+        { label: 'Edit This Screen', title: `Create script/${u.file} with the default screen's code`, run: () => void newFile(u.file, screenStarter(u.name, S.program.stage)) },
       ]),
     ]);
     row.className = 'row';
@@ -512,7 +530,7 @@ export function renderSidebarFiles() {
       const custom = Object.assign(document.createElement('button'), {
         type: 'button', className: 'anim', textContent: 'Edit', title: `Edit this screen: create script/${u.file} with the default screen's code to change it`,
       });
-      custom.addEventListener('click', () => void newFile(u.file, u.starter));
+      custom.addEventListener('click', () => void newFile(u.file, screenStarter(u.name, S.program.stage)));
       row.append(custom);
     }
     return row;
@@ -608,10 +626,13 @@ export function renderSidebarAssets() {
         run: () => openRig(c),
       }), rig, anim);
       return row;
-    }) : [sbNone(filtering ? 'No matching characters' : 'No converted characters yet')]),
+    }) : [sbNone(filtering ? 'No matching characters' : 'No characters yet: use + to add a PSD, or drop one here')]),
     ...sbSection('Assets', [addAny, newAssetDir], () => [{ label: 'Add Files…', run: addAny[2] }, { label: 'New Folder…', run: newAssetDir[2] }, null, revealItem('assets')],
       () => groups.length ? groups : [sbNone(filtering ? 'No matching assets' : 'No assets yet')]),
   );
+  const charsHead = sbAssetsEl.querySelector('h3');
+  charsHead?.classList.add('chars-drop');
+  if (charsHead?.nextElementSibling?.classList.contains('none')) charsHead.nextElementSibling.classList.add('chars-drop');
   if (waiting.length) sbAssetsEl.append(
     ...sbSection('Masters not converted', [], () => [{ label: 'Reconvert All Art', run: () => void runTask('art', 'art') }, null, revealItem('masters')], () => waiting.map(m => withMenu(sbItem(m.master, {
       key: `masters/${m.master}`, title: `masters/${m.master}: no converted art yet (the converter is off, still working, or failed; see the dev server log). Click to open it.`, meta: 'psd',
@@ -645,11 +666,16 @@ async function previewFile(name: string) {
 
 // Files dragged from the desktop onto the Assets list are copied into the project; dropped on a folder they go in that folder,
 // else the server routes them by type (engine/src/asset-drop.ts). The sidebar refreshes through the assets watcher.
-const dropFolder = (e: DragEvent) => (e.target as HTMLElement).closest<HTMLElement>('details[data-dir]')?.dataset.dir ?? '';
+// The Characters heading and its empty note take a PSD too (it goes to masters/char/).
+const DROP_ON = 'details[data-dir], .chars-drop';
+const dropFolder = (e: DragEvent) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>(DROP_ON);
+  return el?.classList.contains('chars-drop') ? 'char' : el?.dataset.dir ?? '';
+};
 const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
 function markDropTarget(e: DragEvent | null) {
   sbAssetsEl.querySelectorAll('.drop').forEach(el => el.classList.remove('drop'));
-  if (e) (e.target as HTMLElement).closest('details[data-dir]')?.classList.add('drop');
+  if (e) (e.target as HTMLElement).closest(DROP_ON)?.classList.add('drop');
   sbAssetsEl.classList.toggle('dropping', !!e);
 }
 sbAssetsEl.addEventListener('dragover', e => {
@@ -689,9 +715,10 @@ export function openAsset(file: string, siblings: string[] = [file], fromPanel =
   else window.open(`../assets/${encodeURI(file)}`, '_blank', 'noopener');
 }
 
-export function setSidebar(show: boolean) {
+/** Show or hide the Files panel; `remember` keeps the choice for the next load (not for the automatic ones). */
+export function setSidebar(show: boolean, remember = true) {
   sidebarEl.hidden = !show;
-  try { localStorage.setItem(SIDEBAR_KEY, show ? '1' : '0'); } catch { /* ignore */ }
+  if (remember) try { localStorage.setItem(SIDEBAR_KEY, show ? '1' : '0'); } catch { /* ignore */ }
   renderSidebarFiles();
   renderSidebarAssets();
 }

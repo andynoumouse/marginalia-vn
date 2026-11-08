@@ -1,7 +1,7 @@
 // Editing the keys of the animation on show: the selected key, field and nudge edits, adding and removing keys, and
 // dragging a diamond on the timeline. The studio keeps the working copy and the undo stack; this works through `KeysHost`.
 
-import { addKey, deleteKey, KEY_CHANNELS, sampleChannel, setKey, type AnimDef, type KeyChannel, type KeyDef } from '../engine/src/index.js';
+import { addKey, CHANNEL_REST, deleteKey, KEY_CHANNELS, sampleChannel, setKey, type AnimDef, type KeyChannel, type KeyDef } from '../engine/src/index.js';
 import { LABEL, LANE, laneOf, localPoint, NUDGE, valueAt } from './anim-timeline.js';
 
 export interface KeysEntry { name: string; preset: boolean; def: AnimDef; dur: number }
@@ -142,7 +142,7 @@ export class KeyEditor {
     const ch = key.dataset.ch as KeyChannel, big = e.shiftKey ? 5 : 1, k = this.selectedKey();
     let patch: Partial<KeyDef> | null = null;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') patch = { t: (k?.t ?? 0) + (e.key === 'ArrowRight' ? 1 : -1) * 0.01 * big };
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') patch = { [ch]: (k?.[ch] ?? 0) + (e.key === 'ArrowUp' ? 1 : -1) * NUDGE[ch] * big };
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') patch = { [ch]: Math.max(ch === 'opacity' ? 0 : -Infinity, (k?.[ch] ?? CHANNEL_REST[ch]) + (e.key === 'ArrowUp' ? 1 : -1) * NUDGE[ch] * big) };
     else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.removeSelected(); return; }
     if (!patch) return;
     e.preventDefault();

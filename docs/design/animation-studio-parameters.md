@@ -84,8 +84,18 @@ The format and the reference are in [rig-json.md](../rig-json.md#masks); the pur
 the silhouette trace, bending a shape with a warp) and `mask-edit.ts` (the studio's edits), the renderer is `preview/pixi-renderer.ts`
 (`buildMasks`, `applyMasks`), the studio `editor/anim-mask.ts`. What was decided and why:
 
-- **A `masks` list in rig.json, in the style of `deformers`**: `{ id, part, from | polygon, on?, keyforms? }`, one mask per part. A mask is
-  not a field on `parts`, because `parts` holds placement (bone, pivot) and a mask has its own shape, points and keyforms.
+- **Shapes are named parts (changed after the first build).** The first build kept a `masks` list in rig.json, in the style of
+  `deformers`: `{ id, part, from | polygon, on?, keyforms? }`, one mask per part. A polygon on a bone was never warped, so it could not follow
+  a head warp, and a shape had no name to select, reuse or put in a group warp. Now a shape is an imageless entry of `parts`
+  (`eyelids: { bone?, follow?, polygon, keyforms? }`) and a clip is a link on the clipped part (`eyes: { clip: "eyelids" }`; `clip` names a
+  shape or a part with art, which replaces `from`). `follow` takes the place of `on` a part; a shape on a `bone` follows only that bone.
+  Shapes are not in `order` and have no layer, so a PSD re-import (`mergeRig`) never lists them missing or adds them. The `masks` list is gone (alpha: no
+  compatibility reader; `checkRig` reports a leftover one): `normalizeMasks` (engine/src/masks.ts) reads shapes and clips from `parts`, `maskView` gives them as
+  the one-MaskDef-per-clipped-part list the renderer works with (`shape` names the shape it was read from), and `writeShapes` puts the studio's shapes and
+  clips back as shape parts and `clip` links. The studio edits the shapes and clips directly (see **Studio** below), so a shape that clips several
+  parts is one shape. Shapes are members of group warps (built): the lattice is added to the shape's keyform-shaped points at their canvas position, a shape that follows a
+  member of the same group is not bent twice, and `checkRig` warns when a clipped group member's clip source is outside the group
+  (docs/design/mesh-warp.md, Group warps). Robo's `eyelids` is in `head_warp`.
 - **Two shape sources.** A `from` part gives its silhouette: the renderer reads the part's alpha (at most 256 px on the long side, once
   per texture), keeps the opaque blobs above half alpha, traces their outer outline and simplifies it to at most 64 points
   (`traceOutline`). A stencil mask drawn from a Sprite would be its whole quad, so the outline has to be a polygon; Sprite alpha masks
@@ -102,15 +112,23 @@ the silhouette trace, bending a shape with a warp) and `mask-edit.ts` (the studi
   outline is traced per variant texture and cached.
 - **Hidden source, hidden part.** When a look hides the `from` part (or the `on` part) there is nothing to clip to, so the clipped part is
   hidden: an iris beside no eye should not float.
-- **Studio.** A Mask section and a Mask tool (**M**) in Model mode, small and closed until the tool is chosen ([studio-ux.md](studio-ux.md)): a picker
-  (nothing / another part / a drawn shape), the stage outline, point drag, edge click to add, Alt-click to remove, and numeric fields. The
-  keyforms of a polygon are hand-written for now.
+- **Studio (shapes as parts).** The working copy holds `shapes` (name to `{ bone?, follow?, polygon, keyforms? }`) and `clips` (clipped part to its
+  shape or part) in place of the old one-mask-per-part list (`StudioDoc`, engine/src/studio-doc.ts); `studioWrites` writes them with `writeShapes` into `parts`. The pure edits are in `engine/src/mask-edit.ts` on a `ShapeSet` (shapes, clips and the deformers, since a group lists shapes as
+  members): `addShape`, `renameShape` (every clip and group member follows; the name is unique among parts, bones and shapes), `deleteShape` (clipped parts are
+  freed, the shape leaves its groups, the note says so, nothing is asked), `setClip` (the `checkMasks` rules), `moveShape` (bone, follow), `clipGroupIssues` and
+  `addToGroup` (the group warp warning and its fix). A shape has a row in the Parts tree (editor/anim-tree.ts, under **Shapes**); choosing it, or a part clipped
+  to it, makes the Mask section (editor/anim-mask.ts) and the Mask tool edit it. The stage (`studioMasks { shapes, clips }`, `studioMask { shape, part, tool, point }`)
+  draws a shape that clips nothing too (the renderer's `maskView(..., unclipped)`: a node that is never a mask), outlines every shape with the Mask tool, and picks
+  one on a click within 8 screen pixels of its outline (`shapeAtEdge`), or inside it where no part's art is hit (`shapeAtInside`); the answer is the ordinary
+  `studioSelect`. The renderer keeps the studio's shapes and clips and puts them back whenever `studioPivots` replaces `parts`. The bone gizmo and the pivot tool
+  ignore shape rows. Binding a shape's points to a parameter (Mask tool) is keyed by shape name (`bindMask`, `unbindMask`; a part clipped to a shape binds that
+  shape). The keyforms of a polygon are hand-written for now.
 - **The cost is a guess.** Nobody has measured stencil masks on a low-end phone, which this design wanted before committing to them. The
   safeguards are cheap ones: `checkRig` warns above 8 masks on a character, the renderer logs the same, the count is in the debug console's
   `memory`, in `vnStage()` and in the browser tests, and the shapes are drawn only when dirty. TODO.md has *Measure stencil masks on a low-end phone*;
   if the result is bad, the fallback is to bake a clip into the part's texture when it does not move against its source, or to keep the first
   nested level only.
-- **Not built:** soft alpha masks, inverse masks, holes in a traced shape, a studio editor for a polygon's keyforms, masks in the studio's hit test.
+- **Not built:** soft alpha masks, inverse masks, holes in a traced shape, a studio editor for a polygon's keyforms, a shape's own transform as a keyform target.
 
 #### Keyform authoring, as built (2026-11-07)
 
@@ -150,10 +168,7 @@ authoring flow; the flow itself (the parameter is picked first) is the next sect
 
 #### Parameter-first authoring in Model mode (as built, 2026-11-07)
 
-The first authoring flow was part first (choose a part, then the control; the keyed target was the control used last, else the one that drove the part). It was reviewed
-against Live2D Cubism and found backwards: Cubism picks the **parameter** first, then the parts it moves, and each part gets its keys at once. It was first built as a mode of
-its own, **Keyforms**, beside Model so the old flow stayed until the new one had been lived with, and then folded into Model: the part-first flow, its keyed-target line and its
-Keyform row are deleted, and Model is the parameter-first flow ([studio-ux.md](studio-ux.md) has the two modes). The pure parts are `engine/src/param-bind.ts` (binding, unbinding, which parts are bound to a parameter, which parameters move a part, key
+The authoring flow is parameter first, as in Live2D Cubism: pick the **parameter**, then the parts it moves, and each part gets its keys at once ([studio-ux.md](studio-ux.md) has the two modes). The pure parts are `engine/src/param-bind.ts` (binding, unbinding, which parts are bound to a parameter, which parameters move a part, key
 ticks) with its tests; the studio side is `editor/anim-bind.ts` (the block under the controls), the Model branches of `editor/anim-params.ts` (the active row, the ticks, the pad's
 corner snap), `editor/anim-tree.ts` (the bind ticks) and `editor/anim-studio.ts` (picking, binding, the drag). The user-facing description is in
 [rig-json.md](../rig-json.md#authoring-keyforms-in-model-mode). What was decided and why:
@@ -165,20 +180,24 @@ corner snap), `editor/anim-tree.ts` (the bind ticks) and `editor/anim-studio.ts`
   or, for a pad, a grid of 2 × 2 (the ends), 3 × 3 (and the default) or 5 × 5 (and halfway between each two), every key at rest. At rest is deliberate: binding changes nothing on the
   stage, so it cannot hurt, and the keyform is valid data (a rig may hold bound parts that were never posed; `checkRig` is happy with it). The default is a line on every grid but
   2 × 2, because the rest pose there is what the ends are posed against.
-- **What a pick binds depends on the tool.** With Move, Rotate or Scale on, a click on the stage or a tick in the tree binds the part's *pose* (the bone it sits on, as when a click
+- **What a pick binds depends on the tool.** With Move, Rotate or Scale on, a pick binds the part's *pose* (the bone it sits on, as when a click
   chooses it); with the Warp tool on, its lattice (`deformers`); with Mask, its drawn polygon (`masks`). The three have the same keys and the same list; only a slider can be the
   parameter of a warp or a mask, as in their own data. A pick on something already bound is a plain choose, so a second click does not unbind; the ✕ in the **Bound parts**
-  list, the tree's tick and Ctrl+Z are the ways back. A drag with the gizmo on a part that is not bound binds it first, in the same undo step: an author who chose a part from the
-  tree and dragged it should not hit a dead end.
-- **Picking with no parameter, or with Shift, only selects.** While no parameter is active a click on the stage is a plain choose (there is nothing to bind to); with one
-  active, Shift-click on the stage chooses without binding. Model opens on the Move tool, not Pivot: with Pivot on a click on the stage places the chosen part's pivot, which would
-  fight picking parts to bind.
+  list and Ctrl+Z are the ways back (the tree's mark is a display). A drag with the gizmo on a part that is not bound writes nothing and says to bind it: binding is its own verb.
+- **A click only selects; binding is a verb.** A click on the stage or a row never binds. **Bind parts…** (with a parameter in focus) opens a checklist of the parts in the right column and binds the ticked ones;
+  **Bind to parameter…** (with a part in focus) opens a checklist of parameters. Esc closes it. The stage and the left lists only choose the focus.
+- **One focus.** The studio keeps the active parameter and the chosen part, and reads them as one focus (`engine/src/studio-focus.ts`): a parameter alone, a part alone, or both
+  when the parameter moves the part (by pose, warp or mask, whichever tool is on): the keyform, shown as a breadcrumb at the top of the block. Choosing a part or a parameter keeps the other
+  only when they are paired like that, and otherwise replaces it. A gizmo or Warp / Mask point drag writes
+  only into a keyform (a part with no parameter writes nothing and says what to do); a drag at a value with no key adds the key.
+- **Overlapping parts.** The stage reports every part under the pointer (`studioHitAll`), and clicks on one spot (within 4 px) walk through them front to back, wrapping; the status line says
+  "Arm_L, 2 of 3. Click again for the next."
 - **Keys are removed, the keyform stays.** The keyform is the binding, so **Remove this key** only takes the key out (a pad corner goes back to rest), and the key at the default goes
-  back to rest instead of out. **Unbind** ends the binding and takes every key of it. (The deleted part-first flow dropped a keyform left with nothing but rest keys, because there the keyform *was* the key.)
-- **One palette.** Every slider and pad is in the Parameters section. The Warp section used to carry a parameter select and a second slider; it has neither now: its keys are
+  back to rest instead of out. **Unbind** ends the binding and takes every key of it.
+- **One palette.** Every slider and pad is in the Parameters section. The Warp section has no parameter select or slider of its own: its keys are
   the active parameter's, and its key buttons put that parameter's slider on the key. The list of controls scrolls inside its own box so the block under it stays in view.
-- **Animate and Model are the two modes.** `StudioMode` is `model | animate` (`keyform` was removed with the fold; `studioMode('keyform')` still answers Model for an old entry). Pivots, bone
-  editing, the Pivot tool, physics and "By itself" are Model's, as before; the Warp and Mask tools and the gizmo drag now work parameter first.
+- **Animate and Model are the two modes.** `StudioMode` is `model | animate`. Pivots, bone
+  editing, the Pivot tool, physics and "By itself" are Model's; the Warp and Mask tools and the gizmo drag work parameter first.
 - **Not built:** posing several parts at once (a pick adds one part), copy / mirror of a part's keys to another
   part or the other half of a pad, binding a whole bone subtree with one pick, and the corner buttons a pad could list the way a slider lists its keys.
 
@@ -219,8 +238,6 @@ a physics chain reads parameters and writes parameters.
 - **Interim:** until deformers exist, a chain's output can drive a **bone rotation** directly (a hair part on a bone, as in
   rig-hierarchy.md). It looks stiff, but it settles the format and the studio panel in advance; the mesh warp then
   improves the look without changing the data.
-- **Auto-behaviors** (idle breathing, random blinking, eyes following a target) are the cheaper cousin and may ship
-  first: each is a small function of time that writes a parameter, with the same additive rule as physics.
 
 ### Timeline
 
@@ -344,7 +361,7 @@ messages (`preview/studio.ts`, `PixiRenderer.studioCapture`), the dialog `editor
 - **Time is arithmetic, not a clock.** Frame N is at N / fps seconds (`frameTime`); a looped export wraps by time, a single play holds the last
   pose and has one frame more than its length in frames, so its end pose is drawn. A loop of whole frames repeats no end frame. Physics is
   stepped once per frame by 1 / fps from rest (`stepChain` carries the remainder of its own 1/60 s steps), after an optional lead-in that is
-  posed and not drawn; the lead-in of a loop wraps backwards from its end, so the chains are already swinging at frame 1. Blink, talk and idle
+  posed and not drawn; the lead-in of a loop wraps backwards from its end, so the chains are already swinging at frame 1. Automatic animations
   are off for the export (`behaviors: false` in its state), the hand-set parameter values stay, drags and the shake do not count. Two runs give
   byte-identical PNGs (the browser test and a throwaway script compared them).
 - **The editor asks, the stage page draws, one frame at a time.** The editor sends `studioExportBegin` (the page replies `Ready` with the frame
@@ -385,37 +402,16 @@ Decided 2026-11-06:
 - **Movie export:** render in the browser, frame by frame with a fixed timestep (not MediaRecorder, which captures in
   real time and drops frames; not node, which would need a headless GL renderer). A PNG sequence with alpha first;
   webm / mp4 later through WebCodecs or an ffmpeg the Electron Studio bundles.
-- **Implicit `idle` / `speak` / `blink`:** group them under one explicit key such as `autonomous`, with slots and
-  variants written out (no `true` shorthand, `checkRig` errors on a typo) and a script switch (`behaviors off`). Once
-  frame tracks exist the end state is that `blink` and `speak` are triggers that start a clip; do not design against
-  that. The problem, as it stood before the decision, is described below.
 
 ## Open questions
 
 - Mask cost: the stencil masks are built (see Masks, as built) but still unmeasured on a low-end phone. They are guarded by a warning above
   8 masks per character and a `maskCount` figure; measure once a device is at hand.
 
-Background for the `idle` / `speak` / `blink` decision above:
-
-- **Implicit `idle` / `speak` / `blink`.** Today these are reserved top-level rig.json keys
-  that the renderer runs by itself (`engine/src/idle.ts`, `preview/pixi-renderer.ts`), outside the animation system.
-  They are opt-in per rig (no key, no behaviour), but still surprising:
-  - `"blink": true` and a bare `speak` lean on slot and variant names (`eyes`/`closed`, `mouth`), so renaming a PSD
-    group silently turns the behaviour off.
-  - They sit beside `animations` as their own schemas, with their own triggers (a random timer, "a line is typing").
-  - Once declared they run for every `show` of the character; a scene cannot turn them off.
-
-  The options considered were: explicit slots and variants; one `autonomous` key; a script switch; and, with frame
-  tracks, `blink` and `speak` as clip triggers. The decision takes the first three now and leaves the fourth as the end
-  state. The change touches only the three sample and demo rigs.
-
 ## Later
 
 Ideas that fit the model but can be added without changing the format:
 
-- Physics for secondary motion (hair, ribbons, cloth) driven by head movement: designed under Model, built after the
-  mesh deformers.
-- Auto-behaviors that need no keys: idle breathing, random blinking, eyes following a target.
 - Lip sync from audio or phonemes mapped to a mouth parameter (ties in with the voice-line work).
 - Onion skinning.
 - Live link between the standalone studio and a running game preview.

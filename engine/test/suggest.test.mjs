@@ -42,6 +42,68 @@ test('unknown commands, labels, characters and screens say what was probably mea
   assert.match(q.diagnostics[0].message, /Unknown character "bob" \(add a define line\)/); // the old hint when nothing is close
 });
 
+test('a narration line with a missing or extra quote says so, not "Unknown command" (UX round EA-1)', () => {
+  const p = compile([{ file: 't.vn', text: 'label start:\n  "The rain falls.""\n  "The rain falls.\n  "One" "Two"\n  "Fine."\n  "It\\"s fine."\n' }]);
+  const at = line => p.diagnostics.filter(d => d.line === line).map(d => d.message);
+  assert.deepEqual(at(2), ['Missing or extra quote: narration is "text" with one closing quote']);
+  assert.deepEqual(at(3), ['Missing or extra quote: narration is "text" with one closing quote']);
+  assert.deepEqual(at(4), ['Narration is one "quoted text" per line, then an optional style= and #id']);
+  assert.deepEqual([at(5), at(6)], [[], []]); // good narration, an escaped quote included
+});
+
+test('syntax slips say what to write, and the rest of the block still reads (UX round EA-5, EA-6, EL-11)', () => {
+  const run = lines => compile([{ file: 't.vn', text: lines.join('\n') + '\n' }]);
+  const msgs = p => p.diagnostics.map(d => `${d.line} ${d.severity}: ${d.message}`);
+  // a missing colon is one message, and the block under the line is read as if it had one: no stray indentation, no "No labels found"
+  const colons = run([
+    'define hero "Hero"', 'label start', '  set trust = 0', '  if trust >= 1', '    hero: Hi.', '  elif trust > 0', '    hero: Mm.', '  else', '    hero: Oh.',
+    '  menu', '    "Yes":', '      jump start', '',
+  ]);
+  assert.deepEqual(msgs(colons), [
+    '2 error: "label" needs a colon at the end of the line: label start:',
+    '4 error: "if" needs a colon at the end of the line: if trust >= 1:',
+    '6 error: "elif" needs a colon at the end of the line: elif trust > 0:',
+    '8 error: "else" needs a colon at the end of the line: else:',
+    '10 error: "menu" needs a colon at the end of the line: menu:',
+  ]);
+  assert.ok(Object.hasOwn(colons.labels, 'start'));
+  // a comment after a block opener is not read as part of it
+  assert.deepEqual(msgs(run(['label start:', '  if 1 == 1: # always', '    "a"', '  else: # never', '    "b"'])), [
+    '2 error: A # comment goes on a line of its own, not after "if...:"',
+    '4 error: A # comment goes on a line of its own, not after "else...:"',
+  ]);
+  assert.deepEqual(msgs(run(['label start:', '  menu "Pick #1": # hm', '    "A":', '      "a"'])), ['2 error: A # comment goes on a line of its own, not after "menu...:"']);
+  // a label name with a character outside a-z, digits and _ (a Finnish name, say), the block still read
+  assert.deepEqual(msgs(run(['label start:', '  jump a', 'label päivä_1:', '  "Hei."', 'label 2b:', '  "x"', 'label:'])), [
+    '3 error: Label names use the letters a-z, digits and _, and do not start with a digit: "päivä_1" has "ä"',
+    '5 error: Label names use the letters a-z, digits and _, and do not start with a digit: "2b" has "2"',
+    '7 error: Use: label <name>:  or  label <name>(<parameters>):',
+    '2 error: Unknown label "a"', // the link step comes after the parse; the blocks under the bad names raised nothing of their own
+  ]);
+  // habits from other languages, and `set` that is not name = value
+  const habits = run([
+    'define hero "Hero"', 'label start:', '  $ trust = 1', '  set trust =', '  set trust 1', '  set trust == 1', '  hero "Hello there."', '  scene bg_title # park', '',
+  ]);
+  assert.deepEqual(msgs(habits).filter(m => !/^8 /.test(m)), [
+    '3 error: Use set instead of $: set trust = 1',
+    '4 error: Use: set <name> = <value>  (also +=, -=, *= and /=)',
+    '5 error: Use: set <name> = <value>  (also +=, -=, *= and /=)',
+    '6 error: Unexpected "=": == compares (if trust == 1:) and set trust = 1 assigns',
+    '7 error: Dialogue is written hero: text  (a colon after the name, no quotes); a quoted "text" on its own line is narration',
+  ]);
+  assert.match(msgs(habits).find(m => /^8 /.test(m)), /a # comment goes on a line of its own\)$/);
+  assert.match(msgs(run(['label start:', '  if trust = 1:', '    "a"']))[0], /Unexpected "=": == compares/);
+  // typos keep their did-you-mean; a block opener with its colon and a good header is quiet
+  assert.deepEqual(run(['label start:', '  shwo x', '  menu:', '    "A":', '      "a"']).diagnostics.map(d => d.message), ['Unknown command "shwo" (did you mean "show"?)']);
+  // dialogue: an id followed by words, or a # comment, is shown to the player: warned, not an error
+  const leaks = run(['define hero "Hero"', 'label start:', '  hero: Stay a while. #ghg3 She smiles.', '  hero: Hello there. # greet', '  hero: Done. # #gljn', '  hero: Room #2024 and a #1 fan. #ab12', '  hero: Fine. #cd34', '  hero: Press 5 to quit.', '']);
+  assert.deepEqual(msgs(leaks), [
+    '3 warning: The text goes on after the id #ghg3, and the player sees it: the #id is the last thing on the line',
+    '4 warning: Everything after the colon is dialogue, so the player sees this "#" and what follows it: a # comment goes on a line of its own',
+    '5 warning: Everything after the colon is dialogue, so the player sees this "#" and what follows it: a # comment goes on a line of its own',
+  ]);
+});
+
 test('missing assets suggest the close file names', () => {
   const p = compile([{ file: 't.vn', text: 'define al "Al"\nlabel start:\n  scene parck\n  music play evening_thme\n  sound play clik\n  show al hapy\n  animate al nodd\n  scene nowhere_at_all\n' }]);
   const index = { files: ['bg/park.png', 'music/evening_theme.ogg', 'sound/click.ogg', 'char/al/happy.png', 'char/al/sad.png'] };

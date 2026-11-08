@@ -1,0 +1,374 @@
+# fx_stage.vn - feature index cards about the stage: characters moving. Each card is a label that the index calls; it sets up a
+# stage and the panel's options (index.vn), then loops: show the panel, fire on "fire", leave on "back". The set fx_fired line
+# above each command is the text the panel shows, so keep the two the same.
+
+label fx_shake_hop:
+  scene bg_reading_room fade 0.4
+  show iris smile at center fade 0.3
+  call fx_open("Shake and hop", "A character shakes or hops, and the whole screen can be jolted. Pick one and fire it as often as you like.")
+  set fx_a_label = "What moves"
+  set fx_a1 = "Shake iris"
+  set fx_a2 = "Hop iris"
+  set fx_a3 = "Screen"
+  set fx_b_label = "Shake strength"
+  set fx_b1 = "Gentle"
+  set fx_b2 = "Normal"
+  set fx_b3 = "Hard"
+
+label fx_shake_hop_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 2:
+      set fx_fired = "hop iris 0.25"
+      hop iris 0.25
+    elif fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "shake iris 0.3 strength=3"
+        shake iris 0.3 strength=3
+      elif fx_pb == 2:
+        set fx_fired = "shake iris 0.3 strength=8"
+        shake iris 0.3 strength=8
+      else:
+        set fx_fired = "shake iris 0.3 strength=16"
+        shake iris 0.3 strength=16
+    else:
+      if fx_pb == 1:
+        set fx_fired = "shake screen 0.4 strength=3"
+        shake screen 0.4 strength=3
+      elif fx_pb == 2:
+        set fx_fired = "shake screen 0.4 strength=8"
+        shake screen 0.4 strength=8
+      else:
+        set fx_fired = "shake screen 0.4 strength=16"
+        shake screen 0.4 strength=16
+    jump fx_shake_hop_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_shake_hop_loop
+  hide iris fade 0.2
+  return
+
+label fx_scene_transitions:
+  scene bg_library fade 0.4
+  call fx_open("Scene transitions", "A new background arrives by cut, fade, dissolve, wipe and more. Pick one and the picture to change to.")
+  set fx_a_label = "Transition"
+  set fx_a1 = "cut"
+  set fx_a2 = "fade"
+  set fx_a3 = "dissolve"
+  set fx_a4 = "wipe"
+  set fx_a5 = "iris"
+  set fx_a6 = "blinds"
+  set fx_a7 = "pixelate"
+  set fx_b_label = "Next picture"
+  set fx_b1 = "Room"
+  set fx_b2 = "Window"
+
+label fx_scene_transitions_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room cut"
+        scene bg_reading_room cut
+      else:
+        set fx_fired = "scene cg_window_seat cut"
+        scene cg_window_seat cut
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room fade 0.8"
+        scene bg_reading_room fade 0.8
+      else:
+        set fx_fired = "scene cg_window_seat fade 0.8"
+        scene cg_window_seat fade 0.8
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room dissolve 0.8"
+        scene bg_reading_room dissolve 0.8
+      else:
+        set fx_fired = "scene cg_window_seat dissolve 0.8"
+        scene cg_window_seat dissolve 0.8
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room wipe right 0.8"
+        scene bg_reading_room wipe right 0.8
+      else:
+        set fx_fired = "scene cg_window_seat wipe right 0.8"
+        scene cg_window_seat wipe right 0.8
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room iris 0.8"
+        scene bg_reading_room iris 0.8
+      else:
+        set fx_fired = "scene cg_window_seat iris 0.8"
+        scene cg_window_seat iris 0.8
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room blinds 0.8"
+        scene bg_reading_room blinds 0.8
+      else:
+        set fx_fired = "scene cg_window_seat blinds 0.8"
+        scene cg_window_seat blinds 0.8
+    else:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room pixelate 0.8"
+        scene bg_reading_room pixelate 0.8
+      else:
+        set fx_fired = "scene cg_window_seat pixelate 0.8"
+        scene cg_window_seat pixelate 0.8
+    call fx_step_b(2)
+    jump fx_scene_transitions_loop
+  elif act == "reset":
+    set fx_fired = "scene bg_library fade 0.4"
+    scene bg_library fade 0.4
+    jump fx_scene_transitions_loop
+  return
+
+label fx_show_hide:
+  scene bg_reading_room fade 0.4
+  call fx_open("Show and hide", "Characters step on stage with a look and a place, and off again. Showing someone already there changes their look or place.")
+  set fx_a_label = "Who, which look"
+  set fx_a1 = "Iris smile"
+  set fx_a2 = "Iris plain"
+  set fx_a3 = "Theo smile"
+  set fx_a4 = "Theo plain"
+  set fx_b_label = "Where"
+  set fx_b1 = "Left"
+  set fx_b2 = "Middle"
+  set fx_b3 = "Right"
+
+label fx_show_hide_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "show iris smile at left fade 0.3"
+        show iris smile at left fade 0.3
+      elif fx_pb == 2:
+        set fx_fired = "show iris smile at 0.38 fade 0.3"
+        show iris smile at 0.38 fade 0.3
+      else:
+        set fx_fired = "show iris smile at 0.56 fade 0.3"
+        show iris smile at 0.56 fade 0.3
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "show iris neutral at left fade 0.3"
+        show iris neutral at left fade 0.3
+      elif fx_pb == 2:
+        set fx_fired = "show iris neutral at 0.38 fade 0.3"
+        show iris neutral at 0.38 fade 0.3
+      else:
+        set fx_fired = "show iris neutral at 0.56 fade 0.3"
+        show iris neutral at 0.56 fade 0.3
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "show theo smile at left fade 0.3"
+        show theo smile at left fade 0.3
+      elif fx_pb == 2:
+        set fx_fired = "show theo smile at 0.38 fade 0.3"
+        show theo smile at 0.38 fade 0.3
+      else:
+        set fx_fired = "show theo smile at 0.56 fade 0.3"
+        show theo smile at 0.56 fade 0.3
+    else:
+      if fx_pb == 1:
+        set fx_fired = "show theo neutral at left fade 0.3"
+        show theo neutral at left fade 0.3
+      elif fx_pb == 2:
+        set fx_fired = "show theo neutral at 0.38 fade 0.3"
+        show theo neutral at 0.38 fade 0.3
+      else:
+        set fx_fired = "show theo neutral at 0.56 fade 0.3"
+        show theo neutral at 0.56 fade 0.3
+    call fx_step_b(3)
+    jump fx_show_hide_loop
+  elif act == "reset":
+    set fx_fired = "hide iris fade 0.3  /  hide theo fade 0.3"
+    hide iris fade 0.3
+    hide theo fade 0.3
+    jump fx_show_hide_loop
+  hide iris fade 0.2
+  hide theo fade 0.2
+  return
+
+label fx_draw_order:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.4 fade 0.3
+  show theo neutral at 0.52 fade 0.3
+  call fx_open("Draw order", "Whoever was shown last stands in front. order= and behind= move someone through the line.")
+  set fx_a_label = "Move"
+  set fx_a1 = "Iris front"
+  set fx_a2 = "Iris back"
+  set fx_a3 = "Theo front"
+  set fx_a4 = "Theo back"
+
+label fx_draw_order_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "show iris order=front"
+      show iris order=front
+    elif fx_pa == 2:
+      set fx_fired = "show iris order=back"
+      show iris order=back
+    elif fx_pa == 3:
+      set fx_fired = "show theo order=front"
+      show theo order=front
+    else:
+      set fx_fired = "show theo behind=iris"
+      show theo behind=iris
+    call fx_step_a(4)
+    jump fx_draw_order_loop
+  elif act == "reset":
+    set fx_fired = "hide both, show iris, then theo"
+    hide iris
+    hide theo
+    show iris smile at 0.4
+    show theo neutral at 0.52
+    jump fx_draw_order_loop
+  hide iris fade 0.2
+  hide theo fade 0.2
+  return
+
+label fx_move_ease:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.15 fade 0.3
+  call fx_open("Move and ease", "move slides a character over some seconds. The ease shapes the slide: slow start, overshoot, bounce.")
+  set fx_a_label = "Ease"
+  set fx_a1 = "linear"
+  set fx_a2 = "in"
+  set fx_a3 = "out"
+  set fx_a4 = "inout"
+  set fx_a5 = "back"
+  set fx_a6 = "bounce"
+  set fx_a7 = "elastic"
+  set fx_b_label = "Slide to"
+  set fx_b1 = "Left"
+  set fx_b2 = "Right"
+
+label fx_move_ease_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=linear"
+        move iris to 0.15 0.8 ease=linear
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=linear"
+        move iris to 0.55 0.8 ease=linear
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=in"
+        move iris to 0.15 0.8 ease=in
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=in"
+        move iris to 0.55 0.8 ease=in
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=out"
+        move iris to 0.15 0.8 ease=out
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=out"
+        move iris to 0.55 0.8 ease=out
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=inout"
+        move iris to 0.15 0.8 ease=inout
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=inout"
+        move iris to 0.55 0.8 ease=inout
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=back"
+        move iris to 0.15 0.8 ease=back
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=back"
+        move iris to 0.55 0.8 ease=back
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=bounce"
+        move iris to 0.15 0.8 ease=bounce
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=bounce"
+        move iris to 0.55 0.8 ease=bounce
+    else:
+      if fx_pb == 1:
+        set fx_fired = "move iris to 0.15 0.8 ease=elastic"
+        move iris to 0.15 0.8 ease=elastic
+      else:
+        set fx_fired = "move iris to 0.55 0.8 ease=elastic"
+        move iris to 0.55 0.8 ease=elastic
+    call fx_step_b(2)
+    jump fx_move_ease_loop
+  elif act == "reset":
+    set fx_fired = "move iris to 0.15 0.4"
+    move iris to 0.15 0.4
+    jump fx_move_ease_loop
+  hide iris fade 0.2
+  return
+
+label fx_speaker_focus:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.2 fade 0.3
+  show theo neutral at 0.5 fade 0.3
+  call fx_open("Speaker focus", "While someone speaks, the others on stage dim. Turn it off for a group scene. Players can switch it off in Options too.")
+  set fx_a_label = "Focus"
+  set fx_a1 = "on"
+  set fx_a2 = "off"
+
+label fx_speaker_focus_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "focus on"
+      focus on
+    else:
+      set fx_fired = "focus off"
+      focus off
+    iris: Whoever is talking stays lit. #wdgl
+    theo: And everyone else steps back into the shade. #pnka
+    call fx_step_a(2)
+    jump fx_speaker_focus_loop
+  elif act == "reset":
+    set fx_fired = "focus on"
+    focus on
+    jump fx_speaker_focus_loop
+  hide iris fade 0.2
+  hide theo fade 0.2
+  return
+
+label fx_pictures:
+  scene bg_reading_room fade 0.4
+  call fx_open("Pictures", "A picture shown over the scene: move, tilt, fade and hide it. With it hidden, Fire shows it again.")
+  set fx_a_label = "Do"
+  set fx_a1 = "Move it"
+  set fx_a2 = "Tilt, fade"
+  set fx_a3 = "Hide it"
+  image show snapshot bg/cg_window_seat at 500,540 anchor=center scale=0.35 fade 0.4
+  set fx_shown = 1
+
+label fx_pictures_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_shown == 0:
+      set fx_fired = "image show snapshot bg/cg_window_seat at 500,540 anchor=center scale=0.35 fade 0.4"
+      image show snapshot bg/cg_window_seat at 500,540 anchor=center scale=0.35 fade 0.4
+      set fx_shown = 1
+    elif fx_pa == 1:
+      set fx_fired = "image move snapshot to 800,380 scale=0.45 0.6 ease=out"
+      image move snapshot to 800,380 scale=0.45 0.6 ease=out
+    elif fx_pa == 2:
+      set fx_fired = "image move snapshot rot=12 alpha=0.6 0.6"
+      image move snapshot rot=12 alpha=0.6 0.6
+    else:
+      set fx_fired = "image hide snapshot fade 0.4"
+      image hide snapshot fade 0.4
+      set fx_shown = 0
+    call fx_step_a(3)
+    jump fx_pictures_loop
+  elif act == "reset":
+    set fx_fired = "image hide snapshot fade 0.3"
+    if fx_shown == 1:
+      image hide snapshot fade 0.3
+      set fx_shown = 0
+    jump fx_pictures_loop
+  return

@@ -1,0 +1,213 @@
+# fx_logic.vn - feature index cards about the story's memory: variables, lists, chance, calling a label with arguments and what
+# outlives a playthrough. The pattern is the one in fx_stage.vn. fx_count and fx_bag are set up in index.vn (fx_open clears them).
+
+set fx_roll = 0
+set fx_word = ""
+
+label fx_variables:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Variables", "set keeps a number or a word. The operators change it, and a variable in square brackets shows its value in any line.")
+  set fx_a_label = "set fx_count"
+  set fx_a1 = "+= 1"
+  set fx_a2 = "-= 1"
+  set fx_a3 = "*= 2"
+  set fx_a4 = "= 0"
+
+label fx_variables_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "set fx_count += 1"
+      set fx_count += 1
+    elif fx_pa == 2:
+      set fx_fired = "set fx_count -= 1"
+      set fx_count -= 1
+    elif fx_pa == 3:
+      set fx_fired = "set fx_count *= 2"
+      set fx_count *= 2
+    else:
+      set fx_fired = "set fx_count = 0"
+      set fx_count = 0
+    iris: The count is now [fx_count]. #kdyg
+    jump fx_variables_loop
+  elif act == "reset":
+    set fx_fired = "set fx_count = 0"
+    set fx_count = 0
+    jump fx_variables_loop
+  hide iris fade 0.2
+  return
+
+label fx_lists:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Lists", "A variable can hold a list: a bag, a party, the clues found. Add and remove entries, and ask what it holds.")
+  set fx_a_label = "Do"
+  set fx_a1 = "add coin"
+  set fx_a2 = "add map"
+  set fx_a3 = "add lamp"
+  set fx_a4 = "remove coin"
+  set fx_a5 = "has coin?"
+
+label fx_lists_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = 'set fx_bag += "coin"'
+      if not contains(fx_bag, "coin"):
+        set fx_bag += "coin"
+      call fx_show_bag
+    elif fx_pa == 2:
+      set fx_fired = 'set fx_bag += "map"'
+      if not contains(fx_bag, "map"):
+        set fx_bag += "map"
+      call fx_show_bag
+    elif fx_pa == 3:
+      set fx_fired = 'set fx_bag += "lamp"'
+      if not contains(fx_bag, "lamp"):
+        set fx_bag += "lamp"
+      call fx_show_bag
+    elif fx_pa == 4:
+      set fx_fired = 'set fx_bag -= "coin"'
+      set fx_bag -= "coin"
+      call fx_show_bag
+    else:
+      set fx_fired = 'if contains(fx_bag, "coin"):'
+      if contains(fx_bag, "coin"):
+        iris: Yes, a coin is in the bag. #tog1
+      else:
+        iris: No coin in the bag. #u10l
+    jump fx_lists_loop
+  elif act == "reset":
+    set fx_fired = "set fx_bag = []"
+    set fx_bag = []
+    jump fx_lists_loop
+  hide iris fade 0.2
+  return
+
+label fx_show_bag:
+  if count(fx_bag) == 0:
+    iris: The bag is empty. #xr4e
+  else:
+    iris: In the bag: [fx_bag]. #eq1m
+  return
+
+label fx_random:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Chance", "random, pick and chance use a seeded generator: a replayed save draws the same numbers.")
+  set fx_a_label = "Draw"
+  set fx_a1 = "random"
+  set fx_a2 = "pick"
+  set fx_a3 = "chance"
+
+label fx_random_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "set fx_roll = random(1, 6)"
+      set fx_roll = random(1, 6)
+      iris: A six-sided die says [fx_roll]. #ejhk
+    elif fx_pa == 2:
+      set fx_fired = 'set fx_word = pick("rain", "tea", "moss")'
+      set fx_word = pick("rain", "tea", "moss")
+      iris: Today's word is {i}[fx_word]{/i}. #z0kk
+    else:
+      set fx_fired = "if chance(30):"
+      if chance(30):
+        iris: Lucky you. #yc3i
+      else:
+        iris: Not this time. #xhaq
+    jump fx_random_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_random_loop
+  hide iris fade 0.2
+  return
+
+# A label with parameters: each call gives them values, and they are local to that call.
+label fx_serve(thing, amount):
+  iris: [amount] [amount:portion|portions] of [thing], coming up. #wkzp
+  return
+
+label fx_call_args:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Calling a label", "call runs a label like a subroutine and hands it values. The same few lines serve every dish and every number.")
+  set fx_a_label = "Dish"
+  set fx_a1 = "tea"
+  set fx_a2 = "cake"
+  set fx_a3 = "soup"
+  set fx_b_label = "How many"
+  set fx_b1 = "1"
+  set fx_b2 = "2"
+  set fx_b3 = "3"
+
+label fx_call_args_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = 'call fx_serve("tea", 1)'
+        call fx_serve("tea", 1)
+      elif fx_pb == 2:
+        set fx_fired = 'call fx_serve("tea", 2)'
+        call fx_serve("tea", 2)
+      else:
+        set fx_fired = 'call fx_serve("tea", 3)'
+        call fx_serve("tea", 3)
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = 'call fx_serve("cake", 1)'
+        call fx_serve("cake", 1)
+      elif fx_pb == 2:
+        set fx_fired = 'call fx_serve("cake", 2)'
+        call fx_serve("cake", 2)
+      else:
+        set fx_fired = 'call fx_serve("cake", 3)'
+        call fx_serve("cake", 3)
+    else:
+      if fx_pb == 1:
+        set fx_fired = 'call fx_serve("soup", 1)'
+        call fx_serve("soup", 1)
+      elif fx_pb == 2:
+        set fx_fired = 'call fx_serve("soup", 2)'
+        call fx_serve("soup", 2)
+      else:
+        set fx_fired = 'call fx_serve("soup", 3)'
+        call fx_serve("soup", 3)
+    jump fx_call_args_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_call_args_loop
+  hide iris fade 0.2
+  return
+
+label fx_persistent:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Across playthroughs", "Some things outlive a game: a persistent counter, and an unlock flag that pops up an achievement the first time.")
+  set fx_a_label = "Keep"
+  set fx_a1 = "counter"
+  set fx_a2 = "unlock"
+
+label fx_persistent_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "set persistent.index_fires += 1"
+      set persistent.index_fires += 1
+      iris: You have fired this [persistent.index_fires] times, over every playthrough. #ou7r
+    else:
+      set fx_fired = "unlock tried_unlock"
+      if unlocked.tried_unlock:
+        iris: Already unlocked. A flag stays unlocked in every playthrough. #s4pp
+      else:
+        unlock tried_unlock
+        iris: Unlocked! A flag listed in game.json as an achievement shows a toast. #yqef
+    jump fx_persistent_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_persistent_loop
+  hide iris fade 0.2
+  return

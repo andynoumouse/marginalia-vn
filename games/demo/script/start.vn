@@ -10,7 +10,8 @@ set curious = 0
 set pages = 0
 set name = "friend"
 
-label start:
+# The guided tour. New game opens the feature index (index.vn); its "Take the guided tour" card jumps here.
+label tour_start:
   scene bg_library fade 0.8
   music play evening_theme loop fade 2
   sound loop rain fade 2

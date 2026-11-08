@@ -110,7 +110,7 @@ const assetFiles = listFiles(assetsDir).filter(f => shipsAsset(path.relative(ass
 const key = crypto.randomBytes(16).toString('hex');
 // game.json `icon`: icon.png next to index.html (the web build's favicon, the desktop window's icon). The build checks have
 // already said what is wrong with a missing or odd one; a file that is not a PNG at all is left out.
-const { iconAsset, pngSize, packageVersion } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href);
+const { iconAsset, pngSize, packageVersion, pwaEnabled, webManifest, serviceWorkerSource, stageSize } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href);
 const iconSource = iconAsset(project.game) && path.join(assetsDir, iconAsset(project.game));
 const icon = iconSource && fs.existsSync(iconSource) && pngSize(fs.readFileSync(iconSource)) ? iconSource : '';
 if (icon) copy(icon, path.join(game, 'icon.png'));
@@ -174,12 +174,22 @@ if (!desktop) {
   fs.closeSync(fd);
 }
 
+// game.json "pwa": true makes the web build installable and playable offline: a manifest and a service worker that caches the whole export.
+const pwa = pwaEnabled(project.game) && !desktop;
 const title = String(project.game.title ?? 'Untitled').replace(/[<&]/g, c => (c === '<' ? '&lt;' : '&amp;'));
 let html = fs.readFileSync(path.join(root, 'preview/index.html'), 'utf8')
   .replace('<html lang="en">', '<html lang="en" data-mode="game">')
-  .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>${icon ? '\n<link rel="icon" type="image/png" href="icon.png">' : ''}`);
+  .replace('<link rel="icon" href="data:,">', icon ? '<link rel="icon" type="image/png" href="icon.png">' : '<link rel="icon" href="data:,">') // the page's blank icon, so a game with no `icon` does not ask for /favicon.ico
+  .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>${pwa ? '\n<link rel="manifest" href="manifest.webmanifest">\n<meta name="theme-color" content="#06080b">' : ''}`);
 if (!html.includes('data-mode="game"')) { console.error('preview/index.html has no <html lang="en"> to mark as the game.'); process.exit(1); }
 fs.writeFileSync(path.join(game, 'index.html'), html);
+
+if (pwa) {
+  fs.writeFileSync(path.join(game, 'manifest.webmanifest'), webManifest(project.game, stageSize(project.game), icon ? pngSize(fs.readFileSync(icon)) : null));
+  const shipped = listFiles(game).map(f => path.relative(game, f).split(path.sep).join('/')).sort();
+  const version = crypto.createHash('sha1').update(shipped.map(f => `${f}:${fs.statSync(path.join(game, f)).size}`).join('\n')).update(fs.readFileSync(path.join(game, 'project.json'))).digest('hex').slice(0, 10);
+  fs.writeFileSync(path.join(game, 'sw.js'), serviceWorkerSource(version, shipped.map(f => encodeURI(f))));
+}
 
 // 4. The portable app: the runtime around the game, the exe named after it, and a zip.
 const mb = n => `${(n / 1048576).toFixed(1)} MB`;

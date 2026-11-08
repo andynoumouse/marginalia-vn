@@ -16,6 +16,7 @@ export interface Settings {
   reduceMotion: boolean; // no shake, hop, flash, wipes or animated text; the camera snaps
   captions: boolean; // show a caption such as [door slams] when a sound effect plays
   announceLines: boolean; // tell screen readers each dialogue line once it is shown in full
+  touchGestures: boolean; // swipes and long press on a touch screen (game.json "touch" can turn them off for the game)
   speakerFocus: boolean; // dim the characters who are not speaking, when the game has game.json "speakerFocus"
   timedChoices: 'normal' | 'extended' | 'off'; // the clock of a timed menu: as written, three times as long, or none (the story's "on timeout" never runs)
   lang: string;
@@ -27,7 +28,7 @@ export const TEXT_INSTANT = 100;
 const KEY = 'settings';
 /** The player's system-wide wish, used until they choose in the options. */
 const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-const defaults = (): Settings => ({ master: 0.8, music: 0.7, sound: 0.8, voice: 0.9, textSpeed: 45, autoDelay: 1.5, skipAll: false, textSounds: true, textSize: 1, boxOpacity: 1, reduceMotion: prefersReducedMotion(), captions: false, announceLines: true, speakerFocus: true, timedChoices: 'normal', lang: 'en', theme: '', voiceLang: '' });
+const defaults = (): Settings => ({ master: 0.8, music: 0.7, sound: 0.8, voice: 0.9, textSpeed: 45, autoDelay: 1.5, skipAll: false, textSounds: true, textSize: 1, boxOpacity: 1, reduceMotion: prefersReducedMotion(), captions: false, announceLines: true, touchGestures: true, speakerFocus: true, timedChoices: 'normal', lang: 'en', theme: '', voiceLang: '' });
 
 export function loadSettings(): Settings {
   try {

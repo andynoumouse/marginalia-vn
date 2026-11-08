@@ -1,6 +1,6 @@
 // Characterization of parseCommand: every command form of docs/commands.md (and its usage errors) is compiled alone and the
 // resulting ops and diagnostics are compared with fixtures/parse-command.json. It pins what the parser does today, right or
-// not, so the handler-table refactor (REFACTOR-PLAN step 5.3) shows every change. After a deliberate change to the syntax:
+// not, so a refactor of the handler table shows every change. After a deliberate change to the syntax:
 //   UPDATE_SNAPSHOT=1 node --test engine/test/parse-command.test.mjs     and review the fixture diff.
 
 import { test } from 'node:test';
@@ -19,23 +19,24 @@ const CASES = [
   'show ann flip=on', 'show ann anchor=0.5,1', 'show ann behind bob', 'show ann front', 'show ann back', 'show ann happy eyes=closed', 'show ann pose=calm,blush',
   'show ann at nowhere', 'show ann scale=x', 'show', 'show ann happy at left nowait',
   'hide ann', 'hide ann fade 1', 'hide', 'hide ann nowait',
-  'move ann to right', 'move ann to right 1.5', 'move ann y=0.2 scale=1.5 rot=10 alpha=0.5', 'move ann flip=off', 'move ann to left ease=out', 'move ann to left ease=wobble',
+  'move ann to right', 'move ann to right 1.5', 'move ann y=0.2 scale=1.5 rot=10 alpha=0.5', 'move ann flip=off', 'move ann to left ease=out', 'move ann to left ease=wobble', 'move ann to left ease=bezier(0.2,0,0.4,1)', 'move ann to left ease=cubic-bezier(0.2,1.5,0.4,1)', 'move ann to left ease=bezier(2,0,0.4,1)', 'move ann to left ease=bezier(0.2,0,0.4)', 'camera zoom 2 ease=bezier(0.2,0,0.4,1)', 'image move logo scale=2 ease=bezier(0.2,0,0.4,1)',
   'move ann', 'move ann to', 'move ann bogus', 'move ann to right nowait',
   // shake / animate / hop / flash
   'shake screen', 'shake screen 1', 'shake ann 0.5 strength=12', 'shake screen strength=x', 'shake', 'shake screen 1 2 3',
   'animate ann bob', 'animate ann bob 2 loop', 'animate ann bob loop strength=0.5 part=hair', 'animate ann stop', 'animate ann',
   'animate ann pose=calm', 'animate ann turn=10 over 2 ease=out', 'animate ann pose=calm,blush turn=5', 'animate ann turn=x', 'animate ann bob nowait',
   'hop ann', 'hop ann 0.5', 'hop', 'hop ann x',
-  'flash', 'flash #ffffff', 'flash #ff0000 0.5', 'flash 0.5', 'flash red', 'flash #fff 1 2',
+  'burst sparkle', 'burst sparkle at ann', 'burst confetti at center y=0.3 count=80 2', 'burst smoke at 0.3 1.5', 'burst dust at ann nowait', 'burst', 'burst rainbow', 'burst sparkle at', 'burst sparkle at ann y=0.2', 'burst sparkle count=0', 'burst sparkle count=501', 'burst sparkle at nowhere', 'burst sparkle 0',
+  'flash', 'flash ann', 'flash ann #ff0000 0.2', 'flash ann 0.5', 'flash ann #fff 1 2', 'move ann tint=#ff8080', 'move ann tint=none 1', 'move ann tint=red', 'image move logo tint=#80ff80 1', 'image move logo tint=none', 'image show logo ui/logo.png tint=#ff0000', 'flash #ffffff', 'flash #ff0000 0.5', 'flash 0.5', 'flash red', 'flash #fff 1 2',
   // tint / camera / weather / filter
   'tint #ff8800', 'tint #ff8800 0.5', 'tint #ff8800 0.5 2', 'tint off', 'tint off 2', 'tint', 'tint red', 'tint #ff8800 2', 'tint off x',
-  'camera zoom 1.5', 'camera zoom 2 at left', 'camera zoom 2 at left y=0.3 1', 'camera pan right', 'camera pan 0.3 y=0.4 2', 'camera reset', 'camera reset 1', 'camera', 'camera tilt', 'camera zoom',
+  'camera zoom 1.5', 'camera zoom 2 at left', 'camera zoom 2 at left y=0.3 1', 'camera pan right', 'camera pan 0.3 y=0.4 2', 'camera roll 5', 'camera roll -8 1.5 ease=out', 'camera roll', 'camera roll x', 'camera roll 5 y=0.2', 'camera reset', 'camera reset 1', 'camera', 'camera tilt', 'camera zoom',
   'weather rain', 'weather snow 0.5', 'weather petals 0.5 3', 'weather off', 'weather off 2', 'weather', 'weather fog', 'weather rain 2',
-  'filter blur', 'filter sepia 0.5 2', 'filter off', 'filter off 1', 'filter', 'filter glitter', 'filter night x',
+  'filter blur', 'filter glow', 'filter chromatic 0.6 1', 'filter glitch 0.5', 'filter sepia 0.5 2', 'filter off', 'filter off 1', 'filter', 'filter glitter', 'filter night x',
   'focus on', 'focus off', 'focus', 'focus maybe', 'focus on off', 'behaviors on', 'behaviors off', 'behaviors',
   // hud / image
   'hud on bar', 'hud on bar keep', 'hud off bar', 'hud on', 'hud on bar stay', 'hud toggle bar', 'hud on 1bad',
-  'image show logo ui/logo.png', 'image show logo ui/logo.png at 10,20', 'image show logo ui/logo.png scale=2 rot=5 alpha=0.5 anchor=0.5,0.5 layer=2 fixed keep fade 1',
+  'image show logo ui/logo.png', 'image show sky sky.png layer=-2 parallax=0.4', 'image show sky sky.png parallax=-1', 'image show sky sky.png parallax=x', 'image show logo ui/logo.png at 10,20', 'image show logo ui/logo.png scale=2 rot=5 alpha=0.5 anchor=0.5,0.5 layer=2 fixed keep fade 1',
   'image move logo to 5,6', 'image move logo scale=2 1.5 ease=out', 'image move logo', 'image hide logo', 'image hide logo fade 1', 'image hide logo fade',
   'image', 'image show', 'image show logo', 'image dance logo', 'image show 1x f.png',
   // music / sound / movie

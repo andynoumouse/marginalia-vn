@@ -4,7 +4,9 @@ The editor as a desktop app that needs neither Node.js nor git: a projects scree
 Folder, Open the Demo) and the same editor and live preview as `npm run dev`. It is early and portable only, with no
 installer yet.
 
-1. Get `Marginalia Studio-<version>-win-x64.zip` (`npm run package:studio` builds it in `release/`; about 150 MB).
+1. Get `Marginalia Studio-<version>-win-x64.zip` (about 150 MB). No download is published yet: from a clone of this
+   repository with `npm install` run in it (Node.js 22 or newer), `npm run package:studio` builds the zip in `release/`.
+   Without Node.js, use the [online demo](online.md), which has the same editor in a browser.
 2. Unzip it anywhere and run `Marginalia Studio.exe` in the folder.
 3. The exe is not code-signed, so Windows SmartScreen may stop the first start: choose **More info**, then **Run
    anyway**.

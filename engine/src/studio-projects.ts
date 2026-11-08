@@ -84,6 +84,16 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'rig.json looks replace poses and the dressing half of groups (show mina happy casual applies looks left to right); the studio can save the current dress as a look. Old rig.json files are not converted: groups and poses are reported as errors, so move them to bones and looks.',
     'PSD folders named +folder become bones when you run Update Rig after Reconverted Art.',
   ],
+  '0.9': [
+    'rig.json has parameters, pads and keyforms, mesh-warp deformers, physics chains and stencil masks; animations can key parameters. The animation studio has Model and Animate modes, and can open a character folder with no game project.',
+    'scene <bg> dissolve mask=<name> transitions through an image mask.',
+  ],
+  '0.10': [
+    'Transforms are named staging sequences (transform blocks with parallel branches, parameters, if and pick); animate ... auto runs one by itself, and choreography / perform play a timetable for several actors.',
+    'The camera can be animated (shake, roll, parallax on pictures), characters and pictures take tint= and flash, ease=bezier(...) works in script, and screens can glow, chromatic or glitch.',
+    'burst puffs particles, a voiced line moves the mouth with the recording, and wind and gravity act on physics chains, weather and bursts. scene now resets the camera view.',
+    'game.json "theme" is the name of a theme file (an inline object is no longer read), and theme files use the layered keys (tokens, components, styles): move old flat keys such as textbox, choices and skins into components and styles.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

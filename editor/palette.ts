@@ -20,20 +20,32 @@ export interface PaletteMode {
 
 /** Letters of `query` in order within `text`; higher score for runs and word starts. Null if no match. */
 export function fuzzy(query: string, text: string): { score: number; hits: number[] } | null {
-  const q = query.toLowerCase(), t = text.toLowerCase();
-  const hits: number[] = [];
-  let score = 0, from = 0;
-  for (const ch of q) {
-    if (ch === ' ') continue;
-    const i = t.indexOf(ch, from);
+  const q = query.toLowerCase().replace(/ /g, ''), t = text.toLowerCase();
+  const scattered: number[] = [];
+  for (let from = 0, k = 0; k < q.length; k++) {
+    const i = t.indexOf(q[k], from);
     if (i < 0) return null;
-    const run = hits.length > 0 && hits[hits.length - 1] === i - 1;
-    const wordStart = i === 0 || '/_-. :'.includes(t[i - 1]);
-    score += 1 + (run ? 3 : 0) + (wordStart ? 2 : 0) - Math.min(i - from, 5) * 0.1;
-    hits.push(i);
+    scattered.push(i);
     from = i + 1;
   }
-  return { score: score - text.length * 0.01, hits };
+  const scoreOf = (hits: number[]) => {
+    let score = 0, from = 0;
+    for (const i of hits) {
+      const run = from > 0 && i === from;
+      const wordStart = i === 0 || '/_-. :'.includes(t[i - 1]);
+      score += 1 + (run ? 3 : 0) + (wordStart ? 2 : 0) - Math.min(i - from, 5) * 0.1;
+      from = i + 1;
+    }
+    return score;
+  };
+  // The whole query as one run of the text beats the same letters picked from the front: `trash` is the word in "Restore from
+  // Trash", not the t of "Restore" and the rest of it from further on.
+  let hits = scattered, best = scoreOf(scattered);
+  for (let at = q ? t.indexOf(q) : -1; at >= 0; at = t.indexOf(q, at + 1)) {
+    const run = Array.from(q, (_, k) => at + k), s = scoreOf(run);
+    if (s > best) { hits = run; best = s; }
+  }
+  return { score: best - text.length * 0.01, hits };
 }
 
 /** Filter and sort `entries` by fuzzy match of `query` against `key(entry)`; ties keep the given order. */
@@ -70,7 +82,8 @@ export class Palette {
 
     this.input.addEventListener('input', () => { this.sel = 0; this.render(); });
     this.input.addEventListener('keydown', e => this.key(e));
-    this.input.addEventListener('blur', () => { if (!this.root.hidden) this.close(true); });
+    // Focus that moved on to another control (a command opened a dialog) stays there; only focus that went nowhere returns to the editor.
+    this.input.addEventListener('blur', e => { if (!this.root.hidden) this.close(!e.relatedTarget); });
     // Choose on mousedown so the input's blur doesn't close the list first.
     this.list.addEventListener('mousedown', e => {
       const li = (e.target as HTMLElement).closest('li');

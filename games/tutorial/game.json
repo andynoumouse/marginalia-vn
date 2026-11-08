@@ -1,0 +1,69 @@
+{
+  "id": "the-last-train",
+  "title": "The Last Train",
+  "engine": "0.9",
+  "titleScreen": {
+    "background": "bg_title",
+    "music": "",
+    "buttons": [
+      "new_game",
+      "continue",
+      "load",
+      "chapters",
+      "gallery",
+      "achievements",
+      "options"
+    ]
+  },
+  "chapters": [
+    {
+      "label": "start",
+      "title": "The platform"
+    },
+    {
+      "label": "train",
+      "title": "The train"
+    }
+  ],
+  "gallery": [
+    {
+      "image": "cg_mina_end",
+      "title": "Let it go",
+      "unlock": "stay_end"
+    }
+  ],
+  "achievements": [
+    {
+      "unlock": "together_end",
+      "title": "All aboard",
+      "description": "Board the train together.",
+      "ending": true
+    },
+    {
+      "unlock": "stay_end",
+      "title": "The next one",
+      "description": "Let the last train go.",
+      "ending": true
+    },
+    {
+      "unlock": "alone_end",
+      "title": "Window seat",
+      "description": "Leave alone.",
+      "ending": true
+    }
+  ],
+  "labels": {},
+  "theme": "default",
+  "speakerFocus": true,
+  "quickMenu": {
+    "items": [
+      "back",
+      "history",
+      "auto",
+      "skip",
+      "qsave",
+      "qload",
+      "options"
+    ]
+  }
+}

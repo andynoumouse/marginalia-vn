@@ -2,6 +2,7 @@
 // Wheel zooms at the cursor, dragging pans, Fit / Start recentre, the search box finds labels (Enter: next match).
 
 import { backEdgeLanes, centerOn, fitView, searchOutline, zoomAt, type Outline, type OutlineEdge, type OutlineNode, type ViewState } from '../engine/src/index.js';
+import { trapModal } from './modal.js';
 
 const NODE_W = 176, NODE_H = 54, GAP_X = 140, GAP_Y = 22, PAD = 24;
 const NS = 'http://www.w3.org/2000/svg';
@@ -67,6 +68,7 @@ export class OutlineView {
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     this.root.querySelector('.close')!.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => this.onKey(e));
+    trapModal(this.root, () => this.close());
     this.root.querySelector('.ol-tools')!.addEventListener('click', e => {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
       if (act) this.act(act);

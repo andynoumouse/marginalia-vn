@@ -86,6 +86,7 @@ export class Menus {
   private viewIndex = 0;
   private langs: string[] = [];
   private hasFocus = false;
+  private hasTouch = false;
   private voiceLangs: string[] = [];
   private themes: string[] = [];
   /** The tab of the project's `screen options` ('' = its first). */
@@ -138,16 +139,16 @@ export class Menus {
     const auto = nearest(AUTO_DELAYS, s.autoDelay);
     const words: Record<string, string> = {
       text_sounds: this.label(onOff(s.textSounds)), auto_speed: this.label(AUTO_SPEEDS[auto]), skip: this.label(s.skipAll ? 'skip_all' : 'skip_read'),
-      reduce_motion: this.label(onOff(s.reduceMotion)), captions: this.label(onOff(s.captions)), announce_lines: this.label(onOff(s.announceLines)),
+      reduce_motion: this.label(onOff(s.reduceMotion)), captions: this.label(onOff(s.captions)), announce_lines: this.label(onOff(s.announceLines)), touch_gestures: this.label(onOff(s.touchGestures)),
       speaker_focus: this.label(onOff(s.speakerFocus)), timed_choices: this.label(s.timedChoices === 'normal' ? 'normal' : s.timedChoices === 'extended' ? 'timed_extended' : 'timed_off'),
       language: s.lang, theme: s.theme || this.themes[0] || '', voice_language: s.voiceLang || this.label('voice_same'),
     };
     return {
       master: s.master, music: s.music, sound: s.sound, voice: s.voice, text_speed: s.textSpeed, text_size: s.textSize, box_opacity: s.boxOpacity,
       text_sounds: onOff(s.textSounds), auto_speed: AUTO_SPEEDS[auto], skip: s.skipAll ? 'all' : 'read',
-      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), announce_lines: onOff(s.announceLines), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', theme: s.theme || this.themes[0] || '', tab: this.customTab,
+      reduce_motion: onOff(s.reduceMotion), captions: onOff(s.captions), announce_lines: onOff(s.announceLines), touch_gestures: onOff(s.touchGestures), speaker_focus: this.hasFocus ? onOff(s.speakerFocus) : 'none', timed_choices: s.timedChoices, language: s.lang, voice_language: s.voiceLang || 'text', theme: s.theme || this.themes[0] || '', tab: this.customTab,
       ...Object.fromEntries(Object.entries(words).map(([k, v]) => [`${k}_word`, v])),
-      has_languages: this.langs.length > 1, has_themes: this.themes.length > 1, has_voice_languages: this.voiceLangs.length > 0, has_fullscreen: document.fullscreenEnabled,
+      has_languages: this.langs.length > 1, has_themes: this.themes.length > 1, has_voice_languages: this.voiceLangs.length > 0, has_fullscreen: document.fullscreenEnabled, has_touch: this.hasTouch,
     };
   }
 
@@ -166,13 +167,13 @@ export class Menus {
   private cycleOps(): Record<CycleSetting, CycleOp> {
     const s = this.settings;
     const on = () => [{ value: 'on', label: this.label('on') }, { value: 'off', label: this.label('off') }];
-    const flag = (key: 'textSounds' | 'reduceMotion' | 'captions' | 'announceLines' | 'speakerFocus', offered = true): CycleOp => ({
+    const flag = (key: 'textSounds' | 'reduceMotion' | 'captions' | 'announceLines' | 'touchGestures' | 'speakerFocus', offered = true): CycleOp => ({
       choices: () => (offered ? on() : []),
       cycle: () => { if (!offered) return false; s[key] = !s[key]; return true; },
       pick: v => { s[key] = v === 'on'; },
     });
     return {
-      text_sounds: flag('textSounds'), reduce_motion: flag('reduceMotion'), captions: flag('captions'), announce_lines: flag('announceLines'),
+      text_sounds: flag('textSounds'), reduce_motion: flag('reduceMotion'), captions: flag('captions'), announce_lines: flag('announceLines'), touch_gestures: flag('touchGestures', this.hasTouch),
       speaker_focus: flag('speakerFocus', this.hasFocus),
       auto_speed: {
         choices: () => AUTO_SPEEDS.map(v => ({ value: v, label: this.label(v) })),
@@ -309,6 +310,8 @@ export class Menus {
 
   /** The game dims who is not speaking (game.json "speakerFocus"): only then do the options offer to turn it off. */
   setFocusOption(has: boolean) { this.hasFocus = has; }
+  /** Whether the Touch gestures switch is offered: a touch screen, and a game that has not turned gestures off. */
+  setTouchOption(has: boolean) { this.hasTouch = has; }
 
   /** The languages the game has voice recordings in; the option to pick one is shown only when there are some. */
   setVoiceLanguages(langs: string[]) { this.voiceLangs = langs; }
@@ -623,11 +626,13 @@ export class Menus {
   /** The save/load screen as the variables and per-entry data of the `screen saves`. */
   savesValues(): { vars: Record<string, string | boolean | string[]>; entries: Record<string, Record<string, Record<string, string | boolean>>> } {
     const special: Record<number, string> = { [-1]: 'auto_short', [-2]: 'quick_short', [-3]: 'choice_short' };
+    /** What a page tab is called in full: the tab itself says only "3" or "A". */
+    const pageTitle = (p: number) => (p < 0 ? this.label(p === -1 ? 'auto' : p === -2 ? 'quick' : 'choice_saves') : `${this.label('page')} ${p + 1}`);
     const pages = this.savePages(), slots = this.saveSlots();
     return {
       vars: { mode: this.mode, page: this.pageId(this.page), pages: pages.map(p => this.pageId(p)), slots, deleting: this.deleting, note: this.note, can_rename: this.saveNames },
       entries: {
-        pages: Object.fromEntries(pages.map(p => [this.pageId(p), { name: p < 0 ? this.label(special[p]) : String(p + 1) }])),
+        pages: Object.fromEntries(pages.map(p => [this.pageId(p), { name: p < 0 ? this.label(special[p]) : String(p + 1), title: pageTitle(p) }])),
         slots: Object.fromEntries(slots.map(slot => {
           const data = readSave(slot);
           return [slot, {

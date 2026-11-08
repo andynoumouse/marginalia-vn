@@ -8,6 +8,7 @@ import type { Src, Vars } from './types.js';
 import { partAnim, staggered, type ElementAnim, type PartAnim } from './screen-anim.js';
 import { shapeBounds, shapeCenter, translate } from './screen-geometry.js';
 import { layoutGroups, partBox, shiftPart } from './screen-layout.js';
+import { nameParts } from './screen-names.js';
 
 export * from './screen-geometry.js';
 export * from './screen-validate.js';
@@ -97,7 +98,7 @@ export function sliderReadout(setting: string, value: number): string {
   return setting === 'text_speed' ? String(Math.round(value)) : `${Math.round(value * 100)}%`;
 }
 /** Player settings a button with `action cycle` steps through (its id names the setting); their current word is a variable of the options screen. */
-export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language', 'announce_lines', 'theme', 'voice_language'] as const;
+export const CYCLE_SETTINGS = ['text_sounds', 'auto_speed', 'skip', 'reduce_motion', 'captions', 'speaker_focus', 'timed_choices', 'language', 'announce_lines', 'touch_gestures', 'theme', 'voice_language'] as const;
 export type CycleSetting = (typeof CYCLE_SETTINGS)[number];
 /**
  * A `select <setting>` on the options screen: a button showing the setting's current value that opens a list of its values. The shell tells the
@@ -107,7 +108,7 @@ export type CycleSetting = (typeof CYCLE_SETTINGS)[number];
  */
 export const SELECT_SETTINGS = CYCLE_SETTINGS;
 /** What else the shell tells the options screen: which of the optional settings the game offers (a second language, a theme choice, voice recordings, a fullscreen mode). Each cycle setting also has a `<setting>_word` variable, its current value written in the player's language. */
-export const OPTIONS_VARS = ['has_languages', 'has_themes', 'has_voice_languages', 'has_fullscreen'];
+export const OPTIONS_VARS = ['has_languages', 'has_themes', 'has_voice_languages', 'has_fullscreen', 'has_touch'];
 /** Art-free hover look of a hotspot or button: `hover tint <color>`, `hover scale <n>`, `hover sound "name"`. */
 export interface HoverFx { tint: string | null; scale: number | null; sound: string | null }
 
@@ -206,10 +207,10 @@ export type ViewPart = (
   | { kind: 'scroll'; /** the number its children carry in `area` */ index: number; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; contentH: number }
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
   | { kind: 'text'; x: number; y: number; text: string; style?: string; font?: number; width?: number; align?: 'left' | 'center' | 'right'; color?: string; lines?: number }
-  | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number }
+  | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number; /** what a screen reader calls it: the text beside it (see `nameParts`) */ name?: string }
   | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge; color?: string }
   | { kind: 'bar'; x: number; y: number; w: number; h: number; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; value: number; min: number; max: number; /** 0..1 */ fraction: number; /** "37 / 100" with `readout` */ readout: string | null }
-  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; /** px of a button's label, default 40 */ font?: number; /** a button's `tooltip "text"`, worked out */ tooltip?: string; /** a button's `sub "text"`, worked out (empty: none) */ sub?: string; /** a `select`'s values; its list is drawn below it while `open` (see `expandSelects`) */ select?: { options: { value: string; label: string }[]; value: string; open: boolean }; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null; /** `on click|focus|blur set`: the local state each event sets (the screen redraws; a click here does not answer the screen) */ sets?: ViewSets; /** a `tab`, `toggle` or `radio`: lit (`checked`) while its state holds its word (a toggle: while it is true) */ role?: 'tab' | 'toggle' | 'radio'; checked?: boolean; /** id of the element this one is a child of (`hotspot ...:` with a body), else absent */ parent?: string }
+  | { kind: 'hotspot' | 'button'; id: string; shape: Shape; label: string; enabled: boolean; cursor: string | null; /** image drawn over the element while it is active */ hover: string | null; /** `hover none`: no highlight while active */ plain: boolean; fx: HoverFx; /** false for `tooltip off` (and for a button) */ tip: boolean; /** `style=` of a button */ style?: string; /** px of a button's label, default 40 */ font?: number; /** a button's `tooltip "text"`, worked out */ tooltip?: string; /** a button's `sub "text"`, worked out (empty: none) */ sub?: string; /** a `select`'s values; its list is drawn below it while `open` (see `expandSelects`) */ select?: { options: { value: string; label: string }[]; value: string; open: boolean }; bounds: StageRect; center: Point; focus: FocusHints; on: HudHandlers; /** built-in action (`action auto`) the shell runs on click */ act: ShellAction | null; /** `on click|focus|blur set`: the local state each event sets (the screen redraws; a click here does not answer the screen) */ sets?: ViewSets; /** a `tab`, `toggle` or `radio`: lit (`checked`) while its state holds its word (a toggle: while it is true) */ role?: 'tab' | 'toggle' | 'radio'; checked?: boolean; /** id of the element this one is a child of (`hotspot ...:` with a body), else absent */ parent?: string; /** what a screen reader calls a button when its label is not enough (`nameParts`): "Reduce motion: On", a save slot's card text, "Delete save: Slot 2" */ name?: string }
 ) & { /** the scroll area (its `index`) this part is inside; coordinates stay stage pixels */ area?: number; /** `on enter` / `loop` of the element or of a container around it, with a key that survives redraws */ anim?: PartAnim };
 export type ViewItem = Extract<ViewPart, { id: string }>;
 export interface ScreenView { name: string; parts: ViewPart[]; default: string | null; cancel: boolean; /** `textbox off`: the shell hides the text box while the screen is up */ hideBox?: true }
@@ -491,6 +492,6 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
   };
   walk(def.body, scope, 0, 0, null, parts);
   parts.push(...expandSelects(parts, env.stage ?? DEFAULT_STAGE));
-  return { name: def.name, parts, default: def.default, cancel: def.cancel, ...(def.hideBox ? { hideBox: true as const } : {}) };
+  return { name: def.name, parts: nameParts(parts), default: def.default, cancel: def.cancel, ...(def.hideBox ? { hideBox: true as const } : {}) };
 }
 

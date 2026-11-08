@@ -95,3 +95,17 @@ test('keyframes with a part move that part, not the body', () => {
   assert.equal(resolveAnim('bob'), ANIMS.bob);
   assert.equal(resolveAnim('x', { x: { keys: [{ t: 0.5, rot: 1 }] } }).parts, undefined); // body-only: no part track
 });
+
+test('the opacity channel rests at 1, only appears when keyed, and strength fades the fade', () => {
+  const custom = { fade: { dur: 1, keys: [{ t: 0.5, opacity: 0 }], }, move: { dur: 1, keys: [{ t: 0.5, x: 0.1 }] } };
+  assert.equal(resolveAnim('move', custom).fn(0.5).opacity, undefined); // an animation that never names opacity leaves the alpha alone
+  const fade = resolveAnim('fade', custom);
+  assert.equal(fade.fn(0).opacity, 1);
+  assert.equal(fade.fn(0.5).opacity, 0);
+  assert.equal(fade.fn(1).opacity, 1); // back to 1 at the end, so a loop repeats without a jump
+  assert.ok(fade.fn(0.25).opacity > 0 && fade.fn(0.25).opacity < 1);
+  assert.equal(animOffset('fade', 0.5, 0.5, custom).opacity, 0.5); // strength 0.5: half the fade
+  assert.equal(addOffset({ ...NO_OFFSET, opacity: 0.5 }, { ...NO_OFFSET, opacity: 0.5 }).opacity, 0.25); // opacities multiply
+  const part = resolveAnim('p', { p: { dur: 1, keys: [{ t: 0.5, part: 'hair', opacity: 0.2 }] } }).parts(0.5);
+  assert.ok(Math.abs(part.hair.opacity - 0.2) < 1e-9);
+});

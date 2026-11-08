@@ -57,19 +57,22 @@ Skipping and instant text are silent.
 
 ## Theme
 
-`theme` in `game.json` is all optional. Sizes are pixels on the stage (1920x1080 by default; see `stage` in
-[game-json.md](game-json.md)). The editor completes and checks it.
+`game.json` names the theme (`"theme": "default"`), and `themes/default.json` holds it. Everything in it is optional. Sizes are
+pixels on the stage (1920x1080 by default; see `stage` in [game-json.md](game-json.md)). The editor completes and
+checks it; [the theme reference](game-json.md#theme) lists every key.
 
 ```json
-"theme": {
-  "accent": "#5fd1c3", "font": "Georgia",
-  "textbox": { "x": 160, "y": 774, "width": 1600, "height": 250, "padding": [44, 56, 36, 56],
-               "background": "rgba(10,13,19,.84)", "border": "#ffffff24", "radius": 8,
-               "image": "textbox", "slice": 32 },
-  "namebox": { "x": 40, "y": -26, "size": 34, "background": "#20252f" },
-  "text":    { "size": 44, "color": "#e6e9ef", "lineHeight": 1.45, "lines": 3 },
-  "choices": { "width": 1000, "size": 40, "gap": 22, "radius": 8, "image": "button", "slice": 24 },
-  "skins":   { "alice": { "textbox": { "image": "textbox_alice" }, "text": { "color": "#ffe6f0" } } }
+{
+  "tokens": { "accent": "#5fd1c3", "font": "Georgia" },
+  "components": {
+    "textbox": { "x": 160, "y": 774, "width": 1600, "height": 250, "padding": [44, 56, 36, 56],
+                 "background": "rgba(10,13,19,.84)", "border": "#ffffff24", "radius": 8,
+                 "image": "textbox", "slice": 32 },
+    "namebox": { "x": 40, "y": -26, "size": 34, "background": "#20252f" },
+    "text":    { "size": 44, "color": "#e6e9ef", "lineHeight": 1.45, "lines": 3 },
+    "choice":  { "width": 1000, "size": 40, "gap": 22, "radius": 8, "image": "button", "slice": 24 }
+  },
+  "styles": { "alice": { "textbox": { "image": "textbox_alice" }, "text": { "color": "#ffe6f0" } } }
 }
 ```
 

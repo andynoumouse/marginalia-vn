@@ -13,7 +13,7 @@ import {
 /** Pivot, Warp and Mask are for Model mode: the pivot cross, the lattice of the part's mesh warp (the Warp section keeps the keyform they write to), and the points of a drawn mask. */
 export type StageTool = GizmoTool | 'pivot' | 'warp' | 'mask';
 const TOOL_KEYS: Record<string, StageTool> = { w: 'move', e: 'rotate', r: 'scale', q: 'pivot', d: 'warp', m: 'mask' };
-const FIELDS: KeyChannel[] = ['x', 'y', 'scale', 'rot'];
+const FIELDS: KeyChannel[] = ['x', 'y', 'scale', 'rot', 'opacity'];
 
 export interface GizmoHost {
   mode(): StudioMode;
@@ -178,7 +178,7 @@ export class GizmoBar {
     const can = mode === 'animate' && !!a && !a.preset && !!part;
     this.nameEl.textContent = part ? `${part}` : 'Click a part or a bone on the stage';
     const o = a && part ? keyedOffset(a.def, part, this.host.t()) : NO_OFFSET;
-    const shown: Record<KeyChannel, number> = { x: o.dx, y: o.dy, scale: o.sy, rot: o.rot };
+    const shown: Record<KeyChannel, number> = { x: o.dx, y: o.dy, scale: o.sy, rot: o.rot, opacity: o.opacity ?? 1 };
     for (const c of FIELDS) {
       const input = this.fields[c];
       input.disabled = !can;

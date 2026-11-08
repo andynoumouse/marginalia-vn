@@ -4,6 +4,7 @@ import { isQuietLabel } from './quiet-label.js';
 import { Locale } from './locale.js';
 import { blocks, fitsInout, initialState, pickables, replayAnswer, resolveScreen, screenParams, type HudEvent, type ScreenEnv, type ScreenView } from './screens.js';
 import { newSeed, randomStep, type Rng } from './random.js';
+import { resolveTransform } from './transform.js';
 import { putSave, takeSave, type SaveData } from './save-data.js';
 import * as views from './shell-views.js';
 import type { QuickMenu, ViewHost } from './shell-views.js';
@@ -92,6 +93,9 @@ export class Runtime {
    */
   onError: ((error: unknown, at: Src | null) => void) | null = null;
   private labelNames: Map<number, string[]> | null = null;
+  /** Op indices where a label starts, ascending (see labelAt); and the label a source-position restore() must stop in (see targetLabel). */
+  private labelStarts: number[] | null = null;
+  private stopLabel: { target: Src; label: number } | null = null;
   /**
    * HUD events (`hud on <screen>`, elements with `on click <label>`): the shell reports a choice with hudEvent(); it waits in
    * `queued` until the story is at a safe point (before a line, menu, input or screen), where the label is called and
@@ -102,6 +106,8 @@ export class Runtime {
   private queued: { hud: string; on: string }[] = [];
   private pending: 'line' | 'modal' | null = null;
   private lineInterrupted = false;
+  /** The last line a replay passed that the text box still shows (none after `textbox hide`, an NVL line or a screen with `textbox off`): see finishInstant. */
+  private boxLine: { op: Extract<Op, { op: 'say' }>; text: string } | null = null;
 
   private gen = 0;
   private instant = false;
@@ -131,11 +137,16 @@ export class Runtime {
   private cutscene = false;
   private cutsceneDone = false;
 
-  constructor(public program: Program, private renderer: Renderer, public locale: Locale = new Locale()) {}
+  constructor(public program: Program, private renderer: Renderer, public locale: Locale = new Locale()) {
+    renderer.setTransforms?.(program.transforms ?? {});
+  }
 
   setProgram(program: Program, locale?: Locale) {
     this.program = program;
+    this.renderer.setTransforms?.(program.transforms ?? {});
     this.labelNames = null;
+    this.labelStarts = null;
+    this.stopLabel = null;
     if (locale) this.locale = locale;
   }
 
@@ -165,6 +176,7 @@ export class Runtime {
     this.queued = [];
     this.pending = null;
     this.lineInterrupted = false;
+    this.boxLine = null;
   }
 
   /** A `call`: push the return address and bind the arguments (evaluated in the caller's scope) to the label's parameters. */
@@ -313,14 +325,32 @@ export class Runtime {
   }
 
   /** Load what the final state shows before drawing it, so that no placeholder appears; false if superseded meanwhile. */
-  private async finishInstant(gen: number): Promise<boolean> {
+  private async finishInstant(gen: number, op: Op | null): Promise<boolean> {
     if (!this.instant) return true;
     this.instant = false;
     this.target = null;
     if (this.renderer.prepare) { await this.renderer.prepare(this.state); if (gen !== this.gen) return false; }
     this.syncRenderer();
+    // The first visit left the last line in the box under a choice, prompt or screen; a say types its own line, and the end hides the box.
+    const box = this.boxLine;
+    if (box && op && op.op !== 'say' && !(op.op === 'screen' && this.screenView(op).hideBox && blocks(this.screenView(op)))) this.renderer.showLine?.(this.sayEvent(box.op, box.text));
     this.hintNear(this.pc);
     return true;
+  }
+
+  private sayEvent(op: Extract<Op, { op: 'say' }>, text: string): SayEvent {
+    const def = this.program.characters[op.who ?? 'narrator'];
+    return {
+      who: op.who,
+      name: op.who ? def?.name ?? op.who : null,
+      color: def?.color ?? null,
+      style: def?.style ?? {},
+      ...(op.look ? { look: op.look } : {}),
+      text,
+      segments: parseRich(text),
+      src: op.src,
+      id: op.id,
+    };
   }
 
   private reached(op: Op): boolean {
@@ -331,7 +361,37 @@ export class Runtime {
         || (op.op === 'screen' && blocks(this.screenView(op)));
       return stops && this.step + 1 >= t.step;
     }
-    return op.src.file === t.file && op.src.line >= t.line;
+    return op.src.file === t.file && op.src.line >= t.line && this.labelAt(this.pc) === this.targetLabel(t);
+  }
+
+  /** The start of the label whose body holds op `pc` (-1 before the first label: the top-level setup). */
+  private labelAt(pc: number): number {
+    const starts = this.labelStarts ??= [...new Set(Object.values(this.program.labels) as number[])].sort((a, b) => a - b);
+    let lo = 0, hi = starts.length; // how many starts are at or before pc
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (starts[mid] <= pc) lo = mid + 1; else hi = mid;
+    }
+    return lo ? starts[lo - 1] : -1;
+  }
+
+  /**
+   * The label a restore() to a source position stops in: the one around the op nearest at or after the line (top-level
+   * lines are hoisted ahead of the labels, so the op list is not in file order). A label run on the way there, such as a
+   * subroutine written further down the file and called before the cursor's label, does not catch the stop.
+   * -2 when no op is at or after the line, where nothing is reached anyway.
+   */
+  private targetLabel(t: Src): number {
+    if (this.stopLabel?.target !== t) {
+      const { ops } = this.program;
+      let at = -1;
+      for (let i = 0; i < ops.length; i++) {
+        const { file, line } = ops[i].src;
+        if (file === t.file && line > 0 && line >= t.line && (at < 0 || line < ops[at].src.line)) at = i;
+      }
+      this.stopLabel = { target: t, label: at < 0 ? -2 : this.labelAt(at) };
+    }
+    return this.stopLabel.label;
   }
 
   /** Text with [variables] filled in; lists show the display names of their items. */
@@ -544,7 +604,7 @@ export class Runtime {
       if (this.pc < 0 || this.pc >= ops.length) {
         if (this.resolveRerun()) continue;
         if (this.cutscene) { this.cutscene = false; this.cutsceneDone = true; return; }
-        if (!await this.finishInstant(gen)) return;
+        if (!await this.finishInstant(gen, null)) return;
         this.renderer.end();
         return;
       }
@@ -557,7 +617,7 @@ export class Runtime {
         if (this.takeHudEvent()) continue;
         if (!this.instant) this.pushHud();
       }
-      if (this.instant && this.reached(op) && !await this.finishInstant(gen)) return;
+      if (this.instant && this.reached(op) && !await this.finishInstant(gen, op)) return;
       if (!this.instant) {
         this.hint(this.pc);
         if (!this.labelNames) {
@@ -595,20 +655,11 @@ export class Runtime {
     switch (op.op) {
       case 'say': {
         this.step++;
+        const raw = this.locale.t(op.id, op.text);
+        const text = raw.includes('[') ? this.fmt(raw) : raw; // a replay passes every line: no scope copy for plain text
+        this.boxLine = this.nvl ? null : { op, text };
         if (this.instant && !this.nvl) break;
-        const def = this.program.characters[op.who ?? 'narrator'];
-        const text = this.fmt(this.locale.t(op.id, op.text));
-        const ev: SayEvent = {
-          who: op.who,
-          name: op.who ? def?.name ?? op.who : null,
-          color: def?.color ?? null,
-          style: def?.style ?? {},
-          ...(op.look ? { look: op.look } : {}),
-          text,
-          segments: parseRich(text),
-          src: op.src,
-          id: op.id,
-        };
+        const ev = this.sayEvent(op, text);
         if (this.nvl) { // the page grows line by line; the shown line gets the ones before it
           ev.nvl = true;
           ev.page = this.page;
@@ -682,6 +733,7 @@ export class Runtime {
         const view = this.screenView(op, local);
         if (!blocks(view)) { this.vars[op.as] = ''; break; } // nothing to choose: returns at once, records nothing
         this.step++;
+        if (view.hideBox) this.boxLine = null; // `textbox off`: the last line stays gone after the screen
         const inout = def?.inout ?? [];
         let id: string;
         if (this.instant) {
@@ -781,11 +833,28 @@ export class Runtime {
         this.clearPage();
         break;
       case 'textbox':
+        this.boxLine = null;
         if (!this.instant) this.renderer.hideBox?.();
         break;
+      case 'perform': { // a choreography: every actor's part starts together, and the longest (they are all as long) ends it
+        const members = this.program.choreographies?.[op.name] ?? [];
+        for (const [i, m] of members.entries()) {
+          const part: VisualOp = { op: 'animate', char: m.target, name: m.transform, dur: null, loop: false, strength: 1, part: null, src: op.src };
+          if (this.instant) continue;
+          const p = this.renderer.apply(part, this.state);
+          if (op.nowait || i < members.length - 1) p.catch(e => console.warn('perform (part) failed:', e));
+          else { await p; if (gen !== this.gen) return false; }
+        }
+        break;
+      }
       default: {
         // visual ops: no cast, so a control op without a case above is a type error here
-        const vop: VisualOp = op;
+        let vop: VisualOp = op;
+        if (op.op === 'animate' && op.name !== null && this.program.dynamicTransforms && Object.hasOwn(this.program.dynamicTransforms, op.name)) {
+          // a transform with parameters, variables, if or pick: worked out now, and kept in the state with a loop so a save plays the same one
+          const scope = this.scope();
+          vop = { ...op, def: resolveTransform(this.program.dynamicTransforms[op.name], (op.args ?? []).map(e => evalExpr(e, scope, this.draw)), scope, this.draw) };
+        }
         applyToState(this.state, vop, this.program.rigPoses);
         if (vop.op === 'scene') this.clearPage();
         if (this.instant) break;

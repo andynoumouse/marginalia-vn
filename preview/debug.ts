@@ -112,8 +112,13 @@ export function initDebug(button: HTMLElement, panel: HTMLElement, ctx: DebugCon
     const result = runDebugCommand(cmd, ctx);
     if (result === null) { lines.length = 0; print([]); } else print(result);
   };
+  const quickTips: Record<string, string> = {
+    vars: 'Print every story variable',
+    'reset progress': 'Clear what the player earns: gallery, music room, chapters, unlock flags, options, persistent values and read lines. Saves stay.',
+    'reset all': 'Clear all of that and delete every save',
+  };
   for (const [label, command] of [['Variables', 'vars'], ['Reset progress', 'reset progress'], ['Reset everything', 'reset all']] as const) {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.title = quickTips[command];
     b.addEventListener('click', () => { run(command); input.focus(); });
     quick.append(b);
   }

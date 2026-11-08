@@ -1,7 +1,8 @@
 # The online demo
 
-The editor and live preview as a static website. There is no server and no install: projects are kept in the visitor's
-browser (IndexedDB), and a service worker plays the part of the dev server.
+The editor and live preview as a static website, published at
+[andynoumouse.github.io/marginalia-vn](https://andynoumouse.github.io/marginalia-vn/). There is no server and no install:
+projects are kept in the visitor's browser (IndexedDB), and a service worker plays the part of the dev server.
 
 ```
 npm run build:online          # writes build/online/ (about 20 MB)
@@ -22,7 +23,9 @@ The repository's `.github/workflows/online-demo.yml` builds and publishes it to 
 
 - **A project list** (the site's front page): each bundled demo has **Play** (adds it to your projects and starts
   playing) and **Open in editor** (opens it in the editor); or start a blank project, import a project `.zip`,
-  then open, play, rename, duplicate, download as `.zip`, or delete.
+  then open, play, rename, duplicate, download as `.zip`, or delete. The bundled demo, Rainy Day Library, opens on a
+  feature index: pages of small playgrounds, one card for each group of script commands, where you fire an effect,
+  change it and fire it again. The guided tour and the library map are one click away from it.
 - **The editor**, the same one `npm run dev` serves, with live preview, completions, the outline, translations, voice,
   the animation studio, rename, find in files and the trash. The **‹ Projects** button at the left of the top bar saves
   and goes back to the project list.

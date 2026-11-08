@@ -1,44 +1,39 @@
-// Editing masks (rig.json `masks`, see masks.ts): the pure half of the animation studio's Mask section. Nothing here draws or touches
-// the DOM; the studio feeds it picks from the lists and points dragged on the stage, and keeps the result as its working copy.
+// Editing mask shapes (rig.json shape parts and `clip` links, see masks.ts): the pure half of the animation studio's Mask section.
+// Nothing here draws or touches the DOM; the studio feeds it picks from the lists and points dragged on the stage, and keeps the
+// result as its working copy.
 //
-// A part has at most one mask. Its shape is another part's silhouette (`from`) or a drawn polygon (`polygon`, canvas pixels, with an
-// optional `on` and keyforms that reshape it). The studio never edits keyforms; it keeps them across edits of the polygon, shifting
-// their point numbers when a point is added or removed.
+// The working copy is a `ShapeSet`: the shape parts by name, the `clip` link of each clipped part, and the deformers (a group warp lists
+// a shape among its `members`, so a rename or a delete has to reach them). A shape is one entry however many parts it clips. The studio
+// never edits keyforms; it keeps them across edits of the polygon, shifting their point numbers when a point is added or removed.
 
-import type { DeformerKeyform, WarpPoints } from './params.js';
-import { MASK_MAX_POINTS, MASK_MIN_POINTS, maskOf, type MaskDef, type MaskPoint } from './masks.js';
+import type { DeformerDef, DeformerKeyform, WarpPoints } from './params.js';
+import { MASK_MAX_POINTS, MASK_MAX_SHAPES, MASK_MIN_POINTS, type MaskPoint, type ShapeDef } from './masks.js';
 
-/** The shape a mask is given: another part's silhouette, or a polygon (with the bone or part it follows). */
-export type MaskSource = { from: string } | { polygon: MaskPoint[]; on?: string };
 /** A part's image box in canvas pixels. */
 export interface CanvasBox { x: number; y: number; w: number; h: number }
+/** What the Mask section edits: shape parts by name, clipped part to the shape or part it is clipped to, and the deformers that list shapes as members. */
+export interface ShapeSet { shapes: Record<string, ShapeDef>; clips: Record<string, string>; deformers: DeformerDef[] }
+/** The names a shape must not take: image parts and bones (the shapes themselves are in the set). */
+export interface ShapeNames { parts: Iterable<string>; bones: Iterable<string> }
+/** An edit's answer: the new set and a note saying what changed, or why it was refused. */
+export type ShapeEdit = { set: ShapeSet; note: string; name?: string } | { error: string };
 
 const round = (n: number): number => Math.round(n) + 0;
+const without = <T>(o: Record<string, T>, k: string): Record<string, T> => { const { [k]: _gone, ...rest } = o; return rest; };
 
-/** A mask id for `part` that no mask has yet: `<part>_mask`, then `<part>_mask_2`, and so on. */
-export function maskId(masks: readonly MaskDef[], part: string): string {
-  const taken = new Set(masks.map(m => m?.id));
-  let id = `${part}_mask`;
-  for (let i = 2; taken.has(id); i++) id = `${part}_mask_${i}`;
-  return id;
+/** `base`, then `base_2`, `base_3` ... the first that is not in `taken`. */
+export function uniqueName(taken: Iterable<string>, base: string): string {
+  const set = new Set(taken);
+  let name = base;
+  for (let i = 2; set.has(name); i++) name = `${base}_${i}`;
+  return name;
 }
-
-/**
- * `masks` with `part` clipped to `source`: a new mask, or the part's own one given another shape (its id stays). Changing from a
- * polygon to a part drops the polygon, `on` and keyforms; a polygon given to a polygon mask keeps `on` and the keyforms.
- */
-export function setMask(masks: readonly MaskDef[], part: string, source: MaskSource): MaskDef[] {
-  const old = maskOf(masks, part);
-  const next: MaskDef = 'from' in source
-    ? { id: old?.id ?? maskId(masks, part), part, from: source.from }
-    : { id: old?.id ?? maskId(masks, part), part, polygon: source.polygon.map(p => [p[0], p[1]] as MaskPoint), ...(source.on ?? old?.on ? { on: source.on ?? old?.on } : {}), ...(old?.polygon && old.keyforms ? { keyforms: old.keyforms } : {}) };
-  return old ? masks.map(m => (m === old ? next : m)) : [...masks, next];
-}
-
-/** `masks` without the mask clipping `part` (the same list when it has none). */
-export function removeMask(masks: readonly MaskDef[], part: string): MaskDef[] | readonly MaskDef[] {
-  return maskOf(masks, part) ? masks.filter(m => m?.part !== part) : masks;
-}
+/** Every name a shape would clash with: the shapes, image parts and bones. */
+const allNames = (set: ShapeSet, names: ShapeNames, except?: string): Set<string> => {
+  const out = new Set<string>([...names.parts, ...names.bones, ...Object.keys(set.shapes)]);
+  if (except !== undefined) out.delete(except);
+  return out;
+};
 
 /** A rectangle inset by `inset` (a share of the box on each side), clockwise from the top left: where a new drawn shape starts. */
 export function defaultPolygon(box: CanvasBox, inset = 0.12): MaskPoint[] {
@@ -46,14 +41,156 @@ export function defaultPolygon(box: CanvasBox, inset = 0.12): MaskPoint[] {
   return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
 }
 
-/** `def` with the polygon followed on `on` (a bone or part); null or an empty name leaves it on the character. */
-export function setMaskOn(def: MaskDef, on: string | null): MaskDef {
-  const { on: _was, ...rest } = def;
-  return on ? { ...rest, on } : rest;
+// ---- shapes and clips ----
+
+/** The longest run of clips from `part` (a clip to an image part continues with that part's own clip; a clip to a shape ends it), or null for a loop. */
+function chainLength(clips: Readonly<Record<string, string>>, shapes: Readonly<Record<string, unknown>>, part: string): number | null {
+  const seen = new Set<string>();
+  let n = 0;
+  for (let cur: string | undefined = part; cur !== undefined && Object.hasOwn(clips, cur); ) {
+    if (seen.has(cur)) return null;
+    seen.add(cur);
+    n++;
+    const to: string = clips[cur];
+    cur = Object.hasOwn(shapes, to) ? undefined : to;
+  }
+  return n;
+}
+/** Why the clips of a set break the nesting rules (checkMasks says the same), or null when they are fine. */
+function clipProblem(clips: Readonly<Record<string, string>>, shapes: Readonly<Record<string, unknown>>): string | null {
+  for (const part of Object.keys(clips)) {
+    const n = chainLength(clips, shapes, part);
+    if (n === null) return `${part} would be clipped through a loop of parts`;
+    if (n > MASK_MAX_SHAPES) return `${part} would be clipped through ${n} shapes; at most ${MASK_MAX_SHAPES} (clip it to a part that is not itself clipped, or to a shape)`;
+  }
+  return null;
 }
 
+/**
+ * The set with a new shape part: `name` (made unique across parts, bones and shapes; `<part>_mask` or `shape` by default), on `bone`, with
+ * `polygon`. With `clipPart` that part is clipped to it, replacing the clip it had.
+ */
+export function addShape(set: ShapeSet, names: ShapeNames, opts: { name?: string; bone?: string; polygon: readonly MaskPoint[]; clipPart?: string }): ShapeEdit {
+  if (opts.polygon.length < MASK_MIN_POINTS || opts.polygon.length > MASK_MAX_POINTS) return { error: `A shape needs ${MASK_MIN_POINTS} to ${MASK_MAX_POINTS} points.` };
+  const name = uniqueName(allNames(set, names), opts.name?.trim() || (opts.clipPart ? `${opts.clipPart}_mask` : 'shape'));
+  const shape: ShapeDef = { ...(opts.bone ? { bone: opts.bone } : {}), polygon: opts.polygon.map(p => [p[0], p[1]] as MaskPoint) };
+  const clips = opts.clipPart ? { ...set.clips, [opts.clipPart]: name } : set.clips;
+  const next = { ...set, shapes: { ...set.shapes, [name]: shape }, clips };
+  const bad = opts.clipPart ? clipProblem(clips, next.shapes) : null;
+  if (bad) return { error: bad };
+  return { set: next, name, note: opts.clipPart ? `Added shape ${name} and clipped ${opts.clipPart} to it.` : `Added shape ${name}.` };
+}
+
+/** The parts clipped to `shape` (or to the part of that name), in clip order. */
+export const clippedBy = (set: Pick<ShapeSet, 'clips'>, shape: string): string[] => Object.keys(set.clips).filter(p => set.clips[p] === shape);
+
+/**
+ * Shape `from` renamed to `to`: every `clip` and group `members` entry that names it follows. Refused for an empty name or one that a
+ * part, a bone or another shape has (names are unique across all three).
+ */
+export function renameShape(set: ShapeSet, names: ShapeNames, from: string, to: string): ShapeEdit {
+  const name = to.trim();
+  if (!Object.hasOwn(set.shapes, from)) return { error: `No shape named ${from}.` };
+  if (!name) return { error: 'A shape needs a name.' };
+  if (name === from) return { error: 'That is already its name.' };
+  if (allNames(set, names, from).has(name)) return { error: `"${name}" is already the name of a part, a bone or a shape.` };
+  const shapes = Object.fromEntries(Object.entries(set.shapes).map(([k, v]) => [k === from ? name : k, v]));
+  const clips = Object.fromEntries(Object.entries(set.clips).map(([k, v]) => [k, v === from ? name : v]));
+  const deformers = set.deformers.map(d => (Array.isArray(d.members) && d.members.includes(from) ? { ...d, members: d.members.map(m => (m === from ? name : m)) } : d));
+  return { set: { shapes, clips, deformers }, name, note: `Renamed ${from} to ${name}.` };
+}
+
+/**
+ * The set without shape `name`: the parts that were clipped to it are drawn whole again, and it leaves the members of any group warp
+ * (a group left with no member goes). The note says what changed.
+ */
+export function deleteShape(set: ShapeSet, name: string): ShapeEdit {
+  if (!Object.hasOwn(set.shapes, name)) return { error: `No shape named ${name}.` };
+  const freed = clippedBy(set, name), groups: string[] = [];
+  const clips = Object.fromEntries(Object.entries(set.clips).filter(([, v]) => v !== name));
+  const deformers: DeformerDef[] = [];
+  for (const d of set.deformers) {
+    if (!Array.isArray(d.members) || !d.members.includes(name)) { deformers.push(d); continue; }
+    groups.push(d.id);
+    const left = d.members.filter(m => m !== name);
+    if (left.length) deformers.push({ ...d, members: left });
+  }
+  const bits = [freed.length ? `${freed.join(', ')} ${freed.length === 1 ? 'is' : 'are'} drawn whole again` : '', groups.length ? `removed from ${groups.join(', ')}` : ''].filter(Boolean);
+  return { set: { shapes: without(set.shapes, name), clips, deformers }, note: `Deleted shape ${name}${bits.length ? `: ${bits.join('; ')}` : ''}.` };
+}
+
+/**
+ * `part` clipped to `target` (a shape or an image part), or with no clip for null. Refused when `part` is not an image part, the target is
+ * neither a shape nor an image part, the part is its own target, or the clips would loop or nest deeper than checkMasks allows.
+ */
+export function setClip(set: ShapeSet, parts: ReadonlySet<string>, part: string, target: string | null): ShapeEdit {
+  if (!parts.has(part)) return { error: `${part} has no art to clip.` };
+  if (target === null) return Object.hasOwn(set.clips, part) ? { set: { ...set, clips: without(set.clips, part) }, note: `${part} is drawn whole again.` } : { set, note: `${part} has no clip.` };
+  if (target === part) return { error: 'A part cannot be clipped to its own shape.' };
+  if (!Object.hasOwn(set.shapes, target) && !parts.has(target)) return { error: `${target} is neither a shape nor a part with art.` };
+  const clips = { ...set.clips, [part]: target }, bad = clipProblem(clips, set.shapes);
+  return bad ? { error: bad } : { set: { ...set, clips }, note: `${part} is clipped to ${target}.` };
+}
+
+/**
+ * Shape `name` placed on another bone (`bone`, null: none) and/or hung on an image part's drawn mesh (`follow`, null: none). Leave a field
+ * `undefined` to keep it. Refused for an unknown name, bone or part.
+ */
+export function moveShape(set: ShapeSet, names: { parts: ReadonlySet<string>; bones: ReadonlySet<string> }, name: string, to: { bone?: string | null; follow?: string | null }): ShapeEdit {
+  const cur = set.shapes[name];
+  if (!cur) return { error: `No shape named ${name}.` };
+  if (typeof to.bone === 'string' && !names.bones.has(to.bone)) return { error: `No bone named ${to.bone}.` };
+  if (typeof to.follow === 'string' && !names.parts.has(to.follow)) return { error: `No part with art named ${to.follow}.` };
+  const { bone: _b, follow: _f, ...rest } = cur;
+  const bone = to.bone === undefined ? cur.bone : to.bone, follow = to.follow === undefined ? cur.follow : to.follow;
+  if (bone === cur.bone && follow === cur.follow) return { set, note: '' };
+  const next: ShapeDef = { ...(bone ? { bone } : {}), ...(follow ? { follow } : {}), ...rest };
+  return { set: { ...set, shapes: { ...set.shapes, [name]: next } }, note: `${name} ${follow ? `follows ${follow}` : bone ? `is on ${bone}` : 'is on the character'}.` };
+}
+
+/** The groups whose members include `name`: the group warp that bends it. */
+const groupIdOf = (deformers: readonly DeformerDef[], name: string): string | undefined => deformers.find(d => Array.isArray(d.members) && d.members.includes(name))?.id;
+
+/**
+ * Clipped parts that a group warp bends while their clip shape is not bent with them (checkClipGroups says the same in rig.json): the
+ * shape is neither a member of the group nor following a member. Only clips to a shape are listed.
+ */
+export function clipGroupIssues(set: ShapeSet): { part: string; shape: string; group: string }[] {
+  const out: { part: string; shape: string; group: string }[] = [];
+  for (const [part, shape] of Object.entries(set.clips)) {
+    const s = set.shapes[shape], g = groupIdOf(set.deformers, part);
+    if (!s || g === undefined) continue;
+    if (groupIdOf(set.deformers, shape) === g || (s.follow !== undefined && groupIdOf(set.deformers, s.follow) === g)) continue;
+    out.push({ part, shape, group: g });
+  }
+  return out;
+}
+
+/** The deformers with `name` added to the members of group `group` (it leaves any other group: a member is in one at most). */
+export function addToGroup(deformers: readonly DeformerDef[], group: string, name: string): DeformerDef[] {
+  return deformers.flatMap(d => {
+    if (d.id === group && Array.isArray(d.members)) return [d.members.includes(name) ? d : { ...d, members: [...d.members, name] }];
+    if (!Array.isArray(d.members) || !d.members.includes(name)) return [d];
+    const left = d.members.filter(m => m !== name);
+    return left.length ? [{ ...d, members: left }] : [];
+  });
+}
+
+/** What the Mask section says about the chosen row in a few words, for the section header. */
+export function shapeSummary(set: Pick<ShapeSet, 'shapes' | 'clips'>, chosen: string | null): string {
+  if (chosen !== null && Object.hasOwn(set.shapes, chosen)) { const n = clippedBy(set, chosen).length; return `shape, ${set.shapes[chosen].polygon.length} points${n ? `, clips ${n}` : ''}`; }
+  if (chosen !== null && Object.hasOwn(set.clips, chosen)) return `to ${set.clips[chosen]}`;
+  const n = Object.keys(set.shapes).length;
+  return n ? `${n} shape${n === 1 ? '' : 's'}` : 'none';
+}
+
+// ---- the points of a polygon ----
+
+/** Anything with a drawn polygon (a ShapeDef, or a MaskDef of the renderer's list) and keyforms that reshape it. */
+export interface PolygonHolder { polygon?: MaskPoint[]; keyforms?: DeformerKeyform[] }
+
 /** `def` with polygon point `i` at `to` (canvas pixels, rounded to whole ones); the same object when it does not move or `i` is no point. */
-export function movePolygonPoint(def: MaskDef, i: number, to: MaskPoint): MaskDef {
+export function movePolygonPoint<T extends PolygonHolder>(def: T, i: number, to: MaskPoint): T {
   const poly = def.polygon;
   if (!poly || !Number.isInteger(i) || i < 0 || i >= poly.length || !to.every(Number.isFinite)) return def;
   const p: MaskPoint = [round(to[0]), round(to[1])];
@@ -80,7 +217,7 @@ function shiftKeyforms(kfs: DeformerKeyform[] | undefined, from: number, by: 1 |
 }
 
 /** `def` with a new point `p` inserted before point `at` (`at` = the point count appends); the keyforms' point numbers follow. The same object at the point cap. */
-export function insertPolygonPoint(def: MaskDef, at: number, p: MaskPoint): MaskDef {
+export function insertPolygonPoint<T extends PolygonHolder>(def: T, at: number, p: MaskPoint): T {
   const poly = def.polygon;
   if (!poly || poly.length >= MASK_MAX_POINTS || !Number.isInteger(at) || at < 0 || at > poly.length || !p.every(Number.isFinite)) return def;
   const next = [...poly.slice(0, at), [round(p[0]), round(p[1])] as MaskPoint, ...poly.slice(at)];
@@ -89,7 +226,7 @@ export function insertPolygonPoint(def: MaskDef, at: number, p: MaskPoint): Mask
 }
 
 /** `def` without polygon point `i`; null (nothing changes) when the shape would be left with fewer than three points. */
-export function removePolygonPoint(def: MaskDef, i: number): MaskDef | null {
+export function removePolygonPoint<T extends PolygonHolder>(def: T, i: number): T | null {
   const poly = def.polygon;
   if (!poly || poly.length <= MASK_MIN_POINTS || !Number.isInteger(i) || i < 0 || i >= poly.length) return null;
   const keyforms = shiftKeyforms(def.keyforms, i, -1);
@@ -116,14 +253,47 @@ export function edgeMidpoint(poly: readonly MaskPoint[], i: number): MaskPoint |
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
-/** The parts a mask on `part` could take its shape from: every other part, in the order given. */
-export const maskSources = (parts: readonly string[], part: string): string[] => parts.filter(p => p !== part);
+/** The image parts a part could be clipped to: every other part, in the order given. */
+export const clipTargets = (parts: readonly string[], part: string): string[] => parts.filter(p => p !== part);
 
-/** What a mask of `part` is, in a few words, for a section header and a note: its source, or none. */
-export function maskSummary(masks: readonly MaskDef[], part: string | null): string {
-  if (part) {
-    const m = maskOf(masks, part);
-    if (m) return m.from !== undefined ? `to ${m.from}` : `polygon, ${m.polygon?.length ?? 0} points`;
+// ---- picking a shape on the stage ----
+
+/** A shape as drawn on screen: its outlines (usually one closed polygon), in the same space as the pointer. */
+export interface ShapeOutline { name: string; outlines: readonly (readonly MaskPoint[])[] }
+
+/** Whether `p` lies inside the closed polygon `poly` (even-odd rule). */
+export function pointInOutline(poly: readonly MaskPoint[], p: MaskPoint): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
   }
-  return masks.length ? `${masks.length} mask${masks.length === 1 ? '' : 's'}` : 'none';
+  return inside;
+}
+
+const outlineArea = (poly: readonly MaskPoint[]): number => {
+  let a = 0;
+  for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; a += p[0] * q[1] - q[0] * p[1]; }
+  return Math.abs(a / 2);
+};
+
+/** The shape whose outline passes within `tol` of `p` (the nearest one), or null. */
+export function shapeAtEdge(shapes: readonly ShapeOutline[], p: MaskPoint, tol: number): string | null {
+  let best: string | null = null, dist = tol;
+  for (const s of shapes) for (const o of s.outlines) {
+    const e = nearestEdge(o as MaskPoint[], p);
+    if (e && e.dist <= dist) { best = s.name; dist = e.dist; }
+  }
+  return best;
+}
+
+/** The shape with `p` inside it; of several, the smallest (the one drawn on top of the others). */
+export function shapeAtInside(shapes: readonly ShapeOutline[], p: MaskPoint): string | null {
+  let best: string | null = null, area = Infinity;
+  for (const s of shapes) for (const o of s.outlines) {
+    if (o.length < 3 || !pointInOutline(o as MaskPoint[], p)) continue;
+    const a = outlineArea(o);
+    if (a < area) { best = s.name; area = a; }
+  }
+  return best;
 }

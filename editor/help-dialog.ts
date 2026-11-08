@@ -2,6 +2,7 @@
 // help.html shows the same thing in a window of its own (`standalone`). Ctrl+F or the search box highlights matches.
 
 import { parseHelp, type HelpDoc } from '../engine/src/index.js';
+import { trapModal } from './modal.js';
 
 export type HelpSource = 'commands' | 'game-json' | 'rig-json';
 export const HELP_DOCS: Record<HelpSource, { url: string; title: string }> = {
@@ -66,6 +67,7 @@ export class HelpDialog {
         this.query.select();
       } else if (k.key === 'Escape' && !standalone) { k.preventDefault(); k.stopPropagation(); this.close(); }
     });
+    if (!standalone) trapModal(this.root, () => this.close());
     // Links inside the document ([Story](#story)) and the topic list scroll instead of navigating.
     this.root.addEventListener('click', e => {
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-help]');

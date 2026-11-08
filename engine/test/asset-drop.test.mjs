@@ -19,6 +19,21 @@ test('a folder wins over the type, and PSDs go to masters', () => {
   assert.ok('error' in planDrop('alice.psd', 'music'));
 });
 
+test('a folder of the engine takes its own kind of file only (UX round EP-6)', () => {
+  assert.deepEqual(planDrop('My Cool Sound.ogg', 'bg'), { error: 'My_Cool_Sound.ogg: bg/ takes images (png, webp, jpg, jpeg, avif, svg)' });
+  assert.ok(planDrop('hud2.png', 'music').error.startsWith('hud2.png: music/ takes sounds (ogg'));
+  assert.ok(planDrop('test.ttf', 'ui').error.includes('ui/ takes images'));
+  assert.ok(planDrop('hud2.png', 'sound').error.includes('sound/ takes sounds'));
+  assert.ok(planDrop('beep.ogg', 'fonts').error.includes('fonts/ takes fonts'));
+  assert.ok(planDrop('clip.png', 'movie').error.includes('movie/ takes movies'));
+  assert.ok(planDrop('new_bg.png', 'char').error.startsWith('new_bg.png: char/ holds a folder per character'));
+  assert.deepEqual(planDrop('happy.png', 'char/mina'), { dest: 'assets/char/mina/happy.png' });
+  assert.deepEqual(planDrop('sky.webp', 'bg/old'), { dest: 'assets/bg/old/sky.webp' });
+  assert.deepEqual(planDrop('anything.ogg', 'cutscenes'), { dest: 'assets/cutscenes/anything.ogg' }); // the author's own folder
+  assert.deepEqual(planDrop('frame.png', 'ui'), { dest: 'assets/ui/frame.png' });
+  assert.deepEqual(planDrop('mina.psd', 'char'), { dest: 'masters/char/mina.psd' }); // a PSD is a master, not a loose file
+});
+
 test('names are cleaned and bad input refused', () => {
   assert.deepEqual(planDrop('C:\\art\\My Room (v2).png', 'bg'), { dest: 'assets/bg/My_Room_v2.png' });
   assert.ok('error' in planDrop('x.exe'));

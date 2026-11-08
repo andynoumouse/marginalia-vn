@@ -155,8 +155,8 @@ test('action names a built-in the shell runs; quickView is the reserved quickmen
   const bare = new Runtime(build('label start:\n  end\n'), new NullRenderer()); // the starter, filled in by the shell
   bare.quickMenu = { items: [{ id: 'back', label: 'Back' }, { id: 'hide', label: 'Hide' }], place: 'topright' };
   const q = bare.quickView();
-  assert.deepEqual(q.parts.map(x => [x.act, x.label, x.bounds.y < 100, x.bounds.x > 1500]), [['back', 'Back', true, true], ['hide', 'Hide', true, true]]);
-  assert.equal(q.parts[0].font, 24);
+  assert.deepEqual(q.parts.map(x => [x.act, x.label, x.bounds.y < 100, x.bounds.x > 1400]), [['back', 'Back', true, true], ['hide', 'Hide', true, true]]);
+  assert.equal(q.parts[0].font, 28);
   bare.quickMenu.place = 'bottomleft';
   assert.deepEqual(bare.quickView().parts.map(x => [x.bounds.y > 900, x.bounds.x < 400]), [[true, true], [true, true]]);
 });

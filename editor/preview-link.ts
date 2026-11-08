@@ -2,6 +2,7 @@
 // banner, the variables panel, and the Play-from-here commands. editor.ts hands over what these call back into (initPreviewLink).
 
 import { parseVarValue } from '../engine/src/index.js';
+import { showPreviewPane } from './preview-pane.js';
 import { $, files, S, setStatus, type FileState } from './state.js';
 
 declare const monaco: any;
@@ -98,12 +99,14 @@ function previewTitle() {
 }
 
 export function previewScreen(name: string) {
+  showPreviewPane();
   preview().contentWindow?.postMessage({ type: 'screen', name }, location.origin);
 }
 
 export async function previewFromCursor() {
   const f = files.get(S.active);
   if (!f) return;
+  showPreviewPane();
   clearTimeout(f.timer);
   await host.save(f);
   if (f.kind !== 'script') { previewTitle(); return; }

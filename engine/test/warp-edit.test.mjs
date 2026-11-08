@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addDeformer, checkDeformers, deformerOf, deleteWarpKey, dragWarpPoint, evalDeformer, latticeEdges, mirrorWarp, ownDisplacement, pickPoint,
   removeDeformer, replaceDeformer, resetWarpPoint, resizeWarp, setWarpOwn, smoothWarp, warpKeyAt, warpKeyValues, warpPreset, WARP_PRESETS,
+  averageDisplacement, combineSelection, invertSelection, moveWarpPoints, softWeights, transformWarpPoints, warpAllPoints, warpColumn, warpRow,
 } from '../../dist/engine/src/index.js';
 
 const near = (a, b, eps = 1e-5) => assert.ok(Math.abs(a - b) <= eps, `${a} is not ${b}`);
@@ -234,4 +235,178 @@ test('lattice edges and point picking', () => {
   assert.equal(pickPoint(pts, [50, 50]), -1);
   assert.equal(pickPoint([[10, 10], [10, 10]], [10, 10]), 1, 'the later point is on top');
   assert.equal(pickPoint(pts, [100, 108], 5), -1);
+});
+
+// ---- selections of points ----
+
+const keyed = (pts = {}) => deformer([{ param: 'sway', keys: [{ at: 0 }, { at: 1, pts }] }]);
+const own1 = def => [...ownDisplacement(def, sway, 1)];
+
+test('rows, columns, all and invert on a 2x2 lattice (9 points)', () => {
+  const def = deformer();
+  assert.deepEqual(warpRow(def, 1), [3, 4, 5]);
+  assert.deepEqual(warpColumn(def, 2), [2, 5, 8]);
+  assert.deepEqual(warpRow(def, 3), []);
+  assert.equal(warpAllPoints(def).length, 9);
+  assert.deepEqual(invertSelection(def, [0, 1, 2, 3, 4, 5, 6]), [7, 8]);
+});
+
+test('combining selections: set, add and toggle', () => {
+  assert.deepEqual(combineSelection([1, 2], [5, 2], 'set'), [2, 5]);
+  assert.deepEqual(combineSelection([1, 2], [5, 2], 'add'), [1, 2, 5]);
+  assert.deepEqual(combineSelection([1, 2], [5, 2], 'toggle'), [1, 5]);
+});
+
+test('soft weights are 1 on the selection and fade with the distance in cells', () => {
+  const def = deformer([], [4, 4]);
+  const hard = softWeights(def, [12]);
+  assert.deepEqual([...hard], [[12, 1]]);
+  const soft = softWeights(def, [12], { radius: 2, curve: 'linear' });
+  assert.equal(soft.get(12), 1);
+  near(soft.get(13), 0.5);
+  near(soft.get(7), 0.5);
+  assert.equal(soft.has(14), false, 'at the radius the weight is 0, so the point is left out');
+  const flat = softWeights(def, [12], { radius: 2, curve: 'constant' });
+  assert.equal(flat.get(13), 1);
+  const smooth = softWeights(def, [12], { radius: 2, curve: 'smooth' });
+  near(smooth.get(13), 0.5);
+  near(softWeights(def, [12], { radius: 4, curve: 'smooth' }).get(13), 0.84375);
+});
+
+test('moving a selection moves each point by delta times its weight, in one write', () => {
+  const def = keyed({ 4: [0.01, 0] });
+  const next = moveWarpPoints(def, sway, 1, new Map([[4, 1], [5, 0.5]]), [0.02, 0.04]);
+  const v = own1(next);
+  near(v[8], 0.03); near(v[9], 0.04); near(v[10], 0.01); near(v[11], 0.02);
+  assert.equal(moveWarpPoints(def, sway, 1, new Map(), [1, 1]), def, 'nothing chosen is no change');
+});
+
+test('the average displacement of a selection', () => {
+  const def = keyed({ 0: [0.02, 0], 1: [0, 0.04] });
+  nearAll(averageDisplacement(def, sway, 1, [0, 1]), [0.01, 0.02]);
+  assert.equal(averageDisplacement(def, sway, 1, []), null);
+});
+
+test('scaling about the selection keeps its centre; a lattice scale grows the shape from the middle', () => {
+  const box = { w: 0.2, h: 0.2 };
+  const def = keyed();
+  // The row 0 points (0, 1, 2) sit at x = 0, 0.1, 0.2: doubling about their centre moves the ends outwards by 0.1 and the middle not at all.
+  const next = transformWarpPoints(def, sway, 1, [0, 1, 2], box, { scale: [2, 1] });
+  const v = own1(next);
+  near(v[0], -0.1); near(v[2], 0); near(v[4], 0.1); near(v[1], 0);
+  const grown = transformWarpPoints(def, sway, 1, [0], box, { scale: 2, about: 'lattice' });
+  nearAll(own1(grown).slice(0, 2), [-0.1, -0.1]);
+});
+
+test('rotating a quarter turn about the centre of the lattice moves a corner to the next corner', () => {
+  const box = { w: 0.2, h: 0.2 };
+  const next = transformWarpPoints(keyed(), sway, 1, [0], box, { rotate: 90, about: 'lattice' });
+  // The top left corner (0, 0) turned clockwise about (0.1, 0.1) lands on the top right (0.2, 0).
+  nearAll(own1(next).slice(0, 2), [0.2, 0]);
+});
+
+test('mirror and smooth can act on chosen points only', () => {
+  const def = keyed({ 0: [0.02, 0.01], 3: [0.04, 0], 1: [0.03, 0.03] });
+  const m = own1(mirrorWarp(def, sway, 1, 'left', [0, 3]));
+  nearAll([m[4], m[5]], [-0.02, 0.01]);     // point 2 took point 0, mirrored
+  nearAll([m[10], m[11]], [-0.04, 0]);      // point 5 took point 3
+  nearAll([m[0], m[1]], [0.02, 0.01]);      // the chosen points stay
+  assert.equal(m[2], 0.03, 'a point not chosen and not a partner is as it was');
+  const axis = own1(mirrorWarp(def, sway, 1, 'left', [1]));
+  nearAll([axis[2], axis[3]], [0, 0.03]);   // on the axis: no sideways move
+  const s = own1(smoothWarp(def, sway, 1, 1, [4]));
+  const rest = own1(def);
+  nearAll(s.slice(0, 8), rest.slice(0, 8));
+  near(s[8], (rest[2] + rest[6] + rest[10] + rest[14]) / 4);
+});
+
+// ---- group warps: checkDeformers ----
+
+const groupProblems = (def, extra = {}) => {
+  const out = [];
+  checkDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: [sway, turn] }, new Set(['a', 'b', 'c']), new Set(['head']), extra.framed ?? new Set(), m => out.push(m), extra.boneOf ?? new Map());
+  return out;
+};
+const group = (more = {}) => ({ id: 'g', members: ['a', 'b'], grid: [2, 2], keyforms: [], ...more });
+
+test('a group warp of existing parts is valid', () => {
+  assert.deepEqual(groupProblems(group({ box: [0, 10, 200, 300] })), []);
+  assert.deepEqual(groupProblems([group(), { id: 'own', part: 'a', keyforms: [] }]), [], 'a part may have its own warp and a group warp');
+});
+
+test('a group warp needs members that are parts, once each, and a part or members but not both', () => {
+  assert.match(groupProblems(group({ members: [] }))[0], /members: needs a list/);
+  assert.match(groupProblems(group({ members: ['a', 'nope'] }))[0], /no part or shape named "nope"/);
+  assert.match(groupProblems(group({ members: ['a', 'head'] }))[0], /"head" is a bone/);
+  assert.match(groupProblems(group({ members: ['a', 'a'] }))[0], /"a" is listed twice/);
+  assert.match(groupProblems(group({ part: 'a' }))[0], /both part and members/);
+  assert.match(groupProblems({ id: 'x', keyforms: [] })[0], /needs a part, or members/);
+});
+
+test('a part is in one group warp at most, and keeps its one own warp', () => {
+  assert.match(groupProblems([group(), group({ id: 'g2', members: ['b', 'c'] })])[0], /part "b" is already in group warp "g"/);
+  assert.match(groupProblems([{ id: 'p1', part: 'a', keyforms: [] }, { id: 'p2', part: 'a', keyforms: [] }])[0], /already has deformer "p1"/);
+});
+
+test('a member with a frame track is an error, and members on different bones are warned about', () => {
+  assert.match(groupProblems(group(), { framed: new Set(['b']) })[0], /"b" has a frame track/);
+  assert.deepEqual(groupProblems(group(), { boneOf: new Map([['a', 'head'], ['b', 'head']]) }), []);
+  assert.match(groupProblems(group(), { boneOf: new Map([['a', 'head'], ['b', 'neck']]) })[0], /different bones \(head, neck\)/);
+});
+
+test('the box of a group warp is [x, y, w, h] with a size, and a part warp has none', () => {
+  assert.match(groupProblems(group({ box: [0, 0, 0, 10] }))[0], /box: use \[x, y, width, height\]/);
+  assert.match(groupProblems(group({ box: [0, 0, 10] }))[0], /box: use/);
+  assert.match(groupProblems({ id: 'x', part: 'a', box: [0, 0, 10, 10], keyforms: [] })[0], /only a group warp/);
+});
+
+test('a group warp\'s keyforms are checked like any lattice', () => {
+  const bad = groupProblems(group({ grid: [1, 1], keyforms: [{ param: 'sway', keys: [{ at: 0, pts: { 9: [0, 0] } }] }] }));
+  assert.match(bad[0], /point "9" is outside the lattice/);
+});
+
+test('deformers are found, replaced and removed by id; a part is told its own warp and its group', async () => {
+  const { deformerById, groupOf, deformersOfPart, removeDeformerById } = await import('../../dist/engine/src/index.js');
+  const list = [{ id: 'a_warp', part: 'a', keyforms: [] }, { id: 'g', members: ['a', 'b'], keyforms: [] }];
+  assert.equal(deformerById(list, 'g'), list[1]);
+  assert.equal(deformerById(list, 'x'), undefined);
+  assert.equal(groupOf(list, 'b'), list[1]);
+  assert.equal(groupOf(list, 'c'), undefined);
+  assert.deepEqual(deformersOfPart(list, 'a').map(d => d.id), ['a_warp', 'g']);
+  assert.deepEqual(deformersOfPart(list, 'b').map(d => d.id), ['g']);
+  assert.deepEqual(removeDeformerById(list, 'g'), [list[0]]);
+});
+
+test('a group warp gets a unique id from its name or first member, and takes members out of another group', async () => {
+  const { addGroupDeformer, setMembers } = await import('../../dist/engine/src/index.js');
+  let list = addGroupDeformer([], ['face', 'eyes', 'face', '']);
+  assert.deepEqual(list, [{ id: 'face_warp', members: ['face', 'eyes'], grid: [3, 3], keyforms: [] }].map(d => ({ ...d, grid: list[0].grid })));
+  assert.deepEqual(addGroupDeformer(list, [], undefined), list, 'no members: nothing is added');
+  list = addGroupDeformer(list, ['hair'], [2, 2], 'face');
+  assert.deepEqual(list.map(d => d.id), ['face_warp', 'face_warp2']);
+  assert.deepEqual(list[1].grid, [2, 2]);
+  // eyes moves to the new group; the old one keeps face
+  list = addGroupDeformer(list, ['eyes', 'mouth']);
+  assert.deepEqual(list.find(d => d.id === 'face_warp').members, ['face']);
+  assert.deepEqual(list.at(-1).members, ['eyes', 'mouth']);
+  // a group with all its members moved away goes
+  list = setMembers(list, 'face_warp2', ['hair', 'face']);
+  assert.equal(list.some(d => d.id === 'face_warp'), false);
+  assert.deepEqual(list.find(d => d.id === 'face_warp2').members, ['hair', 'face']);
+  assert.deepEqual(setMembers(list, 'face_warp2', []), list, 'an empty list is refused');
+  assert.deepEqual(setMembers(list, 'nope', ['x']), list);
+  assert.deepEqual(setMembers([{ id: 'p', part: 'a', keyforms: [] }], 'p', ['a']), [{ id: 'p', part: 'a', keyforms: [] }], 'a part warp has no members');
+});
+
+test('members from a bone are the parts on it and the bones below, in the parts list order', async () => {
+  const { membersFromBone } = await import('../../dist/engine/src/index.js');
+  const bones = { body: { pivot: [0, 0] }, head: { parent: 'body', pivot: [0, 0] }, jaw: { parent: 'head', pivot: [0, 0] } };
+  const parts = { torso: { bone: 'body' }, face: { bone: 'head' }, mouth: { bone: 'jaw' }, eyes: { bone: 'head' } };
+  assert.deepEqual(membersFromBone(bones, parts, 'head'), ['face', 'mouth', 'eyes']);
+  assert.deepEqual(membersFromBone(bones, parts, 'jaw'), ['mouth']);
+  assert.deepEqual(membersFromBone(bones, parts, 'body'), ['torso', 'face', 'mouth', 'eyes']);
+  assert.deepEqual(membersFromBone(bones, parts, 'nope'), []);
+  const shapes = { lids: { bone: 'head' }, lip: { bone: 'jaw' }, loose: {}, lost: { bone: 'nope' } };
+  assert.deepEqual(membersFromBone(bones, parts, 'head', shapes), ['face', 'mouth', 'eyes', 'lids', 'lip'], 'shapes on the bone and below follow the parts');
+  assert.deepEqual(membersFromBone(bones, parts, 'jaw', shapes), ['mouth', 'lip']);
 });

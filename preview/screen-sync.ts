@@ -41,7 +41,9 @@ export function initScreenSync(host: ScreenSyncHost) {
     const view = host.runtime()?.titleView(!!newest && titleWants('continue'), has('gallery', counts.gallery), has('music_room', counts.music),
       has('chapters', counts.chapters), has('achievements', counts.achievements), game.title ?? 'Untitled', game.titleScreen?.showTitle !== false, newest?.text ?? '') ?? null;
     titleEl.dataset.custom = String(!!view);
-    void renderer.title(view && !titleEl.hidden ? view : null);
+    // With a save to go on from, Enter lands on Continue, not on New game, which starts over (UX round PC-3).
+    const goOn = view?.parts.find(p => 'act' in p && p.act === 'continue' && p.enabled);
+    void renderer.title(view && !titleEl.hidden ? view : null, false, goOn && 'id' in goOn ? goOn.id : '');
   }
   watch(titleEl, syncTitle);
   const titleActions: Record<string, () => void> = {

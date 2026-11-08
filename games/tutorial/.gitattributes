@@ -1,0 +1,4 @@
+# Keep LF everywhere (scripts, sources) regardless of core.autocrlf
+* text=auto eol=lf
+# Photoshop masters are large: keep them in Git LFS
+masters/** filter=lfs diff=lfs merge=lfs -text

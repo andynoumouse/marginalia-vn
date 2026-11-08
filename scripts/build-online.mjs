@@ -57,7 +57,7 @@ copy('node_modules/ag-psd/LICENSE', 'vendor/ag-psd/LICENSE');
 // The bundled games as git has them (no build/ output, no trash), each under seed/<id>/, with their file lists for the project list page.
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 const GAMES = [
-  { id: 'demo', dir: 'games/demo', title: 'Rainy Day Library', description: 'The Iris demo: a library map, custom screens, a settings screen and several endings.' },
+  { id: 'demo', dir: 'games/demo', title: 'Rainy Day Library', description: 'The Iris demo: a feature index with a playable card for each group of script commands, a guided tour, a library map and several endings.' },
 ];
 const games = [];
 let count = 0;

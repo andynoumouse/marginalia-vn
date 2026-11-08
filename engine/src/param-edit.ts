@@ -6,7 +6,7 @@
 
 import { EASE_NAMES } from './anim.js';
 import type { Anims } from './anim-edit.js';
-import type { MaskDef } from './masks.js';
+import type { ShapeDef } from './masks.js';
 import type { RigPhysicsChain } from './physics-rig.js';
 import { controlGroups, OTHER } from './param-tracks.js';
 import type { DeformerDef, KeyformDef, PadDef, ParamDef, PoseDef } from './params.js';
@@ -21,9 +21,10 @@ export interface ParamDoc {
   poses: Record<string, PoseDef>;
   anims: Anims;
   deformers: DeformerDef[];
-  masks: MaskDef[];
+  shapes: Record<string, ShapeDef>;
   physics: Record<string, RigPhysicsChain>;
 }
+const mapShapes = (shapes: Record<string, ShapeDef>, fn: (s: ShapeDef) => ShapeDef): Record<string, ShapeDef> => Object.fromEntries(Object.entries(shapes).map(([k, v]) => [k, fn(v)]));
 export type ParamEdit = { doc: ParamDoc; note: string; id?: string } | { error: string };
 
 /** What a parameter or pad id may be: the same words a script's `animate robo id=0.5` and a `pose=` name take. */
@@ -66,7 +67,7 @@ function renameIn(doc: ParamDoc, from: string, to: string): ParamDoc {
     poses: Object.fromEntries(Object.entries(doc.poses).map(([n, pose]) => [n, Object.hasOwn(pose, from) ? renameKey(pose, from, to) : pose])),
     anims: Object.fromEntries(Object.entries(doc.anims).map(([n, a]) => [n, a?.params && Object.hasOwn(a.params, from) ? { ...a, params: renameKey(a.params, from, to) } : a])),
     deformers: doc.deformers.map(d => ({ ...d, keyforms: (d.keyforms ?? []).map(k => renameInKeyform(k, from, to)) })),
-    masks: doc.masks.map(m => (m.keyforms ? { ...m, keyforms: m.keyforms.map(k => renameInKeyform(k, from, to)) } : m)),
+    shapes: mapShapes(doc.shapes, m => (m.keyforms ? { ...m, keyforms: m.keyforms.map(k => renameInKeyform(k, from, to)) } : m)),
     physics: Object.fromEntries(Object.entries(doc.physics).map(([n, c]) => [n, {
       ...c,
       inputs: (c.inputs ?? []).map(i => (i.param === from ? { ...i, param: to } : i)),
@@ -116,7 +117,7 @@ function fitIn(doc: ParamDoc, id: string, min: number, max: number): ParamDoc {
     poses: Object.fromEntries(Object.entries(doc.poses).map(([n, pose]) => [n, Object.hasOwn(pose, id) ? { ...pose, [id]: clamp(pose[id]) } : pose])),
     anims: Object.fromEntries(Object.entries(doc.anims).map(([n, a]) => [n, a?.params && Object.hasOwn(a.params, id) ? { ...a, params: { ...a.params, [id]: a.params[id].map(k => ({ ...k, v: clamp(k.v) })) } } : a])),
     deformers: doc.deformers.map(d => ({ ...d, keyforms: (d.keyforms ?? []).map(k => fitKeyform(k, id, min, max)) })),
-    masks: doc.masks.map(m => (m.keyforms ? { ...m, keyforms: m.keyforms.map(k => fitKeyform(k, id, min, max)) } : m)),
+    shapes: mapShapes(doc.shapes, m => (m.keyforms ? { ...m, keyforms: m.keyforms.map(k => fitKeyform(k, id, min, max)) } : m)),
   };
 }
 
@@ -202,7 +203,7 @@ export function deleteParam(doc: ParamDoc, id: string): ParamEdit {
     anims[n] = Object.keys(rest).length ? { ...others, params: rest } : others;
   }
   const deformers = doc.deformers.map(d => { const kept = (d.keyforms ?? []).filter(k => !uses(k)); gone.lattices += (d.keyforms ?? []).length - kept.length; return kept.length === (d.keyforms ?? []).length ? d : { ...d, keyforms: kept }; });
-  const masks = doc.masks.map(m => {
+  const shapes = mapShapes(doc.shapes, m => {
     if (!m.keyforms) return m;
     const kept = m.keyforms.filter(k => !uses(k));
     gone.lattices += m.keyforms.length - kept.length;
@@ -215,7 +216,7 @@ export function deleteParam(doc: ParamDoc, id: string): ParamEdit {
     gone.tracks ? plural(gone.tracks, 'animation track') : '', gone.lattices ? plural(gone.lattices, 'warp or mask keyform') : '',
   ].filter(Boolean);
   return {
-    doc: { ...doc, parameters: doc.parameters.filter(p => p.id !== id), pads: doc.pads.filter(p => p.x !== id && p.y !== id), keyforms: doc.keyforms.filter(k => !uses(k)), poses, anims, deformers, masks },
+    doc: { ...doc, parameters: doc.parameters.filter(p => p.id !== id), pads: doc.pads.filter(p => p.x !== id && p.y !== id), keyforms: doc.keyforms.filter(k => !uses(k)), poses, anims, deformers, shapes },
     note: `Deleted "${id}"${parts.length ? ` with ${parts.join(', ')}` : ''}. Script lines that set it are not changed.`,
   };
 }
@@ -226,15 +227,40 @@ export function deleteParam(doc: ParamDoc, id: string): ParamEdit {
 export const freeParams = (doc: Pick<ParamDoc, 'parameters' | 'pads'>, except?: string): ParamDef[] =>
   doc.parameters.filter(p => !doc.pads.some(pad => pad.id !== except && (pad.x === p.id || pad.y === p.id)));
 
-/** A new pad over the first two parameters no pad uses (a parameter in a pad has no slider of its own), in category `group` (else the first parameter's). */
-export function addPad(doc: ParamDoc, group?: string): ParamEdit {
+/** What a new pad is made of: a name (else "pad", "pad2"...) and, for each axis, an existing parameter no pad uses or null for a new one (named `<pad>_x`, `<pad>_y`, -1 to 1). */
+export interface PadSpec { id?: string; x: string | null; y: string | null }
+
+/** A new pad over the parameters `spec` names (a parameter in a pad has no slider of its own), in category `group` (else the first existing axis's, else none). Nothing is picked for the caller. */
+export function addPad(doc: ParamDoc, group: string | undefined, spec: PadSpec): ParamEdit {
   if (group && !doc.categories.includes(group)) return { error: `There is no category "${group}".` };
-  const free = freeParams(doc);
-  if (free.length < 2) return { error: 'A pad needs two parameters that no other pad uses. Add parameters first.' };
-  const id = uniqueParamId(doc.pads.map(p => p.id), 'pad');
-  const pad: PadDef = { id, x: free[0].id, y: free[1].id };
-  if (group ?? free[0].group) pad.group = group ?? free[0].group;
-  return { doc: alignAxes({ ...doc, pads: [...doc.pads, pad] }, pad), note: `Added pad "${id}" over ${pad.x} (across) and ${pad.y} (up). Both parameters now share the pad's control.`, id };
+  const taken = new Set(doc.pads.flatMap(p => [p.x, p.y]));
+  for (const axis of [spec.x, spec.y]) {
+    if (axis === null) continue;
+    if (!doc.parameters.some(p => p.id === axis)) return { error: `There is no parameter "${axis}".` };
+    if (taken.has(axis)) return { error: `"${axis}" is on another pad already.` };
+  }
+  if (spec.x !== null && spec.x === spec.y) return { error: 'A pad needs two different parameters.' };
+  const name = spec.id?.trim();
+  if (name) {
+    if (!PARAM_ID.test(name)) return { error: 'A pad name has letters, digits and _ only, and starts with a letter or _.' };
+    if (doc.pads.some(p => p.id === name)) return { error: `There is a pad named "${name}" already.` };
+  }
+  const id = name || uniqueParamId(doc.pads.map(p => p.id), 'pad');
+  const used = doc.parameters.map(p => p.id);
+  const made: ParamDef[] = [];
+  const axis = (given: string | null, suffix: string) => {
+    if (given !== null) return given;
+    const pid = uniqueParamId([...used, ...made.map(m => m.id)], `${id}_${suffix}`);
+    made.push({ id: pid, min: -1, max: 1, default: 0 });
+    return pid;
+  };
+  const x = axis(spec.x, 'x'), y = axis(spec.y, 'y');
+  const first = doc.parameters.find(p => p.id === x || p.id === y);
+  const pad: PadDef = { id, x, y };
+  const cat = group ?? first?.group;
+  if (cat) pad.group = cat;
+  const out = alignAxes({ ...doc, parameters: [...doc.parameters, ...made], pads: [...doc.pads, pad] }, pad);
+  return { doc: out, note: `Added pad "${id}" over ${x} (across) and ${y} (up)${made.length ? `; new parameter${made.length === 1 ? '' : 's'} ${made.map(m => m.id).join(', ')}` : ''}. Both parameters now share the pad's control.`, id };
 }
 
 /** `item` in category `group` (none: no category). */

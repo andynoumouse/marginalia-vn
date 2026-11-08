@@ -1,7 +1,7 @@
 // The JSON schemas behind completions, hover docs and validation in Monaco's JSON tabs: game.json, theme files and
 // each open character's rig.json. Rebuilt from the compiled program and the project's assets (see updateGameSchema).
 
-import { ANIM_NAMES, EASE_NAMES, partName, QUICK_ITEMS, UI_COMPONENTS, type RigManifest } from '../engine/src/index.js';
+import { EASE_NAMES, partName, QUICK_ITEMS, UI_COMPONENTS, type RigManifest } from '../engine/src/index.js';
 import { files, GAME_URI, S } from './state.js';
 
 declare const monaco: any;
@@ -11,7 +11,7 @@ const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
   'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
   'confirm_qload', 'history', 'history_empty', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
-  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'hidden_achievement',
+  'gallery', 'locked', 'music_room', 'chapters', 'stop', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'end_title', 'end_hint', 'hidden_achievement', 'rotate_device',
   'theme', 'voice_language', 'sound_captions', 'announce_lines', 'voice_same',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
 
@@ -308,6 +308,14 @@ function dialogueProperties() {
         },
       }],
     },
+    pwa: { type: 'boolean', description: 'The web export becomes an installable, offline app: a web manifest and a service worker that keeps the whole game on the player device (default false; it can be a lot of data).' },
+    touch: {
+      type: 'object', additionalProperties: false,
+      description: 'Touch screens (docs/game-json.md). Players can still switch gestures off in Options.',
+      properties: {
+        gestures: { type: 'boolean', description: 'Swipe right = back, up = history, down = hide the interface; long press or two-finger tap = pause menu (default true). false for a game whose own screens need those swipes.' },
+      },
+    },
     blips: {
       type: 'object',
       description: 'Text sound voices by name. Built in: high, mid, low, soft, typewriter, robot (a voice here with the same name replaces it).',
@@ -323,34 +331,10 @@ function dialogueProperties() {
   };
 }
 
-/** The look of the text box, name tag, text and choices. */
+/** The look of the game: the name of a theme file. */
 function themeProperty() {
-  const characterBoxes = names(Object.values(S.program.characters).flatMap((c: any) => (c.style?.box ? [c.style.box] : [])));
   return {
-    theme: { anyOf: [{ type: 'string', description: 'The name of a theme file: "night" uses themes/night.json.' }, {
-      ...skin('Look of the text box, name tag, text and choices. Fonts in assets/fonts/ can be used by file name.'),
-      properties: {
-        accent: { type: 'string', description: 'Highlight color for menus and sliders, e.g. "#5fd1c3".' },
-        hotFill: { type: 'string', description: 'Fill of a hovered or focused hotspot or button in screens and HUDs, e.g. "rgba(255,255,255,.18)".' },
-        hotBorder: { type: 'string', description: 'Border color of that highlight (default: accent).' },
-        hotBorderWidth: num('Border width of that highlight in stage pixels (default 2).'),
-        tipBackground: { type: 'string', description: 'Background color of hotspot tooltips.' },
-        tipColor: { type: 'string', description: 'Text color of hotspot tooltips.' },
-        tipFont: { type: 'string', description: 'Font of hotspot tooltips (a font in assets/fonts/ or an installed one); default: the theme font.', examples: S.assetNames.fonts },
-        font: { type: 'string', description: 'Font for story text and menus: a font in assets/fonts/ (file name) or an installed one.', examples: S.assetNames.fonts },
-        ...skin('').properties,
-        choices: {
-          ...box('Choice buttons.', false),
-          properties: { ...box('', false).properties, size: num('Font size in pixels.'), gap: num('Space between buttons.') },
-        },
-        skins: {
-          type: 'object',
-          description: 'Named styles: `define alice ... style=alice`, `style=name` on a line, a menu or a screen button or text.',
-          propertyNames: { examples: characterBoxes },
-          additionalProperties: skin('Overrides while this style is used (appearance only).'),
-        },
-      },
-    }] },
+    theme: { type: 'string', description: 'The name of a theme file: "night" uses themes/night.json.' },
   };
 }
 
@@ -443,21 +427,49 @@ const rigBones = ({ boneNames }: RigSchemaContext) => (
   }
 );
 
-const rigParts = ({ manifest, boneNames }: RigSchemaContext) => (
-  {
+const rigParts = ({ manifest, boneNames }: RigSchemaContext) => {
+  const names = manifest.parts.map(partName);
+  const entry = (what: string) => ({
     type: 'object',
-    description: 'Which bone each part sits on (and a pivot of its own for a part that must turn about another point than its bone\'s).',
     additionalProperties: false,
-    properties: Object.fromEntries(manifest.parts.map(p => [partName(p), {
+    properties: {
+      bone: str(`The bone ${what} sits on.`, boneNames),
+      pivot: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'A pivot of its own, when it must turn about another point than its bone\'s.' },
+      clip: str('The shape part or image part this part is clipped to.', names),
+      polygon: { type: 'array', description: 'A shape part (it has no art): its outline, points [x, y] in pixels of the PSD canvas.', items: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' } } },
+      follow: str('A shape part: the image part whose drawn mesh bends it.', names),
+      keyforms: { type: 'array', description: 'A shape part: per-vertex displacements driven by parameters.', items: { type: 'object' } },
+    },
+  });
+  return {
+    type: 'object',
+    description: 'Which bone each part sits on (and a pivot of its own for a part that must turn about another point than its bone\'s). A name that is no part of the PSD is a shape part: give it a "polygon".',
+    properties: Object.fromEntries(manifest.parts.map(p => [partName(p), entry(partName(p))])),
+    additionalProperties: entry('this shape part'),
+  };
+};
+
+/** The parameter model and secondary motion: what the animation studio writes. Their contents are checked by the engine (checkRig), not here. */
+const rigModel = () => ({
+  categories: { type: 'array', description: "The Parameters panel's groups, in order: a parameter or pad names one in its \"group\".", items: { type: 'string' } },
+  parameters: {
+    type: 'array',
+    description: 'Named scalars that drive keyforms and poses.',
+    items: {
       type: 'object',
-      additionalProperties: false,
+      required: ['id'],
       properties: {
-        bone: str(`The bone ${partName(p)} sits on.`, boneNames),
-        pivot: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'A pivot of its own, when it must turn about another point than its bone\'s.' },
+        id: { type: 'string' }, min: { type: 'number' }, max: { type: 'number' }, default: { type: 'number' },
+        group: { type: 'string', description: 'One of "categories".' }, ease: { type: 'string', enum: EASE_NAMES },
       },
-    }])),
-  }
-);
+    },
+  },
+  pads: { type: 'array', description: '2D controls over two parameters: a UI grouping only.', items: { type: 'object', properties: { id: { type: 'string' }, x: { type: 'string' }, y: { type: 'string' }, group: { type: 'string' } } } },
+  poses: { type: 'object', description: 'Named snapshots of some parameters ({ "happy": { "mouth_smile": 1 } }), set with `show <char> pose=happy`.', additionalProperties: { type: 'object', additionalProperties: { type: 'number' } } },
+  keyforms: { type: 'array', description: 'Authored poses of a bone or part at chosen parameter values, blended.', items: { type: 'object' } },
+  deformers: { type: 'array', description: 'Lattices that warp a part\'s mesh (or a group of parts), driven by parameters.', items: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
+  physics: { type: 'object', description: 'Secondary motion: chains by id, reading parameters or bone channels and writing parameters or a part\'s rotation.', additionalProperties: { type: 'object' } },
+});
 
 const rigLooks = ({ slots, variants, everyVariant }: RigSchemaContext) => (
   {
@@ -483,40 +495,38 @@ const rigPivots = ({ manifest }: RigSchemaContext) => (
   }
 );
 
-const rigAutonomous = ({ slots, variants }: RigSchemaContext) => (
+const rigReactions = ({ manifest }: RigSchemaContext) => (
+  {
+    type: 'array',
+    description: 'Poses the character holds while a condition is true. The first entry whose "when" holds wins; none holds: the parameters return to what the script set.',
+    items: {
+      type: 'object',
+      required: ['when', 'pose'],
+      additionalProperties: false,
+      properties: {
+        when: { type: 'string', description: "A condition in the script's expression language: story variables, speaking, always, param.<id> (a parameter's base value)." },
+        pose: str('The pose to hold (one of "poses").', Object.keys(manifest.rig?.poses ?? {})),
+        over: { type: 'number', minimum: 0, description: 'Seconds the move into the pose takes (default 0.4).' },
+        ease: { type: 'string', enum: EASE_NAMES, description: 'Easing of that move.' },
+      },
+    },
+  }
+);
+
+const rigAuto = (
   {
     type: 'object',
-    description: 'What the character does by itself, with every slot and variant written out. "behaviors off" in the script suspends it.',
+    description: 'When the animation starts by itself: "every" (a random or fixed wait after each run) and/or "while" (it loops while the condition holds). "behaviors off" in the script suspends it.',
     additionalProperties: false,
     properties: {
-      idle: {
-        type: 'string',
-        description: 'An animation (a preset or one of "animations") that loops while the character is on stage.',
-        examples: [...ANIM_NAMES],
+      every: {
+        description: 'Seconds to wait after each run: { "min", "max" } for a random wait, or one number for a fixed wait.',
+        oneOf: [
+          { type: 'number', exclusiveMinimum: 0 },
+          { type: 'object', required: ['min', 'max'], additionalProperties: false, properties: { min: { type: 'number', exclusiveMinimum: 0 }, max: { type: 'number', exclusiveMinimum: 0 } } },
+        ],
       },
-      speak: {
-        type: 'object',
-        description: 'What the character does while one of its lines types: cycle a slot through variants and/or loop an animation.',
-        additionalProperties: false,
-        properties: {
-          slot: str('The slot to cycle (say mouth).', slots.map(p => p.slot!)),
-          variants: { type: 'array', description: 'Variants of the slot, shown in turn while talking (say open, then neutral).', items: str('A variant of the slot.', variants('mouth')) },
-          rate: { type: 'number', exclusiveMinimum: 0, description: 'Variant changes per second (default 8).' },
-          anim: { type: 'string', description: 'An animation to loop while talking (a preset or one of "animations").', examples: [...ANIM_NAMES] },
-        },
-      },
-      blink: {
-        type: 'object',
-        description: 'Blink by itself: the variant is swapped into the slot briefly at random intervals; an explicit slot=variant in the script wins.',
-        additionalProperties: false,
-        required: ['slot', 'variant'],
-        properties: {
-          slot: str('The eyes slot (say eyes).', slots.map(p => p.slot!)),
-          variant: str('The closed-eyes variant (say closed).', variants('eyes')),
-          every: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number', exclusiveMinimum: 0 }, description: '[min, max] seconds between blinks (default [3, 6]).' },
-          dur: { type: 'number', exclusiveMinimum: 0, description: 'Seconds the eyes stay shut (default 0.12).' },
-        },
-      },
+      while: { type: 'string', description: "A condition in the script's expression language: story variables, speaking (one of its lines is typing), always, param.<id>.", examples: ['always', 'speaking'] },
     },
   }
 );
@@ -531,10 +541,17 @@ const rigAnimations = ({ manifest }: RigSchemaContext) => (
       additionalProperties: false,
       properties: {
         dur: { type: 'number', exclusiveMinimum: 0, description: 'Default length in seconds (1 when left out); `animate` can give another.' },
+        auto: rigAuto,
+        params: {
+          type: 'object',
+          description: 'Parameter tracks: a parameter id to its keys { t, v, ease }.',
+          additionalProperties: { type: 'array', items: { type: 'object', required: ['t', 'v'], properties: { t: { type: 'number', minimum: 0, maximum: 1 }, v: { type: 'number' }, ease: { type: 'string', enum: EASE_NAMES } } } },
+        },
+        frames: { type: 'array', description: 'Frame tracks: a slot swapped between variants as the animation runs.', items: { type: 'object', required: ['slot'], properties: { slot: { type: 'string' } } } },
+        physicsOff: { description: 'While it plays, the physics chains are bypassed: true for all, or the listed chain ids.', oneOf: [{ type: 'boolean' }, { type: 'array', items: { type: 'string' } }] },
         keys: {
           type: 'array',
-          minItems: 1,
-          description: 'Keys at progress t (0-1). Each channel is eased between its own keys and is 0 at both ends unless a key says otherwise.',
+          description: 'Keys at progress t (0-1), empty for an animation of parameters or frames only. Each channel is eased between its own keys and is 0 at both ends unless a key says otherwise.',
           items: {
             type: 'object',
             required: ['t'],
@@ -545,6 +562,7 @@ const rigAnimations = ({ manifest }: RigSchemaContext) => (
               x: { type: 'number', description: 'Sideways offset, as a fraction of the stage height.' },
               y: { type: 'number', description: 'Vertical offset, as a fraction of the stage height (negative = up).' },
               scale: { type: 'number', description: 'Added to the size: 0.05 is 5% bigger.' },
+              opacity: { type: 'number', minimum: 0, description: 'A factor on the alpha: 1 as drawn, 0 gone. Rests at 1 (not 0) at both ends.' },
               rot: { type: 'number', description: 'Tilt in degrees, clockwise.' },
               ease: { type: 'string', enum: EASE_NAMES, description: 'Easing of the way to this key (default inout).' },
             },
@@ -576,7 +594,7 @@ function rigSchemas() {
         additionalProperties: false,
         properties: {
           order: rigOrder(ctx), bones: rigBones(ctx), parts: rigParts(ctx), looks: rigLooks(ctx),
-          pivots: rigPivots(ctx), autonomous: rigAutonomous(ctx), animations: rigAnimations(ctx),
+          pivots: rigPivots(ctx), animations: rigAnimations(ctx), reactions: rigReactions(ctx), ...rigModel(),
         },
       },
     }];

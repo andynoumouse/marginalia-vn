@@ -2,7 +2,8 @@
 // front of them, and fixed on the screen), and the video textures of looping movie pictures.
 
 import { Container, Sprite, Texture, VideoSource } from 'pixi.js';
-import { imageKey, type AssetContext, type DisplayState, type ImageState } from '../engine/src/index.js';
+import { AnimPlayer, imageKey, NO_OFFSET, rgbNumber, type AnimDef, type AssetContext, type DisplayState, type ImageState, type Offset, type Value } from '../engine/src/index.js';
+import { applyFlash } from './flash-filter.js';
 
 /** What the layer needs from the renderer: the project's files, loaded art, placeholder textures and looping videos. */
 export interface PictureHost {
@@ -13,12 +14,20 @@ export interface PictureHost {
   releaseVideo(video: HTMLVideoElement): void;
 }
 
+/**
+ * Each picture is a sprite inside a holder container. The sprite carries what the script says (`image show`, `image move`
+ * tweens); the holder carries the running animations' offset about the sprite's position, so the two never fight.
+ */
 export class PictureLayer {
   /** Overlay pictures behind the characters (layer below 0), in front of them, and still on the screen (`fixed`). */
   readonly behind = new Container();
   readonly front = new Container();
   readonly fixed = new Container();
   private pictures = new Map<string, Sprite>();
+  /** The animations running on a picture and the automatic transforms attached to it (`animate <image> ...`), by picture. */
+  private players = new Map<Sprite, AnimPlayer>();
+  /** The script's transforms, which a picture can play besides the presets. */
+  transforms: Record<string, AnimDef> = {};
   private videoTextures = new Map<Texture, HTMLVideoElement>(); // the textures of looping movie pictures, with the video each plays
   private videoWanted = new WeakMap<Sprite, HTMLVideoElement>(); // a movie picture whose video has not loaded yet
 
@@ -40,23 +49,123 @@ export class PictureLayer {
     const sp = this.pictures.get(img.name);
     if (!sp) return { sprite: this.make(img), fresh: true };
     this.setTexture(sp, img);
-    this.layerOf(img).addChild(sp);
+    this.layerOf(img).addChild(sp.parent!);
     this.place(sp, img);
     sp.alpha = img.alpha;
     return { sprite: sp, fresh: false };
   }
 
-  rebuild(state: DisplayState) {
-    for (const layer of [this.behind, this.front, this.fixed]) for (const c of layer.removeChildren()) this.destroy(c as Sprite);
+  rebuild(state: DisplayState, reduceMotion = false) {
+    for (const layer of [this.behind, this.front, this.fixed]) for (const h of layer.removeChildren()) for (const c of [...h.children]) this.destroy(c as Sprite);
     this.pictures.clear();
-    for (const img of state.images ?? []) this.make(img);
+    this.parallax.clear();
+    this.players.clear();
+    for (const img of state.images ?? []) {
+      const sp = this.make(img);
+      this.attach(sp, img.autos);
+      if (img.anim && !reduceMotion) this.start(sp, img.anim.name, img.anim.dur, img.anim.strength, true, undefined, img.anim.def);
+    }
+  }
+
+  private player(sp: Sprite): AnimPlayer {
+    let p = this.players.get(sp);
+    if (!p) this.players.set(sp, p = new AnimPlayer(() => this.transforms));
+    return p;
+  }
+
+  /** Start animation `name` (a preset or transform) on a picture: a loop replaces the running loop. Returns false for an unknown name. */
+  start(sp: Sprite, name: string, dur: number | null, strength: number, loop: boolean, done?: () => void, def?: AnimDef): boolean {
+    const p = this.player(sp), ok = p.start(name, dur, strength, loop, done, def);
+    if (!p.active) this.players.delete(sp);
+    return ok;
+  }
+
+  /** `animate <image> stop`: end every animation on a picture (one-shots count as finished). */
+  stop(sp: Sprite) {
+    const p = this.players.get(sp);
+    if (!p) return;
+    p.stop();
+    if (!p.active) this.players.delete(sp);
+    if (!p.running) this.pose(sp, NO_OFFSET, 1); // the automatic ones are the scheduler's, so they go on
+  }
+
+  /** `animate <image> <name> auto [off]`: the automatic transforms a picture has now (the state's list). */
+  attach(sp: Sprite, names: string[] | undefined) {
+    if (!names?.length && !this.players.has(sp)) return;
+    this.player(sp).attach(names);
+  }
+
+  /** Run the scheduler for the attached automatic transforms: start and stop what its conditions and timers say. */
+  stepAutos(seconds: number, ctx: { behaviors: boolean; reduceMotion: boolean; vars: Record<string, Value> }) {
+    for (const [sp, p] of this.players) {
+      if (sp.destroyed) { this.players.delete(sp); continue; }
+      const was = p.running;
+      p.stepAutos(seconds, ctx);
+      if (was && !p.running) this.pose(sp, NO_OFFSET, 1);
+      if (!p.active) this.players.delete(sp);
+    }
+  }
+
+  /** Advance the running animations by `seconds`; `unit` is the stage unit offsets are fractions of (fxUnit). */
+  step(seconds: number, unit: number) {
+    for (const [sp, p] of this.players) {
+      if (sp.destroyed) { this.players.delete(sp); continue; }
+      const o = p.step(seconds);
+      if (o) this.pose(sp, o, unit);
+      if (!p.active) this.players.delete(sp);
+    }
+    // A moving picture (`image move`) with parallax changes the shift each frame, whether or not an animation runs.
+    for (const sp of this.parallax.keys()) if (!this.players.get(sp)?.running) this.pose(sp, this.posed.get(sp) ?? NO_OFFSET, unit);
+  }
+
+  /** The camera (the renderer's world container) and the stage unit, as last given to `followCamera`. */
+  private cam: { world: Container; unit: number } | null = null;
+  /** Pictures that follow the camera by some other share than all of it (`parallax=`), and the animation offset each stands at. */
+  private parallax = new Map<Sprite, number>();
+  private posed = new WeakMap<Sprite, Offset>();
+
+  /** The camera moved: shift the pictures that follow it by a share (`parallax=`) so they cover less or more of the way than the world does. */
+  followCamera(world: Container, unit: number) {
+    this.cam = { world, unit };
+    for (const sp of this.parallax.keys()) this.pose(sp, this.posed.get(sp) ?? NO_OFFSET, unit);
+  }
+
+  /** Where a picture with parallax `q` must stand, relative to its place in the world, so that the camera moves it `q` times as far as it moves the world. */
+  private parallaxShift(sp: Sprite): { x: number; y: number } {
+    const q = this.parallax.get(sp);
+    if (q === undefined || !this.cam || sp.parent?.parent === this.fixed) return { x: 0, y: 0 };
+    const { world } = this.cam, z = world.scale.x, r = world.rotation, cos = Math.cos(r), sin = Math.sin(r);
+    const px = sp.x, py = sp.y;
+    const tx = world.x + z * (cos * px - sin * py), ty = world.y + z * (sin * px + cos * py); // where the world puts the picture
+    const sx = px + q * (tx - px), sy = py + q * (ty - py); // where it should be on the screen
+    const vx = sx - world.x, vy = sy - world.y;
+    return { x: (cos * vx + sin * vy) / z - px, y: (-sin * vx + cos * vy) / z - py };
+  }
+
+  private pose(sp: Sprite, o: Offset, unit: number) {
+    const h = sp.parent;
+    if (!h) return;
+    this.posed.set(sp, o);
+    const d = this.parallaxShift(sp);
+    h.pivot.set(sp.x, sp.y); // turn and scale about the picture's anchor point
+    h.position.set(sp.x + o.dx * unit + d.x, sp.y + o.dy * unit + d.y);
+    h.scale.set(1 + o.sx, 1 + o.sy);
+    h.angle = o.rot;
+    h.alpha = Math.min(1, o.opacity ?? 1);
+    h.tint = o.tint ?? 0xffffff; // a transform's tint= and flash= channels, over the picture's own tint
+    applyFlash(h, o.flash);
   }
 
   /** Destroy a picture that is no longer drawn, freeing its video (also one that is still loading). */
   destroy(sp: Sprite) {
     const tex = sp.texture;
+    const holder = sp.parent;
     this.videoWanted.delete(sp);
+    this.players.get(sp)?.finishAll();
+    this.players.delete(sp);
+    this.parallax.delete(sp);
     sp.destroy();
+    holder?.destroy();
     this.freeVideo(tex);
   }
 
@@ -112,18 +221,24 @@ export class PictureLayer {
     sp.position.set(img.x, img.y);
     sp.scale.set(img.scale);
     sp.angle = img.rotation;
-    sp.zIndex = img.layer;
+    sp.tint = rgbNumber(img.tint);
+    if (sp.parent) sp.parent.zIndex = img.layer;
+    const q = img.parallax ?? 1;
+    if (q === 1) this.parallax.delete(sp); else this.parallax.set(sp, q);
+    if (this.cam && (q !== 1 || this.posed.has(sp))) this.pose(sp, this.posed.get(sp) ?? NO_OFFSET, this.cam.unit);
   }
   private layerOf(img: ImageState): Container {
     return img.fixed ? this.fixed : img.layer < 0 ? this.behind : this.front;
   }
   private make(img: ImageState): Sprite {
     const sp = new Sprite(Texture.EMPTY);
+    const holder = new Container();
+    holder.addChild(sp);
     this.setTexture(sp, img);
     sp.label = img.name;
     this.place(sp, img);
     sp.alpha = img.alpha;
-    this.layerOf(img).addChild(sp);
+    this.layerOf(img).addChild(holder);
     this.pictures.set(img.name, sp);
     return sp;
   }

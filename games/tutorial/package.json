@@ -1,0 +1,16 @@
+{
+  "name": "the-last-train",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Last Train (visual novel)",
+  "scripts": {
+    "dev": "vn dev",
+    "export": "vn export",
+    "art": "vn art",
+    "ids": "vn ids",
+    "strings": "vn strings"
+  },
+  "devDependencies": {
+    "marginalia-vn": "file:../.."
+  }
+}

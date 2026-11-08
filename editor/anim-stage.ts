@@ -9,14 +9,17 @@ export type StageEvent =
   | { type: 'ready' }
   | { type: 'picked'; x: number; y: number; drag?: string }
   | { type: 'placed'; x: number; y: number }
-  | { type: 'select'; name: string | null; shift: boolean; ctrl: boolean }
+  | { type: 'select'; name: string | null; hits: string[]; at: [number, number]; shift: boolean; ctrl: boolean }
   | { type: 'gizmo'; phase: 'start' | 'move' | 'end'; name: string; tool: GizmoTool; delta: Offset }
   | { type: 'key'; key: string; ctrl: boolean; shift: boolean }
-  | { type: 'warpDrag'; phase: 'start' | 'move' | 'end'; part: string; point: number; delta: [number, number] }
-  | { type: 'warpBox'; part: string; w: number; h: number }
-  | { type: 'maskDrag'; phase: 'start' | 'move' | 'end'; part: string; point: number; delta: [number, number] }
-  | { type: 'maskAdd'; part: string; index: number; at: [number, number] }
-  | { type: 'maskRemove'; part: string; point: number }
+  | { type: 'warpDrag'; phase: 'start' | 'move' | 'end'; id: string; point: number; delta: [number, number] }
+  | { type: 'warpSelect'; id: string; points: number[]; mode: 'set' | 'add' | 'toggle' }
+  | { type: 'warpBox'; id: string; w: number; h: number; pw?: number; ph?: number }
+  | { type: 'meshTopo'; id: string; op: string; vertex?: number; a?: number; b?: number; at?: [number, number] }
+  | { type: 'alpha'; id: number; part: string; w: number; h: number; alpha: Uint8Array | null }
+  | { type: 'maskDrag'; phase: 'start' | 'move' | 'end'; shape: string; point: number; delta: [number, number] }
+  | { type: 'maskAdd'; shape: string; index: number; at: [number, number] }
+  | { type: 'maskRemove'; shape: string; point: number }
   | { type: 'maskBox'; part: string; x: number; y: number; w: number; h: number }
   | { type: 'time'; t: number; playing?: boolean }
   | { type: 'exportReady'; id: number; frames: number; width: number; height: number }
@@ -62,26 +65,35 @@ export class StageBridge {
     else if (m?.type === 'studioReady') this.onEvent({ type: 'ready' });
     else if (m?.type === 'studioPicked' && num(m.x) && num(m.y)) this.onEvent({ type: 'picked', x: m.x, y: m.y, drag: m.drag });
     else if (m?.type === 'studioPlaced' && num(m.x) && num(m.y)) this.onEvent({ type: 'placed', x: m.x, y: m.y });
-    else if (m?.type === 'studioSelect') this.onEvent({ type: 'select', name: typeof (m as { name?: unknown }).name === 'string' ? (m as { name: string }).name : null, shift: (m as { shift?: unknown }).shift === true, ctrl: (m as { ctrl?: unknown }).ctrl === true });
+    else if (m?.type === 'studioSelect') this.onEvent({ type: 'select', name: typeof (m as { name?: unknown }).name === 'string' ? (m as { name: string }).name : null, hits: Array.isArray((m as { hits?: unknown }).hits) ? (m as { hits: unknown[] }).hits.filter((h): h is string => typeof h === 'string') : [], at: Array.isArray((m as { at?: unknown }).at) && num((m as { at: unknown[] }).at[0]) && num((m as { at: unknown[] }).at[1]) ? [(m as { at: number[] }).at[0]!, (m as { at: number[] }).at[1]!] : [0, 0], shift: (m as { shift?: unknown }).shift === true, ctrl: (m as { ctrl?: unknown }).ctrl === true });
     else if (m?.type === 'studioGizmoDrag') {
       const g = m as unknown as { phase: 'start' | 'move' | 'end'; name: string; tool: GizmoTool; delta: Offset };
       this.onEvent({ type: 'gizmo', phase: g.phase, name: g.name, tool: g.tool, delta: g.delta });
     } else if (m?.type === 'studioKey') this.onEvent({ type: 'key', key: String((m as { key?: unknown }).key), ctrl: (m as { ctrl?: unknown }).ctrl === true, shift: (m as { shift?: unknown }).shift === true });
     else if (m?.type === 'studioWarpDrag') {
-      const g = m as unknown as { phase: 'start' | 'move' | 'end'; part: string; point: number; delta: unknown };
-      if (typeof g.part === 'string' && Number.isInteger(g.point) && Array.isArray(g.delta) && g.delta.every(num)) this.onEvent({ type: 'warpDrag', phase: g.phase, part: g.part, point: g.point, delta: [g.delta[0], g.delta[1]] });
+      const g = m as unknown as { phase: 'start' | 'move' | 'end'; id: string; point: number; delta: unknown };
+      if (typeof g.id === 'string' && Number.isInteger(g.point) && Array.isArray(g.delta) && g.delta.every(num)) this.onEvent({ type: 'warpDrag', phase: g.phase, id: g.id, point: g.point, delta: [g.delta[0], g.delta[1]] });
+    } else if (m?.type === 'studioWarpSelect') {
+      const g = m as unknown as { id: string; points: unknown; mode: unknown };
+      if (typeof g.id === 'string' && Array.isArray(g.points) && g.points.every(Number.isInteger) && (g.mode === 'set' || g.mode === 'add' || g.mode === 'toggle')) this.onEvent({ type: 'warpSelect', id: g.id, points: g.points as number[], mode: g.mode });
     } else if (m?.type === 'studioWarpBox') {
-      const g = m as unknown as { part: string; w: unknown; h: unknown };
-      if (typeof g.part === 'string' && num(g.w) && num(g.h)) this.onEvent({ type: 'warpBox', part: g.part, w: g.w, h: g.h });
+      const g = m as unknown as { id: string; w: unknown; h: unknown; pw: unknown; ph: unknown };
+      if (typeof g.id === 'string' && num(g.w) && num(g.h)) this.onEvent({ type: 'warpBox', id: g.id, w: g.w, h: g.h, pw: num(g.pw) ? g.pw : undefined, ph: num(g.ph) ? g.ph : undefined });
+    } else if (m?.type === 'studioMeshTopo') {
+      const g = m as unknown as { id: unknown; op: unknown; vertex: unknown; a: unknown; b: unknown; at: unknown };
+      if (typeof g.id === 'string' && typeof g.op === 'string') this.onEvent({ type: 'meshTopo', id: g.id, op: g.op, vertex: num(g.vertex) ? g.vertex : undefined, a: num(g.a) ? g.a : undefined, b: num(g.b) ? g.b : undefined, at: Array.isArray(g.at) && g.at.length === 2 && g.at.every(num) ? [g.at[0], g.at[1]] : undefined });
+    } else if (m?.type === 'studioAlphaData') {
+      const g = m as unknown as { id: unknown; part: unknown; w: unknown; h: unknown; alpha: unknown };
+      if (num(g.id) && typeof g.part === 'string' && num(g.w) && num(g.h)) this.onEvent({ type: 'alpha', id: g.id, part: g.part, w: g.w, h: g.h, alpha: g.alpha instanceof Uint8Array ? g.alpha : null });
     } else if (m?.type === 'studioMaskDrag') {
-      const g = m as unknown as { phase: 'start' | 'move' | 'end'; part: string; point: number; delta: unknown };
-      if (typeof g.part === 'string' && Number.isInteger(g.point) && Array.isArray(g.delta) && g.delta.every(num)) this.onEvent({ type: 'maskDrag', phase: g.phase, part: g.part, point: g.point, delta: [g.delta[0], g.delta[1]] });
+      const g = m as unknown as { phase: 'start' | 'move' | 'end'; shape: string; point: number; delta: unknown };
+      if (typeof g.shape === 'string' && Number.isInteger(g.point) && Array.isArray(g.delta) && g.delta.every(num)) this.onEvent({ type: 'maskDrag', phase: g.phase, shape: g.shape, point: g.point, delta: [g.delta[0], g.delta[1]] });
     } else if (m?.type === 'studioMaskAdd') {
-      const g = m as unknown as { part: string; index: number; at: unknown };
-      if (typeof g.part === 'string' && Number.isInteger(g.index) && Array.isArray(g.at) && g.at.length === 2 && g.at.every(num)) this.onEvent({ type: 'maskAdd', part: g.part, index: g.index, at: [g.at[0], g.at[1]] });
+      const g = m as unknown as { shape: string; index: number; at: unknown };
+      if (typeof g.shape === 'string' && Number.isInteger(g.index) && Array.isArray(g.at) && g.at.length === 2 && g.at.every(num)) this.onEvent({ type: 'maskAdd', shape: g.shape, index: g.index, at: [g.at[0], g.at[1]] });
     } else if (m?.type === 'studioMaskRemove') {
-      const g = m as unknown as { part: string; point: number };
-      if (typeof g.part === 'string' && Number.isInteger(g.point)) this.onEvent({ type: 'maskRemove', part: g.part, point: g.point });
+      const g = m as unknown as { shape: string; point: number };
+      if (typeof g.shape === 'string' && Number.isInteger(g.point)) this.onEvent({ type: 'maskRemove', shape: g.shape, point: g.point });
     } else if (m?.type === 'studioMaskBox') {
       const g = m as unknown as { part: string; x: unknown; y: unknown; w: unknown; h: unknown };
       if (typeof g.part === 'string' && num(g.x) && num(g.y) && num(g.w) && num(g.h)) this.onEvent({ type: 'maskBox', part: g.part, x: g.x, y: g.y, w: g.w, h: g.h });

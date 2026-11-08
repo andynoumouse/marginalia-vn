@@ -117,3 +117,19 @@ test('chain shape errors: ids, empty lists, entries that are not objects, wrong 
   assert.match(msgs({ hair: chain({ wind: { strength: 'x' } }) }), /wind: needs a numeric strength/);
   assert.deepEqual(problems(rig({ hair: chain({ wind: { strength: 2 } }) })), []);
 });
+
+test("Mina's hair: the sample rig is valid, and the scene wind moves its strands differently", async () => {
+  const { readFileSync } = await import('node:fs');
+  const mina = JSON.parse(readFileSync(new URL('../../games/sample/assets/char/mina/rig.json', import.meta.url), 'utf8'));
+  assert.deepEqual(checkRig(mina), []);
+  const run = world => {
+    let states = restStates(mina.physics), last;
+    for (let i = 0; i < 300; i++) { last = stepPhysics(mina.physics, states, {}, new Map(), 1 / 60, false, world); states = last.states; }
+    return last.params;
+  };
+  assert.ok(Object.values(run(null)).every(v => v === 0), 'a calm scene leaves the strands at rest');
+  const wind = run({ strength: 0.6, gusts: 0.8 });
+  const tips = [0, 1, 2, 3, 4].map(c => wind[`hair_${c}_2`]);
+  assert.ok(tips.every(v => v > 0), 'a wind to the right moves every strand right');
+  assert.ok(Math.max(...tips) - Math.min(...tips) > 0.2, 'the strands do not move in step');
+});

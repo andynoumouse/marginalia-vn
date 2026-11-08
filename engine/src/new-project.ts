@@ -52,6 +52,9 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
   if (problem) throw new Error(problem);
   const template = templateById(opts.template ?? DEFAULT_TEMPLATE);
   if (!template) throw new Error(`Unknown template "${opts.template}" (${TEMPLATES.map(t => t.id).join(', ')}).`);
+  if (template.landscapeOnly && opts.stage && opts.stage.height > opts.stage.width) {
+    throw new Error(`The "${template.title}" template is laid out for a landscape stage; pick a landscape size or another template.`);
+  }
   const slug = projectSlug(title);
   const [major, minor] = engineVersion.split('.');
   const size = opts.stage ?? template.stage;
@@ -66,7 +69,10 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
       version: '0.1.0',
       private: true,
       description: `${title} (visual novel)`,
-      scripts: { dev: 'vn dev', export: 'vn export', art: 'vn art', ids: 'vn ids', strings: 'vn strings' },
+      scripts: {
+        dev: 'vn dev', export: 'vn export', art: 'vn art', ids: 'vn ids', strings: 'vn strings', voice: 'vn voice',
+        playtest: 'vn playtest', stats: 'vn stats',
+      },
       devDependencies: { 'marginalia-vn': `file:${opts.engineRef ?? '.'}` },
     });
   }
@@ -119,6 +125,9 @@ export function newProjectFiles(opts: NewProjectOptions): Record<string, string>
     'npm run art        # convert masters/*.psd to assets/ (npm run dev does this on save)',
     'npm run ids        # add localization ids to new lines',
     'npm run strings    # write locale/<source language>.json (en.json by default)',
+    'npm run playtest   # play every route; report unreachable lines, endings and unused assets',
+    'npm run stats      # words, lines and reading time per script, label and character',
+    'npm run voice      # report voice recordings made for lines that were reworded since',
     '```',
     '',
     ...content,

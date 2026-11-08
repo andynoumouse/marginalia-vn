@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { touchRecent, removeRecent, parseRecent, sharedGameId, changesSince, withEngineVersion, MAX_RECENT } from '../../dist/engine/src/index.js';
 
 const row = (folder, extra = {}) => ({ folder, title: folder.toUpperCase(), lastOpened: '2026-01-01T00:00:00.000Z', ...extra });
@@ -41,6 +42,12 @@ test('changesSince lists the minor versions after the game\'s, up to the engine\
   assert.ok(changesSince('0.1', '0.2.1').length === 1, 'the engine has an entry for 0.2');
   assert.deepEqual(changesSince('0.2', '0.3.0').map(c => c.version), ['0.3'], 'the engine has an entry for 0.3');
   assert.deepEqual(changesSince('0.3', '0.4.0').map(c => c.version), ['0.4'], 'the engine has an entry for 0.4');
+});
+
+test('ENGINE_CHANGES has an entry for the minor version in package.json', () => {
+  const { version } = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  const [major, minor] = version.split('.');
+  assert.ok(changesSince(`${major}.${Number(minor) - 1}`, version).some(c => c.version === `${major}.${minor}`), `ENGINE_CHANGES needs a '${major}.${minor}' entry`);
 });
 
 test('withEngineVersion rewrites only the engine field', () => {

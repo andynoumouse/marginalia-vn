@@ -27,7 +27,6 @@ const game = `{
   "splash": [ "bg_park", { "image": "logo", "text": "logo" } ],
   "musicRoom": [ "evening", { "track": "night", "title": "evening" } ],
   "blips": { "kiki": { "sound": "chirp", "vowels": { "a": "kiki_a" } } },
-  "theme": { "textbox": { "image": "frame" }, "skins": { "alice": { "namebox": { "image": "tag" } } } },
   "intro": "bg_park"
 }`;
 
@@ -59,8 +58,6 @@ test('finds the files named by commands, screens, defines and game.json', () => 
     'game.json:5 music music/night',
     'game.json:6 sound sound/chirp',
     'game.json:6 sound sound/kiki_a',
-    'game.json:7 ui ui/frame',
-    'game.json:7 ui ui/tag',
   ]);
   const quoted = assetRefs(files).find(r => r.line === 3 && r.file === 'park.vn');
   assert.equal(script.split('\n')[2].slice(quoted.col, quoted.col + quoted.length), 'ui/map');
@@ -80,9 +77,16 @@ test('renaming a background rewrites scenes and game.json, not dialogue or comme
   assert.match(json, /"intro": "bg_park"/);
 });
 
-test('a background moved out of bg/ is named by its path from assets/', () => {
-  const { edits } = renameAssetRefs(files, 'assets/bg/bg_park.png', 'assets/cg/park.png');
-  assert.equal(textOf('park.vn', edits).split('\n')[4], '    scene cg/park fade 0.5   # bg_park in a comment stays');
+test('a background moved where a scene line cannot name it is listed, not rewritten to a path nothing resolves (UX round EP-2)', () => {
+  for (const to of ['assets/cg/park.png', 'assets/ui/bg_park.png', 'assets/bg/old/park.png']) {
+    const { edits, stranded } = renameAssetRefs(files, 'assets/bg/bg_park.png', to);
+    assert.deepEqual(edits, [], to);
+    assert.deepEqual(stranded.map(r => `${r.file}:${r.line}`), ['park.vn:5', 'game.json:2', 'game.json:3', 'game.json:4'], to);
+  }
+  // The assets root works: a scene finds a background there when bg/ has none.
+  const { edits, stranded } = renameAssetRefs(files, 'assets/bg/bg_park.png', 'assets/park_day.png');
+  assert.deepEqual(stranded, []);
+  assert.equal(textOf('park.vn', edits).split('\n')[4], '    scene park_day fade 0.5   # bg_park in a comment stays');
 });
 
 test('a background at the assets root resolves there when bg/ has none', () => {
@@ -107,8 +111,6 @@ test('moving a folder rewrites everything under it, quoted or not', () => {
   assert.equal(vn[2], 'define item map "Map" image="gui/map"');
   assert.equal(vn[14], '    image "gui/map.png" at 0,0');
   assert.equal(vn[15], '    hotspot door mask "gui/door_mask.png" at 1,1 size 2,2 "Door" hover "gui/door_glow.png" hover sound "tick"');
-  // theme images are bare names in assets/ui: they cannot follow the folder.
-  assert.deepEqual(renameAssetRefs(files, 'assets/ui', 'assets/gui', true).stranded.map(r => r.text), ['frame', 'tag']);
 });
 
 test('music and sounds follow a rename in their folder and are stranded outside it', () => {

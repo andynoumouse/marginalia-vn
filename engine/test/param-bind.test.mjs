@@ -87,7 +87,7 @@ test('the parts bound to a parameter, with how many keys they have and how many 
   kfs = bindPose(kfs, defs, 'arm', slider('head_x')).keyforms;
   kfs = bindPose(kfs, defs, 'eyes', padOf).keyforms;
   kfs = writeForm(kfs, defs, 'head', { param: 'head_x', value: 1 }, { rot: 30 }).keyforms;
-  const doc = { keyforms: kfs, deformers: [], masks: [] };
+  const doc = { keyforms: kfs, deformers: [], shapes: {} };
   assert.deepEqual(boundParts(doc, slider('head_x')), [{ target: 'head', kind: 'pose', keys: 3, posed: 1 }, { target: 'arm', kind: 'pose', keys: 3, posed: 0 }]);
   assert.deepEqual(boundParts(doc, padOf), [{ target: 'eyes', kind: 'pose', keys: 9, posed: 0 }]);
   assert.deepEqual(boundParts(doc, slider('head_y')), []);
@@ -99,18 +99,19 @@ test('what affects a part: the parameters and pads it is bound to, and the ones 
   let kfs = bindPose([], defs, 'head', slider('head_x')).keyforms;
   kfs = bindPose(kfs, defs, 'head', padOf).keyforms;
   const deformers = [{ id: 'head_warp', part: 'head', keyforms: [{ param: 'lift', keys: [{ at: 0 }, { at: 1, pts: { 0: [0.1, 0] } }] }] }];
-  const masks = [{ id: 'm', part: 'eyes', polygon: [[0, 0], [10, 0], [10, 10]], keyforms: [{ param: 'eyes_open', keys: [{ at: 0 }] }] }];
-  const doc = { keyforms: kfs, deformers, masks };
+  const shapes = { lids: { polygon: [[0, 0], [10, 0], [10, 10]], keyforms: [{ param: 'eyes_open', keys: [{ at: 0 }] }] } };
+  const doc = { keyforms: kfs, deformers, shapes };
   assert.deepEqual(affectedBy(doc, 'head'), [
     { driver: { param: 'head_x' }, kind: 'pose' }, { driver: { params: ['head_x', 'head_y'] }, kind: 'pose' }, { driver: { param: 'lift' }, kind: 'warp' },
   ]);
-  assert.deepEqual(affectedBy(doc, 'eyes'), [{ driver: { param: 'eyes_open' }, kind: 'mask' }]);
+  assert.deepEqual(affectedBy(doc, 'lids'), [{ driver: { param: 'eyes_open' }, kind: 'mask' }]);
+  assert.deepEqual(affectedBy(doc, 'eyes'), [], "a shape is bound under its own name, not the clipped part's");
   assert.deepEqual(affectedBy(doc, 'arm'), []);
   assert.deepEqual(boundParts(doc, slider('lift')), [{ target: 'head', kind: 'warp', keys: 2, posed: 1 }]);
-  assert.deepEqual(boundParts(doc, slider('eyes_open')), [{ target: 'eyes', kind: 'mask', keys: 1, posed: 0 }]);
+  assert.deepEqual(boundParts(doc, slider('eyes_open')), [{ target: 'lids', kind: 'mask', keys: 1, posed: 0 }]);
 });
 
-test('a warp and a mask polygon are bound to a slider the same way, and a mask that follows another part cannot be', () => {
+test('a warp and a shape polygon are bound to a slider the same way', () => {
   const warps = [{ id: 'torso_warp', part: 'torso', grid: [2, 2], keyforms: [] }];
   const b = bindDeformer(warps, defs, 'torso', 'eyes_open');
   assert.equal(b.bound, true);
@@ -123,14 +124,15 @@ test('a warp and a mask polygon are bound to a slider the same way, and a mask t
   assert.deepEqual([u.unbound, u.deformers[0].keyforms], [true, []]);
   assert.deepEqual(warps, [{ id: 'torso_warp', part: 'torso', grid: [2, 2], keyforms: [] }], 'the input is not touched');
 
-  const masks = [{ id: 'lids', part: 'eyes', polygon: [[0, 0], [10, 0], [10, 10]] }, { id: 'iris', part: 'iris', from: 'eyes' }];
-  const m = bindMask(masks, defs, 'eyes', 'wide');
+  const shapes = { lids: { polygon: [[0, 0], [10, 0], [10, 10]] } };
+  const m = bindMask(shapes, defs, 'lids', 'wide');
   assert.equal(m.bound, true);
-  assert.deepEqual(m.masks[0].keyforms, [{ param: 'wide', keys: [{ at: -2 }, { at: 1 }, { at: 6 }] }]);
-  assert.equal(bindMask(masks, defs, 'iris', 'wide').bound, false, 'a "from" mask has no points to key');
-  const gone = unbindMask(m.masks, 'eyes', 'wide');
+  assert.deepEqual(m.shapes.lids.keyforms, [{ param: 'wide', keys: [{ at: -2 }, { at: 1 }, { at: 6 }] }]);
+  assert.equal(bindMask(shapes, defs, 'iris', 'wide').bound, false, 'no such shape');
+  assert.equal(bindMask(m.shapes, defs, 'lids', 'wide').bound, false, 'bound already');
+  const gone = unbindMask(m.shapes, 'lids', 'wide');
   assert.equal(gone.unbound, true);
-  assert.equal('keyforms' in gone.masks[0], false, 'a mask with no keyform has no keyforms field');
+  assert.equal('keyforms' in gone.shapes.lids, false, 'a shape with no keyform has no keyforms field');
 });
 
 test('a key is removed but the keyform stays; the default key goes back to rest instead; a pad corner goes back to rest', () => {

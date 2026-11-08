@@ -579,6 +579,21 @@
        }
       ]
      },
+     "pwa": {
+      "type": "boolean",
+      "description": "The web export becomes an installable, offline app: a web manifest and a service worker that keeps the whole game on the player device (default false; it can be a lot of data)."
+     },
+     "touch": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Touch screens (docs/game-json.md). Players can still switch gestures off in Options.",
+      "properties": {
+       "gestures": {
+        "type": "boolean",
+        "description": "Swipe right = back, up = history, down = hide the interface; long press or two-finger tap = pause menu (default true). false for a game whose own screens need those swipes."
+       }
+      }
+     },
      "blips": {
       "type": "object",
       "description": "Text sound voices by name. Built in: high, mid, low, soft, typewriter, robot (a voice here with the same name replaces it).",
@@ -931,7 +946,16 @@
        "ending_reached": {
         "type": "string"
        },
+       "end_title": {
+        "type": "string"
+       },
+       "end_hint": {
+        "type": "string"
+       },
        "hidden_achievement": {
+        "type": "string"
+       },
+       "rotate_device": {
         "type": "string"
        },
        "theme": {
@@ -985,477 +1009,8 @@
       }
      },
      "theme": {
-      "anyOf": [
-       {
-        "type": "string",
-        "description": "The name of a theme file: \"night\" uses themes/night.json."
-       },
-       {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "Look of the text box, name tag, text and choices. Fonts in assets/fonts/ can be used by file name.",
-        "properties": {
-         "accent": {
-          "type": "string",
-          "description": "Highlight color for menus and sliders, e.g. \"#5fd1c3\"."
-         },
-         "hotFill": {
-          "type": "string",
-          "description": "Fill of a hovered or focused hotspot or button in screens and HUDs, e.g. \"rgba(255,255,255,.18)\"."
-         },
-         "hotBorder": {
-          "type": "string",
-          "description": "Border color of that highlight (default: accent)."
-         },
-         "hotBorderWidth": {
-          "type": "number",
-          "description": "Border width of that highlight in stage pixels (default 2)."
-         },
-         "tipBackground": {
-          "type": "string",
-          "description": "Background color of hotspot tooltips."
-         },
-         "tipColor": {
-          "type": "string",
-          "description": "Text color of hotspot tooltips."
-         },
-         "tipFont": {
-          "type": "string",
-          "description": "Font of hotspot tooltips (a font in assets/fonts/ or an installed one); default: the theme font.",
-          "examples": [
-           "serif"
-          ]
-         },
-         "font": {
-          "type": "string",
-          "description": "Font for story text and menus: a font in assets/fonts/ (file name) or an installed one.",
-          "examples": [
-           "serif"
-          ]
-         },
-         "textbox": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The text box. Position with x/y/width/height.",
-          "properties": {
-           "x": {
-            "type": "number",
-            "description": "Left edge in stage pixels."
-           },
-           "y": {
-            "type": "number",
-            "description": "Top edge in stage pixels."
-           },
-           "width": {
-            "type": "number",
-            "description": "Width in pixels."
-           },
-           "height": {
-            "type": "number",
-            "description": "Minimum height in pixels."
-           },
-           "padding": {
-            "description": "Pixels: one number, or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           },
-           "background": {
-            "type": "string",
-            "description": "CSS color, e.g. \"rgba(10,13,19,.84)\"."
-           },
-           "border": {
-            "type": "string",
-            "description": "Border color."
-           },
-           "radius": {
-            "type": "number",
-            "description": "Corner radius in pixels."
-           },
-           "image": {
-            "type": "string",
-            "description": "Frame art: assets/ui/<image>.png (from masters/ui/<image>.psd). Replaces background.",
-            "examples": [
-             "frame"
-            ]
-           },
-           "slice": {
-            "description": "Edge pixels of the image that do not stretch (9-slice): one number or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           }
-          }
-         },
-         "namebox": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "The name tag; x/y are relative to the text box.",
-          "properties": {
-           "x": {
-            "type": "number",
-            "description": "Left edge in stage pixels."
-           },
-           "y": {
-            "type": "number",
-            "description": "Top edge in stage pixels."
-           },
-           "width": {
-            "type": "number",
-            "description": "Width in pixels."
-           },
-           "height": {
-            "type": "number",
-            "description": "Minimum height in pixels."
-           },
-           "padding": {
-            "description": "Pixels: one number, or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           },
-           "background": {
-            "type": "string",
-            "description": "CSS color, e.g. \"rgba(10,13,19,.84)\"."
-           },
-           "border": {
-            "type": "string",
-            "description": "Border color."
-           },
-           "radius": {
-            "type": "number",
-            "description": "Corner radius in pixels."
-           },
-           "image": {
-            "type": "string",
-            "description": "Frame art: assets/ui/<image>.png (from masters/ui/<image>.psd). Replaces background.",
-            "examples": [
-             "frame"
-            ]
-           },
-           "slice": {
-            "description": "Edge pixels of the image that do not stretch (9-slice): one number or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           },
-           "size": {
-            "type": "number",
-            "description": "Font size in pixels."
-           }
-          }
-         },
-         "text": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Story text.",
-          "properties": {
-           "size": {
-            "type": "number",
-            "description": "Font size in pixels (44)."
-           },
-           "color": {
-            "type": "string"
-           },
-           "lineHeight": {
-            "type": "number",
-            "description": "Line height multiplier (1.45)."
-           },
-           "lines": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Lines the text box shows at once (3); a longer line is split into pages."
-           }
-          }
-         },
-         "choices": {
-          "type": "object",
-          "additionalProperties": false,
-          "description": "Choice buttons.",
-          "properties": {
-           "width": {
-            "type": "number",
-            "description": "Width in pixels."
-           },
-           "height": {
-            "type": "number",
-            "description": "Minimum height in pixels."
-           },
-           "padding": {
-            "description": "Pixels: one number, or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           },
-           "background": {
-            "type": "string",
-            "description": "CSS color, e.g. \"rgba(10,13,19,.84)\"."
-           },
-           "border": {
-            "type": "string",
-            "description": "Border color."
-           },
-           "radius": {
-            "type": "number",
-            "description": "Corner radius in pixels."
-           },
-           "image": {
-            "type": "string",
-            "description": "Frame art: assets/ui/<image>.png (from masters/ui/<image>.psd). Replaces background.",
-            "examples": [
-             "frame"
-            ]
-           },
-           "slice": {
-            "description": "Edge pixels of the image that do not stretch (9-slice): one number or [top, right, bottom, left].",
-            "oneOf": [
-             {
-              "type": "number"
-             },
-             {
-              "type": "array",
-              "items": {
-               "type": "number"
-              }
-             }
-            ]
-           },
-           "size": {
-            "type": "number",
-            "description": "Font size in pixels."
-           },
-           "gap": {
-            "type": "number",
-            "description": "Space between buttons."
-           }
-          }
-         },
-         "skins": {
-          "type": "object",
-          "description": "Named styles: `define alice ... style=alice`, `style=name` on a line, a menu or a screen button or text.",
-          "propertyNames": {
-           "examples": [
-            "bold"
-           ]
-          },
-          "additionalProperties": {
-           "type": "object",
-           "additionalProperties": false,
-           "description": "Overrides while this style is used (appearance only).",
-           "properties": {
-            "textbox": {
-             "type": "object",
-             "additionalProperties": false,
-             "description": "The text box. Position with x/y/width/height.",
-             "properties": {
-              "x": {
-               "type": "number",
-               "description": "Left edge in stage pixels."
-              },
-              "y": {
-               "type": "number",
-               "description": "Top edge in stage pixels."
-              },
-              "width": {
-               "type": "number",
-               "description": "Width in pixels."
-              },
-              "height": {
-               "type": "number",
-               "description": "Minimum height in pixels."
-              },
-              "padding": {
-               "description": "Pixels: one number, or [top, right, bottom, left].",
-               "oneOf": [
-                {
-                 "type": "number"
-                },
-                {
-                 "type": "array",
-                 "items": {
-                  "type": "number"
-                 }
-                }
-               ]
-              },
-              "background": {
-               "type": "string",
-               "description": "CSS color, e.g. \"rgba(10,13,19,.84)\"."
-              },
-              "border": {
-               "type": "string",
-               "description": "Border color."
-              },
-              "radius": {
-               "type": "number",
-               "description": "Corner radius in pixels."
-              },
-              "image": {
-               "type": "string",
-               "description": "Frame art: assets/ui/<image>.png (from masters/ui/<image>.psd). Replaces background.",
-               "examples": [
-                "frame"
-               ]
-              },
-              "slice": {
-               "description": "Edge pixels of the image that do not stretch (9-slice): one number or [top, right, bottom, left].",
-               "oneOf": [
-                {
-                 "type": "number"
-                },
-                {
-                 "type": "array",
-                 "items": {
-                  "type": "number"
-                 }
-                }
-               ]
-              }
-             }
-            },
-            "namebox": {
-             "type": "object",
-             "additionalProperties": false,
-             "description": "The name tag; x/y are relative to the text box.",
-             "properties": {
-              "x": {
-               "type": "number",
-               "description": "Left edge in stage pixels."
-              },
-              "y": {
-               "type": "number",
-               "description": "Top edge in stage pixels."
-              },
-              "width": {
-               "type": "number",
-               "description": "Width in pixels."
-              },
-              "height": {
-               "type": "number",
-               "description": "Minimum height in pixels."
-              },
-              "padding": {
-               "description": "Pixels: one number, or [top, right, bottom, left].",
-               "oneOf": [
-                {
-                 "type": "number"
-                },
-                {
-                 "type": "array",
-                 "items": {
-                  "type": "number"
-                 }
-                }
-               ]
-              },
-              "background": {
-               "type": "string",
-               "description": "CSS color, e.g. \"rgba(10,13,19,.84)\"."
-              },
-              "border": {
-               "type": "string",
-               "description": "Border color."
-              },
-              "radius": {
-               "type": "number",
-               "description": "Corner radius in pixels."
-              },
-              "image": {
-               "type": "string",
-               "description": "Frame art: assets/ui/<image>.png (from masters/ui/<image>.psd). Replaces background.",
-               "examples": [
-                "frame"
-               ]
-              },
-              "slice": {
-               "description": "Edge pixels of the image that do not stretch (9-slice): one number or [top, right, bottom, left].",
-               "oneOf": [
-                {
-                 "type": "number"
-                },
-                {
-                 "type": "array",
-                 "items": {
-                  "type": "number"
-                 }
-                }
-               ]
-              },
-              "size": {
-               "type": "number",
-               "description": "Font size in pixels."
-              }
-             }
-            },
-            "text": {
-             "type": "object",
-             "additionalProperties": false,
-             "description": "Story text.",
-             "properties": {
-              "size": {
-               "type": "number",
-               "description": "Font size in pixels (44)."
-              },
-              "color": {
-               "type": "string"
-              },
-              "lineHeight": {
-               "type": "number",
-               "description": "Line height multiplier (1.45)."
-              },
-              "lines": {
-               "type": "integer",
-               "minimum": 1,
-               "description": "Lines the text box shows at once (3); a longer line is split into pages."
-              }
-             }
-            }
-           }
-          }
-         }
-        }
-       }
-      ]
+      "type": "string",
+      "description": "The name of a theme file: \"night\" uses themes/night.json."
      }
     }
    }
@@ -1511,8 +1066,7 @@
      },
      "parts": {
       "type": "object",
-      "description": "Which bone each part sits on (and a pivot of its own for a part that must turn about another point than its bone's).",
-      "additionalProperties": false,
+      "description": "Which bone each part sits on (and a pivot of its own for a part that must turn about another point than its bone's). A name that is no part of the PSD is a shape part: give it a \"polygon\".",
       "properties": {
        "body": {
         "type": "object",
@@ -1534,6 +1088,43 @@
            "type": "number"
           },
           "description": "A pivot of its own, when it must turn about another point than its bone's."
+         },
+         "clip": {
+          "type": "string",
+          "description": "The shape part or image part this part is clipped to.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "polygon": {
+          "type": "array",
+          "description": "A shape part (it has no art): its outline, points [x, y] in pixels of the PSD canvas.",
+          "items": {
+           "type": "array",
+           "minItems": 2,
+           "maxItems": 2,
+           "items": {
+            "type": "number"
+           }
+          }
+         },
+         "follow": {
+          "type": "string",
+          "description": "A shape part: the image part whose drawn mesh bends it.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "keyforms": {
+          "type": "array",
+          "description": "A shape part: per-vertex displacements driven by parameters.",
+          "items": {
+           "type": "object"
+          }
          }
         }
        },
@@ -1557,6 +1148,43 @@
            "type": "number"
           },
           "description": "A pivot of its own, when it must turn about another point than its bone's."
+         },
+         "clip": {
+          "type": "string",
+          "description": "The shape part or image part this part is clipped to.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "polygon": {
+          "type": "array",
+          "description": "A shape part (it has no art): its outline, points [x, y] in pixels of the PSD canvas.",
+          "items": {
+           "type": "array",
+           "minItems": 2,
+           "maxItems": 2,
+           "items": {
+            "type": "number"
+           }
+          }
+         },
+         "follow": {
+          "type": "string",
+          "description": "A shape part: the image part whose drawn mesh bends it.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "keyforms": {
+          "type": "array",
+          "description": "A shape part: per-vertex displacements driven by parameters.",
+          "items": {
+           "type": "object"
+          }
          }
         }
        },
@@ -1580,6 +1208,103 @@
            "type": "number"
           },
           "description": "A pivot of its own, when it must turn about another point than its bone's."
+         },
+         "clip": {
+          "type": "string",
+          "description": "The shape part or image part this part is clipped to.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "polygon": {
+          "type": "array",
+          "description": "A shape part (it has no art): its outline, points [x, y] in pixels of the PSD canvas.",
+          "items": {
+           "type": "array",
+           "minItems": 2,
+           "maxItems": 2,
+           "items": {
+            "type": "number"
+           }
+          }
+         },
+         "follow": {
+          "type": "string",
+          "description": "A shape part: the image part whose drawn mesh bends it.",
+          "examples": [
+           "body",
+           "eyes",
+           "mouth"
+          ]
+         },
+         "keyforms": {
+          "type": "array",
+          "description": "A shape part: per-vertex displacements driven by parameters.",
+          "items": {
+           "type": "object"
+          }
+         }
+        }
+       }
+      },
+      "additionalProperties": {
+       "type": "object",
+       "additionalProperties": false,
+       "properties": {
+        "bone": {
+         "type": "string",
+         "description": "The bone this shape part sits on.",
+         "examples": [
+          "root",
+          "arm"
+         ]
+        },
+        "pivot": {
+         "type": "array",
+         "minItems": 2,
+         "maxItems": 2,
+         "items": {
+          "type": "number"
+         },
+         "description": "A pivot of its own, when it must turn about another point than its bone's."
+        },
+        "clip": {
+         "type": "string",
+         "description": "The shape part or image part this part is clipped to.",
+         "examples": [
+          "body",
+          "eyes",
+          "mouth"
+         ]
+        },
+        "polygon": {
+         "type": "array",
+         "description": "A shape part (it has no art): its outline, points [x, y] in pixels of the PSD canvas.",
+         "items": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+           "type": "number"
+          }
+         }
+        },
+        "follow": {
+         "type": "string",
+         "description": "A shape part: the image part whose drawn mesh bends it.",
+         "examples": [
+          "body",
+          "eyes",
+          "mouth"
+         ]
+        },
+        "keyforms": {
+         "type": "array",
+         "description": "A shape part: per-vertex displacements driven by parameters.",
+         "items": {
+          "type": "object"
          }
         }
        }
@@ -1660,119 +1385,6 @@
        }
       }
      },
-     "autonomous": {
-      "type": "object",
-      "description": "What the character does by itself, with every slot and variant written out. \"behaviors off\" in the script suspends it.",
-      "additionalProperties": false,
-      "properties": {
-       "idle": {
-        "type": "string",
-        "description": "An animation (a preset or one of \"animations\") that loops while the character is on stage.",
-        "examples": [
-         "breathe",
-         "bob",
-         "sway",
-         "nod",
-         "shiver",
-         "pulse",
-         "bounce",
-         "hop",
-         "shake"
-        ]
-       },
-       "speak": {
-        "type": "object",
-        "description": "What the character does while one of its lines types: cycle a slot through variants and/or loop an animation.",
-        "additionalProperties": false,
-        "properties": {
-         "slot": {
-          "type": "string",
-          "description": "The slot to cycle (say mouth).",
-          "examples": [
-           "eyes",
-           "mouth"
-          ]
-         },
-         "variants": {
-          "type": "array",
-          "description": "Variants of the slot, shown in turn while talking (say open, then neutral).",
-          "items": {
-           "type": "string",
-           "description": "A variant of the slot.",
-           "examples": [
-            "neutral",
-            "wide",
-            "none"
-           ]
-          }
-         },
-         "rate": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Variant changes per second (default 8)."
-         },
-         "anim": {
-          "type": "string",
-          "description": "An animation to loop while talking (a preset or one of \"animations\").",
-          "examples": [
-           "breathe",
-           "bob",
-           "sway",
-           "nod",
-           "shiver",
-           "pulse",
-           "bounce",
-           "hop",
-           "shake"
-          ]
-         }
-        }
-       },
-       "blink": {
-        "type": "object",
-        "description": "Blink by itself: the variant is swapped into the slot briefly at random intervals; an explicit slot=variant in the script wins.",
-        "additionalProperties": false,
-        "required": [
-         "slot",
-         "variant"
-        ],
-        "properties": {
-         "slot": {
-          "type": "string",
-          "description": "The eyes slot (say eyes).",
-          "examples": [
-           "eyes",
-           "mouth"
-          ]
-         },
-         "variant": {
-          "type": "string",
-          "description": "The closed-eyes variant (say closed).",
-          "examples": [
-           "open",
-           "closed",
-           "none"
-          ]
-         },
-         "every": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
-          "items": {
-           "type": "number",
-           "exclusiveMinimum": 0
-          },
-          "description": "[min, max] seconds between blinks (default [3, 6])."
-         },
-         "dur": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Seconds the eyes stay shut (default 0.12)."
-         }
-        }
-       }
-      }
-     },
      "animations": {
       "type": "object",
       "description": "Keyframe animations for `animate <char> <name>`. A name equal to a preset (bob, sway...) replaces it for this character.",
@@ -1788,10 +1400,116 @@
          "exclusiveMinimum": 0,
          "description": "Default length in seconds (1 when left out); `animate` can give another."
         },
+        "auto": {
+         "type": "object",
+         "description": "When the animation starts by itself: \"every\" (a random or fixed wait after each run) and/or \"while\" (it loops while the condition holds). \"behaviors off\" in the script suspends it.",
+         "additionalProperties": false,
+         "properties": {
+          "every": {
+           "description": "Seconds to wait after each run: { \"min\", \"max\" } for a random wait, or one number for a fixed wait.",
+           "oneOf": [
+            {
+             "type": "number",
+             "exclusiveMinimum": 0
+            },
+            {
+             "type": "object",
+             "required": [
+              "min",
+              "max"
+             ],
+             "additionalProperties": false,
+             "properties": {
+              "min": {
+               "type": "number",
+               "exclusiveMinimum": 0
+              },
+              "max": {
+               "type": "number",
+               "exclusiveMinimum": 0
+              }
+             }
+            }
+           ]
+          },
+          "while": {
+           "type": "string",
+           "description": "A condition in the script's expression language: story variables, speaking (one of its lines is typing), always, param.<id>.",
+           "examples": [
+            "always",
+            "speaking"
+           ]
+          }
+         }
+        },
+        "params": {
+         "type": "object",
+         "description": "Parameter tracks: a parameter id to its keys { t, v, ease }.",
+         "additionalProperties": {
+          "type": "array",
+          "items": {
+           "type": "object",
+           "required": [
+            "t",
+            "v"
+           ],
+           "properties": {
+            "t": {
+             "type": "number",
+             "minimum": 0,
+             "maximum": 1
+            },
+            "v": {
+             "type": "number"
+            },
+            "ease": {
+             "type": "string",
+             "enum": [
+              "linear",
+              "in",
+              "out",
+              "inout",
+              "back",
+              "bounce",
+              "elastic"
+             ]
+            }
+           }
+          }
+         }
+        },
+        "frames": {
+         "type": "array",
+         "description": "Frame tracks: a slot swapped between variants as the animation runs.",
+         "items": {
+          "type": "object",
+          "required": [
+           "slot"
+          ],
+          "properties": {
+           "slot": {
+            "type": "string"
+           }
+          }
+         }
+        },
+        "physicsOff": {
+         "description": "While it plays, the physics chains are bypassed: true for all, or the listed chain ids.",
+         "oneOf": [
+          {
+           "type": "boolean"
+          },
+          {
+           "type": "array",
+           "items": {
+            "type": "string"
+           }
+          }
+         ]
+        },
         "keys": {
          "type": "array",
-         "minItems": 1,
-         "description": "Keys at progress t (0-1). Each channel is eased between its own keys and is 0 at both ends unless a key says otherwise.",
+         "description": "Keys at progress t (0-1), empty for an animation of parameters or frames only. Each channel is eased between its own keys and is 0 at both ends unless a key says otherwise.",
          "items": {
           "type": "object",
           "required": [
@@ -1826,6 +1544,11 @@
             "type": "number",
             "description": "Added to the size: 0.05 is 5% bigger."
            },
+           "opacity": {
+            "type": "number",
+            "minimum": 0,
+            "description": "A factor on the alpha: 1 as drawn, 0 gone. Rests at 1 (not 0) at both ends."
+           },
            "rot": {
             "type": "number",
             "description": "Tilt in degrees, clockwise."
@@ -1847,6 +1570,154 @@
          }
         }
        }
+      }
+     },
+     "reactions": {
+      "type": "array",
+      "description": "Poses the character holds while a condition is true. The first entry whose \"when\" holds wins; none holds: the parameters return to what the script set.",
+      "items": {
+       "type": "object",
+       "required": [
+        "when",
+        "pose"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "when": {
+         "type": "string",
+         "description": "A condition in the script's expression language: story variables, speaking, always, param.<id> (a parameter's base value)."
+        },
+        "pose": {
+         "type": "string",
+         "description": "The pose to hold (one of \"poses\").",
+         "examples": []
+        },
+        "over": {
+         "type": "number",
+         "minimum": 0,
+         "description": "Seconds the move into the pose takes (default 0.4)."
+        },
+        "ease": {
+         "type": "string",
+         "enum": [
+          "linear",
+          "in",
+          "out",
+          "inout",
+          "back",
+          "bounce",
+          "elastic"
+         ],
+         "description": "Easing of that move."
+        }
+       }
+      }
+     },
+     "categories": {
+      "type": "array",
+      "description": "The Parameters panel's groups, in order: a parameter or pad names one in its \"group\".",
+      "items": {
+       "type": "string"
+      }
+     },
+     "parameters": {
+      "type": "array",
+      "description": "Named scalars that drive keyforms and poses.",
+      "items": {
+       "type": "object",
+       "required": [
+        "id"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "min": {
+         "type": "number"
+        },
+        "max": {
+         "type": "number"
+        },
+        "default": {
+         "type": "number"
+        },
+        "group": {
+         "type": "string",
+         "description": "One of \"categories\"."
+        },
+        "ease": {
+         "type": "string",
+         "enum": [
+          "linear",
+          "in",
+          "out",
+          "inout",
+          "back",
+          "bounce",
+          "elastic"
+         ]
+        }
+       }
+      }
+     },
+     "pads": {
+      "type": "array",
+      "description": "2D controls over two parameters: a UI grouping only.",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string"
+        },
+        "x": {
+         "type": "string"
+        },
+        "y": {
+         "type": "string"
+        },
+        "group": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "poses": {
+      "type": "object",
+      "description": "Named snapshots of some parameters ({ \"happy\": { \"mouth_smile\": 1 } }), set with `show <char> pose=happy`.",
+      "additionalProperties": {
+       "type": "object",
+       "additionalProperties": {
+        "type": "number"
+       }
+      }
+     },
+     "keyforms": {
+      "type": "array",
+      "description": "Authored poses of a bone or part at chosen parameter values, blended.",
+      "items": {
+       "type": "object"
+      }
+     },
+     "deformers": {
+      "type": "array",
+      "description": "Lattices that warp a part's mesh (or a group of parts), driven by parameters.",
+      "items": {
+       "type": "object",
+       "required": [
+        "id"
+       ],
+       "properties": {
+        "id": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "physics": {
+      "type": "object",
+      "description": "Secondary motion: chains by id, reading parameters or bone channels and writing parameters or a part's rotation.",
+      "additionalProperties": {
+       "type": "object"
       }
      }
     }

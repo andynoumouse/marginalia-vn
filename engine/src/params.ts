@@ -283,16 +283,39 @@ export interface DeformerKeyform {
   grid?: { x: number[]; y: number[] };
   forms?: { pts?: WarpPoints }[];
 }
-/** A lattice over one part: `grid` is [cols, rows] of cells; several keyforms add their displacements. */
-export interface DeformerDef { id: string; part: string; grid?: [number, number]; keyforms: DeformerKeyform[] }
+/**
+ * A lattice over one part (`part`) or over a group of parts (`members`: every part is bent by the lattice over their common
+ * box, after its own warp). `grid` is [cols, rows] of cells; several keyforms add their displacements. `box` is a group warp's
+ * lattice box [x, y, w, h] in canvas pixels; left out, it is the union of the members' image boxes. A deformer has `part` or `members`, not both.
+ */
+export interface DeformerDef { id: string; part?: string; members?: string[]; box?: [number, number, number, number]; grid?: [number, number]; mesh?: DeformerMesh; keyforms: DeformerKeyform[] }
+/**
+ * A free mesh in place of a lattice (see docs/design/free-mesh.md): `verts` are rest positions [x0, y0, x1, y1, ...] in the part's own pixels,
+ * `tris` index triples wound consistently; keyform `pts` index the vertices. `detail` is only the generator's hint for Regenerate.
+ */
+export interface DeformerMesh { verts: number[]; tris: number[]; detail?: string }
+
+/** The most vertices a free mesh may have. */
+export const MESH_MAX_VERTS = 500;
+/** How far (pixels) a mesh vertex may lie outside the part's image box. */
+export const MESH_BOX_MARGIN = 100;
+
+/** Does the deformer warp a group of parts (it has `members`) rather than one part? */
+export const isGroupDeformer = (def: Pick<DeformerDef, 'members'>): boolean => Array.isArray(def.members);
 
 export const DEFORMER_DEFAULT_GRID: [number, number] = [4, 4];
 export const DEFORMER_MAX_GRID = 12;
 
 /** The deformer's [cols, rows] (the default when left out). */
 export const deformerGrid = (def: Pick<DeformerDef, 'grid'>): [number, number] => def.grid ?? DEFORMER_DEFAULT_GRID;
-/** Control points of a deformer: (cols + 1) * (rows + 1). */
-export const deformerPoints = (def: Pick<DeformerDef, 'grid'>): number => { const [c, r] = deformerGrid(def); return (c + 1) * (r + 1); };
+/** Does the deformer use a free mesh (it has `mesh`) rather than a lattice? */
+export const isMeshDeformer = (def: { mesh?: unknown }): boolean => def.mesh !== undefined && def.mesh !== null;
+/** Control points of a deformer: (cols + 1) * (rows + 1) for a lattice, the vertex count for a free mesh. */
+export const deformerPoints = (def: Pick<DeformerDef, 'grid'> & { mesh?: { verts: ArrayLike<number> } }): number => {
+  if (def.mesh) return Math.floor((def.mesh.verts?.length ?? 0) / 2);
+  const [c, r] = deformerGrid(def);
+  return (c + 1) * (r + 1);
+};
 
 /** Linear blend of two equally long displacement vectors. */
 export function blendVec(a: ArrayLike<number>, b: ArrayLike<number>, t: number): Float32Array {
@@ -362,14 +385,15 @@ const validGrid = (g: unknown): g is [number, number] => Array.isArray(g) && g.l
 
 /**
  * Problems in the `deformers` section. `parts` are the part names, `bones` the bone names (a deformer needs a part),
- * `framed` the slots a frame track drives (a warped part cannot swap frames).
+ * `framed` the slots a frame track drives (a warped part cannot swap frames), `boneOf` the bone each part sits on (a group warp
+ * of parts on different bones is warned about: its displacement is in each part's own space, so a turning bone would skew it).
  */
-export function checkDeformers(data: { deformers?: unknown; parameters?: unknown }, parts: Set<string>, bones: Set<string>, framed: Set<string>, problem: (message: string, at: string) => void): void {
+export function checkDeformers(data: { deformers?: unknown; parameters?: unknown }, parts: Set<string>, bones: Set<string>, framed: Set<string>, problem: (message: string, at: string) => void, boneOf: ReadonlyMap<string, string> = new Map(), shapes: ReadonlySet<string> = new Set(), boxes: ReadonlyMap<string, readonly [number, number]> = new Map()): void {
   if (data.deformers === undefined) return;
-  if (!Array.isArray(data.deformers)) { problem('deformers: needs a list of { id, part, grid, keyforms }', 'deformers'); return; }
+  if (!Array.isArray(data.deformers)) { problem('deformers: needs a list of { id, part or members, grid, keyforms }', 'deformers'); return; }
   const defs = new Map<string, ParamDef>();
   if (Array.isArray(data.parameters)) for (const p of data.parameters as ParamDef[]) if (p && typeof p.id === 'string') defs.set(p.id, p);
-  const ids = new Set<string>(), onPart = new Map<string, string>();
+  const ids = new Set<string>(), onPart = new Map<string, string>(), inGroup = new Map<string, string>();
   (data.deformers as DeformerDef[]).forEach((d, i) => {
     const at = `deformers[${i}]`;
     if (!d || typeof d !== 'object') { problem(`${at}: not a deformer`, 'deformers'); return; }
@@ -377,18 +401,80 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
     const where = `deformers.${d.id}`;
     if (ids.has(d.id)) problem(`deformers: "${d.id}" is defined twice`, d.id);
     ids.add(d.id);
-    if (typeof d.part !== 'string' || !parts.has(d.part)) problem(`${where}.part: ${typeof d.part === 'string' && bones.has(d.part) ? `"${d.part}" is a bone, a deformer needs a part` : `no part named "${String(d.part)}"`}`, d.id);
+    if (d.members !== undefined) {
+      if (d.part !== undefined) problem(`${where}: has both part and members; a deformer warps one part or a group, not both`, d.id);
+      checkMembers(d, where, parts, bones, framed, inGroup, boneOf, problem, shapes);
+    } else if (typeof d.part !== 'string' || !parts.has(d.part)) problem(`${where}.part: ${typeof d.part === 'string' && bones.has(d.part) ? `"${d.part}" is a bone, a deformer needs a part (or list parts in members)` : d.part === undefined ? 'needs a part, or members for a group warp' : `no part named "${String(d.part)}"`}`, d.id);
     else {
       const other = onPart.get(d.part);
       if (other !== undefined) problem(`${where}.part: part "${d.part}" already has deformer "${other}" (one per part)`, d.id);
       else onPart.set(d.part, d.id);
       if (framed.has(d.part)) problem(`${where}.part: "${d.part}" has a frame track in an animation; a warped part cannot swap frames`, d.id);
     }
+    if (d.box !== undefined && d.members === undefined) problem(`${where}.box: only a group warp (members) has a box; a part warp covers the part's image`, d.id);
     if (d.grid !== undefined && !validGrid(d.grid)) problem(`${where}.grid: use [cols, rows], two whole numbers from 1 to ${DEFORMER_MAX_GRID}`, d.id);
-    const n = deformerPoints({ grid: validGrid(d.grid) ? d.grid : undefined });
+    let n: number, outside = 'the lattice';
+    if (d.mesh !== undefined) {
+      if (d.grid !== undefined) problem(`${where}: has both grid and mesh; a deformer is a lattice or a free mesh, not both`, d.id);
+      if (d.members !== undefined) problem(`${where}.mesh: a group warp (members) is a lattice; a free mesh warps one part`, d.id);
+      const size = typeof d.part === 'string' ? boxes.get(d.part) : undefined;
+      n = checkMesh(d.mesh, `${where}.mesh`, d.id, size, problem);
+      outside = 'the mesh';
+    } else n = deformerPoints({ grid: validGrid(d.grid) ? d.grid : undefined });
     if (!Array.isArray(d.keyforms)) { problem(`${where}.keyforms: needs a list`, d.id); return; }
-    checkPointKeyforms(d.keyforms, n, `${where}.keyforms`, 'the lattice', defs, d.id, problem);
+    checkPointKeyforms(d.keyforms, n, `${where}.keyforms`, outside, defs, d.id, problem);
   });
+}
+
+/**
+ * Problems in a free mesh; returns its vertex count (0 when `verts` is unusable). `size` is the part's image [width, height] when
+ * known: no vertex may lie further than MESH_BOX_MARGIN outside it.
+ */
+function checkMesh(mesh: unknown, where: string, at: string, size: readonly [number, number] | undefined, problem: (message: string, at: string) => void): number {
+  if (!mesh || typeof mesh !== 'object' || Array.isArray(mesh)) { problem(`${where}: needs { verts, tris }`, at); return 0; }
+  const { verts, tris } = mesh as DeformerMesh;
+  if (!Array.isArray(verts) || verts.length % 2 !== 0 || !verts.every(isNum)) { problem(`${where}.verts: needs a list of x, y numbers, two per vertex`, at); return 0; }
+  const n = verts.length / 2;
+  if (n > MESH_MAX_VERTS) problem(`${where}.verts: ${n} vertices, at most ${MESH_MAX_VERTS}`, at);
+  if (size) {
+    const bad = verts.findIndex((v, i) => v < -MESH_BOX_MARGIN || v > size[i % 2] + MESH_BOX_MARGIN);
+    if (bad >= 0) problem(`${where}.verts: vertex ${bad >> 1} lies more than ${MESH_BOX_MARGIN} pixels outside the part's image (${size[0]} x ${size[1]})`, at);
+  }
+  if (!Array.isArray(tris) || tris.length % 3 !== 0 || !tris.length) { problem(`${where}.tris: needs at least one triangle, three vertex indices each`, at); return n; }
+  if (!tris.every(i => Number.isInteger(i) && i >= 0 && i < n)) { problem(`${where}.tris: indices must be whole numbers from 0 to ${n - 1}`, at); return n; }
+  let sign = 0, flagged = false;
+  for (let t = 0; t < tris.length; t += 3) {
+    const a = tris[t] * 2, b = tris[t + 1] * 2, c = tris[t + 2] * 2;
+    const area = (verts[b] - verts[a]) * (verts[c + 1] - verts[a + 1]) - (verts[c] - verts[a]) * (verts[b + 1] - verts[a + 1]);
+    if (Math.abs(area) < 1e-9) { problem(`${where}.tris: triangle ${t / 3} has no area (collinear or repeated vertices)`, at); continue; }
+    const s = Math.sign(area);
+    if (sign === 0) sign = s;
+    else if (s !== sign && !flagged) { problem(`${where}.tris: triangle ${t / 3} is wound the other way from the first; wind all triangles the same way`, at); flagged = true; }
+  }
+  return n;
+}
+
+/**
+ * The `members` and `box` of a group warp: image parts or shape parts that exist (once each, in one group at most), no frame tracks
+ * on image parts, ideally on one bone. The default box is the union of the image members' boxes, so a group of shapes only needs one.
+ */
+function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: Set<string>, framed: Set<string>, inGroup: Map<string, string>, boneOf: ReadonlyMap<string, string>, problem: (message: string, at: string) => void, shapes: ReadonlySet<string> = new Set()): void {
+  const members = d.members;
+  if (!Array.isArray(members) || !members.length) { problem(`${where}.members: needs a list of one or more part names`, d.id); return; }
+  const seen = new Set<string>();
+  for (const m of members) {
+    if (typeof m !== 'string' || !(parts.has(m) || shapes.has(m))) { problem(`${where}.members: ${typeof m === 'string' && bones.has(m) ? `"${m}" is a bone, a group warp needs parts or shapes` : `no part or shape named "${String(m)}"`}`, d.id); continue; }
+    if (seen.has(m)) { problem(`${where}.members: "${m}" is listed twice`, d.id); continue; }
+    seen.add(m);
+    const other = inGroup.get(m);
+    if (other !== undefined) problem(`${where}.members: part "${m}" is already in group warp "${other}" (one group per part)`, d.id);
+    else inGroup.set(m, d.id);
+    if (parts.has(m) && framed.has(m)) problem(`${where}.members: "${m}" has a frame track in an animation; a warped part cannot swap frames`, d.id);
+  }
+  if (d.box === undefined && seen.size && ![...seen].some(m => parts.has(m))) problem(`${where}.box: a group of shapes only has no image box to take; give a box [x, y, width, height] in pixels of the PSD canvas`, d.id);
+  const onBones = new Set([...seen].map(m => boneOf.get(m) ?? ''));
+  if (onBones.size > 1) problem(`${where}.members: the parts sit on different bones (${[...onBones].map(b => b || 'none').join(', ')}); the group lattice moves them in each part's own space, so a bone that turns relative to the others skews the warp`, d.id);
+  if (d.box !== undefined && !(Array.isArray(d.box) && d.box.length === 4 && d.box.every(isNum) && d.box[2] > 0 && d.box[3] > 0)) problem(`${where}.box: use [x, y, width, height] in pixels of the PSD canvas, width and height above 0`, d.id);
 }
 
 /**

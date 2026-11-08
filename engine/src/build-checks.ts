@@ -126,7 +126,7 @@ export function buildChecks(input: BuildCheckInput): BuildReport {
   const taken = existingIds(input.scripts.map(s => s.text));
   for (const s of input.scripts) {
     const { added } = assignIds(s.text, new Set(taken));
-    if (added) add('ids', { message: `${s.file}: ${plural(added, 'line has', 'lines have')} no id, so ${added === 1 ? 'it' : 'they'} cannot be translated or voiced (run "npm run ids")`, file: s.file, count: added });
+    if (added) add('ids', { message: `${s.file}: ${plural(added, 'line has', 'lines have')} no id, so ${added === 1 ? 'it' : 'they'} cannot be translated or voiced (run "npm run ids", or the editor's Add Localization IDs command)`, file: s.file, count: added });
   }
 
   const langs = Object.keys(input.locale).filter(l => l !== input.source && (!input.include?.text || input.include.text.includes(l))).sort();

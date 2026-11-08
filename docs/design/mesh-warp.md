@@ -18,6 +18,42 @@ model in [animation-studio-parameters.md](animation-studio-parameters.md) (`engi
 - Variants of a slot share the lattice (the PSD places them in one image box). A frame track on a warped part is a
   `checkRig` error, and a slot whose variants differ in size is a warning.
 
+## Group warps (a lattice over several parts)
+
+Built: the engine and renderer, and the studio (see below). A deformer has `part` or `members: string[]` (not both) and,
+for a group, an optional `box: [x, y, w, h]` in canvas pixels, else the union of the members' image boxes (the renderer measures them;
+the manifest has no sizes). `checkDeformers` takes a `boneOf` map for the "different bones" warning. Decisions:
+
+- **Composition**: own warp first, then the group lattice sampled at the vertex's REST position in the group box, the two displacements
+  adding (`warpMemberMesh` in `engine/src/warp.ts`). Sampling at the rest position keeps the group's shape independent of how a member's
+  own warp reshaped it, and makes the group stage one more addend, so a part with no group is bit-for-bit as before.
+- **Units**: a part's mesh is in the part's own pixels with its box at the origin; its canvas pixels are that plus the box origin
+  (`Warp.origin`, the layer's position in the PSD). Displacements are stage fractions times `FX()` on both axes, as for a part warp.
+- **Subdivision**: a member's mesh is cut to at least `MEMBER_MIN_GRID` (8) cells each way (`memberMeshGrid`); an own lattice coarser
+  than that is sampled bilinearly onto the finer mesh.
+- **One mesh buffer**: the member's mesh holds the part as drawn, own and group together, so `unwarpPoint` (click-to-pick) and
+  `warpPoints` (a mask that follows the part) work on it unchanged, with the mesh's grid (`Warp.grid`) in place of the own lattice's.
+- **Dirty key**: a member is redrawn when its own deformer's parameter values or its group's changed (`paramsKey` of each).
+- **Studio queries**: `studioLattice(char, part)` is the part's own lattice (drawn with the group displacement included so it sits on the
+  art; null for a part that is only a member); `studioDeformerLattice(char, id)` and `studioDeformerDelta(char, id, from, to)` do the same by
+  deformer id, for a group warp too (its points are in stage pixels, its drag delta measured in the first member's space).
+- **Studio**: the Warp tool and panel are keyed by deformer id (`studioWarp { id, ... }`, `studioWarpDrag`, `studioWarpSelect`, `studioWarpBox`), the overlay
+  draws `studioDeformerLattice` and a drag uses `studioDeformerDelta`. A row with an own warp and/or a group shows a target choice (own
+  first, else the group); a bone offers "Add group warp from this bone" (`membersFromBone`: the parts on it and its descendants); the members
+  are checkboxes plus "Use selected parts" (the tree's Ctrl-click multi-select). A part moves between groups instead of being refused
+  (`addGroupDeformer`, `setMembers`). Pick-to-bind and the slider marks follow the chosen target; a group's row in the bound list is its first member.
+- **Robo**: `face_warp`, `eyes_warp` and `mouth_warp` became one 3 x 3 `head_warp` over face, eyes and mouth. The old three were three
+  *different* fields on overlapping areas (the face centre moves the opposite way to the eyes), which one smooth lattice cannot reproduce,
+  so the forms were fitted by least squares, the features weighted 30 times the face.
+- **Shapes as members** (mask shapes, see Masks in rig.json): a shape part may be listed in `members`. Its polygon points (canvas px) are
+  sampled in the group box after the shape's own keyforms and the displacement is added (`bendShapeByGroup`, engine/src/masks.ts); the
+  shape stays on its bone holder, so the displacement is in the same space as for parts (canvas px, then the bone). Shapes do not widen the default box
+  (a group of only shapes needs `box`). A shape that `follow`s a part of the same group is not bent again (`shapeBentByGroup`): that part's
+  mesh buffer already holds the group. `applyMasks` redraws on the group's `paramsKey`. `checkClipGroups` warns on a clipped group member
+  whose clip source is not bent with it.
+- **Left**: nested groups, a bone with differently turning members (skews), editing a group's `box`, editing pad (two-parameter) keyforms,
+  and a warp row in the tree itself (the Warp section's summary and the bound list show it).
+
 ## Evaluation and rendering
 
 - `params.ts`: export `segment`, add `blendVec(a, b, t)`, `evalDeformer(def, params) -> Float32Array` (per-point
@@ -31,7 +67,7 @@ model in [animation-studio-parameters.md](animation-studio-parameters.md) (`engi
 - Reduced motion: state-driven warp (script params, poses) still applies; auto animation (idle sway) is dropped. Skip
   mode applies the final parameters without tweening.
 - Cost: a 5x5 lattice is 36 vertices with one upload only when dirty; idle characters cost nothing.
-- Studio hit test samples alpha at the un-warped position; warped hits are approximate.
+- Studio hit test: the point is mapped back through the deformed mesh (`unwarpPoint`) and alpha is sampled on the art at that rest position, so a click lands on the art as drawn.
 
 ## Checks (`checkRig`, none in `checkAssets`)
 
@@ -67,9 +103,14 @@ section. Decisions:
   page reports it with the lattice (`studioWarpBox`), and the preset is written from that.
 - The lattice is drawn at the shape the parameters give now, so it shows every parameter that bends the part, not only the one
   being edited.
-- Left: keyforms driven by two parameters (a pad) are not editable; mirror and smooth work on the whole keyform, not on a
-  selection of points; no soft selection (dragging a point and its neighbours together); no hit-test through the warp (clicking
-  a strongly bent part picks by its un-warped pixels).
+- **Selections.** The panel keeps a list of chosen points (`selection`); the stage reports a Shift-click, a rectangle, Ctrl+A or
+  Esc as `studioWarpSelect { points, mode }` and the panel sends the selection and the soft reach back with `studioWarp`. A drag
+  still reports only the pressed point and a delta: the panel makes the weights (`softWeights`: 1 on the selection, fading with
+  the distance in lattice cells to the nearest chosen point by a linear, smooth or constant curve) and writes the whole move with
+  one `setWarpOwn`, so key snapping and insertion work as for a single point. Scale and rotate use the part's box (the rest
+  positions and the displacements need one unit). Mirror and smooth take an optional point list: smooth moves just those, mirror
+  treats them as sources and writes their partners.
+- Left: keyforms driven by two parameters (a pad) are not editable.
 
 ## Implementation order
 

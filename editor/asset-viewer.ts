@@ -1,6 +1,8 @@
 // Asset viewer: a modal over the editor that shows an image, plays a sound or previews a font, so looking at an
 // asset never navigates away from the editor. Left/Right step through the other assets of the same folder.
 
+import { trapModal } from './modal.js';
+
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i, AUDIO = /\.(ogg|mp3|wav|m4a|flac)$/i, FONT = /\.(ttf|otf|woff2?)$/i;
 
 export const canView = (file: string) => IMAGE.test(file) || AUDIO.test(file) || FONT.test(file);
@@ -41,6 +43,7 @@ export class AssetViewer {
         this.step(e.key === 'ArrowRight' ? 1 : -1);
       }
     });
+    trapModal(this.root, () => this.close());
   }
 
   get isOpen() { return !this.root.hidden; }

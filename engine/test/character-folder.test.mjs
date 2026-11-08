@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { characterId, scanFolder, standaloneChar, rigFile, studioDocOf, studioWrites, readRigSettings, writeRigText } from '../../dist/engine/src/index.js';
+import { characterId, scanFolder, standaloneChar, rigFile, studioDocOf, studioWrites, writeRigText } from '../../dist/engine/src/index.js';
 
 const at = (...paths) => paths;
 const files = (...paths) => paths.map(path => ({ path, mtime: 1000 + path.length }));
@@ -109,14 +109,14 @@ test('studioDocOf reads what the studio edits, and an empty rig has empty sectio
   const empty = studioDocOf({});
   assert.deepEqual(empty.parameters, []);
   assert.deepEqual(empty.anims, {});
-  assert.deepEqual(empty.rig, readRigSettings({}));
-  const doc = studioDocOf({ animations: { nod: { dur: 1, keys: [] } }, parameters: [{ id: 'a', min: 0, max: 1, default: 0 }], pivots: { head: [1, 2] }, autonomous: { idle: 'breathe' } });
+  assert.deepEqual(empty.reactions, []);
+  const doc = studioDocOf({ animations: { nod: { dur: 1, keys: [] } }, parameters: [{ id: 'a', min: 0, max: 1, default: 0 }], pivots: { head: [1, 2] }, reactions: [{ when: 'always', pose: 'happy' }] });
   assert.deepEqual(Object.keys(doc.anims), ['nod']);
   assert.equal(doc.parameters.length, 1);
   assert.deepEqual(doc.categories, []);
   assert.deepEqual(studioDocOf({ categories: ['A', 'B'] }).categories, ['A', 'B']);
   assert.deepEqual(doc.pivots, { head: [1, 2] });
-  assert.equal(doc.rig.idle, 'breathe');
+  assert.deepEqual(doc.reactions, [{ when: 'always', pose: 'happy' }]);
   assert.deepEqual(studioDocOf(null).anims, {});
   assert.deepEqual(studioDocOf({ parameters: 'nope' }).parameters, []);
 });
@@ -125,21 +125,17 @@ test('studioWrites rewrites only what changed and leaves the file layout and unk
   const text = '{\n  "order": ["body"],\n  "custom": { "keep": true },\n  "animations": {}\n}\n';
   const data = JSON.parse(text);
   const doc = studioDocOf(data);
-  const was = readRigSettings(data);
   const next = { ...doc, anims: { nod: { dur: 1, keys: [{ t: 0, x: 0 }] } } };
-  const out = writeRigText(text, studioWrites(next, was, data));
+  const out = writeRigText(text, studioWrites(next));
   const parsed = JSON.parse(out);
   assert.deepEqual(parsed.custom, { keep: true });
   assert.deepEqual(parsed.order, ['body']);
   assert.equal(parsed.animations.nod.dur, 1);
-  assert.ok(!('autonomous' in parsed)); // idle / speak / blink did not change
-  assert.ok(!('parameters' in parsed)); // an empty list is no key
-  // idle changed: autonomous is written on top of the file's own, so its other keys survive
-  const data2 = { ...data, autonomous: { speak: { anim: 'talk' }, extra: 1 } };
-  const doc2 = studioDocOf(data2);
-  const withAuto = { ...doc2, rig: { ...doc2.rig, idle: 'breathe' } };
-  const out2 = JSON.parse(writeRigText(JSON.stringify(data2), studioWrites(withAuto, readRigSettings(data2), data2)));
-  assert.equal(out2.autonomous.idle, 'breathe');
-  assert.equal(out2.autonomous.speak.anim, 'talk');
-  assert.equal(out2.autonomous.extra, 1);
+  assert.ok(!('reactions' in parsed)); // an empty list is no key
+  assert.ok(!('parameters' in parsed));
+  // reactions are written as a list, and animations keep their auto
+  const withReaction = { ...doc, anims: { blink: { dur: 0.1, keys: [], auto: { every: { min: 3, max: 6 } } } }, reactions: [{ when: 'mood > 1', pose: 'happy', over: 0.6 }] };
+  const out2 = JSON.parse(writeRigText(text, studioWrites(withReaction)));
+  assert.deepEqual(out2.reactions, [{ when: 'mood > 1', pose: 'happy', over: 0.6 }]);
+  assert.deepEqual(out2.animations.blink.auto, { every: { min: 3, max: 6 } });
 });

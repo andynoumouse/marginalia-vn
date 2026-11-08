@@ -118,8 +118,8 @@
 #animStudio .as-chev { flex: none; width: 0; height: 0; border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .1s; }
 #animStudio .as-sect-head[aria-expanded="true"] .as-chev { transform: rotate(90deg); }
 #animStudio .as-sect-sum { margin-left: auto; min-width: 0; color: var(--muted); font-weight: 400; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#animStudio :is(.as-sel-name, .as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit, .aw-add, .aw-grid, .aw-form, .aw-pt, .aw-tools, .aw-presets, .am-kind, .am-poly) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 12px 8px; }
-#animStudio .as-sect-body > :is(.as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit) , #animStudio .aw > :is(.aw-add, .aw-grid, .aw-form, .aw-pt, .aw-tools, .aw-presets), #animStudio .am > :is(.am-kind, .am-poly) { border-top: 1px solid var(--line); }
+#animStudio :is(.as-sel-name, .as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit, .aw-add, .aw-target, .aw-meshgen, .aw-topo, .aw-groupadd, .aw-members, .aw-grid, .aw-form, .aw-sel, .aw-pt, .aw-tools, .aw-xf, .aw-presets, .am-kind, .am-shape, .am-poly, .am-groupnote) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 12px 8px; }
+#animStudio .as-sect-body > :is(.as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit) , #animStudio .aw > :is(.aw-add, .aw-target, .aw-meshgen, .aw-topo, .aw-groupadd, .aw-members, .aw-grid, .aw-form, .aw-sel, .aw-pt, .aw-tools, .aw-xf, .aw-presets), #animStudio .am > :is(.am-kind, .am-shape, .am-poly, .am-groupnote) { border-top: 1px solid var(--line); }
 #animStudio .as-sect-body > .as-sel-name { padding-top: 8px; padding-bottom: 2px; }
 #animStudio .as-sect-body label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 #animStudio .as-gz-name { color: var(--text); min-width: 6ch; }
@@ -131,11 +131,14 @@
 #animStudio .aw .aw-amount, #animStudio .aw .aw-dx, #animStudio .aw .aw-dy { width: 72px; }
 #animStudio .aw .aw-keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 #animStudio .aw .aw-key[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
-#animStudio .aw .aw-keyhint, #animStudio .aw .aw-pthint, #animStudio .aw .aw-presethint { flex-basis: 100%; }
+#animStudio .aw .aw-topohint, #animStudio .aw .aw-genhint, #animStudio .aw .aw-keyhint, #animStudio .aw .aw-pthint, #animStudio .aw .aw-presethint { flex-basis: 100%; }
 #animStudio .am [hidden] { display: none; }
 #animStudio .am > p { margin: 0; padding: 8px 12px; }
 #animStudio .am .am-x, #animStudio .am .am-y { width: 72px; }
-#animStudio .am .am-hint, #animStudio .am .am-pthint { flex-basis: 100%; }
+#animStudio .am .am-hint, #animStudio .am .am-pthint, #animStudio .am .am-clips { flex-basis: 100%; }
+#animStudio .am .am-name { width: 140px; }
+#animStudio .am .am-groupissue, #animStudio .aw .aw-clipissue { color: var(--warn); }
+#animStudio .aw .aw-clipissues { flex-basis: 100%; }
 #animStudio .am .am-problem { color: var(--warn); }
 #animStudio .as-rest-note { margin: 0; padding: 0 12px 8px; }
 #animStudio .as-share { display: flex; flex-wrap: wrap; gap: 6px 12px; }
@@ -167,6 +170,8 @@
 #animStudio .as-badge { flex: none; font-size: 10px; line-height: 16px; padding: 0 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); }
 #animStudio .as-badge-slot { color: var(--accent); border-color: var(--accent); }
 #animStudio .as-badge-group { color: var(--warn); border-color: var(--warn); }
+#animStudio .as-badge-shape { color: #ff9f1c; border-color: #ff9f1c; }
+#animStudio .as-thumb.as-shape-icon { display: inline-flex; align-items: center; justify-content: center; color: #ff9f1c; font-size: 15px; background: none; border: 1px dashed #ff9f1c; }
 #animStudio .as-pname { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #animStudio .as-keyed { flex: none; font-size: 11px; color: var(--warn); }
 #animStudio .as-keyed::before { content: "◆ "; }
@@ -244,9 +249,8 @@
 /* Categories (Model): the header carries + (add here), rename and delete, shown on hover or focus; a drag lights the section it would land in. */
 #animStudio .ap-group h4 { display: flex; align-items: center; gap: 2px; }
 #animStudio .ap-group h4 .ap-fold { flex: 1 1 auto; min-width: 0; text-align: left; }
-#animStudio .ap-cat-btn { flex: none; padding: 0 6px; min-width: 0; border: 0; background: none; color: var(--muted); font-size: 13px; line-height: 1.4; }
+#animStudio .ap-cat-btn { flex: none; padding: 2px 9px; min-width: 24px; min-height: 24px; box-sizing: border-box; border: 0; background: none; color: var(--muted); font-size: 13px; line-height: 1.4; }
 #animStudio .ap-cat-btn:hover, #animStudio .ap-cat-btn:focus-visible { color: var(--accent); }
-#animStudio .ap-group:not(:hover, :focus-within) :is(.ap-cat-rename, .ap-cat-del) { display: none; }
 #animStudio .ap-cat-name { flex: 1 1 auto; min-width: 0; font: inherit; letter-spacing: inherit; text-transform: none; color: var(--text); background: var(--ink); border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; }
 #animStudio .ap-empty { margin: 4px 0 6px; }
 /* A pad's two sliders sit under it, indented: they are part of it. */
@@ -257,6 +261,10 @@
 #animStudio .ap-row { display: grid; grid-template-columns: 68px minmax(40px, 1fr) 52px auto auto auto auto; align-items: center; gap: 4px; padding: 2px 0; }
 /* One line to a control: in Model only the row that is active (or has focus) shows the reset and edit buttons, so the slider keeps its width. */
 #animStudio .ap-model :is(.ap-row, .ap-padrow):not(.ap-active, :focus-within):not(:has(.ap-edit-btn[aria-expanded="true"])) :is(.ap-reset, .ap-edit-btn, .ap-del-btn) { display: none; }
+/* The wrapper adds no box of its own, except on the active row in Model: there the three buttons drop to a line under the slider, so it keeps its width. */
+#animStudio .ap-tools { display: contents; }
+#animStudio .ap-model .ap-row.ap-active { grid-template-columns: 68px minmax(40px, 1fr) 52px auto; }
+#animStudio .ap-model .ap-row.ap-active .ap-tools { display: flex; gap: 4px; grid-column: 1 / -1; justify-self: end; }
 #animStudio .ap-filter { flex: 1 1 100%; min-width: 0; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
 #animStudio .ap-filter[hidden], #animStudio .ap-filtered { display: none; }
 #animStudio :is(.ap-key, .ap-reset, .ap-edit-btn, .ap-del-btn) { padding: 3px 7px; min-width: 0; }
@@ -271,15 +279,22 @@
 #animStudio .ap-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 8px 8px 12px; margin: 0 0 4px; border-left: 2px solid var(--line); background: color-mix(in srgb, var(--ink) 40%, transparent); }
 #animStudio .ap-editor[hidden], #animStudio .ap-model-only[hidden] { display: none; }
 #animStudio .ap-editor input[type="number"] { width: 72px; }
+#animStudio .ap-editor .ap-hint { flex-basis: 100%; opacity: 0.75; }
+/* The new-pad form is the thing to do next: framed in the accent, one field per row, the primary button lit once it can be used. */
+#animStudio .ap-draft { display: flex; flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 8px; margin: 6px 6px 8px; padding: 10px 12px 12px; border: 1px solid var(--accent); border-left-width: 4px; border-radius: 4px; background: color-mix(in srgb, var(--accent) 12%, var(--ink)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+#animStudio .ap-draft > strong { color: var(--accent); font-size: 14px; }
+#animStudio .ap-draft label { display: grid; grid-template-columns: 56px minmax(0, 1fr); align-items: center; gap: 8px; }
+#animStudio .ap-draft label :is(input, select) { width: 100%; min-width: 0; box-sizing: border-box; }
+#animStudio .ap-draft .ap-draft-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+#animStudio .ap-draft .ap-apply:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
 #animStudio .ap-edit-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
 #animStudio .ap-delete { margin-left: auto; color: var(--bad); }
 #animStudio .ap-del-btn { color: var(--bad); }
 #animStudio .ap-row label, #animStudio .ap-padrow label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #animStudio .ap-row input[type="range"] { accent-color: var(--accent); min-width: 0; }
 #animStudio .ap-num { width: 52px; }
-#animStudio .ap-padrow { display: grid; grid-template-columns: 64px 112px minmax(0, 1fr); grid-template-areas: "l pad btn" "l pad read" "l axes axes"; gap: 4px 8px; padding: 4px 0; align-items: start; }
-#animStudio .ap-axes { grid-area: axes; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-#animStudio .ap-axis[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#animStudio .ap-padrow { display: grid; grid-template-columns: 64px 112px minmax(0, 1fr); grid-template-areas: "l pad btn" "l pad axes"; gap: 4px 8px; padding: 4px 0; align-items: start; }
+#animStudio .ap-axes { grid-area: axes; align-self: end; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; } /* always one stack under the pad's buttons, however wide the panel is */
 #animStudio .ap-corners { position: absolute; inset: 0; pointer-events: none; }
 #animStudio .ap-corner { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; border: 1px solid var(--muted); box-sizing: border-box; }
 #animStudio .ap-corner.ap-authored { background: var(--warn); border-color: var(--warn); }
@@ -288,8 +303,21 @@
 #animStudio .ap-pad { grid-area: pad; position: relative; width: 112px; height: 112px; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; touch-action: none; cursor: crosshair; background-image: linear-gradient(var(--line), var(--line)), linear-gradient(var(--line), var(--line)); background-size: 1px 100%, 100% 1px; background-position: 50% 0, 0 50%; background-repeat: no-repeat; }
 #animStudio .ap-pad:focus-visible { outline: 2px solid var(--accent); }
 #animStudio .ap-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--accent); border: 2px solid var(--text); pointer-events: none; }
-#animStudio .ap-read { grid-area: read; color: var(--muted); font: 11px ui-monospace, Consolas, monospace; align-self: end; overflow-wrap: anywhere; }
 #animStudio .ap-btns { grid-area: btn; display: flex; flex-wrap: wrap; gap: 4px; }
+/* Narrow panel: the controls follow the panel's width, not the window's. A slider row becomes two lines (name, value and buttons over the slider); a pad row puts its buttons beside the name and the pad beside its grid buttons. */
+#animStudio .ap { container: ap / inline-size; }
+#animStudio .ap-body { overflow-x: hidden; }
+@container ap (max-width: 340px) {
+  #animStudio .ap-row, #animStudio .ap-model .ap-row.ap-active { grid-template-columns: minmax(0, 1fr) 52px auto; row-gap: 0; } /* the key button's column is explicit, so the slider's 1 / -1 reaches the same edge on an active and an inactive row */
+  #animStudio .ap-row > label { grid-row: 1; grid-column: 1; }
+  #animStudio .ap-row > .ap-num { grid-row: 1; grid-column: 2; }
+  #animStudio .ap-row > button { grid-row: 1; }
+  #animStudio .ap-row > .ap-track { grid-row: 2; grid-column: 1 / -1; padding-bottom: 7px; }
+  #animStudio .ap-padrow { grid-template-columns: 112px minmax(0, 1fr); grid-template-areas: "l btn" "pad axes"; }
+  #animStudio .ap-padrow .ap-btns { flex-wrap: wrap; justify-content: flex-end; }
+  #animStudio .ap-axes { align-self: end; }
+}
+#animStudio .ap-padrow .ap-btns { flex-wrap: nowrap; }
 #animStudio .ap-key { color: var(--muted); } #animStudio .ap-key.ap-tracked { color: #6fc3a8; } #animStudio .ap-key.ap-keyed { color: var(--warn); border-color: var(--warn); }
 #animStudio .ap-nokey .ap-key-all { display: none; }
 #animStudio[data-mode="model"] .ap-keyedit { display: none; }
@@ -331,12 +359,25 @@
 #animStudio .ab-key { color: var(--muted); }
 #animStudio .ab-key.ab-posed { color: var(--text); }
 #animStudio .ab-key[aria-pressed="true"], #animStudio .ab-aff[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
+#animStudio .ab-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 4px; font-size: 12px; }
+#animStudio .ab-crumbbtn { padding: 1px 6px; }
+#animStudio .ab-crumbword { font-weight: 600; }
+#animStudio .ab-prev, #animStudio .ab-next { padding: 0 6px; }
 #animStudio .ab-formtext { flex: 1 1 200px; min-width: 0; font-size: 12px; }
 #animStudio .ab-form input[type="number"] { width: 76px; }
 #animStudio .as-bindrow { display: flex; align-items: center; gap: 4px; }
-#animStudio .as-bind { flex: none; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 12px; border-radius: 3px; color: var(--accent); }
-#animStudio .as-bind[aria-checked="true"] { border-color: var(--accent); background: var(--ink); }
+#animStudio .as-bind { flex: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--accent); }
+#animStudio .as-bind:not(:empty) { border-color: var(--accent); background: var(--ink); }
+#animStudio .ab-picker { margin: 4px 12px; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--ink); display: flex; flex-direction: column; gap: 6px; }
+#animStudio .ab-picker[hidden] { display: none; }
+#animStudio .ab-pickhead { display: flex; justify-content: space-between; align-items: center; }
+#animStudio .ab-picklist { list-style: none; margin: 0; padding: 0; max-height: 14em; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+#animStudio .ab-picklist label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+#animStudio .ab-pickbtns { display: flex; gap: 6px; }
 #animStudio .aw-active { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--muted); }
 /* The list of controls scrolls on its own in Model mode, so the Bind block under it (what the active parameter is bound to) stays in view. */
-#animStudio[data-mode="model"] .ap-body:not(:has(.ap-editor:not([hidden]))) { max-height: 40vh; overflow-y: auto; }
+/* Parameters stops at 40vh only while another open section shares its column; alone it takes the whole height. */
+#animStudio[data-mode="model"] .as-dock:has(> .as-sect:not([hidden], [data-sect="params"], :has(> .as-sect-body[hidden]))) .ap-body:not(:has(.ap-editor:not([hidden]))) { max-height: 40vh; overflow-y: auto; }
 #animStudio .ab-form :is(label, button)[hidden], #animStudio .ab-size[hidden] { display: none; }
+#animStudio .aw .aw-memberlist { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; flex: 1 1 200px; }
+#animStudio .aw .aw-memberhint, #animStudio .aw .aw-targethint { flex-basis: 100%; }

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Marginalia VN</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="help.css">
 <link rel="stylesheet" href="studio.css">
 <style>
@@ -17,7 +18,9 @@
   button:hover { border-color: var(--muted); }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  #bar { height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--panel);
+  body { display: flex; flex-direction: column; }
+  /* One row when everything fits; below about 1160 px the groups wrap onto a second row, so Problems and the status stay on screen. */
+  #bar { flex: none; min-height: 44px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 12px; background: var(--panel);
     border-bottom: 1px solid var(--line); }
   #bar label { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
   #bar .group { display: flex; align-items: center; gap: 6px; padding-left: 10px; border-left: 1px solid var(--line); }
@@ -30,7 +33,7 @@
   #problems[data-errors="0"]:not([data-warns="0"]) { color: var(--warn); border-color: var(--warn); }
   #problems[data-errors="0"][data-warns="0"] { color: var(--muted); }
 
-  #main { position: absolute; inset: 44px 0 0 0; display: grid; grid-template-columns: auto minmax(0, 1fr) 6px var(--right); grid-template-rows: minmax(0, 1fr); }
+  #main { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) 6px var(--right); grid-template-rows: minmax(0, 1fr); }
   #main > #sidebar { grid-column: 1; } #main > #left { grid-column: 2; } #main > #split { grid-column: 3; } #main > #preview { grid-column: 4; }
   #left { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   #tabs { display: flex; gap: 2px; padding: 6px 8px 0; background: var(--panel); overflow-x: auto; }
@@ -96,9 +99,10 @@
   #sbList summary::before { content: "▸"; flex: none; width: 14px; font-size: 11px; transition: transform .1s; }
   #sbList details[open] > summary::before { transform: rotate(90deg); }
   #sbList summary > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  /* Hover icons on headings and folders (new file, new folder, add files): hidden until the row is hovered or focused. */
+  /* Icons on headings (new file, new folder, add files) always show, so adding art can be found (UX round ES-3, EP-16); on folders
+     they show once the row is hovered or focused. */
   #sbList .add { flex: none; display: grid; place-items: center; width: 22px; height: 20px; padding: 0; border: 0; background: none; color: var(--muted); border-radius: 3px; visibility: hidden; }
-  #sbList :is(summary, h3):is(:hover, :focus-within) .add { visibility: visible; }
+  #sbList h3 .add, #sbList summary:is(:hover, :focus-within) .add { visibility: visible; }
   #sbList .add:hover { background: rgba(255,255,255,.1); color: var(--text); }
   #sbList .item:hover { background: rgba(255,255,255,.06); }
   #sbList .item[aria-current="true"] { background: rgba(95, 209, 195, .16); }
@@ -109,7 +113,10 @@
   #sbList .badge.warns { background: var(--warn); }
   #sbList .none { padding: 4px 8px; color: var(--muted); }
   #sbList .dropping { outline: 1px dashed var(--accent, #5fd1c3); outline-offset: -2px; }
-  #sbList details.drop { background: rgba(95, 209, 195, .16); }
+  #sbList :is(details, h3, .none).drop { background: rgba(95, 209, 195, .16); }
+  #skip { position: absolute; left: 8px; top: -60px; z-index: 100; padding: 6px 12px; background: var(--accent); color: #0b0e13; border-radius: 4px; font-weight: 600; text-decoration: none; }
+  #skip:focus { top: 8px; }
+  #split:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent); }
   #split { background: var(--line); cursor: col-resize; }
   #split:hover, #split.drag { background: var(--accent); }
   #preview { width: 100%; height: 100%; border: 0; background: #06080b; }
@@ -327,12 +334,20 @@
   #outline .ol-info { padding: 6px 12px; border-top: 1px solid var(--line); color: var(--muted); font: 12px ui-monospace, Consolas, monospace; min-height: 30px; white-space: pre-wrap; max-height: 150px; overflow: auto; }
   body.no-preview #main { grid-template-columns: auto minmax(0, 1fr) 0 0; }
   body.no-preview #split, body.no-preview #preview { display: none; }
-  /* Narrow windows: the toolbar wraps and the preview pane steps aside so the code keeps its width. */
+  #paneBack { display: none; }
+  /* Narrow windows: the preview and the Files panel cover the code (body.preview-over, a shown #sidebar) instead of squeezing it
+     (editor/preview-pane.ts); the Editor button in the bar returns from the preview. */
   @media (max-width: 900px) {
-    #bar { overflow-x: auto; overflow-y: hidden; white-space: nowrap; } /* #main sits at a fixed 44px, so scroll instead of wrapping */
-    #bar > * { flex: none; }
     #main { grid-template-columns: auto minmax(0, 1fr) 0 0; }
     #split, #preview { display: none; }
+    body.preview-over #main > #preview { display: block; grid-column: auto; position: absolute; inset: 0; z-index: 30; width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; }
+    body.preview-over #paneBack { display: inline-block; }
+    #main > #sidebar { grid-column: auto; position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; width: min(240px, 85vw); box-shadow: 4px 0 24px rgba(0, 0, 0, .5); }
+  }
+  /* A phone-sized bar would take half the screen wrapped: scroll it in one row instead. */
+  @media (max-width: 600px) {
+    #bar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
+    #bar > * { flex: none; }
   }
 
   .vn-preview-line { background: rgba(95, 209, 195, .13); }
@@ -340,17 +355,19 @@
 </style>
 </head>
 <body>
+  <a id="skip" href="#main" title="Alt+1">Skip to the code editor</a>
   <div id="bar">
     <strong>Marginalia VN</strong>
     <div class="group">
       <button id="projectsBtn" type="button" hidden title="Save and go back to the project list">‹ Projects</button>
     </div>
     <div class="group">
-      <button id="filesBtn" type="button" title="Files and assets panel (Ctrl+B)">Files</button>
+      <button id="paneBack" type="button" title="Back to the code (Alt+1)">‹ Editor</button>
+      <button id="filesBtn" type="button" title="Files and assets panel (Ctrl+B; Alt+3 jumps to its filter)">Files</button>
     </div>
     <div class="group">
       <button id="playHere" class="primary" type="button" title="Ctrl+Enter">Preview from cursor</button>
-      <label><input id="follow" type="checkbox" checked> Follow preview</label>
+      <label title="After each reload, scroll the editor to the line the preview is on. Turn it off to stay where you are typing."><input id="follow" type="checkbox" checked> Follow preview</label>
     </div>
     <div class="group">
       <button id="varsBtn" type="button" title="Live story variables">Variables</button>
@@ -362,14 +379,14 @@
     <div class="group right">
       <button id="commands" type="button" title="All commands (Ctrl+P then &gt;)">Commands</button>
       <button id="helpBtn" type="button" title="Command reference for the statement at the cursor (F1)">Help</button>
-      <button id="problems" type="button" data-errors="0" data-warns="0" title="Problems in all files">Problems: 0</button>
+      <button id="problems" type="button" data-errors="0" data-warns="0" title="Errors and warnings in all files; click (or F8) for the next one">Problems: 0</button>
     </div>
     <span id="status">loading...</span>
   </div>
   <div id="main">
     <aside id="sidebar" hidden aria-label="Project files">
       <div id="sbHead">
-        <input id="sbFilter" type="search" placeholder="Filter files and assets" aria-label="Filter files and assets">
+        <input id="sbFilter" type="search" placeholder="Filter files and assets" aria-label="Filter files and assets" title="Alt+3 jumps here from anywhere">
       </div>
       <div id="sbGit" hidden></div>
       <div id="sbList"></div>
@@ -405,7 +422,7 @@
       </section>
     </div>
     <div id="split" role="separator" aria-orientation="vertical"></div>
-    <iframe id="preview" src="../" title="Live preview" allow="gamepad; fullscreen" allowfullscreen></iframe>
+    <iframe id="preview" src="../" title="Live preview (Alt+2 to play it with the keyboard)" allow="gamepad; fullscreen" allowfullscreen></iframe>
   </div>
   <script src="../vendor/monaco/vs/loader.js"></script>
   <script type="module" src="../dist/editor/editor.js"></script>

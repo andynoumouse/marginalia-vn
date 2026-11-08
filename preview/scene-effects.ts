@@ -2,7 +2,7 @@
 // the falling particles, the vignette, and the filters on the scene container.
 
 import { BlurFilter, ColorMatrixFilter, Container, Filter, GlProgram, Graphics, Sprite, Texture } from 'pixi.js';
-import { blurRadius, filterMatrix, MASK_SOFT, mulberry32, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type Particle, type WeatherName } from '../engine/src/index.js';
+import { blurRadius, filterMatrix, MASK_SOFT, SHADER_FILTERS, mulberry32, spawnParticle, stepParticle, weatherCount, WEATHER, type FilterName, type FxEnv, type Particle, type WeatherName } from '../engine/src/index.js';
 import { H, W } from './stage-ui.js';
 
 export class SceneEffects {
@@ -17,6 +17,8 @@ export class SceneEffects {
   private dot = Texture.EMPTY;
   private blur = new BlurFilter();
   private matrix = new ColorMatrixFilter();
+  private shaderLooks = new Map<FilterName, Filter>(); // the shader filters (glow, chromatic, glitch), made when first used
+  private lookClock = 0;
 
   /** `scene` carries the filters; reduced motion drops the falling things. */
   constructor(private scene: Container, private reduceMotion: () => boolean) {}
@@ -59,18 +61,19 @@ export class SceneEffects {
     for (const { sprite } of this.particles) sprite.destroy();
     this.particles = [];
   }
-  stepWeather(dt: number) {
+  stepWeather(dt: number, env: FxEnv = {}) {
     const w = this.weather;
     if (!w) return;
     this.clock += dt;
     for (const e of this.particles) {
-      if (!stepParticle(e.p, w.kind, dt, this.clock, W, H)) e.p = spawnParticle(w.kind, this.weatherRand, W, H, false);
+      if (!stepParticle(e.p, w.kind, dt, this.clock, W, H, env)) e.p = spawnParticle(w.kind, this.weatherRand, W, H, false, env);
       const { p, sprite } = e;
       sprite.position.set(p.x, p.y);
       sprite.alpha = p.alpha;
       if (w.kind === 'rain') {
-        sprite.scale.set(p.size / 32, Math.hypot(p.vx, p.vy) * 0.03 / 32);
-        sprite.rotation = Math.atan2(p.vy, p.vx) - Math.PI / 2;
+        const vx = p.vx + (env.windVx ?? 0) * WEATHER.rain.windy, vy = p.vy * (env.gravity ?? 1); // the streak lies along where it is going now
+        sprite.scale.set(p.size / 32, Math.hypot(vx, vy) * 0.03 / 32);
+        sprite.rotation = Math.atan2(vy, vx) - Math.PI / 2;
       } else if (w.kind === 'petals') {
         sprite.scale.set(p.size / 32, p.size * 0.55 / 32 * (0.6 + 0.4 * Math.abs(Math.sin(p.rot * 2))));
         sprite.rotation = p.rot;
@@ -85,9 +88,75 @@ export class SceneEffects {
     const m = f ? filterMatrix(f.name, f.strength) : null;
     if (f && f.name === 'blur' && f.strength > 0) { this.blur.strength = blurRadius(f.strength); filters.push(this.blur); }
     else if (f && m && f.strength > 0) { this.matrix.matrix = m as ColorMatrixFilter['matrix']; filters.push(this.matrix); }
+    else if (f && f.strength > 0 && SHADER_FILTERS.includes(f.name) && !(f.name === 'glitch' && this.reduceMotion())) {
+      const sh = this.shaderLook(f.name);
+      sh.resources.lookUniforms.uniforms.uStrength = Math.max(0, Math.min(1, f.strength));
+      filters.push(sh);
+    }
     if (this.pixelate) filters.push(this.pixelate);
     this.scene.filters = filters.length ? filters : null;
     this.vignette.alpha = f?.name === 'vignette' ? f.strength : 0;
+  }
+
+  /** Advance the clock of the glitch filter (the only one that moves); called every frame. */
+  stepLook(dt: number) {
+    this.lookClock += dt;
+    if (this.filterNow?.name === 'glitch') this.shaderLooks.get('glitch')!.resources.lookUniforms.uniforms.uTime = this.lookClock;
+  }
+
+  /** The shader filter for `glow` (a soft bloom of the bright parts), `chromatic` (red and blue pulled apart toward the edges) or `glitch` (bands of the picture torn sideways). */
+  private shaderLook(name: FilterName): Filter {
+    let f = this.shaderLooks.get(name);
+    if (f) return f;
+    const vertex = `
+      in vec2 aPosition; out vec2 vTextureCoord;
+      uniform highp vec4 uInputSize; uniform highp vec4 uOutputFrame; uniform highp vec4 uOutputTexture;
+      void main(void) {
+        vec2 position = aPosition * uOutputFrame.zw + uOutputFrame.xy;
+        position.x = position.x * (2.0 / uOutputTexture.x) - 1.0;
+        position.y = position.y * (2.0 * uOutputTexture.z / uOutputTexture.y) - uOutputTexture.z;
+        gl_Position = vec4(position, 0.0, 1.0);
+        vTextureCoord = aPosition * (uOutputFrame.zw * uInputSize.zw);
+      }`;
+    const head = 'in vec2 vTextureCoord; out vec4 finalColor; uniform sampler2D uTexture; uniform highp vec4 uInputSize; uniform float uStrength; uniform float uTime;';
+    const body: Record<string, string> = {
+      chromatic: `
+        vec2 c = vTextureCoord - 0.5;
+        vec2 off = c * length(c) * uStrength * 0.12;
+        vec4 g = texture(uTexture, vTextureCoord);
+        finalColor = vec4(texture(uTexture, vTextureCoord + off).r, g.g, texture(uTexture, vTextureCoord - off).b, g.a);`,
+      glow: `
+        vec4 base = texture(uTexture, vTextureCoord);
+        vec3 acc = vec3(0.0);
+        for (int ring = 0; ring < 2; ring++) {
+          float radius = ring == 0 ? 0.006 : 0.016; // fractions of the picture width, so the glow looks the same at any resolution
+          for (int i = 0; i < 8; i++) {
+            float a = 6.2831853 * (float(i) + 0.5 * float(ring)) / 8.0;
+            vec3 s = texture(uTexture, vTextureCoord + vec2(cos(a), sin(a) * uInputSize.x * uInputSize.w) * radius).rgb;
+            acc += max(s - 0.55, 0.0) / 0.45;
+          }
+        }
+        finalColor = vec4(base.rgb + acc / 16.0 * uStrength * 1.5, base.a);`,
+      glitch: `
+        float step_ = floor(uTime * 12.0);
+        float band = floor(vTextureCoord.y * 22.0);
+        float r1 = fract(sin(band * 91.345 + step_ * 12.9898) * 43758.5453);
+        float r2 = fract(sin(band * 17.123 + step_ * 78.233) * 24634.6345);
+        float torn = step(1.0 - 0.3 * uStrength, r1);
+        float shift = (r2 - 0.5) * 0.16 * uStrength * torn;
+        vec2 uv = vec2(fract(vTextureCoord.x + shift), vTextureCoord.y);
+        float split = 0.012 * uStrength * torn;
+        vec4 g = texture(uTexture, uv);
+        finalColor = vec4(texture(uTexture, uv + vec2(split, 0.0)).r, g.g, texture(uTexture, uv - vec2(split, 0.0)).b, g.a);`,
+    };
+    f = new Filter({
+      glProgram: GlProgram.from({ vertex, fragment: `${head}
+void main(void) {${body[name]}
+}` }),
+      resources: { lookUniforms: { uStrength: { value: 1, type: 'f32' }, uTime: { value: 0, type: 'f32' } } },
+    });
+    this.shaderLooks.set(name, f);
+    return f;
   }
 
   /** The filter of an image-mask dissolve: shows the filtered picture where the mask's brightness is below the progress `uK` (same maths as `maskReveal`). */

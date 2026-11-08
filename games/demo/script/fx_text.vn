@@ -1,0 +1,228 @@
+# fx_text.vn - feature index cards about text: tags, timing, full-page narration, menus, input and number formats. The pattern is
+# the one in fx_stage.vn. A tag in a variable would be obeyed when the panel shows it, so in the fx_fired strings below every
+# opening brace is followed by an invisible zero-width space: the panel then shows the tag as written instead of using it.
+
+label fx_text_tags:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Text tags", "Tags inside a line change how it looks: slant, weight, colour, size, motion, and a small reading above a word.")
+  set fx_a_label = "Tag"
+  set fx_a1 = "italic"
+  set fx_a2 = "bold"
+  set fx_a3 = "color"
+  set fx_a4 = "size"
+  set fx_a5 = "wave"
+  set fx_a6 = "shake"
+  set fx_a7 = "ruby"
+
+label fx_text_tags_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "{​i}slanted{​/i}"
+      iris: Some words come out {i}slanted{/i}. #pfep
+    elif fx_pa == 2:
+      set fx_fired = "{​b}heavy{​/b}"
+      iris: Others come out {b}heavy{/b}. #u9m8
+    elif fx_pa == 3:
+      set fx_fired = "{​color=#ff9f7c}warm{​/color}"
+      iris: Or {color=#ff9f7c}warm{/color}, or any colour you like. #y8la
+    elif fx_pa == 4:
+      set fx_fired = "{​size=1.5}big{​/size}"
+      iris: Or {size=1.5}big{/size}, or {size=0.8}small{/size}. #lrpg
+    elif fx_pa == 5:
+      set fx_fired = "{​wave}wavy{​/wave}"
+      iris: Or {wave}wavy{/wave}, like a flag in the wind. #gi8o
+    elif fx_pa == 6:
+      set fx_fired = "{​shake}nervous{​/shake}"
+      iris: Or {shake}nervous{/shake}, like me in a storm. #uxbd
+    else:
+      set fx_fired = "{​ruby=shizuka}静か{​/ruby}"
+      iris: {ruby=shizuka}静か{/ruby}: that is quiet in Japanese. The small reading above is a ruby tag. #bhu3
+    jump fx_text_tags_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_text_tags_loop
+  hide iris fade 0.2
+  return
+
+label fx_text_timing:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Text timing", "Pause the typing, wait for a click mid-line, go on to the next line by itself, or slow the text down.")
+  set fx_a_label = "Tag"
+  set fx_a1 = "pause"
+  set fx_a2 = "wait"
+  set fx_a3 = "nw"
+  set fx_a4 = "speed"
+
+label fx_text_timing_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "{​pause=0.8}"
+      iris: A pause{pause=0.8} in the middle of a line. #e7l3
+    elif fx_pa == 2:
+      set fx_fired = "{​wait}"
+      iris: Wait for a click{wait} and the line goes on. #czkm
+    elif fx_pa == 3:
+      set fx_fired = "{​nw}"
+      iris: This line moves on by itself.{nw} #fg2f
+      iris: See? No click needed. #p6f3
+    else:
+      set fx_fired = "{​speed=0.4}careful{​/speed}"
+      iris: Slow and {speed=0.4}careful{/speed}, then quick again. #iwz5
+    jump fx_text_timing_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_text_timing_loop
+  hide iris fade 0.2
+  return
+
+label fx_nvl:
+  scene bg_reading_room fade 0.4
+  call fx_open("Full-page text", "nvl on gathers lines on one page. nvl clear starts a new page, nvl off goes back to the text box.")
+  set fx_a_label = "Page of"
+  set fx_a1 = "Narration"
+  set fx_a2 = "Speakers"
+
+label fx_nvl_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    set fx_fired = "nvl on  /  nvl clear  /  nvl off"
+    if fx_pa == 1:
+      nvl on
+      "The rain had not stopped for three days." #v0vl
+      "Even the crows had gone quiet." #ufyz
+      nvl clear
+      "A new page. The old lines are gone." #d5i2
+      nvl off
+    else:
+      nvl on
+      iris: Lines pile up on one page. #ndp6
+      theo: And the speaker's name comes first. #kg90
+      nvl clear
+      iris: A new page. #cafr
+      nvl off
+    jump fx_nvl_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_nvl_loop
+  return
+
+label fx_menus:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Menus", "A plain menu, a locked option that says why, and a clock that runs out. Brass key: can the locked one open?")
+  set fx_a_label = "Menu"
+  set fx_a1 = "Plain"
+  set fx_a2 = "Locked"
+  set fx_a3 = "Timed"
+  set fx_b_label = "Brass key"
+  set fx_b1 = "No"
+  set fx_b2 = "Yes"
+
+label fx_menus_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = 'menu "Which book?":'
+      menu "Which book?" #iktb:
+        "The atlas" #sqjg:
+          iris: Maps of places that never were. #pucu
+        "The novel" #v1o1:
+          iris: Rain on every page. #vost
+    elif fx_pa == 2:
+      set fx_key = fx_pb - 1
+      set fx_fired = '"Open the box" if key else "You need the brass key.":'
+      menu "A dusty box sits on the shelf." #mija:
+        "Open the box" #s38i if fx_key == 1 else "You need the brass key." #xcdo:
+          iris: Postcards, stained by rain. #q2hb
+        "Leave it" #d18o:
+          iris: Some boxes are best left alone. #exvo
+    else:
+      set fx_fired = 'menu "The lamp flickers!" timeout 5:'
+      menu "The lamp flickers!" #rq2m timeout 5:
+        "Steady it" #vc9p:
+          iris: Thank you. The light steadies. #itww
+        "Wait" #libm:
+          iris: Waiting works, sometimes. #jox1
+        on timeout:
+          iris: Too slow! The lamp went out. #y3g0
+    jump fx_menus_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_menus_loop
+  hide iris fade 0.2
+  return
+
+set fx_key = 0
+set fx_name = ""
+set fx_n = 1
+
+label fx_input:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Asking a name", "input asks the player for text and keeps it in a variable, cut to a length. The answer can be used in any line.")
+  set fx_a_label = "Longest answer"
+  set fx_a1 = "6 letters"
+  set fx_a2 = "16 letters"
+
+label fx_input_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = 'input fx_name "What should I call you?" default="Reader" max=6'
+      input fx_name "What should I call you?" default="Reader" max=6 #cjqt
+    else:
+      set fx_fired = 'input fx_name "What should I call you?" default="Reader" max=16'
+      input fx_name "What should I call you?" default="Reader" max=16 #quz3
+    iris: Nice to meet you, [fx_name]. #ljds
+    jump fx_input_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_input_loop
+  hide iris fade 0.2
+  return
+
+label fx_number_formats:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Number formats", "A variable in square brackets shows its value; a format after a colon shapes it.")
+  set fx_a_label = "Format"
+  set fx_a1 = "plain"
+  set fx_a2 = "decimals"
+  set fx_a3 = "thousands"
+  set fx_a4 = "plural"
+  set fx_b_label = "Number"
+  set fx_b1 = "1"
+  set fx_b2 = "2"
+  set fx_b3 = "1234.5"
+
+label fx_number_formats_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pb == 1:
+      set fx_n = 1
+    elif fx_pb == 2:
+      set fx_n = 2
+    else:
+      set fx_n = 1234.5
+    if fx_pa == 1:
+      set fx_fired = "You have [fx_n] coins."
+      iris: You have [fx_n] coins. #w3hp
+    elif fx_pa == 2:
+      set fx_fired = "You have [fx_n:2] coins."
+      iris: You have [fx_n:2] coins. #o600
+    elif fx_pa == 3:
+      set fx_fired = "You have [fx_n:,] coins."
+      iris: You have [fx_n:,] coins. #jjwu
+    else:
+      set fx_fired = "You have [fx_n] [fx_n:coin|coins]."
+      iris: You have [fx_n] [fx_n:coin|coins]. #o5vd
+    jump fx_number_formats_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_number_formats_loop
+  hide iris fade 0.2
+  return

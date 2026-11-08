@@ -20,15 +20,15 @@ export const STUDIO_SECTIONS: Record<StudioMode, SectionSpec[]> = {
     { id: 'poses', title: 'Poses', open: false },
     { id: 'params', title: 'Parameters', open: true },
     { id: 'keyforms', title: 'Keyforms', open: true },
-    { id: 'sel', title: 'Selection', open: true },
+    { id: 'sel', title: 'Properties', open: true },
     { id: 'warp', title: 'Warp', open: false },
     { id: 'mask', title: 'Mask', open: false },
     { id: 'physics', title: 'Physics', open: false },
-    { id: 'auto', title: 'By itself', open: false },
+    { id: 'reactions', title: 'Reactions', open: false },
   ],
   animate: [
     { id: 'tree', title: 'Parts', open: true },
-    { id: 'sel', title: 'Selection', open: true },
+    { id: 'sel', title: 'Properties', open: true },
     { id: 'poses', title: 'Poses', open: false },
     { id: 'params', title: 'Parameters', open: true },
     { id: 'frames', title: 'Frames', open: false },
@@ -145,7 +145,7 @@ export const STUDIO_ZONES = ['left', 'left2', 'right'] as const;
 const START: Record<(typeof STUDIO_ZONES)[number], string[]> = {
   left: ['poses', 'params', 'tree'],
   left2: [],
-  right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'auto', 'place'],
+  right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'reactions', 'place'],
 };
 
 export function studioDockSpec(): DockSpec {

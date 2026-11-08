@@ -50,8 +50,8 @@ export interface Theme extends Skin {
   skins?: Record<string, Skin>;
 }
 
-/** A theme file (`themes/<name>.json`): the layered form of docs/design/theming.md, or the legacy `Theme` keys, or both. */
-export interface ThemeFile extends Omit<Theme, 'screens'> {
+/** A theme file (`themes/<name>.json`): the layered form of docs/design/theming.md. */
+export interface ThemeFile {
   extends?: string;
   tokens?: Tokens & { accent?: string; font?: string };
   components?: {
@@ -109,10 +109,9 @@ const isUiKey = (k: string) => {
   return !!c && rest.length === 0 && (variant === undefined || (!!c.variants && Object.hasOwn(c.variants, variant)));
 };
 
-/** Maps the layered keys (tokens, components, styles) onto the flat `Theme`; legacy keys in the same object win over nothing, and layered ones win over legacy. */
+/** Maps the layered keys (tokens, components, styles) onto the flat `Theme` the renderer reads. */
 export function normalizeTheme(raw: ThemeFile): Theme {
-  const { extends: _ext, tokens, components, styles, screens, ...legacy } = raw;
-  void _ext;
+  const { tokens, components, styles, screens } = raw;
   const c = components ?? {};
   const h = c.hotspot, t = c.tooltip;
   const ui: Record<string, UiComponent> = {};
@@ -143,28 +142,27 @@ export function normalizeTheme(raw: ThemeFile): Theme {
     ...(t?.font !== undefined ? { tipFont: t.font } : {}),
     ...(styles ? { skins: styles } : {}),
   };
-  return mergeDeep(legacy as Record<string, unknown>, layered as Record<string, unknown>) as Theme;
+  return layered;
 }
 
 /**
- * game.json `theme` as a flat Theme: an object is the inline (legacy) form; a string names `themes/<name>.json` in `files`
- * (name -> parsed JSON), followed through `extends` (project themes first, then built-in ones). Problems go to `warn`
- * and the theme falls back to what could be read; a missing file gives the plain built-in look.
+ * game.json `theme` as a flat Theme: a string names `themes/<name>.json` in `files` (name -> parsed JSON), followed
+ * through `extends` (project themes first, then built-in ones). Problems go to `warn` and the theme falls back to what
+ * could be read; a missing file gives the plain built-in look.
  */
 export function resolveTheme(theme: unknown, files: Record<string, unknown>, warn: (message: string) => void = () => {}): Theme {
-  if (isObj(theme)) return normalizeTheme(theme as ThemeFile);
-  if (typeof theme !== 'string') return {};
-  const load = (n: string, seen: string[]): ThemeFile => {
+  if (theme === undefined) return {};
+  if (typeof theme !== 'string') { warn('game.json "theme" needs the name of a theme file (themes/<name>.json)'); return {}; }
+  const load = (n: string, seen: string[]): Theme => {
     if (seen.includes(n)) { warn(`Theme "${n}" extends itself (${[...seen, n].join(' -> ')})`); return {}; }
     const raw = Object.hasOwn(files, n) ? files[n] : Object.hasOwn(BUILTIN_THEMES, n) ? BUILTIN_THEMES[n] : undefined;
     if (!isObj(raw)) { warn(raw === undefined ? `No theme "${n}" (add themes/${n}.json)` : `Theme "${n}" needs a JSON object`); return {}; }
     const own = raw as ThemeFile;
-    if (own.extends === undefined) return own;
-    if (typeof own.extends !== 'string') { warn(`Theme "${n}": extends needs a theme name`); return own; }
-    const parent = normalizeTheme(load(own.extends, [...seen, n]));
-    return mergeDeep(parent as Record<string, unknown>, normalizeTheme(own) as Record<string, unknown>) as ThemeFile;
+    if (own.extends === undefined) return normalizeTheme(own);
+    if (typeof own.extends !== 'string') { warn(`Theme "${n}": extends needs a theme name`); return normalizeTheme(own); }
+    return mergeDeep(load(own.extends, [...seen, n]) as Record<string, unknown>, normalizeTheme(own) as Record<string, unknown>) as Theme;
   };
-  return normalizeTheme(load(theme, []));
+  return load(theme, []);
 }
 
 /**

@@ -25,7 +25,11 @@ export const rigName = (char: string) => `char/${char}/rig.json`;
 export const norm = (s: string) => s.replace(/\r\n/g, '\n');
 
 // kind 'rig' is a character's assets/char/<char>/rig.json (tab name char/<char>/rig.json)
-export interface FileState { name: string; kind: 'script' | 'game' | 'rig' | 'theme' | 'themecss'; char?: string; model: any; saved: string; timer: number }
+export interface FileState {
+  name: string; kind: 'script' | 'game' | 'rig' | 'theme' | 'themecss'; char?: string; model: any; saved: string; timer: number;
+  /** Why the last save failed, until one goes through; `tries` counts the failures and `retry` is the timer of the next attempt. */
+  failed?: string; tries?: number; retry?: number;
+}
 /** The open files by tab name. */
 export const files = new Map<string, FileState>();
 

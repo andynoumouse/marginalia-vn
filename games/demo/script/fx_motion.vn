@@ -1,0 +1,208 @@
+# fx_motion.vn - feature index cards about motion: the animate presets, your own transforms and choreography. The pattern is the
+# one in fx_stage.vn. The transforms and choreographies are defined here at the top level (their names are global).
+
+# Values are relative to where the character stands, and the amount scales them: the same transform serves every character.
+transform wobble(amount=1):
+    rot=-2*amount 0.15
+    rot=2*amount 0.3 ease=inout
+    rot=0 0.15
+
+transform arrive(amount=1):
+    x=-0.25*amount
+    alpha=0
+    parallel:
+        x=0 0.6 ease=out
+    parallel:
+        alpha=1 0.6
+
+transform heartbeat(amount=1):
+    scale=1+0.05*amount 0.12
+    scale=1 0.12
+    scale=1+0.08*amount 0.12
+    scale=1 0.3
+
+# A staged moment for several actors, as a timetable: "<seconds> <actor>: <step>". The camera can be an actor too.
+choreography meeting:
+    0.0 iris: x=0.1 0.8 ease=out
+    0.0 theo: x=-0.1 0.8 ease=out
+    0.8 iris: hop
+    1.0 theo: nod
+    1.4 camera: scale=1.06 0.6 ease=inout
+    2.0 iris: x=0 0.6 ease=inout
+    2.0 theo: x=0 0.6 ease=inout
+    2.0 camera: scale=1 0.6 ease=inout
+
+choreography startled:
+    0.0 iris: hop 0.25 strength=2
+    0.0 theo: shake 0.4
+    0.0 camera: scale=1.08 0.2 ease=out
+    0.5 iris: shiver 0.5
+    0.5 camera: scale=1 0.4 ease=inout
+
+choreography farewell:
+    0.0 iris: x=-0.1 0.8 ease=inout
+    0.0 theo: x=0.1 0.8 ease=inout
+    0.8 iris: nod
+    0.8 theo: nod
+    1.6 iris: x=0 0.6 ease=inout
+    1.6 theo: x=0 0.6 ease=inout
+
+label fx_animate_presets:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Animate presets", "Ready-made motions for any character. Play one once, or loop it until you press Reset.")
+  set fx_a_label = "Preset"
+  set fx_a1 = "breathe"
+  set fx_a2 = "bob"
+  set fx_a3 = "sway"
+  set fx_a4 = "nod"
+  set fx_a5 = "shiver"
+  set fx_a6 = "pulse"
+  set fx_a7 = "bounce"
+  set fx_b_label = "Plays"
+  set fx_b1 = "Once"
+  set fx_b2 = "Loop"
+
+label fx_animate_presets_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "animate iris breathe"
+        animate iris breathe
+      else:
+        set fx_fired = "animate iris breathe loop"
+        animate iris breathe loop
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "animate iris bob"
+        animate iris bob
+      else:
+        set fx_fired = "animate iris bob loop"
+        animate iris bob loop
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "animate iris sway"
+        animate iris sway
+      else:
+        set fx_fired = "animate iris sway loop"
+        animate iris sway loop
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "animate iris nod"
+        animate iris nod
+      else:
+        set fx_fired = "animate iris nod loop"
+        animate iris nod loop
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "animate iris shiver"
+        animate iris shiver
+      else:
+        set fx_fired = "animate iris shiver loop"
+        animate iris shiver loop
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "animate iris pulse"
+        animate iris pulse
+      else:
+        set fx_fired = "animate iris pulse loop"
+        animate iris pulse loop
+    else:
+      if fx_pb == 1:
+        set fx_fired = "animate iris bounce"
+        animate iris bounce
+      else:
+        set fx_fired = "animate iris bounce loop"
+        animate iris bounce loop
+    jump fx_animate_presets_loop
+  elif act == "reset":
+    set fx_fired = "animate iris stop"
+    animate iris stop
+    jump fx_animate_presets_loop
+  animate iris stop
+  hide iris fade 0.2
+  return
+
+label fx_transform:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Your own animation", "A transform is a short list of steps you write yourself. Its amount is a parameter, so one transform serves any size.")
+  set fx_a_label = "Transform"
+  set fx_a1 = "wobble"
+  set fx_a2 = "arrive"
+  set fx_a3 = "heartbeat"
+  set fx_b_label = "Amount"
+  set fx_b1 = "Small"
+  set fx_b2 = "Medium"
+  set fx_b3 = "Big"
+
+label fx_transform_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "animate iris wobble(0.5)"
+        animate iris wobble(0.5)
+      elif fx_pb == 2:
+        set fx_fired = "animate iris wobble(1)"
+        animate iris wobble(1)
+      else:
+        set fx_fired = "animate iris wobble(2)"
+        animate iris wobble(2)
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "animate iris arrive(0.5)"
+        animate iris arrive(0.5)
+      elif fx_pb == 2:
+        set fx_fired = "animate iris arrive(1)"
+        animate iris arrive(1)
+      else:
+        set fx_fired = "animate iris arrive(2)"
+        animate iris arrive(2)
+    else:
+      if fx_pb == 1:
+        set fx_fired = "animate iris heartbeat(0.5)"
+        animate iris heartbeat(0.5)
+      elif fx_pb == 2:
+        set fx_fired = "animate iris heartbeat(1)"
+        animate iris heartbeat(1)
+      else:
+        set fx_fired = "animate iris heartbeat(2)"
+        animate iris heartbeat(2)
+    jump fx_transform_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_transform_loop
+  hide iris fade 0.2
+  return
+
+label fx_choreography:
+  scene bg_reading_room fade 0.4
+  show iris smile at 0.2 fade 0.3
+  show theo neutral at 0.5 fade 0.3
+  call fx_open("Choreography", "Several actors on one timetable: two characters and the camera move together, then come to rest.")
+  set fx_a_label = "Perform"
+  set fx_a1 = "meeting"
+  set fx_a2 = "startled"
+  set fx_a3 = "farewell"
+
+label fx_choreography_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "perform meeting"
+      perform meeting
+    elif fx_pa == 2:
+      set fx_fired = "perform startled"
+      perform startled
+    else:
+      set fx_fired = "perform farewell"
+      perform farewell
+    jump fx_choreography_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_choreography_loop
+  hide iris fade 0.2
+  hide theo fade 0.2
+  return

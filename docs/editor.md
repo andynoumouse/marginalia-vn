@@ -2,7 +2,7 @@
 
 The editor edits scripts and `game.json` next to the live preview. Open it at http://localhost:5173/editor/ (after
 `npm run dev`), in [Marginalia Studio](studio.md) or in the [online demo](online.md). A tour with screenshots is in
-[tutorial/00-the-editor.md](tutorial/00-the-editor.md).
+[tutorial/deeper/h-editor-tour.md](tutorial/deeper/h-editor-tour.md).
 
 Contents: [Palette](#palette-ctrlp) · [Files panel](#files-panel) · [Git](#git) · [Refactoring and search](#refactoring-and-search) ·
 [Problems and quick fixes](#problems-and-quick-fixes) · [Preview from cursor](#preview-from-cursor) ·
@@ -29,8 +29,10 @@ Left/Right step through the folder. A click on a script opens it and leaves the 
 double-click moves on to the editor.
 
 **Adding files.** Drop image, sound or font files from the desktop onto the assets list. Onto a folder they go
-there; elsewhere they go by type (images to `bg`, sounds to `music`, fonts to `fonts`). A PSD must go on the `bg`,
-`char` or `ui` folder and lands in `masters/`. Existing files are never overwritten. The icons on each heading and
+there, if it takes that kind of file (`bg` and `ui` take images, `music` and `sound` sounds, `fonts` fonts, `movie`
+movies, `char` only a character's own folder; a folder you made yourself takes any); elsewhere they go by type
+(images to `bg`, sounds to `music`, fonts to `fonts`). A PSD must go on the `bg`, `char` or `ui` folder and lands in
+`masters/`. Existing files are never overwritten. The icons on each heading and
 folder (shown on hover) do the same without dragging: new script file or folder, add files through the file picker,
 add a character PSD, new asset folder.
 
@@ -48,13 +50,13 @@ app (Photoshop), copy a path, or reveal the file in Explorer or Finder.
 **Trash.** Nothing these actions remove is lost: deleted files and the old version of a replaced one go to `.trash/`
 in the project folder. The message that follows has **Undo**, and **Restore from Trash** (in the palette, or by
 right-clicking the Project heading) lists everything still there. Entries older than 30 days, then the oldest past
-2 GB, are emptied for good. **Empty Trash** does it at once.
+2 GB, are emptied for good. **Empty Trash** does it at once, after a question that starts on Cancel.
 
 **References follow renames.** Renaming or moving an asset file or folder rewrites the scripts and `game.json` that
 name it: `scene`, `image show`, `music`, `sound`, `define ... image=` and `blip=`, screen `image`/`mask`/`hover`
 files, and the title, gallery, splash, music room, blips and theme images in `game.json`. It is one undo step per
-file. A mention that cannot reach the new place (`music play` only finds files directly in `assets/music/`) is listed
-in the message. Character poses (`show alice smile`) are not followed.
+file. A mention that cannot reach the new place (`music play` only finds files directly in `assets/music/`, `scene` only
+backgrounds in `assets/bg/` or at the root of `assets/`) is left as it is and listed in the message. Character poses (`show alice smile`) are not followed.
 
 **Tabs** close with their × (or middle-click, or Alt+W). Closing only hides the tab; the script still compiles with
 the rest.
@@ -107,11 +109,19 @@ are gone. `show alice ` completes `rig.json` shorthands and `slot=` names.
 ## Preview from cursor
 
 **Ctrl+Enter** plays the game from the line under the cursor. The preview replays the story from `start` up to that
-line, so a `show` before it is on stage.
+line, so a `show` before it is on stage. It stops in the label the cursor is in: a subroutine the story calls on the way,
+even one written further down the file, does not catch the stop.
 
 It also works on lines the story never reaches (a label nothing jumps to yet): the preview runs the top-level
 setup, then plays that label from its start up to the line. When the label skips the line (an `if` that is false) or
 never gets to it, the preview enters the code at the line itself.
+
+## Phone and tablet preview
+
+The palette commands **Preview: Phone, landscape**, **Phone, portrait**, **Tablet, landscape** and **Desktop** size the preview pane like
+that device (as far as the pane has room) and make the game inside act as on a touch screen: the quick bar and the text are sized
+for a finger, and the mouse stands in for one, so a drag is a swipe and a held click a long press (see `touch` in
+[game-json.md](game-json.md)). The choice lasts until the editor is closed. It is a look at the layout, not a test on a device.
 
 ## Variables
 
@@ -158,7 +168,17 @@ open beside the editor. F1 also lists all the editor's keys under "Editor keys".
 | Alt+Z | Word wrap |
 | Alt+W | Close tab |
 | Alt+1 / Alt+2 / Alt+3 | Focus the editor / the preview (to play it with the keyboard) / the Files panel's filter, from anywhere |
-| Ctrl+M | Monaco: make Tab leave the script instead of indenting |
+| Ctrl+M | Make Tab (and Shift+Tab) leave the script for the next (previous) control instead of indenting; press it again to indent again |
+
+Dialogs (Build, Translate, Voice, Outline, Theme, Commit, Help) keep Tab inside them, Esc closes them wherever the focus is,
+and the focus goes back to the button that opened them.
+
+## Narrow windows
+
+Up to about 1160 px wide the top bar wraps onto a second row, so Problems and the status stay visible. At 900 px and below
+there is no room for the preview beside the code: **Preview from cursor**, the palette's Preview commands and Alt+2 show
+it over the code, and the **‹ Editor** button in the bar (or Alt+1) brings the code back. The Files panel covers the code
+too, and goes away when you open a file. Under 600 px the bar scrolls sideways in one row.
 
 ## Build
 

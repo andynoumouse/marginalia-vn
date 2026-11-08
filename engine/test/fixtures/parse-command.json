@@ -441,13 +441,92 @@
  "move ann to left ease=wobble": {
   "ops": [],
   "diagnostics": [
-   "error: Unknown ease \"wobble\" (linear, in, out, inout, back, bounce, elastic)"
+   "error: Unknown ease \"wobble\" (linear, in, out, inout, back, bounce, elastic, or bezier(x1,y1,x2,y2))"
   ]
+ },
+ "move ann to left ease=bezier(0.2,0,0.4,1)": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.2,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "bezier(0.2,0,0.4,1)"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to left ease=cubic-bezier(0.2,1.5,0.4,1)": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": 0.2,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "cubic-bezier(0.2,1.5,0.4,1)"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann to left ease=bezier(2,0,0.4,1)": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown ease \"bezier(2,0,0.4,1)\": a bezier is bezier(x1,y1,x2,y2) with four numbers and x1 and x2 from 0 to 1"
+  ]
+ },
+ "move ann to left ease=bezier(0.2,0,0.4)": {
+  "ops": [],
+  "diagnostics": [
+   "error: Unknown ease \"bezier(0.2,0,0.4)\": a bezier is bezier(x1,y1,x2,y2) with four numbers and x1 and x2 from 0 to 1"
+  ]
+ },
+ "camera zoom 2 ease=bezier(0.2,0,0.4,1)": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": 2,
+    "x": 0.5,
+    "y": 0.5,
+    "dur": 0,
+    "ease": "bezier(0.2,0,0.4,1)"
+   }
+  ],
+  "diagnostics": []
+ },
+ "image move logo scale=2 ease=bezier(0.2,0,0.4,1)": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "move",
+    "name": "logo",
+    "x": null,
+    "y": null,
+    "scale": 2,
+    "rotation": null,
+    "alpha": null,
+    "anchor": null,
+    "dur": 0,
+    "ease": "bezier(0.2,0,0.4,1)"
+   }
+  ],
+  "diagnostics": []
  },
  "move ann": {
   "ops": [],
   "diagnostics": [
-   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [flip=on|off] [anchor=] [seconds] [ease=]"
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]"
   ]
  },
  "move ann to": {
@@ -459,7 +538,7 @@
  "move ann bogus": {
   "ops": [],
   "diagnostics": [
-   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [flip=on|off] [anchor=] [seconds] [ease=]"
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]"
   ]
  },
  "move ann to right nowait": {
@@ -695,12 +774,263 @@
    "error: Use: hop <char> [seconds]"
   ]
  },
+ "burst sparkle": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "sparkle",
+    "count": null,
+    "dur": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "burst sparkle at ann": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "sparkle",
+    "char": "ann",
+    "count": null,
+    "dur": null
+   }
+  ],
+  "diagnostics": []
+ },
+ "burst confetti at center y=0.3 count=80 2": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "confetti",
+    "x": 0.5,
+    "y": 0.3,
+    "count": 80,
+    "dur": 2
+   }
+  ],
+  "diagnostics": []
+ },
+ "burst smoke at 0.3 1.5": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "smoke",
+    "x": 0.3,
+    "count": null,
+    "dur": 1.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "burst dust at ann nowait": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "dust",
+    "char": "ann",
+    "count": null,
+    "dur": null,
+    "nowait": true
+   }
+  ],
+  "diagnostics": []
+ },
+ "burst": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+  ]
+ },
+ "burst rainbow": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+  ]
+ },
+ "burst sparkle at": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+  ]
+ },
+ "burst sparkle at ann y=0.2": {
+  "ops": [],
+  "diagnostics": [
+   "error: y= places a burst at a point; at a character it comes from the character"
+  ]
+ },
+ "burst sparkle count=0": {
+  "ops": [],
+  "diagnostics": [
+   "error: count= is a whole number from 1 to 500"
+  ]
+ },
+ "burst sparkle count=501": {
+  "ops": [],
+  "diagnostics": [
+   "error: count= is a whole number from 1 to 500"
+  ]
+ },
+ "burst sparkle at nowhere": {
+  "ops": [
+   {
+    "op": "burst",
+    "kind": "sparkle",
+    "char": "nowhere",
+    "count": null,
+    "dur": null
+   }
+  ],
+  "diagnostics": [
+   "warning: Unknown character \"nowhere\" (add a define line)"
+  ]
+ },
+ "burst sparkle 0": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+  ]
+ },
  "flash": {
   "ops": [
    {
     "op": "flash",
     "color": "#ffffff",
     "dur": 0.4
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash ann": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.4,
+    "char": "ann"
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash ann #ff0000 0.2": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ff0000",
+    "dur": 0.2,
+    "char": "ann"
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash ann 0.5": {
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.5,
+    "char": "ann"
+   }
+  ],
+  "diagnostics": []
+ },
+ "flash ann #fff 1 2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: flash [<character or picture>] [#rrggbb] [seconds]"
+  ]
+ },
+ "move ann tint=#ff8080": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": null,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "tint": "#ff8080",
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann tint=none 1": {
+  "ops": [
+   {
+    "op": "move",
+    "char": "ann",
+    "x": null,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "flip": null,
+    "anchor": null,
+    "tint": null,
+    "dur": 1,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "move ann tint=red": {
+  "ops": [],
+  "diagnostics": [
+   "error: tint= takes a color like #ff8080, or none"
+  ]
+ },
+ "image move logo tint=#80ff80 1": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "move",
+    "name": "logo",
+    "x": null,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "anchor": null,
+    "tint": "#80ff80",
+    "dur": 1,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "image move logo tint=none": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "move",
+    "name": "logo",
+    "x": null,
+    "y": null,
+    "scale": null,
+    "rotation": null,
+    "alpha": null,
+    "anchor": null,
+    "tint": null,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "image show logo ui/logo.png tint=#ff0000": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "show",
+    "name": "logo",
+    "file": "ui/logo.png",
+    "fade": 0,
+    "tint": "#ff0000"
    }
   ],
   "diagnostics": []
@@ -736,15 +1066,20 @@
   "diagnostics": []
  },
  "flash red": {
-  "ops": [],
-  "diagnostics": [
-   "error: Expected a number for duration"
-  ]
+  "ops": [
+   {
+    "op": "flash",
+    "color": "#ffffff",
+    "dur": 0.4,
+    "char": "red"
+   }
+  ],
+  "diagnostics": []
  },
  "flash #fff 1 2": {
   "ops": [],
   "diagnostics": [
-   "error: Use: flash [#rrggbb] [seconds]"
+   "error: Use: flash [<character or picture>] [#rrggbb] [seconds]"
   ]
  },
  "tint #ff8800": {
@@ -891,6 +1226,52 @@
   ],
   "diagnostics": []
  },
+ "camera roll 5": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": null,
+    "x": null,
+    "y": null,
+    "roll": 5,
+    "dur": 0,
+    "ease": "inout"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera roll -8 1.5 ease=out": {
+  "ops": [
+   {
+    "op": "camera",
+    "zoom": null,
+    "x": null,
+    "y": null,
+    "roll": -8,
+    "dur": 1.5,
+    "ease": "out"
+   }
+  ],
+  "diagnostics": []
+ },
+ "camera roll": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for roll angle"
+  ]
+ },
+ "camera roll x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for roll angle"
+  ]
+ },
+ "camera roll 5 y=0.2": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
+  ]
+ },
  "camera reset": {
   "ops": [
    {
@@ -898,6 +1279,7 @@
     "zoom": 1,
     "x": 0.5,
     "y": 0.5,
+    "roll": 0,
     "dur": 0,
     "ease": "inout"
    }
@@ -911,6 +1293,7 @@
     "zoom": 1,
     "x": 0.5,
     "y": 0.5,
+    "roll": 0,
     "dur": 1,
     "ease": "inout"
    }
@@ -920,13 +1303,13 @@
  "camera": {
   "ops": [],
   "diagnostics": [
-   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]"
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
   ]
  },
  "camera tilt": {
   "ops": [],
   "diagnostics": [
-   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], or camera reset [seconds]"
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
   ]
  },
  "camera zoom": {
@@ -1019,6 +1402,39 @@
   ],
   "diagnostics": []
  },
+ "filter glow": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": "glow",
+    "strength": 1,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter chromatic 0.6 1": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": "chromatic",
+    "strength": 0.6,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter glitch 0.5": {
+  "ops": [
+   {
+    "op": "filter",
+    "name": "glitch",
+    "strength": 0.5,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
  "filter sepia 0.5 2": {
   "ops": [
    {
@@ -1055,19 +1471,19 @@
  "filter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
   ]
  },
  "filter glitter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
   ]
  },
  "filter night x": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
   ]
  },
  "focus on": {
@@ -1199,6 +1615,32 @@
   ],
   "diagnostics": []
  },
+ "image show sky sky.png layer=-2 parallax=0.4": {
+  "ops": [
+   {
+    "op": "image",
+    "action": "show",
+    "name": "sky",
+    "file": "sky.png",
+    "fade": 0,
+    "layer": -2,
+    "parallax": 0.4
+   }
+  ],
+  "diagnostics": []
+ },
+ "image show sky sky.png parallax=-1": {
+  "ops": [],
+  "diagnostics": [
+   "error: parallax= is 0 (stays on the screen) to 1 (moves with the camera), or more for a nearer picture"
+  ]
+ },
+ "image show sky sky.png parallax=x": {
+  "ops": [],
+  "diagnostics": [
+   "error: Expected a number for parallax"
+  ]
+ },
  "image show logo ui/logo.png at 10,20": {
   "ops": [
    {
@@ -1274,7 +1716,7 @@
  "image move logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image hide logo": {
@@ -1302,37 +1744,37 @@
  "image hide logo fade": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image show": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image show logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image dance logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "image show 1x f.png": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [layer=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
   ]
  },
  "music play theme": {
@@ -2032,19 +2474,19 @@
  "set x": {
   "ops": [],
   "diagnostics": [
-   "error: Unknown command \"set\""
+   "error: Use: set <name> = <value>  (also +=, -=, *= and /=)"
   ]
  },
  "set x =": {
   "ops": [],
   "diagnostics": [
-   "error: Unknown command \"set\""
+   "error: Use: set <name> = <value>  (also +=, -=, *= and /=)"
   ]
  },
  "set 1x = 2": {
   "ops": [],
   "diagnostics": [
-   "error: Unknown command \"set\""
+   "error: Use: set <name> = <value>  (also +=, -=, *= and /=)"
   ]
  },
  "show screen map": {

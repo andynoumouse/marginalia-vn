@@ -1,8 +1,12 @@
 // Animation math shared by the parser, the editor and the renderer: easing curves and interpolation.
 // Pure functions, no DOM.
 
+import type { AutoDef } from './auto-anim.js';
 import { framesAt, frameTracks, type FrameTrackDef } from './frames.js';
 import { clamp01 } from './util.js';
+import { lerpRgb, mulRgb, rgbNumber } from './fx.js';
+
+const WHITE = 0xffffff;
 
 export type EaseFn = (t: number) => number;
 
@@ -69,9 +73,29 @@ export function presetBezier(name: string | undefined): Bezier | null {
   return Object.hasOwn(named, name ?? DEFAULT_EASE) ? [...named[name ?? DEFAULT_EASE]] as Bezier : null;
 }
 
-/** The curve named `name`; an unknown name gives the default curve. */
+/** `bezier(x1,y1,x2,y2)` or `cubic-bezier(x1,y1,x2,y2)` (no spaces) as an `ease=` value: the control points, or null when it is not one. */
+export function parseBezierSpec(spec: string): Bezier | null {
+  const m = /^(?:cubic-)?bezier\(([^()]*)\)$/.exec(spec);
+  if (!m) return null;
+  const parts = m[1].split(',');
+  if (parts.length !== 4 || parts.some(p => p.trim() === '')) return null;
+  const b = parts.map(Number);
+  return isBezier(b) ? b : null;
+}
+
+/** Whether `spec` is something `ease=` accepts: a name from EASES or a `bezier(...)` with valid control points. */
+export const isEaseSpec = (spec: string): boolean => EASE_NAMES.includes(spec) || parseBezierSpec(spec) !== null;
+
+/** What to tell the author when an `ease=` value is not accepted. */
+export const easeProblem = (spec: string): string => /^(?:cubic-)?bezier\(/.test(spec)
+  ? `Unknown ease "${spec}": a bezier is bezier(x1,y1,x2,y2) with four numbers and x1 and x2 from 0 to 1`
+  : `Unknown ease "${spec}" (${EASE_NAMES.join(', ')}, or bezier(x1,y1,x2,y2))`;
+
+/** The curve named `name` (or a `bezier(...)` spec); an unknown name gives the default curve. */
 export function easing(name: string | undefined): EaseFn {
-  return (name !== undefined && Object.hasOwn(EASES, name) ? EASES[name] : EASES[DEFAULT_EASE]);
+  if (name !== undefined && Object.hasOwn(EASES, name)) return EASES[name];
+  const b = name !== undefined ? parseBezierSpec(name) : null;
+  return b ? bezierEase(b) : EASES[DEFAULT_EASE];
 }
 
 /** `from` to `to` at progress `k` (0-1, already eased; may overshoot). */
@@ -82,15 +106,24 @@ export const lerp = (from: number, to: number, k: number) => from + (to - from) 
 // starts and ends at no offset, so a loop repeats without a jump and a one-shot leaves the sprite where it was.
 
 /** How an animation moves a sprite: `dx`/`dy` as fractions of the stage's shorter side (fxUnit), `sx`/`sy` added to the scale, `rot` in degrees. */
-export interface Offset { dx: number; dy: number; sx: number; sy: number; rot: number; /** A factor on the part's alpha (from keyforms); absent is 1. */ opacity?: number }
+export interface Offset {
+  dx: number; dy: number; sx: number; sy: number; rot: number;
+  /** A factor on the part's alpha (from keyforms); absent is 1. */ opacity?: number;
+  /** A color (0xrrggbb) the sprite is multiplied by on top of its own tint (a transform's `tint=`); absent is white. */ tint?: number;
+  /** A hit flash: the sprite mixes `amount` (0-1) of the way to `color` (a transform's `flash=`); absent is none. */ flash?: { color: number; amount: number };
+}
 export const NO_OFFSET: Offset = { dx: 0, dy: 0, sx: 0, sy: 0, rot: 0 };
 export const addOffset = (a: Offset, b: Offset): Offset => {
-  const sum = { dx: a.dx + b.dx, dy: a.dy + b.dy, sx: a.sx + b.sx, sy: a.sy + b.sy, rot: a.rot + b.rot };
-  return a.opacity === undefined && b.opacity === undefined ? sum : { ...sum, opacity: (a.opacity ?? 1) * (b.opacity ?? 1) };
+  const sum: Offset = { dx: a.dx + b.dx, dy: a.dy + b.dy, sx: a.sx + b.sx, sy: a.sy + b.sy, rot: a.rot + b.rot };
+  if (a.opacity !== undefined || b.opacity !== undefined) sum.opacity = (a.opacity ?? 1) * (b.opacity ?? 1);
+  if (a.tint !== undefined || b.tint !== undefined) sum.tint = mulRgb(a.tint ?? WHITE, b.tint ?? WHITE);
+  const flash = a.flash && b.flash ? (b.flash.amount > a.flash.amount ? b.flash : a.flash) : a.flash ?? b.flash; // the stronger of two flashes shows
+  if (flash) sum.flash = flash;
+  return sum;
 };
 
 /** A looping animation on a sprite (`animate <char> <name> loop`); `dur` is the length of one cycle in seconds (null: the animation's own). */
-export interface SpriteAnim { name: string; dur: number | null; strength: number; part: string | null }
+export interface SpriteAnim { name: string; dur: number | null; strength: number; part: string | null; /** A dynamic transform as `animate` worked it out, kept so a save or rollback plays that very one. */ def?: AnimDef }
 
 interface Preset { dur: number; fn: (t: number) => Partial<Offset> }
 const TAU = Math.PI * 2;
@@ -121,36 +154,60 @@ export const ANIM_NAMES = Object.keys(ANIMS);
 // `{ "dur": 1.2, "keys": [{ "t": 0.3, "rot": 8, "ease": "out" }, { "t": 0.7, "rot": -8 }] }`. A key sets the offset of the
 // channels it names at progress `t` (0-1, so `animate` can stretch the animation to other lengths); each channel is
 // eased between its own keys and returns to 0 at the ends unless a key says otherwise, so a loop repeats without a jump.
-// Channels: `x`, `y` (fractions of the stage's shorter side, its height on a landscape stage), `scale` (added to the size: 0.05 is 5% bigger), `rot` (degrees).
+// Channels: `x`, `y` (fractions of the stage's shorter side, its height on a landscape stage), `scale` (added to the size: 0.05 is 5% bigger), `rot` (degrees),
+// `opacity` (a factor on the alpha: 1 is as drawn, 0 is gone; unlike the others it rests at 1, so it returns to 1 at the ends).
 // A key with a `part` moves that part of a layered character on its own (about its pivot, see rig.ts) instead of the body.
 
-export const KEY_CHANNELS = ['x', 'y', 'scale', 'rot'] as const;
+export const KEY_CHANNELS = ['x', 'y', 'scale', 'rot', 'opacity'] as const;
 export type KeyChannel = typeof KEY_CHANNELS[number];
-export type KeyDef = { t: number; ease?: string; part?: string } & Partial<Record<KeyChannel, number>>;
+/** The value a channel has with no key: 0 for the offsets, 1 for opacity. */
+export const CHANNEL_REST: Record<KeyChannel, number> = { x: 0, y: 0, scale: 0, rot: 0, opacity: 1 };
+/**
+ * A key also carries the colors a script `transform` can set (not rig.json keys, and not in the studio's lanes): `tint` (`#rrggbb`, the
+ * sprite multiplied by it; rests at white) and `flash` (0-1 of the way to `flashColor`, white when absent; rests at 0).
+ */
+export type KeyDef = { t: number; ease?: string; part?: string; tint?: string; flash?: number; flashColor?: string } & Partial<Record<KeyChannel, number>>;
 /** A key of a parameter track: the parameter's value `v` at progress `t` (0-1), eased into from the key before it: along `bezier` when it has one, else the named `ease`. */
 export interface ParamKey { t: number; v: number; ease?: string; bezier?: Bezier }
 /** Parameter tracks by parameter id (`animations.<name>.params`). */
 export type ParamTracks = Record<string, ParamKey[]>;
 /** `physicsOff`: while the animation plays, the rig's physics chains are bypassed (all of them for true, or the listed chain ids). */
-export interface AnimDef { dur?: number; keys: KeyDef[]; params?: ParamTracks; frames?: FrameTrackDef[]; physicsOff?: boolean | string[] }
+export interface AnimDef { dur?: number; keys: KeyDef[]; params?: ParamTracks; frames?: FrameTrackDef[]; physicsOff?: boolean | string[]; auto?: AutoDef }
 
+
+/** A value over progress: eased between its keys from `rest` at 0, and back to `rest` after the last key; `mix` blends two values. */
+function timeline(keys: { t: number; v: number; ease?: string }[], rest: number, mix: (a: number, b: number, k: number) => number, t: number): number {
+  const pts = keys.filter(k => Number.isFinite(k.t)).sort((a, b) => a.t - b.t);
+  let prevT = 0, prevV = rest;
+  for (const p of pts) {
+    const pt = clamp01(p.t);
+    if (t <= pt) return pt === prevT ? p.v : mix(prevV, p.v, easing(p.ease)((t - prevT) / (pt - prevT)));
+    prevT = pt; prevV = p.v;
+  }
+  return prevT >= 1 ? prevV : mix(prevV, rest, easing(undefined)((t - prevT) / (1 - prevT)));
+}
 
 /** One channel of `keys` at progress `t`. */
 function channelAt(keys: KeyDef[], ch: KeyChannel, t: number): number {
-  const pts = keys.filter(k => Number.isFinite(k[ch]) && Number.isFinite(k.t)).sort((a, b) => a.t - b.t);
-  let prevT = 0, prevV = 0;
-  for (const p of pts) {
-    const pt = clamp01(p.t);
-    if (t <= pt) return pt === prevT ? p[ch]! : lerp(prevV, p[ch]!, easing(p.ease)((t - prevT) / (pt - prevT)));
-    prevT = pt; prevV = p[ch]!;
-  }
-  return prevT >= 1 ? prevV : lerp(prevV, 0, easing(undefined)((t - prevT) / (1 - prevT)));
+  return timeline(keys.filter(k => Number.isFinite(k[ch])).map(k => ({ t: k.t, v: k[ch]!, ease: k.ease })), CHANNEL_REST[ch], lerp, t);
 }
 
 /** The offset of all channels of `keys` at progress `t`. */
 function keysAt(keys: KeyDef[], t: number): Partial<Offset> {
-  const scale = channelAt(keys, 'scale', t);
-  return { dx: channelAt(keys, 'x', t), dy: channelAt(keys, 'y', t), sx: scale, sy: scale, rot: channelAt(keys, 'rot', t) };
+  const scale = channelAt(keys, 'scale', t), o: Partial<Offset> = { dx: channelAt(keys, 'x', t), dy: channelAt(keys, 'y', t), sx: scale, sy: scale, rot: channelAt(keys, 'rot', t) };
+  if (keys.some(k => Number.isFinite(k.opacity))) o.opacity = Math.max(0, channelAt(keys, 'opacity', t)); // only an animation that keys it touches the alpha
+  if (keys.some(k => typeof k.tint === 'string')) {
+    const pts = keys.filter(k => typeof k.tint === 'string').map(k => ({ t: k.t, v: rgbNumber(k.tint), ease: k.ease }));
+    o.tint = Math.round(timeline(pts, WHITE, lerpRgb, t));
+  }
+  if (keys.some(k => Number.isFinite(k.flash))) {
+    const fk = keys.filter(k => Number.isFinite(k.flash));
+    const amount = Math.max(0, Math.min(1, timeline(fk.map(k => ({ t: k.t, v: k.flash!, ease: k.ease })), 0, lerp, t)));
+    // The color is the one of the first key at or after `t` (the one being reached), else the last one.
+    const sorted = [...fk].sort((a, b) => a.t - b.t), at = sorted.find(k => k.t >= t) ?? sorted[sorted.length - 1];
+    o.flash = { color: rgbNumber(at.flashColor), amount };
+  }
+  return o;
 }
 
 /** A keyframe animation's body keys (the ones without a `part`) as a function of progress. */
@@ -215,5 +272,9 @@ export function animOffset(name: string, t: number, strength = 1, custom?: Recor
 
 /** Offsets from an animation's function (missing channels are 0), times `strength`. */
 export function scaleOffset(o: Partial<Offset>, strength: number): Offset {
-  return { dx: (o.dx ?? 0) * strength, dy: (o.dy ?? 0) * strength, sx: (o.sx ?? 0) * strength, sy: (o.sy ?? 0) * strength, rot: (o.rot ?? 0) * strength };
+  const scaled: Offset = { dx: (o.dx ?? 0) * strength, dy: (o.dy ?? 0) * strength, sx: (o.sx ?? 0) * strength, sy: (o.sy ?? 0) * strength, rot: (o.rot ?? 0) * strength };
+  if (o.opacity !== undefined) scaled.opacity = Math.max(0, 1 + (o.opacity - 1) * strength); // strength fades the fade
+  if (o.tint !== undefined) scaled.tint = lerpRgb(WHITE, o.tint, Math.min(1, strength));
+  if (o.flash) scaled.flash = { color: o.flash.color, amount: Math.min(1, o.flash.amount * strength) };
+  return scaled;
 }

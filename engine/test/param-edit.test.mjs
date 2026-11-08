@@ -21,7 +21,7 @@ const doc = () => structuredClone({
   poses: { turn: { head_x: 1, lift: 1 }, only_head: { head_x: -1 } },
   anims: { nod: { keys: [], params: { head_x: [{ t: 0, v: 0 }, { t: 1, v: 1 }], lift: [{ t: 0, v: 0 }] } } },
   deformers: [{ id: 'w', part: 'torso', keyforms: [{ param: 'head_x', keys: [{ at: 0 }, { at: 1, pts: { 0: [0.1, 0] } }] }, { param: 'lift', keys: [{ at: 0 }] }] }],
-  masks: [{ id: 'm', part: 'eyes', polygon: [[0, 0], [1, 0], [1, 1]], keyforms: [{ param: 'head_x', keys: [{ at: 1, pts: { 1: [0.1, 0] } }] }] }, { id: 'm2', part: 'face', from: 'eyes' }],
+  shapes: { m: { polygon: [[0, 0], [1, 0], [1, 1]], keyforms: [{ param: 'head_x', keys: [{ at: 1, pts: { 1: [0.1, 0] } }] }] }, m2: { polygon: [[0, 0], [1, 0], [1, 1]] } },
   physics: { hair: { inputs: [{ param: 'head_x', weight: 1 }], segments: [{ length: 1 }], outputs: [{ param: 'lift', scale: 1 }] } },
 });
 const ok = r => { assert.ok(!('error' in r), r.error); return r; };
@@ -55,7 +55,7 @@ test('renaming a parameter reaches the keyforms, pads, poses, tracks, deformers,
   assert.deepEqual(Object.keys(d.poses.turn), ['turn_x', 'lift'], 'the pose keeps its order');
   assert.deepEqual(Object.keys(d.anims.nod.params), ['turn_x', 'lift']);
   assert.equal(d.deformers[0].keyforms[0].param, 'turn_x');
-  assert.equal(d.masks[0].keyforms[0].param, 'turn_x');
+  assert.equal(d.shapes.m.keyforms[0].param, 'turn_x');
   assert.equal(d.physics.hair.inputs[0].param, 'turn_x');
   assert.deepEqual(problems(d), []);
   assert.match(r.note, /Script lines that name "head_x"/);
@@ -99,7 +99,7 @@ test('a range that no longer holds the keys moves the nearest onto the edge, dro
   assert.deepEqual(d.poses.turn, { head_x: 0.5, lift: 1 });
   assert.deepEqual(d.anims.nod.params.head_x.map(k => k.v), [0, 0.5]);
   assert.deepEqual(d.deformers[0].keyforms[0].keys.map(k => k.at), [0, 0.5]);
-  assert.deepEqual(d.masks[0].keyforms[0].keys.map(k => k.at), [0.5]);
+  assert.deepEqual(d.shapes.m.keyforms[0].keys.map(k => k.at), [0.5]);
   assert.match(r.note, /beyond the new range/);
   assert.deepEqual(problems(d), []);
   // A y range: the rows of the grid go (y is [0, 1] here), the columns stay.
@@ -186,7 +186,7 @@ test('a pad keeps its two axis sliders under it, in its category, and they canno
   assert.deepEqual(names(controlGroups(moved.parameters, moved.pads, moved.categories), 'Arms'), ['pad:head_turn', 'head_x', 'head_y']);
   const out = ok(moveControlTo(d, 'pad:head_turn', null)).doc;
   assert.deepEqual(out.parameters.filter(p => p.id.startsWith('head_')).map(p => p.group), [undefined, undefined]);
-  const made = ok(addPad(ok(addParam(ok(addParam(d, 'Body')).doc, 'Body')).doc, 'Body')).doc; // lift, param, param2 are free: lift + param
+  const made = ok(addPad(ok(addParam(ok(addParam(d, 'Body')).doc, 'Body')).doc, 'Body', { x: 'lift', y: 'param' })).doc;
   assert.deepEqual(made.parameters.filter(p => ['lift', 'param'].includes(p.id)).map(p => p.group), ['Body', 'Body']);
   // taking the pad away leaves the sliders where they were shown
   const gone = ok(deletePad(moved, 'head_turn')).doc;
@@ -216,8 +216,8 @@ test('deleting a parameter takes its keyforms, pads, pose values, tracks and war
   assert.deepEqual(d.poses, { turn: { lift: 1 } }, 'a pose left empty goes');
   assert.deepEqual(Object.keys(d.anims.nod.params), ['lift']);
   assert.deepEqual(d.deformers[0].keyforms.map(k => k.param), ['lift']);
-  assert.equal('keyforms' in d.masks[0], false);
-  assert.equal(d.masks[1].from, 'eyes');
+  assert.equal('keyforms' in d.shapes.m, false);
+  assert.deepEqual(d.shapes.m2.polygon, [[0, 0], [1, 0], [1, 1]]);
   assert.deepEqual(problems(d), []);
   assert.match(r.note, /2 bone or part keyforms, 1 pad, 2 pose values, 1 animation track, 2 warp or mask keyforms/);
   const last = ok(deleteParam({ ...noPhysics, anims: { nod: { keys: [], params: { lift: [{ t: 0, v: 0 }] } } } }, 'lift'));
@@ -225,15 +225,23 @@ test('deleting a parameter takes its keyforms, pads, pose values, tracks and war
   assert.match(deleteParam(doc(), 'nope').error, /no parameter/);
 });
 
-test('pads: add over the first two free parameters, rename, change axes, delete', () => {
-  assert.match(addPad(doc()).error, /two parameters that no other pad uses/);
+test('pads: add over the parameters picked (or new ones), rename, change axes, delete', () => {
+  assert.match(addPad(doc(), undefined, { x: 'head_x', y: 'lift' }).error, /on another pad already/);
+  assert.match(addPad(doc(), undefined, { x: 'lift', y: 'lift' }).error, /two different/);
+  assert.match(addPad(doc(), undefined, { x: 'nope', y: null }).error, /no parameter "nope"/);
+  assert.match(addPad(doc(), undefined, { id: 'a b', x: null, y: null }).error, /letters, digits/);
+  assert.match(addPad(doc(), undefined, { id: 'head_turn', x: null, y: null }).error, /already/);
+  const fresh = ok(addPad(doc(), undefined, { id: 'eyes', x: null, y: 'lift' }));
+  assert.deepEqual(fresh.doc.pads.at(-1), { id: 'eyes', x: 'eyes_x', y: 'lift' });
+  assert.deepEqual(fresh.doc.parameters.at(-1), { id: 'eyes_x', min: -1, max: 1, default: 0 });
+  assert.deepEqual(ok(addPad(doc(), undefined, { x: null, y: null })).doc.pads.at(-1), { id: 'pad', x: 'pad_x', y: 'pad_y' });
   const more = ok(addParam(ok(addParam(doc())).doc)).doc;
   assert.deepEqual(freeParams(more).map(p => p.id), ['lift', 'param', 'param2']);
-  const added = ok(addPad(more));
+  const added = ok(addPad(more, undefined, { x: 'lift', y: 'param' }));
   assert.equal(added.id, 'pad');
   assert.deepEqual(added.doc.pads.at(-1), { id: 'pad', x: 'lift', y: 'param' });
-  assert.equal(ok(addPad(more, 'Arms')).doc.pads.at(-1).group, 'Arms');
-  assert.match(addPad(more, 'Nowhere').error, /no category/);
+  assert.equal(ok(addPad(more, 'Arms', { x: 'lift', y: 'param' })).doc.pads.at(-1).group, 'Arms');
+  assert.match(addPad(more, 'Nowhere', { x: 'lift', y: 'param' }).error, /no category/);
   const renamed = ok(updatePad(added.doc, 'pad', { id: 'arm_pad', y: 'param2', group: 'Arms' }));
   assert.deepEqual(renamed.doc.pads.at(-1), { id: 'arm_pad', x: 'lift', y: 'param2', group: 'Arms' });
   assert.match(updatePad(added.doc, 'pad', { x: 'head_x' }).error, /another pad/);
@@ -253,14 +261,14 @@ test('editing never touches the input document', () => {
   const d = doc(), frozen = structuredClone(d);
   updateParam(d, 'head_x', { id: 'turn_x', min: -0.5 });
   deleteParam({ ...d, physics: {} }, 'head_x');
-  addParam(d); addPad(d); updatePad(d, 'head_turn', { id: 'x' }); deletePad(d, 'head_turn');
+  addParam(d); addPad(d, undefined, { x: null, y: null }); updatePad(d, 'head_turn', { id: 'x' }); deletePad(d, 'head_turn');
   assert.deepEqual(d, frozen);
 });
 
 test('moveControl swaps a slider or pad with its neighbour in the same group, and refuses at the ends', async () => {
   const { moveControl } = await import('../../dist/engine/src/index.js');
   const p = (id, group) => ({ id, min: 0, max: 1, default: 0, ...(group ? { group } : {}) });
-  const doc = { categories: ['G', 'H'], parameters: [p('a', 'G'), p('x', 'H'), p('b', 'G'), p('c', 'G')], pads: [{ id: 'p1', x: 'x', y: 'y' }], keyforms: [], poses: {}, anims: {}, deformers: [], masks: [], physics: {} };
+  const doc = { categories: ['G', 'H'], parameters: [p('a', 'G'), p('x', 'H'), p('b', 'G'), p('c', 'G')], pads: [{ id: 'p1', x: 'x', y: 'y' }], keyforms: [], poses: {}, anims: {}, deformers: [], shapes: {}, physics: {} };
   const order = d => controlGroups(d.parameters, d.pads, d.categories).find(g => g.name === 'G').controls.map(c => c.param.id);
   assert.deepEqual(order(doc), ['a', 'b', 'c']);
   const down = moveControl(doc, 'a', 1);

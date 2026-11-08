@@ -6,7 +6,7 @@ import { addKey } from './anim-edit.js';
 import { BONE_REST, boneCycles, composeBones, partsUnder, resolvePivots, type BoneDef, type Box, type Matrix, type PlacedPart } from './bones.js';
 import type { GizmoAxis, GizmoPoint, GizmoTool } from './gizmo.js';
 
-/** The rig as the renderer lays it out: bones, the parts (boxes in the same space as the pivots), and legacy pivots by part name. */
+/** The rig as the renderer lays it out: bones, the parts (boxes in the same space as the pivots), and the part pivots by part name. */
 export interface RigGeometry {
   bones: Record<string, BoneDef>;
   parts: Record<string, PlacedPart>;

@@ -4,7 +4,8 @@
 import { ANCHORS, anchorToken, type Anchor, type Anchors } from './anchor.js';
 import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { boneCycles, type BoneDef } from './bones.js';
-import { ANIMS, KEY_CHANNELS, keyframeFn, keyframeParts, type AnimDef, type KeyChannel, type KeyDef, type Offset } from './anim.js';
+import { everyBounds, type AutoDef } from './auto-anim.js';
+import { ANIMS, CHANNEL_REST, KEY_CHANNELS, keyframeFn, keyframeParts, type AnimDef, type KeyChannel, type KeyDef } from './anim.js';
 import { clamp01 } from './util.js';
 
 export type Anims = Record<string, AnimDef>;
@@ -13,7 +14,7 @@ const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const sortKeys = (keys: KeyDef[]) => [...keys].sort((a, b) => a.t - b.t);
 
 /** The `Offset` field a key channel drives. */
-const OFFSET_FIELD: Record<KeyChannel, keyof Offset> = { x: 'dx', y: 'dy', scale: 'sy', rot: 'rot' };
+const OFFSET_FIELD: Record<KeyChannel, 'dx' | 'dy' | 'sy' | 'rot' | 'opacity'> = { x: 'dx', y: 'dy', scale: 'sy', rot: 'rot', opacity: 'opacity' };
 
 /** The parts that animation `def` has keys for, in order of first appearance. */
 export function animParts(def: AnimDef): string[] {
@@ -26,7 +27,7 @@ export function sampleChannel(def: AnimDef, ch: KeyChannel, part: string | null,
   const out: number[] = [];
   for (let i = 0; i <= steps; i++) {
     const o = part === null ? body(i / steps) : parts?.(i / steps)[part];
-    out.push(o?.[OFFSET_FIELD[ch]] ?? 0);
+    out.push(o?.[OFFSET_FIELD[ch]] ?? CHANNEL_REST[ch]);
   }
   return out;
 }
@@ -89,7 +90,8 @@ export function newAnim(anims: Anims, name = 'anim'): { anims: Anims; name: stri
 export function duplicateAnim(anims: Anims, name: string): { anims: Anims; name: string } | null {
   if (!Object.hasOwn(anims, name)) return null;
   const got = uniqueName(anims, `${name}-copy`);
-  return { anims: { ...anims, [got]: structuredClone(anims[name]) }, name: got };
+  const { auto: _auto, ...copy } = structuredClone(anims[name]); // a copy does not start by itself too
+  return { anims: { ...anims, [got]: copy }, name: got };
 }
 
 /** `anims` with `from` called `to`, keeping the order; null when `to` is empty or taken, or `from` is missing. */
@@ -463,74 +465,27 @@ export function boneSubtree(bones: Bones, parts: PartBones, bone: string): { bon
   return { bones: [...set], parts: Object.keys(parts).filter(p => { const b = parts[p]?.bone; return typeof b === 'string' && set.has(b); }) };
 }
 
-/** What the animation studio edits of rig.json besides `animations` and `pivots`: null means "not written, use the default". */
-export interface RigSettings {
-  idle: string | null;
-  speakAnim: string | null; speakSlot: string | null; speakVariants: string[]; speakRate: number | null;
-  blink: boolean; blinkSlot: string | null; blinkVariant: string | null; blinkEvery: [number, number] | null; blinkDur: number | null;
+/** `def` with its `auto` set (or dropped for null), the other keys kept in their order. A def without one gets it last. */
+export function setAuto(def: AnimDef, auto: AutoDef | null): AnimDef {
+  const { auto: _old, ...rest } = def;
+  if (auto === null || (auto.every === undefined && auto.while === undefined)) return rest;
+  if ('auto' in def) return { ...def, auto };
+  return { ...rest, auto };
 }
 
-export const noRigSettings = (): RigSettings => ({
-  idle: null, speakAnim: null, speakSlot: null, speakVariants: [], speakRate: null,
-  blink: false, blinkSlot: null, blinkVariant: null, blinkEvery: null, blinkDur: null,
-});
-
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
-const nonEmpty = (v: unknown) => (typeof v === 'string' && v ? v : null);
-const positive = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null);
-
-/** The studio's settings as a parsed rig.json states them. */
-export function readRigSettings(data: unknown): RigSettings {
-  const d = obj(obj(data).autonomous), speak = obj(d.speak), blink = obj(d.blink);
-  const every = blink.every;
-  return {
-    idle: nonEmpty(d.idle),
-    speakAnim: nonEmpty(speak.anim), speakSlot: nonEmpty(speak.slot),
-    speakVariants: Array.isArray(speak.variants) ? speak.variants.filter((v): v is string => typeof v === 'string') : [],
-    speakRate: positive(speak.rate),
-    blink: !!d.blink, blinkSlot: nonEmpty(blink.slot), blinkVariant: nonEmpty(blink.variant),
-    blinkEvery: Array.isArray(every) && every.length === 2 && every.every(n => typeof n === 'number') ? [every[0], every[1]] : null,
-    blinkDur: positive(blink.dur),
-  };
+/** `auto` of a def as the studio's Automatic line shows it: the wait's bounds (null: no timer) and the condition ('' none). */
+export function autoFields(def: AnimDef | undefined): { min: number | null; max: number | null; when: string } {
+  const a = def?.auto, b = everyBounds(a?.every);
+  return { min: b?.min ?? null, max: b?.max ?? null, when: typeof a?.while === 'string' ? a.while : '' };
 }
 
-/** Set or drop (null) a key of a copy of `base`, keeping the other keys and their order. */
-function withKey(base: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
-  const { [key]: _old, ...rest } = base;
-  if (value === null) return rest;
-  return key in base ? { ...base, [key]: value } : { ...rest, [key]: value };
+/** The `auto` the Automatic line's fields mean: a `min`..`max` timer when either is set (the other defaults to it, else 3 and 6), and `while` when not empty; null when both are empty. */
+export function autoFromFields(min: number | null, max: number | null, when: string): AutoDef | null {
+  const out: AutoDef = {};
+  if (min !== null || max !== null) {
+    const lo = min ?? Math.min(3, max!), hi = max ?? Math.max(6, lo);
+    out.every = lo === hi ? lo : { min: Math.min(lo, hi), max: Math.max(lo, hi) };
+  }
+  if (when.trim()) out.while = when.trim();
+  return out.every === undefined && out.while === undefined ? null : out;
 }
-
-/** The new `autonomous.speak` value: `current` (the file's) with the studio's fields set (variants get their slot written out, `mouth` unless set); null when nothing is left. */
-export function speakValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
-  let out = obj(current);
-  out = withKey(out, 'anim', s.speakAnim);
-  out = withKey(out, 'slot', s.speakSlot ?? (s.speakVariants.length ? 'mouth' : null));
-  out = withKey(out, 'variants', s.speakVariants.length ? s.speakVariants : null);
-  out = withKey(out, 'rate', s.speakRate);
-  return Object.keys(out).length ? out : null;
-}
-
-/** The new `autonomous.blink` value: the slot and variant are always written out (`eyes` / `closed` unless set); null when blinking is off. */
-export function blinkValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
-  if (!s.blink) return null;
-  let out = obj(current);
-  out = withKey(out, 'slot', s.blinkSlot ?? 'eyes');
-  out = withKey(out, 'variant', s.blinkVariant ?? 'closed');
-  out = withKey(out, 'every', s.blinkEvery);
-  out = withKey(out, 'dur', s.blinkDur);
-  return out;
-}
-
-/** The new `autonomous` value: `current` (the file's) with the studio's idle, speak and blink set; null when nothing is left. */
-export function autonomousValue(current: unknown, s: RigSettings): Record<string, unknown> | null {
-  let out = obj(current);
-  out = withKey(out, 'idle', s.idle);
-  out = withKey(out, 'speak', speakValue(out.speak, s));
-  out = withKey(out, 'blink', blinkValue(out.blink, s));
-  return Object.keys(out).length ? out : null;
-}
-
-/** The parts of the settings that end up in `autonomous.speak` / `autonomous.blink`, to tell whether the file needs rewriting. */
-export const speakPart = (s: RigSettings) => JSON.stringify([s.speakAnim, s.speakSlot, s.speakVariants, s.speakRate]);
-export const blinkPart = (s: RigSettings) => JSON.stringify([s.blink, s.blinkSlot, s.blinkVariant, s.blinkEvery, s.blinkDur]);

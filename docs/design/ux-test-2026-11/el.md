@@ -1,0 +1,68 @@
+# EL report: editor chrome (window sizes, keyboard, a11y, failure states, external changes, scale) (as returned by the tester)
+
+Counts: S1 0 / S2 6 / S3 15 (21 findings). Scripts s01..s13*.mjs, shots/, aria-sidebar.txt in scratchpad/ux/el.
+
+## Scope
+`sample`, headless Edge, private kit server per script. Viewports 1920x1080, 1366x768 (most tests), 1024x768, 800x600, 768x1024 touch, 390x844 touch. Not covered: `fresh`/`demo` projects, Marginalia Studio, a real screen reader, real touch, Windows classic scrollbars (headless uses overlay), drag-and-drop, Tab order inside the preview iframe's game. Machine loaded by other testers; timing-sensitive tests re-run (EL-4 twice, palette leak ten times).
+
+## Task log
+1 Window sizes: done with friction. Editor ready in 0.48-0.56 s at every size (s01). Splitter, Ctrl+B, minimap, wrap, pane toggle and device modes took 4 scripts; EL-1, 2, 7-10.
+2 Keyboard: done with friction. Tab walked 140 times, 9 dialogs opened on fresh loads; focus ring measured. 99 Tab presses to reach Monaco (EL-6). Dialog focus handling EL-5.
+3 A11y: done (s04). ariaSnapshot of bar, sidebar, tabs, palette, Build, Translate. Contrast from styles. Light, forced-colors, reduced-motion emulation. EL-14, EL-15.
+4 Server and network failure: done (s05, s06, s06b). Server killed and restarted on same port; PUT 500, 403 and a 20 s hang; SSE aborted; 2 s latency on everything. With 2 s per request the editor took 18.6 s to become ready, showing only "loading...". EL-4, EL-17.
+5 External changes: done (s07). EL-3, EL-18.
+6 Scale: done (s08, s09). 150 scripts x 200 lines, 1500 PNGs, 300-label story, 5000-line script, unicode edge cases. EL-11, 12, 13.
+7 Output and Debug: done (s10). EL-16, EL-19.
+
+## Findings
+EL-1 · S2 · bug · Top bar clips Problems and the status line between about 901 and 1160 px, and Tab to it shifts the page. Load editor at 1024x768 (s01): bar scrollWidth 1125 vs 1024; Problems and `#status` off-screen, status span 0 px wide. Tab to Problems (s10): `body.scrollLeft` becomes 101 and the bar moves to left -101 while `#main` stays at 0; brand and Files button cut off, bar no longer lines up with panes. Expected bar wraps or scrolls, or status stays visible. Actual: only the ≤900 px media rule gives the bar `overflow-x:auto`; above that the bar overflows into `html{overflow:hidden}`. Consequence: at 1024 px (common laptop width) the Problems count and every "saved"/"save failed" message are invisible. Evidence shots/03-size-1024x768.png, 01-bar-1024-focus-problems.png. Reproduced twice. Known: no. (Contradicts EA's observation that the top bar fits at 1440 and 1280: fine there; fails at ≤1160.)
+
+EL-2 · S2 · usability · At 900 px and below the preview disappears silently and nothing brings it back. (s01, s10, s02) At 800, 768 or 390 px the preview and splitter are `display:none`; "Preview from cursor" is still the primary button. Palette "Preview: Show or Hide Pane": status stays "ready", nothing appears. "Focus: Preview" says "preview focused" while the pane is invisible. "Preview: Phone, portrait" says "preview: Phone, portrait (390 x 844)" while hidden. At 390 px the Files panel keeps 240 px, so the editor is 150 px wide and wraps one word per line (shots/06-size-phone390x844.png). Bar buttons Build, Commands, Help, Problems need horizontal scrolling (scrollWidth 1182); no overflow menu, no text says the window is too small. Expected a message, collapsed Files panel, or the pane as an overlay. Reproduced twice. Known: no.
+
+EL-3 · S2 · bug · A file deleted or renamed on disk stays in the editor as a ghost. (s07 step 3) With the editor open, delete `script/town.vn` and rename `script/robo.vn` to `robo_renamed.vn` on disk (what `git pull` or VS Code does). The new name appears (in 2.5 s) but the old name stays in the Files list and as a tab; Problems jumps 3 to 11 (duplicate labels); typing in the town.vn tab writes the file back to disk; no notice anywhere. Cause: `syncFromDisk` (editor/editor.ts) only adds and updates files; it never removes them. A new file added on disk appears in the list and as a tab. Evidence shots/02-external-3.png. Reproduced once; code read confirms. Known: no.
+
+EL-4 · S2 · usability · A dead dev server is not noticed, and a failed save is easy to miss and never retried. (s05, s06b) Kill the server: status stays "ready" indefinitely and the SSE errors go only to the console. Type: after ~1 s status turns to grey "save failed" and the tab gets a "•"; no toast, no reason; 403 and 500 give the same text. Still "save failed" 6 s later and 12 s after the server/route came back; focus and online events don't retry. Only typing again in that file, or Ctrl+S inside Monaco, resends. Switch to another file and edit it: status says "saved" while park.vn is still unsent. Preview pane goes blank grey and "Preview from cursor" and "Preview: Reload" do nothing visible. Build says "Could not run the checks: Failed to fetch". Export says "export: could not reach the dev server" in the status only; Output panel stays closed. Good: closing the page prompts (beforeunload) and the draft is not lost. Evidence shots/01-server-down-after-typing.png, 03-server-down-build.png. Reproduced twice. Known: partly (EA-9 covers the thin save feedback).
+
+EL-5 · S2 · a11y · Help, Build and Translate don't trap focus, Esc dies once focus has left, and focus does not return to the opener. (s03b, fresh load per dialog) Open each dialog from the keyboard, then Tab 30 times. Build: 26 of 30 stops outside, in the toolbar and Files panel behind the overlay. Translate: 25. Help (F1): 3. Esc then does nothing because the handler lives inside the dialog, so the modal stays up. Voice and Outline do trap. Palette fine. Focus return after Esc: the Monaco textarea for Build, Translate, Voice, Outline and Help, not the toolbar button that opened it; Tab then indents the script (EL-6). All dialogs have role=dialog, aria-modal=true and labels. Reproduced twice (s03 and s03b). Known: no. (Related: EP-9, EP-12.)
+
+EL-6 · S2 · a11y · 99 Tab presses to reach the editor, then Tab is captured by Monaco. Stops from the top: bar 11, Files 88, then 2 per script tab (tab and its Close button; 320 stops with 160 tabs). Files panel has no roving tabindex. Each of the 12 built-in screens contributes two buttons; every asset folder has an "Add files" button. No skip link. Once in Monaco, Tab indents (the walk inserted 40 tabs into park.vn). The way out, Ctrl+M, and the Alt+1/2/3 jumps are in docs/editor.md key table but not in the UI. The preview iframe is reached only after Ctrl+M. Known: no.
+
+EL-7 · S3 · usability · Splitter. One splitter, editor/preview; Files panel fixed at 240 px with no handle. Drag limits consistent: editor at least 320 px, preview at least 280 px. Double-click does nothing. Width not kept after reload. `role=separator` but no tabindex, label or aria-valuenow, so unreachable by keyboard. Known: no.
+
+EL-8 · S3 · bug · Dragged preview width is not re-clamped when the window shrinks. (s12) At 1366 px drag the splitter to the maximum (`--right` 806px). Shrink the window to 1100 px: the editor is 48 px wide. At 900 px the preview is hidden by the media rule, so the editor recovers. Evidence shots/02-squeezed-1100.png. Known: no.
+
+EL-9 · S3 · usability · View toggles: no feedback, mostly not persisted. Toggle Minimap, Toggle Word Wrap (Alt+Z) and Preview: Show or Hide Pane leave the status at "ready" and the Files button has no pressed state. Wrap and minimap reset on reload (wrap back to on, minimap off). A hidden pane comes back after reload. Only the Files panel (Ctrl+B) is remembered. Known: partly (EA-16 covers Alt+Z and Ctrl+M feedback).
+
+EL-10 · S3 · usability · Device preview status quotes a size the pane does not have. (s02, 1366 px) "Phone, landscape (844 x 390)" gives a 628x390 iframe, portrait 390x724 (not 844), "Tablet, landscape (1024 x 768)" 628x724 (near-portrait). CSS clamps with `max-width/height:100%` and does not scale. docs/editor.md says "as far as the pane has room", but the status line repeats the nominal size. Switching back works (palette "Preview: Desktop"). Known: no.
+
+EL-11 · S3 · usability · Non-ASCII label names fail with a misleading error. (s09) `label päivä_1:` or `label 日本ラベル:` gives `Unknown command "label"` plus a cascade of unexpected-indentation errors. The label regexp is ASCII-only and the docs don't say so. Palette `@päi` finds nothing. A Finnish author hits this immediately. Dialogue, character names (incl. an 80-character one), emoji, CJK, RTL and a 300-character ASCII label all work; a file named with spaces and unicode works in Files, tabs and Ctrl+P. Evidence shots/03-edge-text.png. Reproduced twice (s09 plus the code regexp). Known: no.
+
+EL-12 · S3 · usability · Outline of a 300-label story is unreadable. (s08, s09) Layout is one long row; Fit clamps at scale 0.1 and shows a thin strip; first open looks blank. Start works. Evidence shots/02-outline-300-fit.png. Known: no.
+
+EL-13 · S3 · usability · Every script opens as a tab at load. With 150 extra scripts there are 160 tabs (a scroll strip, 320 Tab stops); the Files panel renders all 1692 rows at once (not virtualized, but smooth). Known: no.
+
+EL-14 · S3 · a11y · Semantics gaps. `#status` is a plain span with no aria-live, so saves, failures and task results are not announced. Toast is role=status but shown by toggling `hidden`, unreliable for announcement. Tablist contains Close buttons (invalid ARIA). Twelve built-in screens each have a button whose accessible name is just "Edit"; the detail is only in `title`. Folding toggles read "▾ Project" with the glyph in the name. Files list is flat buttons, no tree or list roles. Evidence aria-sidebar.txt.
+
+EL-15 · S3 · a11y/visual · Colour handling. Dark only: `color-scheme: dark` hard-coded, light emulation changes nothing, no theme toggle except Monaco's "Toggle High Contrast Theme". Forced-colors adapts the chrome well; syntax colours drop, as expected. Contrast (s04): muted text (status, headings, git line) 5.59; Monaco comment colour on its background 3.97 (fails 4.5; comments are the starter text); button borders 1.3; focus ring 9.36. Known: no.
+
+EL-16 · S3 · usability · Output panel is thin. No Clear or Copy, no resize handle, Esc inside it doesn't close it. No command or button to reopen it after Close, so output is lost. Not a live region. Takes up to 40% of the editor column (at 420 px window height the editor is 191 px). Playtest runs 4.4 s with no progress beyond status text. file:line links work. Evidence shots/04-output-export-errors.png, 06-after-playtest.png. Known: no.
+
+EL-17 · S3 · bug · A hung save never times out, and a lost SSE stream is not resynced. A PUT held 20 s leaves "saving..." the whole time (no timeout); `syncFromDisk` returns while `saving`, so external edits are ignored meanwhile. A stream blocked from the start (s06b, artificial): the external edit was never shown and the next keystroke overwrote it. A real server restart reconnected the stream fine (s05). Seen once. Known: no.
+
+EL-18 · S3 · usability · External edit versus unsaved typing. With unsaved typing (a held PUT), an external edit is ignored and then overwritten by the editor's text, silently (s07 step 2). A clean editor takes the external edit in 185 ms, but scroll jumps (481 to 49), caret column shifts, and the external change enters the undo stack: Ctrl+Z writes the old text back to disk (step 1). Two tabs on one project: sequential edits propagate both ways; simultaneous edits are last-writer-wins and the loser's line is lost silently (step 4). Known: no.
+
+EL-19 · S3 · visual · Preview header at the minimum pane width. At 280 px the header clips Problems and the Debug button, which is off-screen while the Debug panel is open. Evidence shots/07-debug-narrow.png. Known: partly.
+
+EL-20 · S3 · usability · Outline dialog at 390 px. Toolbar overflows and the Close button is off-screen, so a touch user has no Esc and no Close button (s13). Build, Translate and Voice fit. Known: no.
+
+EL-21 · S3 · bug · Keys typed at zero delay right after the first Ctrl+P can leak into the script. After `page.reload()` + ready, Ctrl+P and typing `>Show or Hide Pane` at zero delay (s02, s11): all 17 characters landed in park.vn, were autosaved, and the preview showed a script error. Not reproduced at 20 ms per key (s11b, 10 tries). Seen twice, probably machine-speed typing only. (Related: EP-13.)
+
+## What worked well
+- Editor ready in ~0.5 s at every size. At scale (150 scripts, 1500 assets, 5000-line script) it stays quick: ready 1.0 s; Files scroll frames 6 ms; filter 19-46 ms per key; Ctrl+P 4 ms; find across 150 files 5 ms (29,400 matches); key-to-paint median 13 ms, worst 31 ms; no long tasks.
+- Focus ring is a consistent 2 px accent with 2 px offset at 9.36:1 on every toolbar and Files control tested.
+- Palette is a proper combobox/listbox with aria-activedescendant. Every input is labelled and no unnamed controls were found.
+- Files context menu opens from the keyboard (ContextMenu key and Shift+F10), has role=menu, supports arrow keys, Esc returns focus to the row. F2 on a row opens the rename box.
+- Voice and Outline trap focus correctly. Esc closes dialogs when focus is inside; each states "Esc to close".
+- Clean external edits arrive in 185 ms; an external new file appears as a tab. Closing with unsent edits triggers beforeunload.
+- Forced-colors mode keeps the chrome usable. Export reports an unreachable server in plain words. Output links open the right file and line.
+- Finnish, CJK, emoji, RTL, an 80-character speaker name and unicode file names all render without breaking layout.

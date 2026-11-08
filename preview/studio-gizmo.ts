@@ -5,26 +5,34 @@
 // parameter's keyform in Model mode; the pivot is placed with the Pivot tool, not the gizmo).
 // The Warp tool draws the lattice of the chosen part's mesh warp as an overlay too (constant-size handles at every control
 // point) and reports a point dragged as the distance it moved in the part's own space; the editor writes it into a keyform.
-// A part's mask (rig.json `masks`) is drawn as an outline over the stage (dashed, in the colour of the stencil it makes); with the Mask tool
-// a polygon's points are handles too: drag one, click an edge to add a point, Alt-click a point to remove it. The editor owns the shape.
-// Messages in (see studio.ts): studioGizmo { tool, name, space }, studioExtra { extra }, studioView { fit }, studioWarp { part, point },
-// studioMask { part, tool, point }.
-// Messages out: studioSelect { name, shift }, studioGizmoDrag { phase, name, tool, delta }, studioKey { key, ctrl, shift },
-// studioWarpDrag { phase, part, point, delta }, studioWarpBox { part, w, h }, studioMaskDrag { phase, part, point, delta },
-// studioMaskAdd { part, index, at }, studioMaskRemove { part, point }, studioMaskBox { part, x, y, w, h }.
+// A mask shape (a shape part of rig.json) is drawn as an outline over the stage (dashed, in the colour of the stencil it makes); with the Mask tool
+// every shape is outlined (a click near an outline picks it) and the chosen shape's polygon points are handles: drag one, click an edge to add a point,
+// Alt-click a point to remove it. The editor owns the shape.
+// Messages in (see studio.ts): studioGizmo { tool, name, space }, studioExtra { extra }, studioView { fit }, studioWarp { id, points, radius, curve },
+// studioMask { shape, part, tool, point }.
+// Messages out: studioSelect { name, hits (every part under the pointer, front to back; one name for a bone or mask shape), at (the click in screen px), shift, ctrl }, studioGizmoDrag { phase, name, tool, delta }, studioKey { key, ctrl, shift },
+// studioWarpDrag { phase, id, point, delta }, studioWarpSelect { id, points, mode } (a click with Shift, a rectangle, Ctrl+A, Esc), studioWarpBox { id, w, h, pw?, ph? } (pw, ph: a free mesh's image size in pixels), studioMeshTopo { id, op, vertex | a, b | at } (topology mode: op add / delete / flip / removeEdge / addEdge / cancel; a Move is a studioWarpDrag), studioMaskDrag { phase, shape, point, delta },
+// studioMaskAdd { shape, index, at }, studioMaskRemove { shape, point }, studioMaskBox { part, x, y, w, h }.
 
 import {
-  dragBone, fitBounds, gizmoFrame, gizmoHandles, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, offsetDelta, panBy, pickHandle, pickPoint, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
-  type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView,
+  dragBone, fitBounds, gizmoFrame, gizmoHandles, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
+  softWeights, meshSoftWeights,
+  type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView, type WarpFalloff,
 } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
 
 export interface GizmoConfig { tool: GizmoTool | null; name: string | null; space: GizmoSpace }
-/** The Warp tool: the part whose lattice is shown and the point the editor has selected. */
-export interface WarpConfig { part: string; point: number | null }
-/** The mask outline shown: the part it clips, whether its polygon points are live handles (the Mask tool) and the point the editor has selected. */
-export interface MaskConfig { part: string; tool: boolean; point: number | null }
+/**
+ * The Warp tool: the deformer (by id) whose lattice is shown, the points the editor has selected and how far a soft selection reaches. With a
+ * free mesh in topology mode `topo` is the tool (add, delete, move, flip, addEdge, removeEdge) and `anchor` the vertex an Add edge started from.
+ */
+export interface WarpConfig { id: string; points: number[]; falloff: WarpFalloff; topo?: string | null; anchor?: number | null }
+/**
+ * The mask outlines shown: the shape the editor works on (null: none), the part row chosen (its image box is reported, for a new shape to start from),
+ * whether the Mask tool is on (every shape is outlined and picks on a click; the chosen shape's polygon points are live handles) and the point the editor has selected.
+ */
+export interface MaskConfig { shape: string | null; part: string | null; tool: boolean; point: number | null }
 
 const NS = 'http://www.w3.org/2000/svg';
 const COLORS = { x: '#ff5d5d', y: '#59d96a', free: '#ffffff', ring: '#4aa3ff', bone: '#ffd23b', sel: '#ff3b6b', lattice: '#3be0c8', mask: '#ff9f1c' };
@@ -50,10 +58,15 @@ export class StageTools {
   private warp: WarpConfig | null = null;
   private lattice: GizmoPoint[] = [];       // the lattice points on screen, as drawn last
   private hoverPoint = -1;
+  private meshEdgeList: [number, number][] = [];   // the free mesh's edges as vertex pairs, as drawn last
+  private hoverEdge: [number, number] | null = null;
+  private ghost: GizmoPoint | null = null;      // topology Add: where the new vertex would go, in screen pixels
+  private marquee: { x0: number; y0: number; x1: number; y1: number } | null = null;   // a selection rectangle being dragged, in screen pixels
   private reportedBox = '';
   private mask: MaskConfig | null = null;
   private maskPoints: GizmoPoint[] = [];      // a polygon mask's points on screen, as drawn last (only with the Mask tool)
   private maskLine: GizmoPoint[] = [];        // and its outline, for adding a point on an edge
+  private shapeLines: { name: string; outlines: GizmoPoint[][] }[] = []; // every shape's outlines on screen (only with the Mask tool), for picking one
   private reportedMask = '';
   private spaceDown = false;
   private vw = window.innerWidth;
@@ -104,10 +117,12 @@ export class StageTools {
     this.draw();
   }
 
-  /** Show the lattice of `w.part` (null: no Warp tool). */
+  /** Show the lattice of the deformer `w.id` (null: no Warp tool). */
   setWarp(w: WarpConfig | null) {
     this.warp = w;
     this.hoverPoint = -1;
+    this.hoverEdge = null;
+    this.ghost = null;
     this.reportedBox = '';
     this.draw();
   }
@@ -157,6 +172,7 @@ export class StageTools {
     this.lattice = [];
     this.maskPoints = [];
     this.maskLine = [];
+    this.shapeLines = [];
     const { renderer, char } = this.deps, c = this.cfg;
     const space = renderer.studioSpace(char);
     if (this.mask && space) this.drawMask(this.mask); // an outline is only a drawing: it shows while a pivot is being picked too
@@ -178,31 +194,69 @@ export class StageTools {
     for (const h of gizmoHandles(c.tool, this.frame)) this.drawHandle(h, h.axis === this.hover?.axis);
   }
 
-  /** The warp lattice of the chosen part over the stage: thin lines and a round handle at each control point, all in screen pixels. */
+  /** The warp lattice of the chosen deformer over the stage: thin lines and a round handle at each control point, all in screen pixels. */
   private drawLattice(w: WarpConfig) {
-    const l = this.deps.renderer.studioLattice(this.deps.char, w.part);
-    if (!l) return;
+    const l = this.deps.renderer.studioDeformerLattice(this.deps.char, w.id);
+    if (!l) { this.drawMesh(w); return; }
     this.lattice = l.points.map(p => worldToScreen(this.view, p));
-    const box = `${w.part}|${l.box.w}|${l.box.h}`;
-    if (box !== this.reportedBox) { this.reportedBox = box; this.deps.send({ type: 'studioWarpBox', part: w.part, w: l.box.w, h: l.box.h }); }
+    const box = `${w.id}|${l.box.w}|${l.box.h}`;
+    if (box !== this.reportedBox) { this.reportedBox = box; this.deps.send({ type: 'studioWarpBox', id: w.id, w: l.box.w, h: l.box.h }); }
     const edges = latticeEdges([l.cols, l.rows]);
     for (const [stroke, width, opacity] of [['#000', 3.5, 0.45], [COLORS.lattice, 1.5, 0.95]] as const)
       for (const [a, b] of edges) svg('line', { x1: this.lattice[a][0], y1: this.lattice[a][1], x2: this.lattice[b][0], y2: this.lattice[b][1], stroke, 'stroke-width': width, 'stroke-opacity': opacity }, this.overlay);
+    // A soft selection tints the points it will drag along, stronger the nearer they are.
+    const weights = softWeights({ grid: [l.cols, l.rows] }, w.points, w.falloff);
     this.lattice.forEach((p, i) => {
-      const sel = i === w.point, hot = i === this.hoverPoint;
-      svg('circle', { cx: p[0], cy: p[1], r: sel ? 6.5 : 5, fill: sel ? COLORS.sel : hot ? '#fff' : COLORS.lattice, stroke: '#000', 'stroke-width': 1.5 }, this.overlay);
+      const sel = w.points.includes(i), hot = i === this.hoverPoint, soft = sel ? 0 : weights.get(i) ?? 0;
+      svg('circle', { cx: p[0], cy: p[1], r: sel ? 6.5 : 5, fill: sel ? COLORS.sel : hot ? '#fff' : COLORS.lattice, stroke: soft ? COLORS.sel : '#000', 'stroke-width': soft ? 1.5 + 2 * soft : 1.5 }, this.overlay);
     });
+    const m = this.marquee;
+    if (m) svg('rect', { x: Math.min(m.x0, m.x1), y: Math.min(m.y0, m.y1), width: Math.abs(m.x1 - m.x0), height: Math.abs(m.y1 - m.y0), fill: 'rgba(255,59,107,.12)', stroke: COLORS.sel, 'stroke-width': 1, 'stroke-dasharray': '4 3' }, this.overlay);
   }
 
-  /** The outline of the part's mask (every shape of it), and with the Mask tool on a polygon, a handle at each point. */
+  /**
+   * The free mesh of the chosen deformer: triangle edges and a dot at each vertex, all in screen pixels. The vertices are the handles, as
+   * the lattice's points are (`this.lattice`): pick, Shift-click, rectangle, drag and the soft tint work the same, with the fade over edge hops.
+   */
+  private drawMesh(w: WarpConfig) {
+    const m = this.deps.renderer.studioDeformerMesh(this.deps.char, w.id);
+    if (!m) return;
+    this.lattice = m.verts.map(p => worldToScreen(this.view, p));
+    const at = this.lattice, box = `${w.id}|${m.box.w}|${m.box.h}|${m.size.w}|${m.size.h}`;
+    if (box !== this.reportedBox) { this.reportedBox = box; this.deps.send({ type: 'studioWarpBox', id: w.id, w: m.box.w, h: m.box.h, pw: m.size.w, ph: m.size.h }); }
+    for (const [stroke, width, opacity] of [['#000', 3, 0.4], [COLORS.lattice, 1, 0.85]] as const)
+      for (const [a, b] of m.edges) svg('line', { x1: at[a][0], y1: at[a][1], x2: at[b][0], y2: at[b][1], stroke, 'stroke-width': width, 'stroke-opacity': opacity }, this.overlay);
+    this.meshEdgeList = m.edges;
+    const topo = w.topo ?? null, weights = meshSoftWeights(at.length, m.tris, topo ? [] : w.points, w.falloff);
+    if (topo && this.hoverEdge) { const [a, b] = this.hoverEdge; svg('line', { x1: at[a][0], y1: at[a][1], x2: at[b][0], y2: at[b][1], stroke: '#fff', 'stroke-width': 3.5, 'stroke-linecap': 'round' }, this.overlay); }
+    if (topo && w.anchor != null && at[w.anchor]) svg('circle', { cx: at[w.anchor][0], cy: at[w.anchor][1], r: 9, fill: 'none', stroke: COLORS.sel, 'stroke-width': 2.5 }, this.overlay);
+    at.forEach((p, i) => {
+      const sel = !topo && w.points.includes(i), hot = i === this.hoverPoint, soft = sel ? 0 : weights.get(i) ?? 0;
+      svg('circle', { cx: p[0], cy: p[1], r: sel ? 5.5 : hot ? 4.5 : 3, fill: sel ? COLORS.sel : hot ? '#fff' : COLORS.lattice, stroke: soft ? COLORS.sel : '#000', 'stroke-width': soft ? 1 + 2 * soft : 1 }, this.overlay);
+    });
+    if (topo === 'add' && this.ghost) svg('circle', { cx: this.ghost[0], cy: this.ghost[1], r: 5, fill: 'rgba(255,255,255,.35)', stroke: '#fff', 'stroke-width': 1.5, 'stroke-dasharray': '3 2' }, this.overlay);
+    const mq = this.marquee;
+    if (mq) svg('rect', { x: Math.min(mq.x0, mq.x1), y: Math.min(mq.y0, mq.y1), width: Math.abs(mq.x1 - mq.x0), height: Math.abs(mq.y1 - mq.y0), fill: 'rgba(255,59,107,.12)', stroke: COLORS.sel, 'stroke-width': 1, 'stroke-dasharray': '4 3' }, this.overlay);
+  }
+
+  /** The outline of the chosen mask shape, with the Mask tool every other shape's too, and on the chosen polygon a handle at each point. */
   private drawMask(m: MaskConfig) {
-    const { renderer, char } = this.deps, info = renderer.studioMask(char, m.part);
-    const box = renderer.studioPartBox(char, m.part), key = `${m.part}|${box ? [box.x, box.y, box.w, box.h].join(',') : ''}`;
-    if (box && key !== this.reportedMask) { this.reportedMask = key; this.deps.send({ type: 'studioMaskBox', part: m.part, ...box }); }
+    const { renderer, char } = this.deps;
+    const box = m.part ? renderer.studioPartBox(char, m.part) : null, key = `${m.part}|${box ? [box.x, box.y, box.w, box.h].join(',') : ''}`;
+    if (m.part && box && key !== this.reportedMask) { this.reportedMask = key; this.deps.send({ type: 'studioMaskBox', part: m.part, ...box }); }
+    const outline = (lines: GizmoPoint[][], stroke: string, width: number, opacity: number, dash: string) => {
+      for (const l of lines) svg('polygon', { points: l.map(p => p.join(',')).join(' '), fill: 'none', stroke, 'stroke-width': width, 'stroke-opacity': opacity, 'stroke-linejoin': 'round', ...(dash ? { 'stroke-dasharray': dash } : {}) }, this.overlay);
+    };
+    if (m.tool) {
+      // Every shape of the character, the chosen one stronger below: a click near an outline picks it.
+      this.shapeLines = renderer.studioShapes(char).map(s => ({ name: s.name, outlines: s.outlines.map(o => o.map(p => worldToScreen(this.view, p))) }));
+      for (const s of this.shapeLines) if (s.name !== m.shape) { outline(s.outlines, '#000', 3, 0.35, ''); outline(s.outlines, COLORS.mask, 1.5, 0.7, '3 4'); }
+    }
+    const info = m.shape ? renderer.studioMask(char, m.shape) : null;
     if (!info) return;
     const lines = info.outlines.map(o => o.map(p => worldToScreen(this.view, p)));
-    for (const [stroke, width, opacity, dash] of [['#000', 3.5, 0.45, ''], [COLORS.mask, 2, 1, '7 5']] as const)
-      for (const l of lines) svg('polygon', { points: l.map(p => p.join(',')).join(' '), fill: 'none', stroke, 'stroke-width': width, 'stroke-opacity': opacity, 'stroke-linejoin': 'round', ...(dash ? { 'stroke-dasharray': dash } : {}) }, this.overlay);
+    outline(lines, '#000', 3.5, 0.45, '');
+    outline(lines, COLORS.mask, 2, 1, '7 5');
     if (!m.tool || !info.polygon || !lines.length) return;
     this.maskLine = lines[0];
     this.maskPoints = lines[0];
@@ -229,11 +283,14 @@ export class StageTools {
   private onKey(e: KeyboardEvent) {
     if (e.key === ' ' && !e.repeat) { this.spaceDown = true; e.preventDefault(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) {
+      if (e.key.toLowerCase() === 'a' && this.lattice.length && !this.warp?.topo) { e.preventDefault(); this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: this.lattice.map((_, i) => i), mode: 'set' }); return; }
       if (['z', 'y', 's'].includes(e.key.toLowerCase())) { e.preventDefault(); this.deps.send({ type: 'studioKey', key: e.key.toLowerCase(), ctrl: true, shift: e.shiftKey }); }
       return;
     }
     const k = e.key.toLowerCase();
-    if (k === 'f') this.fit(e.shiftKey);
+    if (k === 'escape' && this.warp?.topo) { this.deps.send({ type: 'studioMeshTopo', id: this.warp.id, op: 'cancel' }); return; }
+    if (k === 'escape' && this.lattice.length) this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: [], mode: 'set' });
+    else if (k === 'f') this.fit(e.shiftKey);
     else if ('wersqdm'.includes(k) && k.length === 1) this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false });
     else if (k === 'x') this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false }); // local / world
   }
@@ -245,7 +302,36 @@ export class StageTools {
     this.applyView();
   }
 
+  /** The mesh edge (vertex pair) nearest the pointer within `reach` screen pixels, with the nearest point on it. */
+  private edgeAt(p: GizmoPoint, reach = 8): { edge: [number, number]; at: GizmoPoint } | null {
+    let best: { edge: [number, number]; at: GizmoPoint } | null = null, bd = reach;
+    for (const [a, b] of this.meshEdgeList) {
+      const A = this.lattice[a], B = this.lattice[b], dx = B[0] - A[0], dy = B[1] - A[1], l2 = dx * dx + dy * dy;
+      const t = l2 > 0 ? Math.min(1, Math.max(0, ((p[0] - A[0]) * dx + (p[1] - A[1]) * dy) / l2)) : 0, q: GizmoPoint = [A[0] + dx * t, A[1] + dy * t], d = Math.hypot(p[0] - q[0], p[1] - q[1]);
+      if (d < bd) { bd = d; best = { edge: [a, b], at: q }; }
+    }
+    return best;
+  }
+  /** Where a topology Add would put its vertex under screen point `p` (snapped onto a near edge), as a screen point and as the rest position in the part's pixels. */
+  private addSpot(p: GizmoPoint): { screen: GizmoPoint; rest: [number, number] } | null {
+    const snap = this.edgeAt(p, 7), screen = snap ? snap.at : p, rest = this.deps.renderer.studioDeformerRestPoint(this.deps.char, this.warp!.id, this.toStage({ clientX: screen[0], clientY: screen[1] }));
+    return rest ? { screen, rest } : null;
+  }
+
   private onHover(e: PointerEvent) {
+    if (this.warp?.topo && this.lattice.length) {
+      if (e.buttons) return;
+      const tool = this.warp.topo, p: GizmoPoint = [e.clientX, e.clientY];
+      const i = tool === 'add' || tool === 'flip' || tool === 'removeEdge' ? -1 : pickPoint(this.lattice, p);
+      const edge = tool === 'flip' || tool === 'removeEdge' ? this.edgeAt(p)?.edge ?? null : null, spot = tool === 'add' ? this.addSpot(p) : null;
+      const same = (a: [number, number] | null, b: [number, number] | null) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+      if (i !== this.hoverPoint || !same(edge, this.hoverEdge) || (spot?.screen[0] ?? null) !== (this.ghost?.[0] ?? null) || (spot?.screen[1] ?? null) !== (this.ghost?.[1] ?? null)) {
+        this.hoverPoint = i; this.hoverEdge = edge; this.ghost = spot ? spot.screen : null;
+        this.draw();
+      }
+      document.body.style.cursor = i >= 0 || edge || spot ? (tool === 'move' ? 'move' : 'pointer') : '';
+      return;
+    }
     const points = this.lattice.length ? this.lattice : this.maskPoints;
     if (points.length) {
       if (e.buttons) return;
@@ -263,27 +349,85 @@ export class StageTools {
   private onDown(e: PointerEvent) {
     window.focus();
     if (e.button === 1 || (e.button === 0 && this.spaceDown)) { this.pan(e); return; }
-    if (e.button !== 0 || (!this.cfg.tool && !this.warp && !this.maskPoints.length) || this.deps.suspended()) return;
+    if (e.button !== 0 || (!this.cfg.tool && !this.warp && !this.maskPoints.length && !this.shapeLines.length) || this.deps.suspended()) return;
     const p: GizmoPoint = [e.clientX, e.clientY];
+    if (this.warp?.topo && this.lattice.length) { this.topoDown(e, p, this.warp); return; }
     const point = this.lattice.length ? pickPoint(this.lattice, p) : -1;
-    if (point >= 0) { this.stop(e); this.startWarpDrag(e, point); return; }
-    if (this.maskPoints.length && this.mask) {
+    if (point >= 0) {
+      this.stop(e);
+      if (e.shiftKey) this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: [point], mode: 'toggle' });
+      else this.startWarpDrag(e, point);
+      return;
+    }
+    if (this.maskPoints.length && this.mask?.shape) {
       const mp = pickPoint(this.maskPoints, p);
-      if (mp >= 0) { this.stop(e); if (e.altKey) this.deps.send({ type: 'studioMaskRemove', part: this.mask.part, point: mp }); else this.startMaskDrag(e, mp); return; }
+      if (mp >= 0) { this.stop(e); if (e.altKey) this.deps.send({ type: 'studioMaskRemove', shape: this.mask.shape, point: mp }); else this.startMaskDrag(e, mp); return; }
       const edge = nearestEdge(this.maskLine, p);
       if (edge && edge.dist <= 8) {
         this.stop(e);
         const at = this.deps.renderer.studioCanvasPoint(this.deps.char, this.toStage({ clientX: edge.at[0], clientY: edge.at[1] }));
-        if (at) this.deps.send({ type: 'studioMaskAdd', part: this.mask.part, index: edge.index + 1, at });
+        if (at) this.deps.send({ type: 'studioMaskAdd', shape: this.mask.shape, index: edge.index + 1, at });
         return;
       }
     }
     const h = this.frame && this.cfg.tool ? pickHandle(gizmoHandles(this.cfg.tool, this.frame), p) : null;
     if (h && this.cfg.name) { this.stop(e); this.startDrag(e, h); return; }
     this.stop(e);
-    const bone = this.bones.find(b => Math.hypot(b.at[0] - p[0], b.at[1] - p[1]) <= 10);
-    const [sx, sy] = this.toStage(e);
-    this.deps.send({ type: 'studioSelect', name: bone ? bone.name : this.deps.renderer.studioHit(this.deps.char, sx, sy), shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+    const pick = () => {
+      const bone = this.bones.find(b => Math.hypot(b.at[0] - p[0], b.at[1] - p[1]) <= 10);
+      const [sx, sy] = this.toStage(e);
+      // With the Mask tool: near a shape's outline picks that shape; else the part under the pointer as ever; else a shape the pointer is inside.
+      const outlines = this.shapeLines.map(s => ({ name: s.name, outlines: s.outlines as [number, number][][] }));
+      const near = bone ? null : shapeAtEdge(outlines, p, 8);
+      const hits = bone || near ? [] : this.deps.renderer.studioHitAll(this.deps.char, sx, sy);
+      const hit = hits[0] ?? null;
+      const inside = bone || near || hit ? null : shapeAtInside(outlines, p);
+      this.deps.send({ type: 'studioSelect', name: bone ? bone.name : near ?? hit ?? inside, hits: bone ? [bone.name] : near ? [near] : hits, at: [p[0], p[1]], shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+    };
+    if (this.lattice.length && this.warp) this.startMarquee(e, pick);
+    else pick();
+  }
+
+  /** A press in topology mode: the tool acts on the vertex, edge or spot under it (the editor does the edit and may refuse); nothing else is picked. */
+  private topoDown(e: PointerEvent, p: GizmoPoint, w: WarpConfig) {
+    this.stop(e);
+    const tool = w.topo!, send = (m: object) => this.deps.send({ type: 'studioMeshTopo', id: w.id, ...m });
+    if (tool === 'add') { const spot = this.addSpot(p); send({ op: 'add', at: spot ? spot.rest : null }); return; }
+    if (tool === 'flip' || tool === 'removeEdge') { const hit = this.edgeAt(p); if (hit) send({ op: tool, a: hit.edge[0], b: hit.edge[1] }); return; }
+    const point = pickPoint(this.lattice, p);
+    if (point < 0) return;
+    if (tool === 'move') this.startWarpDrag(e, point);
+    else send({ op: tool, vertex: point });
+  }
+
+  /**
+   * Empty space pressed with a lattice shown: a click picks what is under it as ever, a drag draws a rectangle and selects the
+   * lattice points inside it (Shift adds them to the selection).
+   */
+  private startMarquee(e: PointerEvent, click: () => void) {
+    const id = this.warp!.id, add = e.shiftKey, x0 = e.clientX, y0 = e.clientY;
+    let dragged = false;
+    const move = (m: PointerEvent) => {
+      if (!dragged && Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return;
+      dragged = true;
+      this.marquee = { x0, y0, x1: m.clientX, y1: m.clientY };
+      this.draw();
+    };
+    const up = (m: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      this.marquee = null;
+      if (m.type === 'pointerup' && Math.hypot(m.clientX - x0, m.clientY - y0) >= 4) dragged = true; // a press and a release far apart are a drag even if no move was seen
+      if (!dragged || m.type === 'pointercancel') { this.draw(); if (m.type !== 'pointercancel') click(); return; }
+      const [ax, bx] = [Math.min(x0, m.clientX), Math.max(x0, m.clientX)], [ay, by] = [Math.min(y0, m.clientY), Math.max(y0, m.clientY)];
+      const points = this.lattice.flatMap((q, i) => (q[0] >= ax && q[0] <= bx && q[1] >= ay && q[1] <= by ? [i] : []));
+      this.deps.send({ type: 'studioWarpSelect', id, points, mode: add ? 'add' : 'set' });
+      this.draw();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   private stop(e: Event) { e.preventDefault(); e.stopPropagation(); }
@@ -298,12 +442,12 @@ export class StageTools {
     window.addEventListener('pointerup', up);
   }
 
-  /** A lattice point pressed: report how far the pointer has moved it, measured in the part's own space, until the release. */
+  /** A lattice point pressed: report how far the pointer has moved it, measured in the deformer's own space, until the release. */
   private startWarpDrag(e: PointerEvent, point: number) {
-    const { renderer, char } = this.deps, part = this.warp!.part, from = this.toStage(e);
-    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioWarpDrag', phase, part, point, delta });
+    const { renderer, char } = this.deps, id = this.warp!.id, from = this.toStage(e);
+    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioWarpDrag', phase, id, point, delta });
     send('start', [0, 0]);
-    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioLatticeDelta(char, part, from, this.toStage(ev)) ?? [0, 0]);
+    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioDeformerDelta(char, id, from, this.toStage(ev)) ?? [0, 0]);
     const move = (m: PointerEvent) => step(m, 'move');
     const up = (m: PointerEvent) => {
       window.removeEventListener('pointermove', move);
@@ -318,10 +462,10 @@ export class StageTools {
 
   /** A mask polygon's point pressed: report how far the pointer has moved it, in canvas pixels, until the release. */
   private startMaskDrag(e: PointerEvent, point: number) {
-    const { renderer, char } = this.deps, part = this.mask!.part, from = this.toStage(e);
-    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioMaskDrag', phase, part, point, delta });
+    const { renderer, char } = this.deps, shape = this.mask!.shape!, from = this.toStage(e);
+    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioMaskDrag', phase, shape, point, delta });
     send('start', [0, 0]);
-    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioMaskDelta(char, part, from, this.toStage(ev)) ?? [0, 0]);
+    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioMaskDelta(char, shape, from, this.toStage(ev)) ?? [0, 0]);
     const move = (m: PointerEvent) => step(m, 'move');
     const up = (m: PointerEvent) => {
       window.removeEventListener('pointermove', move);

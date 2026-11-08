@@ -13,6 +13,9 @@ test('newProjectFiles npm kind links the engine', () => {
   const pkg = JSON.parse(files['package.json']);
   assert.equal(pkg.name, 'rain-park');
   assert.equal(pkg.devDependencies['marginalia-vn'], 'file:../engine');
+  // The docs tell people to run these; every script of the engine's own package.json that works on a project is here.
+  for (const script of ['dev', 'export', 'art', 'ids', 'strings', 'voice', 'playtest', 'stats']) assert.equal(pkg.scripts[script], `vn ${script}`);
+  for (const script of ['playtest', 'stats', 'voice']) assert.match(files['README.md'], new RegExp(`npm run ${script}`));
   const game = JSON.parse(files['game.json']);
   assert.equal(game.id, 'rain-park');
   assert.equal(game.title, 'Rain Park');

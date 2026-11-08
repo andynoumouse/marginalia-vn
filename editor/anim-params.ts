@@ -12,7 +12,7 @@
 
 import {
   changedParams, controlGroups, displayValues, EASE_NAMES, OTHER, paramKeys,
-  type AnimDef, type FormValue, type KeySpot, type KeyTick, type PadDef, type ParamDef, type ParamPatch, type PadPatch, type PoseDef,
+  type AnimDef, type FormValue, type KeySpot, type KeyTick, type PadDef, type ParamDef, type ParamPatch, type PadPatch, type PadSpec, type PoseDef,
 } from '../engine/src/index.js';
 import { el } from './anim-dom.js';
 import { ContextMenu } from './context-menu.js';
@@ -61,7 +61,7 @@ export interface ParamHost {
   moveControlTo(control: string, category: string | null, before?: string): void;
   /** A new parameter or pad, in `category` when one is given. */
   addParam(category?: string): string | null;
-  addPad(category?: string): string | null;
+  addPad(category: string | undefined, spec: PadSpec): string | null;
   editParam(id: string, patch: ParamPatch): string | null;
   editPad(id: string, patch: PadPatch): string | null;
   deleteParam(id: string): void;
@@ -92,6 +92,8 @@ function numberInput(type: 'range' | 'number', d: ParamDef): HTMLInputElement {
 }
 const clamp = (d: ParamDef, v: number) => Math.min(d.max, Math.max(d.min, v));
 /** The plain inputs and selects of the fold-out editors. */
+/** A category header's fold arrow occupies this many pixels from its left edge; a click further right is on the name. */
+const ARROW_WIDTH = 18;
 function textField(size: number): HTMLInputElement {
   const i = document.createElement('input');
   i.type = 'text'; i.size = size; i.spellcheck = false; i.autocomplete = 'off';
@@ -152,8 +154,50 @@ export class ParamPanel {
 
   /** Model mode: a + button's menu adds a slider or a pad (in `category`, when the button is a category's) and opens its editor. */
   add(kind: 'param' | 'pad', category?: string) {
-    if (kind === 'param') this.created(this.host.addParam(category));
-    else this.created(this.host.addPad(category), 'pad:');
+    if (kind === 'param') { this.drafting = null; this.created(this.host.addParam(category)); return; }
+    this.drafting = { category }; // a pad is not made until its parameters are picked in the form
+    this.build();
+    this.body.querySelector<HTMLElement>('.ap-draft input')?.focus();
+  }
+  /** Model mode: the open "new pad" form, if any. */
+  drafting: { category?: string } | null = null;
+
+  /** The form for a new pad: a name, and for each axis an existing free parameter or a new one. Nothing is chosen for the author. */
+  private padDraft(): HTMLElement {
+    const form = el('div', { className: 'ap-editor ap-draft ap-model-only' });
+    form.setAttribute('role', 'group'); form.setAttribute('aria-label', 'New pad');
+    form.append(el('strong', { textContent: 'New pad' }), el('small', { className: 'ap-hint', textContent: 'A pad moves two parameters on one 2D control. Both start as new parameters; pick an existing one instead if you want.' }));
+    const name = this.field(form, 'name', textField(12));
+    name.placeholder = 'pad'; name.setAttribute('aria-label', 'Name of the new pad');
+    name.addEventListener('input', () => { const at = name.selectionStart; const clean = name.value.replace(/\s/g, '_').replace(/\W/g, ''); if (clean !== name.value) { name.value = clean; name.setSelectionRange(at, at); } });
+    const taken = new Set(this.host.pads().flatMap(p => [p.x, p.y]));
+    const NEW = '+new';
+    const axis = (text: string) => {
+      const sel = selectOf([[NEW, '＋ New parameter'], ...this.host.defs().filter(p => !taken.has(p.id)).map((p): [string, string] => [p.id, p.id])]);
+      sel.setAttribute('aria-label', `${text} parameter of the new pad`);
+      return this.field(form, text, sel);
+    };
+    const x = axis('across'), y = axis('up');
+    const create = el('button', { type: 'button', className: 'ap-apply', textContent: 'Create pad' });
+    const cancel = el('button', { type: 'button', className: 'ap-cancel', textContent: 'Cancel' });
+    const ready = () => {
+      const dup = x.value !== '' && x.value !== NEW && x.value === y.value;
+      create.disabled = dup;
+      create.title = dup ? 'Across and up need two different parameters' : '';
+    };
+    x.addEventListener('change', ready); y.addEventListener('change', ready); ready();
+    const done = () => { this.drafting = null; this.build(); };
+    cancel.addEventListener('click', done);
+    create.addEventListener('click', () => {
+      const spec: PadSpec = { id: name.value.trim() || undefined, x: x.value === NEW ? null : x.value, y: y.value === NEW ? null : y.value };
+      const id = this.host.addPad(this.drafting?.category, spec);
+      if (id === null) return; // refused: the host said why, and the form stays
+      this.drafting = null;
+      this.created(id, 'pad:');
+    });
+    form.addEventListener('keydown', e => { if (e.key === 'Escape') done(); else if (e.key === 'Enter' && !create.disabled && e.target instanceof HTMLInputElement) create.click(); });
+    form.append(el('div', { className: 'ap-draft-btns' }, create, cancel));
+    return form;
   }
 
   /** Model mode: a new category, its name ready to type over. */
@@ -231,6 +275,7 @@ export class ParamPanel {
     if (!defs.length) this.body.append(el('p', { className: 'as-pivot-hint', textContent: this.host.authoring()
       ? "This character has no parameters yet. New parameter adds a slider and New pad a 2D control. Click a control's name to make it the active parameter, then pick the parts it moves on the stage or in the Parts tree."
       : 'This character has no parameters. Add them in Model mode (or "parameters" to its rig.json); see docs/rig-json.md.' }));
+    if (this.drafting) this.body.append(this.padDraft());
     const groups = controlGroups(defs, this.host.pads(), this.host.categories());
     // A long list starts with its first category open; a short one is open throughout.
     const open = groups.reduce((n, g) => n + g.controls.length, 0) <= LONG ? groups.length : 1;
@@ -249,7 +294,12 @@ export class ParamPanel {
       }
       if (!g.controls.length) rows.append(el('p', { className: 'as-pivot-hint ap-empty', textContent: 'Empty: drag parameters here, or use +.' }));
       const show = (on: boolean) => { rows.hidden = !on; fold.setAttribute('aria-expanded', String(on)); this.folded.set(g.name, on); };
-      fold.addEventListener('click', () => show(rows.hidden));
+      // Model mode: the arrow folds, the name of a real category starts its rename; elsewhere the whole header folds.
+      fold.addEventListener('click', e => {
+        if (real && this.host.authoring() && e.clientX - fold.getBoundingClientRect().left > ARROW_WIDTH) this.renaming(g.name);
+        else show(rows.hidden);
+      });
+      if (real) fold.title = 'Click the arrow to fold, the name to rename (Model mode)';
       show((this.folded.get(g.name) ?? i < open) || g.controls.some(c => editKey(c) === this.editing));
       head.append(...this.categoryButtons(g.name, real));
       this.dropTarget(sec, g.name, real);
@@ -264,25 +314,20 @@ export class ParamPanel {
 
   // ---- categories (Model mode) ----
 
-  /** The + (add a parameter or a pad here), and for a real category the ✎ (rename) and ✕ (delete) on its header. */
+  /** The + on a category's header, its only button: its menu adds a parameter or a pad here and, for a real category, renames or deletes it. */
   private categoryButtons(name: string, real: boolean): HTMLElement[] {
-    const btn = (cls: string, text: string, title: string) => {
-      const b = el('button', { type: 'button', className: `ap-cat-btn ${cls} ap-model-only`, textContent: text, title });
-      b.setAttribute('aria-label', title);
-      return b;
-    };
-    const add = btn('ap-cat-add', '+', `Add a parameter or a pad to ${name}`);
+    const add = el('button', { type: 'button', className: 'ap-cat-btn ap-cat-add ap-model-only', textContent: '+', title: `Add to ${name}${real ? ', or rename or delete it' : ''}` });
+    add.setAttribute('aria-label', add.title);
     add.setAttribute('aria-haspopup', 'menu');
     add.addEventListener('click', e => (this.menu ??= new ContextMenu(this.root)).open(e, add, [
       { label: 'New parameter', title: 'Add a parameter (a slider)', run: () => this.add('param', real ? name : undefined) },
       { label: 'New pad', title: 'Add a pad: two parameters on one 2D control', run: () => this.add('pad', real ? name : undefined) },
+      ...(real ? [
+        { label: 'Rename category', title: `Rename ${name}; its controls follow`, run: () => this.renaming(name) },
+        { label: 'Delete category', title: `Delete ${name}; its controls move to Other`, run: () => this.host.deleteCategory(name) },
+      ] : []),
     ]));
-    if (!real) return [add];
-    const rename = btn('ap-cat-rename', '✎', `Rename the category ${name}`);
-    rename.addEventListener('click', () => this.renaming(name));
-    const del = btn('ap-cat-del', '✕', `Delete the category ${name}; its controls move to Other`);
-    del.addEventListener('click', () => this.host.deleteCategory(name));
-    return [add, rename, del];
+    return [add];
   }
 
   /** The header of category `name` becomes a text field: Enter or leaving it renames, Esc keeps the name. */
@@ -369,8 +414,9 @@ export class ParamPanel {
   }
 
   /** Model mode: the author picked this control (a click on its row or its name) and it becomes the active parameter. Nothing is guessed. */
-  private pick(ctl: string) {
-    if (this.host.authoring() && this.host.keyedControl() !== ctl) this.host.chooseControl(ctl);
+  private pick(ctl: string, e?: MouseEvent, viaName = false) {
+    if (!this.host.authoring()) return;
+    if (this.host.keyedControl() !== ctl) this.host.chooseControl(ctl);
   }
 
   /** The key, reset and (Model) edit buttons every control has; `ids` are the parameters they act on, `ctl` the control key the key button writes keyforms for. */
@@ -434,6 +480,23 @@ export class ParamPanel {
     form.append(el('label', {}, `${text} `, input));
     return input;
   }
+  /** A name field: spaces become _ and other characters a name cannot hold are dropped as you type; Enter or the Apply button applies it (leaving the field does too). */
+  private nameField(form: HTMLElement, current: string, label: string, apply: (name: string) => void): HTMLInputElement {
+    const name = this.field(form, 'name', textField(12));
+    name.value = current;
+    name.title = 'Letters, digits and _ only (a space becomes _), starting with a letter or _';
+    name.addEventListener('input', () => {
+      const at = name.selectionStart;
+      const clean = name.value.replace(/\s/g, '_').replace(/\W/g, '');
+      if (clean !== name.value) { name.value = clean; name.setSelectionRange(at, at); }
+    });
+    const go = () => { const to = name.value.trim(); if (to !== current) apply(to); };
+    name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    const ok = el('button', { type: 'button', className: 'ap-apply', textContent: 'Apply', title: `Rename ${label}` });
+    ok.addEventListener('click', go);
+    form.append(ok, el('small', { className: 'ap-hint', textContent: 'Letters, digits and _ (spaces become _).' }));
+    return name;
+  }
   /** An edit went through the host, which answers with the control's id afterwards (null: refused, so the fields show the old values again). */
   private applied(id: string | null, key: string) {
     if (id === null) { this.build(); return; }
@@ -448,16 +511,16 @@ export class ParamPanel {
 
   private sliderEditor(d: ParamDef, axis: boolean): HTMLElement {
     return this.editor(d.id, form => {
-      const name = this.field(form, 'name', textField(12));
+      const send = (patch: ParamPatch) => this.applied(this.host.editParam(d.id, patch), d.id);
+      const name = this.nameField(form, d.id, d.id, to => send({ id: to }));
       const group = this.field(form, 'category', this.categorySelect());
       if (axis) { group.disabled = true; group.title = "An axis of a pad stays in the pad's category"; }
       const min = this.field(form, 'min', numField(d.min)), max = this.field(form, 'max', numField(d.max)), dflt = this.field(form, 'default', numField(d.default));
       const ease = this.field(form, 'ease', selectOf([['', '(linear)'], ...EASE_NAMES.map((n): [string, string] => [n, n])]));
-      name.value = d.id; group.value = d.group ?? ''; ease.value = d.ease ?? '';
+      group.value = d.group ?? ''; ease.value = d.ease ?? '';
       name.setAttribute('aria-label', `Name of ${d.id}`); group.setAttribute('aria-label', `Category of ${d.id}`);
       min.setAttribute('aria-label', `Minimum of ${d.id}`); max.setAttribute('aria-label', `Maximum of ${d.id}`); dflt.setAttribute('aria-label', `Default of ${d.id}`); ease.setAttribute('aria-label', `Ease of ${d.id}`);
-      const send = (patch: ParamPatch) => this.applied(this.host.editParam(d.id, patch), d.id);
-      name.addEventListener('change', () => send({ id: name.value }));
+      name.addEventListener('change', () => { const to = name.value.trim(); if (to !== d.id) send({ id: to }); });
       group.addEventListener('change', () => send({ group: group.value }));
       ease.addEventListener('change', () => send({ ease: ease.value }));
       for (const [input, key] of [[min, 'min'], [max, 'max'], [dflt, 'default']] as const) input.addEventListener('change', () => {
@@ -477,28 +540,16 @@ export class ParamPanel {
   private padEditor(pad: PadDef): HTMLElement {
     const key = `pad:${pad.id}`;
     return this.editor(key, form => {
-      const name = this.field(form, 'name', textField(12));
-      const group = this.field(form, 'category', this.categorySelect());
-      const axis = (text: string, cur: string) => {
-        const sel = selectOf(this.host.defs().map((p): [string, string] => [p.id, p.id]));
-        sel.value = cur;
-        sel.setAttribute('aria-label', `${text} parameter of ${pad.id}`);
-        return this.field(form, text, sel);
-      };
-      const x = axis('across', pad.x), y = axis('up', pad.y);
-      name.value = pad.id; group.value = pad.group ?? '';
-      name.setAttribute('aria-label', `Name of ${pad.id}`); group.setAttribute('aria-label', `Category of ${pad.id}`);
       const send = (patch: PadPatch) => this.applied(this.host.editPad(pad.id, patch), key);
-      name.addEventListener('change', () => send({ id: name.value }));
+      const name = this.nameField(form, pad.id, pad.id, to => send({ id: to }));
+      const group = this.field(form, 'category', this.categorySelect());
+      group.value = pad.group ?? '';
+      name.setAttribute('aria-label', `Name of ${pad.id}`); group.setAttribute('aria-label', `Category of ${pad.id}`);
+      name.addEventListener('change', () => { const to = name.value.trim(); if (to !== pad.id) send({ id: to }); });
       group.addEventListener('change', () => send({ group: group.value }));
-      x.addEventListener('change', () => send({ x: x.value }));
-      y.addEventListener('change', () => send({ y: y.value }));
       const del = el('button', { type: 'button', className: 'ap-delete', textContent: 'Delete pad', title: `Delete the pad ${pad.id}; its parameters and their keyforms stay` });
       del.addEventListener('click', () => this.host.deletePad(pad.id));
-      const up = el('button', { type: 'button', className: 'ap-move', textContent: '▲', title: 'Move up in its group' }), down = el('button', { type: 'button', className: 'ap-move', textContent: '▼', title: 'Move down in its group' });
-      up.addEventListener('click', () => this.host.moveControl(key, -1));
-      down.addEventListener('click', () => this.host.moveControl(key, 1));
-      form.append(up, down, del);
+      form.append(del);
     });
   }
 
@@ -515,13 +566,13 @@ export class ParamPanel {
     range.addEventListener('input', () => input(range.value));
     num.addEventListener('change', () => input(num.value));
     const label = el('label', { textContent: d.id, title: 'Make this the active parameter' });
-    this.nameKeys(label, () => this.pick(d.id));
+    this.nameKeys(label, () => this.pick(d.id, undefined, true));
     if (!axis) this.dragSource(label, { kind: 'control', id: d.id });
-    const row = el('div', { className: `ap-row${axis ? ' ap-axisrow' : ''}` }, label, el('div', { className: 'ap-track' }, range, ticks), num, key, reset, edit,
-      this.removeButton(d.id, `Delete ${d.id} and the keyforms, pose values and tracks that use it`, () => this.host.deleteParam(d.id)));
+    const row = el('div', { className: `ap-row${axis ? ' ap-axisrow' : ''}` }, label, el('div', { className: 'ap-track' }, range, ticks), num, key,
+      el('span', { className: 'ap-tools' }, reset, edit, this.removeButton(d.id, `Delete ${d.id} and the keyforms, pose values and tracks that use it`, () => this.host.deleteParam(d.id))));
     row.dataset.ctl = d.id;
-    row.addEventListener('click', () => this.pick(d.id));
-    const at = (v: number) => (v - d.min) / (d.max - d.min);
+    row.addEventListener('click', e => this.pick(d.id, e));
+    const at =(v: number) => (v - d.min) / (d.max - d.min);
     this.views.set(d.id, {
       ids: [d.id], row, name: label,
       spot: () => this.spotOf(d.id),
@@ -554,20 +605,11 @@ export class ParamPanel {
     const corners = el('span', { className: 'ap-corners' });
     const dot = el('div', { className: 'ap-dot' });
     area.append(corners, dot);
-    const read = el('span', { className: 'ap-read' });
-    // The key button writes the pad's grid, or one axis when an axis button was chosen instead.
+    // The key button writes the pad's grid, or one axis when that axis's slider row was picked instead.
     const own = () => { const k = this.host.keyedControl(); return k === x.id || k === y.id ? k : gridKey; };
     const { key, reset, edit, paint } = this.buttons([x.id, y.id], id, own, gridKey);
     edit.addEventListener('click', () => this.toggleEditor(gridKey));
-    const hintEl = el('span', { className: 'as-pivot-hint', textContent: 'Keys:' });
-    const axes = el('span', { className: 'ap-axes ap-model-only' }, hintEl);
-    const axisBtn = (ctl: string, text: string, title: string) => {
-      const b = el('button', { type: 'button', className: 'ap-axis', textContent: text, title });
-      b.dataset.axis = ctl;
-      b.addEventListener('click', () => this.host.chooseControl(ctl));
-      return b;
-    };
-    axes.append(axisBtn(gridKey, 'grid', `Key ${id}'s grid: a drag writes the corner of the grid nearest to the dot (${x.id} and ${y.id} have their own sliders below, to key one alone)`));
+    const axes = el('span', { className: 'ap-axes ap-model-only' });
     for (const [axis, param, text] of [['x', x, 'column'], ['y', y, 'row']] as const) {
       const b = el('button', { type: 'button', className: 'ap-grid-add', textContent: `+ ${text}`, title: `Add a grid line at the dot's ${param.id} value, so a corner sits exactly there` });
       b.addEventListener('click', () => this.host.addGridLine([x.id, y.id], axis, this.values()[param.id]));
@@ -603,11 +645,11 @@ export class ParamPanel {
       this.commit();
     });
     const label = el('label', { textContent: id, title: 'Make this the active parameter' });
-    this.nameKeys(label, () => { if (!this.owns(x.id, y.id, gridKey)) this.pick(gridKey); });
+    this.nameKeys(label, () => { if (!this.owns(x.id, y.id, gridKey)) this.pick(gridKey, undefined, true); });
     this.dragSource(label, { kind: 'control', id: gridKey });
-    const row = el('div', { className: 'ap-padrow' }, label, area, read, el('span', { className: 'ap-btns' }, key, reset, edit, this.removeButton(id, `Delete the pad ${id}; its parameters and their keyforms stay`, () => this.host.deletePad(id))), axes);
+    const row = el('div', { className: 'ap-padrow' }, label, area, el('span', { className: 'ap-btns' }, key, reset, edit, this.removeButton(id, `Delete the pad ${id}; its parameters and their keyforms stay`, () => this.host.deletePad(id))), axes);
     row.dataset.ctl = gridKey;
-    row.addEventListener('click', () => { if (!this.owns(x.id, y.id, gridKey)) this.pick(gridKey); });
+    row.addEventListener('click', e => { if (!this.owns(x.id, y.id, gridKey)) this.pick(gridKey, e); });
     const fx = (v: number) => ((v - x.min) / (x.max - x.min)) * 100, fy = (v: number) => (1 - (v - y.min) / (y.max - y.min)) * 100;
     this.views.set(gridKey, {
       ids: [x.id, y.id], row, name: label,
@@ -616,11 +658,11 @@ export class ParamPanel {
         const model = this.host.authoring();
         dot.style.left = `${fx(v[x.id])}%`;
         dot.style.top = `${fy(v[y.id])}%`;
-        read.textContent = `${x.id} ${shown(v[x.id])}, ${y.id} ${shown(v[y.id])}`;
         const spot = this.spotOf(own());
         paint(keyed, tracked, model, !!spot && this.host.isKeyed(spot) !== null);
         const cs = model ? this.host.corners(x.id, y.id) : [];
         const near = cs.length ? cs.reduce((b, c) => (Math.hypot((c.x - v[x.id]) / (x.max - x.min), (c.y - v[y.id]) / (y.max - y.min)) < Math.hypot((b.x - v[x.id]) / (x.max - x.min), (b.y - v[y.id]) / (y.max - y.min)) ? c : b)) : null;
+        axes.hidden = !cs.length; // the grid lines belong to the bound part: with none bound there is no grid to extend
         corners.replaceChildren(...cs.map(c => {
           const d = el('span', { className: `ap-corner${c.authored ? ' ap-authored' : ''}${near === c && this.host.keyedControl() === gridKey ? ' ap-near' : ''}` });
           d.style.left = `${fx(c.x)}%`;
@@ -629,12 +671,10 @@ export class ParamPanel {
           return d;
         }));
         const keyedCtl = this.host.keyedControl();
-        for (const b of axes.querySelectorAll<HTMLButtonElement>('.ap-axis')) b.setAttribute('aria-pressed', String(b.dataset.axis === keyedCtl));
         const active = model && !!keyedCtl && [gridKey, x.id, y.id].includes(keyedCtl);
         row.classList.toggle('ap-active', active);
         this.paintName(label, active);
         key.hidden = this.host.authoring(); // a pad's keys are its grid corners: bound with the part, posed with the gizmo
-        hintEl.textContent = this.host.authoring() ? 'Active:' : 'Keys:';
       },
     });
     return [row, this.padEditor(pad)];

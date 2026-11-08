@@ -10,7 +10,7 @@ dialog.ask .buttons { display: flex; justify-content: flex-end; gap: 8px; }
 dialog.ask button.primary { background: var(--accent, #5fd1c3); color: var(--ink, #0e1117); border-color: var(--accent, #5fd1c3); }`;
 
 /** The text typed (a prompt, when `value` is given), true (a confirm) or null when cancelled. */
-function ask(message: string, ok: string, value?: string): Promise<string | boolean | null> {
+function ask(message: string, ok: string, value?: string, safe = false): Promise<string | boolean | null> {
   if (!document.getElementById('askStyle')) document.head.append(Object.assign(document.createElement('style'), { id: 'askStyle', textContent: STYLE }));
   return new Promise(resolve => {
     const dlg = Object.assign(document.createElement('dialog'), { className: 'ask' });
@@ -29,13 +29,13 @@ function ask(message: string, ok: string, value?: string): Promise<string | bool
     cancel.addEventListener('click', () => dlg.close());
     dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
     dlg.showModal();
-    (input ?? yes).focus();
+    (input ?? (safe ? cancel : yes)).focus();
     input?.select();
   });
 }
 
-/** Ask a yes/no question; the confirming button reads `ok`. */
-export const confirmAsk = async (message: string, ok = 'OK') => (await ask(message, ok)) === true;
+/** Ask a yes/no question; the confirming button reads `ok`. `safe` puts the focus on Cancel, so a key typed ahead (Enter, Space) declines: for what cannot be undone. */
+export const confirmAsk = async (message: string, ok = 'OK', safe = false) => (await ask(message, ok, undefined, safe)) === true;
 
 /** Ask for a line of text; null when cancelled. */
 export const promptAsk = async (message: string, value: string, ok = 'OK') => (await ask(message, ok, value)) as string | null;

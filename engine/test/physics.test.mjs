@@ -93,3 +93,36 @@ test('every preset is stable and settles', () => {
     assert.ok(s.angles.every(a => Math.abs(a) < 0.01), `${name} settles: ${s.angles}`);
   }
 });
+
+// ---- the scene's wind (script `wind`) ----
+
+const swing = (c, world, seconds = 6) => {
+  let s = restState(c);
+  for (let i = 0; i < seconds * 60; i++) s = stepChain(c, s, { angle_x: 0, angle_z: 0 }, 1 / 60, world);
+  return s.outputs[0];
+};
+
+test('a steady wind holds the hair off to the side it blows toward, more for more strength', () => {
+  const right = swing(chain, { strength: 1, gusts: 0 }), left = swing(chain, { strength: -1, gusts: 0 });
+  assert.ok(right < -3, `right ${right}`); // a negative swing: the hair streams to the right
+  assert.ok(left > 3, `left ${left}`);
+  assert.ok(Math.abs(swing(chain, { strength: 0.5, gusts: 0 })) < Math.abs(right));
+});
+
+test('no wind, a null wind and a zero wind all leave the chain at rest', () => {
+  for (const w of [undefined, null, { strength: 0, gusts: 1 }]) assert.equal(swing(chain, w), 0);
+});
+
+test('windScale: 0 ignores the wind, a negative one mirrors it', () => {
+  const w = { strength: 1, gusts: 0 };
+  assert.equal(swing({ ...chain, windScale: 0 }, w), 0);
+  assert.ok(Math.abs(swing({ ...chain, windScale: -1 }, w) + swing(chain, w)) < 1e-9);
+});
+
+test('gusts make the swing vary over time and stay deterministic', () => {
+  const w = { strength: 1, gusts: 1 };
+  let s = restState(chain), lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 20 * 60; i++) { s = stepChain(chain, s, {}, 1 / 60, w); if (i > 300) { lo = Math.min(lo, s.outputs[0]); hi = Math.max(hi, s.outputs[0]); } }
+  assert.ok(hi - lo > 2, `range ${hi - lo}`);
+  assert.equal(swing(chain, w), swing(chain, w));
+});

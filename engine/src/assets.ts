@@ -16,6 +16,8 @@ import { positionProblem } from './positions.js';
 import { stageProblem } from './stage.js';
 import { speakerFocusProblems } from './focus.js';
 import { sideImageProblems } from './side.js';
+import { touchProblems } from './gesture.js';
+import { pwaProblem } from './pwa.js';
 import { iconAsset, versionProblem } from './app-info.js';
 import { hudLabels, isClickable, walkNodes, type ScreenNode } from './screens.js';
 import { expandShow, showLooks, liveOverrides, orderedParts, partName, rigPartNames, rigLookNames, type RigData } from './rig.js';
@@ -143,8 +145,11 @@ function checkOps(program: Program, index: AssetIndex, names: AssetNames, warn: 
       case 'animate': {
         const rigOf = index.rigs?.[op.char], parts = rigOf ? rigPartNames(rigOf) : [];
         if (op.part && !parts.includes(op.part)) warn(op.src, `${op.char} has no part "${op.part}"`, op.part, parts, ` (parts: ${parts.join(', ') || 'none: only layered characters have parts'})`);
-        if (op.name === null || resolveAnim(op.name, index.rigs?.[op.char]?.rig?.animations)) break;
-        const own = Object.keys(index.rigs?.[op.char]?.rig?.animations ?? {});
+        if (op.name !== null && Object.hasOwn(index.rigs?.[op.char]?.rig?.animations ?? {}, op.name) && (Object.hasOwn(program.transforms ?? {}, op.name) || Object.hasOwn(program.dynamicTransforms ?? {}, op.name))) {
+          warn(op.src, `${op.char} has its own "${op.name}" animation in rig.json, which wins over the script's transform of that name`);
+        }
+        if (op.name === null || resolveAnim(op.name, { ...program.transforms, ...Object.fromEntries(Object.keys(program.dynamicTransforms ?? {}).map(k => [k, { keys: [] }])), ...index.rigs?.[op.char]?.rig?.animations })) break;
+        const own = [...Object.keys(program.transforms ?? {}), ...Object.keys(program.dynamicTransforms ?? {}), ...Object.keys(index.rigs?.[op.char]?.rig?.animations ?? {})];
         warn(op.src, `${op.char} has no animation "${op.name}"`, op.name, [...ANIM_NAMES, ...own], ` (${[...ANIM_NAMES, ...own].join(', ')})`);
         break;
       }
@@ -353,6 +358,9 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   if (typeof toastSound === 'string' && toastSound && !sounds.has(toastSound)) warn(toastSound, `achievementToast.sound: no sound "${toastSound}" in assets/sound`);
   for (const message of speakerFocusProblems(g.speakerFocus)) warn('speakerFocus', message);
   for (const message of sideImageProblems(g.sideImages)) warn('sideImages', message);
+  for (const message of touchProblems(g.touch)) warn('touch', message);
+  const pwaMessage = pwaProblem(g.pwa);
+  if (pwaMessage) warn('pwa', pwaMessage);
   if (Array.isArray(g.splash)) for (const e of g.splash) image(typeof e === 'string' ? e : e?.image, 'splash');
   if (g.icon !== undefined && (typeof g.icon !== 'string' || !g.icon)) warn('icon', 'icon needs the name of a PNG in assets/ui');
   const icon = iconAsset(g);
@@ -515,7 +523,7 @@ export function opAssets(op: Op, ctx: AssetContext, program?: Pick<Program, 'scr
 }
 
 /** The ops that name no asset: `opAssets` ends with a check against this, so a new op that does has to get a case or be listed here. */
-type AssetFreeOp = Extract<Op, { op: 'hide' | 'move' | 'shake' | 'hop' | 'animate' | 'param' | 'flash' | 'tint' | 'camera' | 'weather' | 'filter' | 'focus' | 'behaviors' | 'wait'
+type AssetFreeOp = Extract<Op, { op: 'hide' | 'move' | 'shake' | 'hop' | 'animate' | 'param' | 'perform' | 'burst' | 'flash' | 'tint' | 'camera' | 'weather' | 'filter' | 'wind' | 'gravity' | 'focus' | 'behaviors' | 'wait'
   | 'menu' | 'input' | 'set' | 'jump' | 'call' | 'ret' | 'end' | 'nvl' | 'textbox' | 'unlock' | 'branch' | 'goto' }>;
 
 /** How far ahead, in lines of the story (says, menus, inputs), preload tasks reach. */

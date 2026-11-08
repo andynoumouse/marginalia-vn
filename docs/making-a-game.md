@@ -17,7 +17,7 @@ Options for `init`:
 - `--stage 1080x1920` starts a project with another stage size (portrait here; the default is 1920x1080).
 - `--template <name>` starts from a template with the `game.json` options and first script of that style: `blank`
   (the default), `classic-adv`, `portrait`, `kinetic-nvl`, `branching` or `mystery`. Marginalia Studio's New project
-  dialog has the same list. See [tutorial/05-templates.md](tutorial/05-templates.md) for what each one brings.
+  dialog has the same list. See [tutorial/deeper/a-templates.md](tutorial/deeper/a-templates.md) for what each one brings.
 
 ## The project folder
 
@@ -51,6 +51,7 @@ npm install
 npm run dev          # builds, watches, serves http://localhost:5173 (editor: /editor/)
 npm test             # type-check and engine and shell tests (node:test, no browser needed)
 npm run test:browser # the browser tests (system Edge/Chrome); test:all runs both
+npm run test:dock    # the docking layer on its own sandbox page (a browser)
 npm run studio       # the editor as a desktop app (Marginalia Studio, early): projects screen, or -- --project <folder>
 npm run test:studio  # the Studio tests (Electron)
 npm run package:studio # the portable Studio in release/ (a folder and a zip)

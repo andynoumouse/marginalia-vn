@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRig, maskOf, maskChain, maskCycles, maskFrame, warpPoints, traceOutline, simplifyOutline, evalPointKeyforms, pointKeyformKey, placeRig, placeParts, NO_OFFSET, MASK_MAX_SHAPES, MASK_WARN_COUNT, restLattice } from '../../dist/engine/src/index.js';
+import { checkRig, maskOf, maskChain, maskCycles, maskFrame, warpPoints, traceOutline, simplifyOutline, evalPointKeyforms, pointKeyformKey, placeRig, placeParts, NO_OFFSET, MASK_MAX_SHAPES, MASK_WARN_COUNT, restLattice, normalizeMasks, maskView, stripMasks, writeShapes, shapePartNames, studioDocOf, studioWrites } from '../../dist/engine/src/index.js';
 
 const part = file => ({ file });
 const manifest = rig => ({
@@ -11,62 +11,9 @@ const manifest = rig => ({
 const msgs = rig => checkRig(manifest({ parameters: [{ id: 'open', min: 0, max: 1, default: 1 }], bones: { head: { pivot: [50, 40] } }, parts: { face: { bone: 'head' } }, ...rig })).map(p => p.message);
 const tri = [[10, 10], [60, 10], [30, 50]];
 
-test('a clean set of masks has no problems', () => {
-  assert.deepEqual(msgs({ masks: [
-    { id: 'iris_clip', part: 'iris', from: 'eye_white' },
-    { id: 'tongue_clip', part: 'tongue', polygon: tri, on: 'head', keyforms: [{ param: 'open', keys: [{ at: 0, pts: { 1: [0, 0.01] } }, { at: 1 }] }] },
-  ] }), []);
-});
-
-test('checkRig: masks name real parts, one mask per part, one shape source', () => {
-  const ok = { id: 'm', part: 'iris', from: 'eye_white' };
-  assert.ok(msgs({ masks: 'x' }).some(m => m.includes('masks: needs a list')));
-  assert.ok(msgs({ masks: [ok, { ...ok, id: 'm' }] }).some(m => m.includes('"m" is defined twice')));
-  assert.ok(msgs({ masks: [{ ...ok, part: 'nope' }] }).some(m => m.includes('no part named "nope"')));
-  assert.ok(msgs({ masks: [{ ...ok, part: 'head' }] }).some(m => m.includes('"head" is a bone')));
-  assert.ok(msgs({ masks: [{ ...ok, from: 'nope' }] }).some(m => m.includes('masks.m.from: no part named "nope"')));
-  assert.ok(msgs({ masks: [{ ...ok, from: 'head' }] }).some(m => m.includes('"head" is a bone')));
-  assert.ok(msgs({ masks: [ok, { id: 'n', part: 'iris', from: 'face' }] }).some(m => m.includes('already has mask "m"')));
-  assert.ok(msgs({ masks: [{ id: 'm', part: 'iris' }] }).some(m => m.includes('give either "from"') && m.includes('one of them')));
-  assert.ok(msgs({ masks: [{ ...ok, polygon: tri }] }).some(m => m.includes('not both')));
-  assert.ok(msgs({ masks: [{ ...ok, from: 'iris' }] }).some(m => m.includes('its own shape')));
-  assert.ok(msgs({ masks: [{ ...ok, size: 3 }] }).some(m => m.includes('masks.m.size: unknown field')));
-  assert.ok(msgs({ masks: [null] }).some(m => m.includes('not a mask')));
-});
-
-test('checkRig: polygons, on and keyforms', () => {
-  const poly = { id: 'p', part: 'tongue', polygon: tri };
-  assert.ok(msgs({ masks: [{ ...poly, polygon: [[0, 0], [1, 1]] }] }).some(m => m.includes('needs 3 to 64 points')));
-  assert.ok(msgs({ masks: [{ ...poly, polygon: Array.from({ length: 65 }, (_, i) => [i, i % 7]) }] }).some(m => m.includes('needs 3 to 64 points')));
-  assert.ok(msgs({ masks: [{ ...poly, polygon: [[0, 0], [1, 'a'], [2, 2]] }] }).some(m => m.includes('masks.p.polygon[1]')));
-  assert.ok(msgs({ masks: [{ ...poly, on: 'nope' }] }).some(m => m.includes('masks.p.on: no part or bone named "nope"')));
-  assert.deepEqual(msgs({ masks: [{ ...poly, on: 'face' }] }), []);
-  assert.ok(msgs({ masks: [{ id: 'm', part: 'iris', from: 'face', on: 'head' }] }).some(m => m.includes('only a polygon has "on"')));
-  assert.ok(msgs({ masks: [{ id: 'm', part: 'iris', from: 'face', keyforms: [] }] }).some(m => m.includes('only a polygon can be reshaped')));
-  const kf = pts => [{ param: 'open', keys: [{ at: 0, pts }, { at: 1 }] }];
-  assert.ok(msgs({ masks: [{ ...poly, keyforms: kf({ 3: [0, 0] }) }] }).some(m => m.includes('point "3" is outside the polygon (0 to 2)')));
-  assert.ok(msgs({ masks: [{ ...poly, keyforms: [{ param: 'ghost', keys: [{ at: 0 }] }] }] }).some(m => m.includes('no parameter "ghost"')));
-  assert.deepEqual(msgs({ masks: [{ ...poly, keyforms: kf({ 2: [0, 0.01] }) }] }), []);
-});
-
-test('checkRig: a clip of a clipped part nests once; loops and deeper chains are errors', () => {
-  const white = { id: 'white', part: 'eye_white', polygon: tri };
-  const iris = { id: 'iris', part: 'iris', from: 'eye_white' };
-  assert.deepEqual(msgs({ masks: [white, iris] }), [], 'two shapes, one nested level');
-  const shine = { id: 'shine', part: 'shine', from: 'iris' };
-  assert.ok(msgs({ masks: [white, iris, shine] }).some(m => m.includes('"shine" would be clipped through 3 shapes') && m.includes('at most 2')));
-  assert.equal(MASK_MAX_SHAPES, 2);
-  const loop = msgs({ masks: [{ id: 'a', part: 'iris', from: 'eye_white' }, { id: 'b', part: 'eye_white', from: 'iris' }] });
-  assert.ok(loop.some(m => m.includes('masks: shapes form a loop (iris > eye_white > iris)')), loop.join('\n'));
-  assert.ok(!loop.some(m => m.includes('would be clipped through')), 'a loop is reported once, not also as a deep chain');
-});
-
-test('checkRig: warns about many masks', () => {
-  const many = Array.from({ length: MASK_WARN_COUNT + 1 }, (_, i) => ({ id: `m${i}`, part: i % 2 ? 'iris' : 'tongue', polygon: tri }));
-  // nine masks need nine parts: reuse a bigger manifest.
-  const big = checkRig({ width: 100, height: 100, parts: many.map((m, i) => part(`p${i}.png`)), rig: { masks: many.map((m, i) => ({ ...m, part: `p${i}` })) } }).map(p => p.message);
-  assert.ok(big.some(m => m.includes(`${MASK_WARN_COUNT + 1} masks on one character`) && m.includes('not been measured')), big.join('\n'));
-  assert.ok(!msgs({ masks: [{ id: 'a', part: 'iris', polygon: tri }] }).some(m => m.includes('masks on one character')));
+test('checkRig: the old masks list is an error that points at shape parts and clips', () => {
+  assert.ok(msgs({ masks: [{ id: 'm', part: 'iris', from: 'eye_white' }] }).some(m => m.includes('masks was replaced by shape parts and clip links')));
+  assert.ok(msgs({ masks: [] }).some(m => m.includes('masks was replaced')), 'the key itself, even empty');
 });
 
 test('maskOf, maskChain and maskCycles follow from links', () => {
@@ -172,7 +119,155 @@ test('placeRig also gives the bones\' world matrices; placeParts is unchanged', 
   assert.deepEqual(placeParts(bones, parts, offsets, () => null, [0, 0], 100), rig.parts);
 });
 
-test('checkRig: a mask without an id, and keyforms that are not a list', () => {
-  assert.ok(msgs({ masks: [{ part: 'iris', from: 'eye_white' }] }).some(m => m.includes('masks[0]: needs an id')));
-  assert.ok(msgs({ masks: [{ id: 'p', part: 'tongue', polygon: tri, keyforms: 'x' }] }).some(m => m.includes('masks.p.keyforms: needs a list')));
+// ---- shape parts ----
+
+const kf = [{ param: 'open', keys: [{ at: 0, pts: { 1: [0, 0.01] } }, { at: 1 }] }];
+const lid = { bone: 'head', polygon: tri, keyforms: kf };
+
+test('checkRig: shape parts and clip links are clean', () => {
+  assert.deepEqual(msgs({ parts: { face: { bone: 'head' }, tongue: { bone: 'head', clip: 'lid' }, iris: { clip: 'eye_white' }, lid } }), []);
+});
+
+test('checkRig: shape part rules', () => {
+  const p = parts => msgs({ parts: { face: { bone: 'head' }, ...parts } });
+  assert.ok(p({ lid: { polygon: [[0, 0], [1, 1]] } }).some(m => m.includes('parts.lid.polygon: needs 3 to 64 points')));
+  assert.ok(p({ lid: { polygon: [[0, 0], [1, 1], ['a', 2]] } }).some(m => m.includes('parts.lid.polygon[2]')));
+  assert.ok(p({ iris: { polygon: tri } }).some(m => m.includes('is a part with art')));
+  assert.ok(p({ head: { polygon: tri } }).some(m => m.includes('has the name of a bone')));
+  assert.ok(p({ lid: { polygon: tri, follow: 'nope' } }).some(m => m.includes('parts.lid.follow: no part with art named "nope"')));
+  assert.deepEqual(p({ lid: { polygon: tri, follow: 'face' } }), []);
+  assert.ok(p({ lid: { polygon: tri, bone: 'nope' } }).some(m => m.includes('parts.lid.bone: no bone')));
+  assert.ok(p({ lid: { polygon: tri, clip: 'face' } }).some(m => m.includes('not itself clipped')));
+  assert.ok(p({ lid: { polygon: tri, keyforms: [{ param: 'open', keys: [{ at: 0, pts: { 9: [0, 0] } }, { at: 1 }] }] } }).some(m => m.includes('keyforms')));
+  assert.ok(p({ iris: { clip: 'nope' } }).some(m => m.includes('parts.iris.clip: no shape or part named "nope"')));
+  assert.ok(p({ iris: { clip: 'head' } }).some(m => m.includes('"head" is a bone')));
+  assert.ok(p({ iris: { clip: 'iris' } }).some(m => m.includes('its own shape')));
+  assert.ok(p({ lid: { polygon: Array.from({ length: 65 }, (_, i) => [i, i % 7]) } }).some(m => m.includes('needs 3 to 64 points')));
+  assert.ok(p({ lid: { polygon: tri, keyforms: [{ param: 'ghost', keys: [{ at: 0 }] }] } }).some(m => m.includes('no parameter "ghost"')));
+  assert.ok(p({ lid: { polygon: tri, keyforms: 'x' } }).some(m => m.includes('parts.lid.keyforms: needs a list')));
+  assert.equal(MASK_MAX_SHAPES, 2);
+  const loop = p({ iris: { clip: 'tongue' }, tongue: { clip: 'iris' } });
+  assert.ok(loop.some(m => m.includes('form a loop')), loop.join('\n'));
+  assert.ok(!loop.some(m => m.includes('would be clipped through')), 'a loop is reported once, not also as a deep chain');
+  assert.ok(p({ iris: { clip: 'tongue' }, tongue: { clip: 'mouth' }, mouth: { clip: 'face' } }).some(m => m.includes('through 3 shapes')));
+  assert.deepEqual(p({ iris: { clip: 'tongue' }, tongue: { clip: 'lid' }, lid }), [], 'a part clipped to a clipped part, which is clipped to a shape: two shapes');
+  assert.ok(msgs({ order: ['face', 'lid'], parts: { lid } }).some(m => m.includes('"lid" is a shape part')));
+});
+
+test('checkRig: one shape may clip many parts, and many clips draw a warning', () => {
+  assert.deepEqual(msgs({ parts: { face: { bone: 'head' }, iris: { clip: 'lid' }, tongue: { clip: 'lid' }, lid } }), []);
+  const many = { lid };
+  for (const n of ['face', 'eye_white', 'iris', 'shine', 'mouth', 'tongue']) many[n] = { clip: 'lid' };
+  assert.ok(!msgs({ parts: { ...many, face: { bone: 'head', clip: 'lid' } } }).some(m => m.includes('masks on one character')));
+  const nine = { lid };
+  for (const n of ['face', 'eye_white', 'iris', 'shine', 'mouth', 'tongue', 'bg1', 'bg2', 'bg3']) nine[n] = { clip: 'lid' };
+  assert.ok(msgs({ parts: { ...nine, face: { bone: 'head', clip: 'lid' } } }).some(m => m.includes('9 masks on one character')));
+});
+
+test('normalizeMasks reads shape parts and clip links, and skips what is not usable', () => {
+  const now = normalizeMasks({ parts: { eyes: { bone: 'head', clip: 'lid' }, iris: { clip: 'eyes' }, lid } });
+  assert.deepEqual(now, { shapes: { lid: { bone: 'head', polygon: tri, keyforms: kf } }, clips: { eyes: 'lid', iris: 'eyes' } });
+  const odd = normalizeMasks({ parts: { a: { polygon: [[0, 0]] }, b: { clip: 'b' }, c: null, d: { clip: '' } } });
+  assert.deepEqual(odd, { shapes: {}, clips: {} }, 'a short polygon, a clip to itself, a null and an empty clip are skipped');
+  assert.deepEqual(normalizeMasks(undefined), { shapes: {}, clips: {} });
+});
+
+test('maskView gives one MaskDef per clipped part', () => {
+  const parts = { tongue: { bone: 'head', clip: 'lid' }, iris: { clip: 'eye_white' }, lid };
+  const list = maskView({ parts });
+  const byId = (x, y) => x.id.localeCompare(y.id);
+  assert.deepEqual([...list].sort(byId), [
+    { id: 'iris_mask', part: 'iris', from: 'eye_white' },
+    { id: 'lid', part: 'tongue', polygon: tri, on: 'head', keyforms: kf, shape: 'lid' },
+  ]);
+  assert.deepEqual(maskView({ parts: { a: { clip: 'lid' }, b: { clip: 'lid' }, lid } }).map(m => [m.id, m.part, m.on]), [['lid', 'a', 'head'], ['lid:b', 'b', 'head']], 'a shape clipping several parts');
+  assert.deepEqual(maskView({ parts: { x: { clip: 'f' }, f: { follow: 'face', bone: 'head', polygon: tri } } }).map(m => m.on), ['face'], 'follow wins over bone');
+  assert.deepEqual(maskView(undefined), []);
+});
+
+test('stripMasks and writeShapes: the shapes and clips of the studio go back as shape parts and clip links', () => {
+  const parts = { tongue: { bone: 'head', clip: 'lid' }, iris: { clip: 'eye_white' }, face: { bone: 'head' }, lid };
+  assert.deepEqual(stripMasks(parts), { tongue: { bone: 'head' }, face: { bone: 'head' } });
+  const { shapes, clips } = normalizeMasks({ bones: { head: {} }, parts });
+  assert.deepEqual(writeShapes(stripMasks(parts), shapes, clips), parts, 'a round trip');
+  const w = writeShapes({ face: { bone: 'head' } }, { face_2: { follow: 'face', polygon: tri } }, { tongue: 'face_2', iris: 'face' });
+  assert.deepEqual(w, { face: { bone: 'head' }, face_2: { follow: 'face', polygon: tri }, tongue: { clip: 'face_2' }, iris: { clip: 'face' } });
+  assert.deepEqual(shapePartNames(w), ['face_2']);
+});
+
+test('maskView with unclipped lists a shape that clips nothing, with no part', () => {
+  const view = maskView({ bones: { head: {} }, parts: { a: { clip: 'lid' }, lid, spare: { bone: 'head', polygon: tri } } }, true);
+  assert.deepEqual(view.map(m => [m.id, m.part, m.shape]), [['lid', 'a', 'lid'], ['spare', '', 'spare']]);
+  assert.equal(maskView({ parts: { spare: { polygon: tri } } }).length, 0, 'not without the flag');
+});
+
+test('the studio reads a rig with a shape part as its mask list and writes it back as parts', () => {
+  const data = { bones: { head: { pivot: [1, 1] } }, parts: { tongue: { bone: 'head', clip: 'lid' }, lid } };
+  const doc = studioDocOf(data);
+  assert.deepEqual(doc.shapes, { lid: { bone: 'head', polygon: tri, keyforms: kf } });
+  assert.deepEqual(doc.clips, { tongue: 'lid' });
+  assert.deepEqual(doc.parts, { tongue: { bone: 'head' } });
+  const writes = studioWrites(doc);
+  assert.deepEqual(writes.find(w => w.key === 'parts').value, data.parts);
+  assert.equal(writes.find(w => w.key === 'masks'), undefined, 'the old list is not written');
+});
+
+test('the sample robo keeps its eyelid mask in the shape-part form: the same list as the old masks entry gave', async () => {
+  const { readFileSync } = await import('node:fs');
+  const rig = JSON.parse(readFileSync(new URL('../../games/sample/assets/char/robo/rig.json', import.meta.url), 'utf8'));
+  assert.equal(rig.masks, undefined);
+  assert.deepEqual(checkRig({ parts: [{ file: 'eyes.png' }], rig }).filter(p => /mask|clip|eyelids/.test(p.message)), []);
+  const [m, ...rest] = maskView(rig);
+  assert.equal(rest.length, 0);
+  assert.deepEqual({ ...m, keyforms: undefined }, { id: 'eyelids', part: 'eyes', shape: 'eyelids', on: 'head', polygon: [[214, 294], [326, 294], [326, 346], [214, 346]], keyforms: undefined });
+  assert.deepEqual(m.keyforms, [{ param: 'eye_open', keys: [{ at: 0, pts: { 0: [0, 0.0241], 1: [0, 0.0241], 2: [0, -0.0241], 3: [0, -0.0241] } }, { at: 1 }] }]);
+  assert.ok(!rig.order.includes('eyelids'));
+});
+
+// ---- shapes in group warps ----
+
+const group = { box: [10, 20, 100, 50], grid: [1, 1], disp: Float32Array.from([0, 0, 0.01, 0, 0, 0.02, 0.01, 0.02]) };
+
+test('bendShapeByGroup reads the lattice at each point\'s canvas position and adds displacement times unit', async () => {
+  const { bendShapeByGroup } = await import('../../dist/engine/src/index.js');
+  // drawn space = canvas - at; at = (10, 20) puts drawn (0,0) on the box corner and drawn (100, 50) on the far corner.
+  const out = bendShapeByGroup([0, 0, 100, 0, 0, 50, 100, 50, 50, 25], [10, 20], group, 1000);
+  assert.deepEqual([...out], [0, 0, 110, 0, 0, 70, 110, 70, 55, 35]);
+  const base = bendShapeByGroup([0, 0], [10, 20], group, 1000, [5, 5]);
+  assert.deepEqual([...base], [5, 5], 'zero displacement at the corner leaves the base alone');
+  const outside = bendShapeByGroup([-500, 0], [10, 20], group, 1000);
+  assert.deepEqual([...outside], [-500, 0], 'a point left of the box takes the edge value (0 there)');
+});
+
+test('shapeBentByGroup: a shape that follows a member of its own group is not bent twice', async () => {
+  const { shapeBentByGroup } = await import('../../dist/engine/src/index.js');
+  assert.equal(shapeBentByGroup(undefined, ['face', 'lid']), true);
+  assert.equal(shapeBentByGroup('face', ['face', 'lid']), false);
+  assert.equal(shapeBentByGroup('other', ['face', 'lid']), true);
+  assert.equal(shapeBentByGroup('head', ['face', 'lid']), true, 'a bone is never a member');
+});
+
+const grp = (members, extra = {}) => ({ deformers: [{ id: 'g', members, grid: [1, 1], keyforms: [], ...extra }] });
+const shapeRig = { eyes: { bone: 'head', clip: 'lid' }, lid: { bone: 'head', polygon: tri } };
+
+test('checkRig: a group warp may list shape parts; box and name rules', () => {
+  const base = { parts: { face: { bone: 'head' }, eye_white: { bone: 'head' }, ...shapeRig } };
+  assert.deepEqual(msgs({ ...base, ...grp(['face', 'eye_white', 'lid']) }).filter(m => /members|box/.test(m)), []);
+  assert.match(msgs({ ...base, ...grp(['lid']) }).join('\n'), /deformers\.g\.box: a group of shapes only/);
+  assert.deepEqual(msgs({ ...base, ...grp(['lid'], { box: [0, 0, 50, 50] }) }).filter(m => /box/.test(m)), []);
+  assert.match(msgs({ ...base, ...grp(['face', 'nope']) }).join('\n'), /no part or shape named "nope"/);
+  assert.match(msgs({ ...base, ...grp(['face', 'head']) }).join('\n'), /"head" is a bone, a group warp needs parts or shapes/);
+  assert.match(msgs({ ...base, deformers: [{ id: 'a', members: ['face', 'lid'], keyforms: [] }, { id: 'b', members: ['lid'], box: [0, 0, 5, 5], keyforms: [] }] }).join('\n'), /part "lid" is already in group warp "a"/);
+});
+
+
+test('checkRig: warns when a part in a group warp is clipped to something the group does not bend', () => {
+  const parts = { iris: { bone: 'head', clip: 'lid' }, face: { bone: 'head' }, lid: { bone: 'head', polygon: tri } };
+  const warn = (members, p = parts) => msgs({ parts: p, ...grp(members) }).filter(m => /is bent by/.test(m));
+  assert.deepEqual(warn(['face']), [], 'neither in a group');
+  assert.deepEqual(warn(['iris', 'lid']), [], 'both in the group');
+  assert.match(warn(['iris'])[0], /^masks: iris is bent by g but its clip shape lid is not/);
+  assert.deepEqual(warn(['iris', 'face'], { ...parts, lid: { bone: 'head', follow: 'face', polygon: tri } }), [], 'a shape that follows a member counts');
+  assert.match(warn(['iris'], { ...parts, iris: { bone: 'head', clip: 'face' } })[0], /clip part face is not/);
+  assert.deepEqual(warn(['lid'], { ...parts }), [], 'a bent shape with an unbent clipped part is not this warning');
 });

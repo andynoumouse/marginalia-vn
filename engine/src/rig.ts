@@ -4,19 +4,21 @@
 //            re-stacked among the positions they already occupy; parts not listed stay where the PSD had them.
 //  - bones, parts: the tree that moves parts together (see bones.ts); a key or `animate ... part=` may name a bone.
 //  - parameters, pads, keyforms, poses: the parameter model (params.ts); a pose is a named snapshot of some parameters.
-//  - deformers, masks: a lattice that warps a part (params.ts), and a clip of a part to a shape (masks.ts).
+//  - deformers: a lattice that warps a part (params.ts); clips and mask shapes are entries of `parts` (masks.ts).
 //  - looks:  named maps from slots to variants (`show alice shy casual`): dressing, expressions, whole poses.
 //  - animations: keyframe animations for `animate alice <name>` (see anim.ts).
-//  - autonomous: what the character does by itself (see idle.ts), with slots and variants written out: `idle`, a looping
-//    animation while it is on stage; `speak`, a mouth and/or animation while its lines type; `blink`, through a slot.
+//  - an animation's `auto` (see auto-anim.ts): when it starts by itself (every so often, and/or while a condition holds);
+//    `reactions`: poses the character holds while a condition is true.
 // project-data.mjs attaches the file to the manifest as `rig`, so renderer, preloads and checks all see it.
 
-import { ANIM_NAMES, EASE_NAMES, isBezier, KEY_CHANNELS, resolveAnim, type AnimDef } from './anim.js';
+import { EASE_NAMES, isBezier, KEY_CHANNELS, type AnimDef } from './anim.js';
 import type { RigManifest, RigPart } from './assets.js';
 import { boneCycles, type BoneDef } from './bones.js';
+import { DEFAULT_REACTION_OVER, everyBounds, parseCondition, type ReactionDef } from './auto-anim.js';
+import { collectVars } from './expr.js';
 import { checkFrames, framesNeeded, frameTracks } from './frames.js';
 import { checkDeformers, checkParams, checkPoses, type DeformerDef, type KeyformDef, type PadDef, type ParamDef, type PoseDef } from './params.js';
-import { checkMasks, type MaskDef } from './masks.js';
+import { checkClipGroups, checkMasks, shapePartNames, type PartEntry } from './masks.js';
 import { checkPhysics, type RigPhysicsChain } from './physics-rig.js';
 
 export interface RigData {
@@ -29,8 +31,11 @@ export interface RigData {
   pivots?: Record<string, [number, number]>;
   /** The bone tree: transform nodes with a parent and a pivot (canvas pixels), imageless ones allowed. See bones.ts. */
   bones?: Record<string, BoneDef>;
-  /** Which bone each part sits on, and a pivot of its own for a part that must turn about another point than its bone's. */
-  parts?: Record<string, { bone?: string; pivot?: [number, number] }>;
+  /**
+   * Which bone each part sits on, and a pivot of its own for a part that must turn about another point than its bone's. A part may
+   * be clipped (`clip`: a shape part or another part), and an entry with a `polygon` is a shape part with no art: see masks.ts.
+   */
+  parts?: Record<string, PartEntry>;
   /** The Parameters panel's categories, in order: a parameter or pad names one in its `group`. A UI grouping only. */
   categories?: string[];
   /** Named scalars (id, min, max, default, group) that drive keyforms; see params.ts. */
@@ -43,49 +48,15 @@ export interface RigData {
   keyforms?: KeyformDef[];
   /** Lattices that warp a part's mesh, driven by parameters; see params.ts and docs/design/mesh-warp.md. */
   deformers?: DeformerDef[];
-  /** Clips of a part to another part's shape or a drawn polygon (stencil masks); see masks.ts. */
-  masks?: MaskDef[];
   /** Secondary motion: chains by id, reading parameters or bone channels and writing parameters or a part's rotation; see physics-rig.ts. */
   physics?: Record<string, RigPhysicsChain>;
-  /** What the character does by itself, with every slot and variant written out; `behaviors off` in the script suspends it. */
-  autonomous?: AutonomousData;
+  /** Poses held while a condition is true, first match wins: `{ when, pose, over, ease }`; see auto-anim.ts. */
+  reactions?: ReactionDef[];
 }
 
-export interface AutonomousData {
-  /** An animation (preset or one of `animations`) that loops while the character is on stage. */
-  idle?: string;
-  /** While one of the character's lines types: cycle `slot` through `variants` (`rate` changes a second) and/or loop `anim`. */
-  speak?: { anim?: string; slot?: string; variants?: string[]; rate?: number };
-  /** Blink by swapping `variant` into `slot` for `dur` seconds every `every` ([min, max]) seconds. */
-  blink?: { slot?: string; variant?: string; every?: [number, number]; dur?: number };
-}
-
-export interface BlinkDef { slot: string; variant: string; every: [number, number]; dur: number }
-export interface SpeakDef { anim: string | null; slot: string; variants: string[]; rate: number }
-
-/** rig.json `autonomous.blink` with its defaults (every 3-6 s for 0.12 s), or null when absent or without a slot and variant. */
-export function blinkOf(data: RigData | undefined): BlinkDef | null {
-  const o = data?.autonomous?.blink;
-  if (!o || typeof o !== 'object' || !o.slot || !o.variant) return null;
-  const every = Array.isArray(o.every) && o.every.length === 2 && o.every[0] > 0 && o.every[1] >= o.every[0] ? o.every : [3, 6];
-  return { slot: o.slot, variant: o.variant, every: [every[0], every[1]], dur: o.dur !== undefined && o.dur > 0 ? o.dur : 0.12 };
-}
-
-/** rig.json `autonomous.speak` with its default rate (8 changes a second), or null when absent or empty. */
-export function speakOf(data: RigData | undefined): SpeakDef | null {
-  const s = data?.autonomous?.speak;
-  if (!s || typeof s !== 'object') return null;
-  const variants = Array.isArray(s.variants) && s.slot ? s.variants.filter(v => typeof v === 'string') : [];
-  if (!s.anim && !variants.length) return null;
-  return { anim: s.anim || null, slot: s.slot ?? '', variants, rate: s.rate !== undefined && s.rate > 0 ? s.rate : 8 };
-}
-
-/** The slot variants rig.json swaps in by itself (blinking, talking, frame tracks), as `slot=variant` overrides. */
+/** The slot variants rig.json swaps in by itself (the frame tracks of its animations), as `slot=variant` overrides. */
 export function liveOverrides(data: RigData | undefined): Record<string, string>[] {
   const out: Record<string, string>[] = [];
-  const blink = blinkOf(data), speak = speakOf(data);
-  if (blink) out.push({ [blink.slot]: blink.variant });
-  if (speak) for (const v of speak.variants) out.push({ [speak.slot]: v });
   for (const def of Object.values(data?.animations ?? {})) for (const [slot, names] of Object.entries(framesNeeded(frameTracks(def?.frames)))) for (const v of names) out.push({ [slot]: v });
   return out;
 }
@@ -179,59 +150,54 @@ export const rigSlotNames = (rig: RigManifest): string[] => [...slotsOf(rig).key
 /** A problem in rig.json; `at` is the key it is about, so the editor can find its line. */
 export interface RigProblem { message: string; at: string }
 
-const AUTONOMOUS_KEYS = ['idle', 'speak', 'blink'];
-const SPEAK_KEYS = ['anim', 'slot', 'variants', 'rate'];
-const BLINK_KEYS = ['slot', 'variant', 'every', 'dur'];
+const AUTO_KEYS = ['every', 'while'];
+const REACTION_KEYS = ['when', 'pose', 'over', 'ease'];
+/** Names a condition may use besides the script's variables. */
+const BUILTIN_NAMES = ['speaking', 'always'];
 
-/** The `autonomous` section: only idle / speak / blink, each with its keys, slots and variants written out. */
-function checkAutonomous(
-  data: RigData, slots: Map<string, NonNullable<RigPart['variants']>>, knownAnim: (n: string) => boolean, animList: string,
-  problem: (message: string, at: string) => void,
-) {
-  const slotList = [...slots.keys()].join(', ') || 'none';
-  const au = data.autonomous as unknown;
-  if (au === undefined) return;
-  if (!au || typeof au !== 'object' || Array.isArray(au)) { problem('autonomous: needs an object with idle, speak and/or blink', 'autonomous'); return; }
-  const a = au as AutonomousData;
-  for (const k of Object.keys(a)) if (!AUTONOMOUS_KEYS.includes(k)) problem(`autonomous.${k}: unknown (use ${AUTONOMOUS_KEYS.join(', ')})`, 'autonomous');
-  if (a.idle !== undefined && (typeof a.idle !== 'string' || !knownAnim(a.idle))) problem(`autonomous.idle: no animation "${String(a.idle)}" (${animList})`, 'autonomous');
-  const sp = a.speak as unknown;
-  if (sp !== undefined) {
-    if (!sp || typeof sp !== 'object' || Array.isArray(sp)) problem('autonomous.speak: needs an object with anim and/or slot and variants', 'autonomous');
-    else {
-      const s = sp as NonNullable<AutonomousData['speak']>;
-      for (const k of Object.keys(s)) if (!SPEAK_KEYS.includes(k)) problem(`autonomous.speak.${k}: unknown (use ${SPEAK_KEYS.join(', ')})`, 'autonomous');
-      if (s.anim !== undefined && !knownAnim(s.anim)) problem(`autonomous.speak.anim: no animation "${s.anim}" (${animList})`, 'autonomous');
-      if (s.rate !== undefined && !(s.rate > 0)) problem('autonomous.speak.rate: must be more than 0 changes a second', 'autonomous');
-      if (!s.anim && !s.variants?.length) problem('autonomous.speak: needs an "anim" or a "slot" with a list of "variants"', 'autonomous');
-      if (s.variants?.length || s.slot !== undefined) {
-        const have = s.slot !== undefined ? slots.get(s.slot) : undefined;
-        if (s.slot === undefined) problem('autonomous.speak: "variants" needs the "slot" they belong to', 'autonomous');
-        else if (!have) problem(`autonomous.speak: no slot "${s.slot}" to cycle (slots: ${slotList})`, 'autonomous');
-        else for (const v of s.variants ?? []) if (!have[v]) problem(`autonomous.speak: slot "${s.slot}" has no variant "${v}"`, 'autonomous');
-      }
-    }
-  }
-  const bl = a.blink as unknown;
-  if (bl !== undefined) {
-    if (!bl || typeof bl !== 'object' || Array.isArray(bl)) problem('autonomous.blink: needs an object with slot and variant', 'autonomous');
-    else {
-      const b = bl as NonNullable<AutonomousData['blink']>;
-      for (const k of Object.keys(b)) if (!BLINK_KEYS.includes(k)) problem(`autonomous.blink.${k}: unknown (use ${BLINK_KEYS.join(', ')})`, 'autonomous');
-      if (!b.slot || !b.variant) problem('autonomous.blink: needs a "slot" and the closed-eyes "variant"', 'autonomous');
-      else {
-        const have = slots.get(b.slot);
-        if (!have) problem(`autonomous.blink: no slot "${b.slot}" (slots: ${slotList})`, 'autonomous');
-        else if (!have[b.variant]) problem(`autonomous.blink: slot "${b.slot}" has no variant "${b.variant}"`, 'autonomous');
-      }
-      if (b.every !== undefined && !(Array.isArray(b.every) && b.every.length === 2 && b.every[0] > 0 && b.every[1] >= b.every[0])) problem('autonomous.blink.every: use [min, max] seconds, 0 < min <= max', 'autonomous');
-      if (b.dur !== undefined && !(b.dur > 0)) problem('autonomous.blink.dur: must be more than 0 seconds', 'autonomous');
-    }
+/** Problems in a condition text: it must parse, and name only the built-ins, `param.<id>` of a defined parameter, or (when the project's variables are known) a script variable. */
+function checkCondition(src: unknown, at: string, where: string, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+  if (typeof src !== 'string' || !src.trim()) { problem(`${where}: needs a condition (an expression such as "speaking" or "affection > 3")`, at); return; }
+  const e = parseCondition(src);
+  if (!e) { problem(`${where}: "${src}" is not a valid expression`, at); return; }
+  for (const name of collectVars(e)) {
+    if (BUILTIN_NAMES.includes(name)) continue;
+    if (name.startsWith('param.')) { if (!paramIds.has(name.slice(6))) problem(`${where}: no parameter "${name.slice(6)}" (parameters: ${[...paramIds].join(', ') || 'none'})`, at); continue; }
+    if (vars && !vars.includes(name)) problem(`${where}: "${name}" is no script variable (speaking, always, param.<id>, ${vars.join(', ') || 'no variables'})`, at);
   }
 }
 
+/** An animation's `auto`: `every` and/or `while`, valid. */
+function checkAuto(name: string, def: AnimDef, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+  const au = (def as { auto?: unknown }).auto, where = `animations.${name}.auto`;
+  if (au === undefined) return;
+  if (!au || typeof au !== 'object' || Array.isArray(au)) { problem(`${where}: needs an object with "every" and/or "while"`, name); return; }
+  const a = au as Record<string, unknown>;
+  for (const k of Object.keys(a)) if (!AUTO_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${AUTO_KEYS.join(', ')})`, name);
+  if (a.every === undefined && a.while === undefined) problem(`${where}: give "every" (a wait in seconds, or { "min", "max" }) and/or "while" (a condition)`, name);
+  if (a.every !== undefined && !everyBounds(a.every)) problem(`${where}.every: use seconds (more than 0) or { "min", "max" } with 0 < min <= max`, name);
+  if (a.while !== undefined) checkCondition(a.while, name, `${where}.while`, paramIds, vars, problem);
+}
+
+/** `reactions`: an ordered list of { when, pose, over, ease }. */
+function checkReactions(data: RigData, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+  const raw = data.reactions as unknown;
+  if (raw === undefined) return;
+  if (!Array.isArray(raw)) { problem('reactions: needs a list of { "when", "pose", "over", "ease" }', 'reactions'); return; }
+  raw.forEach((r: unknown, i) => {
+    const where = `reactions[${i}]`;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { problem(`${where}: not a reaction`, 'reactions'); return; }
+    const x = r as Record<string, unknown>;
+    for (const k of Object.keys(x)) if (!REACTION_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${REACTION_KEYS.join(', ')})`, 'reactions');
+    checkCondition(x.when, 'reactions', `${where}.when`, paramIds, vars, problem);
+    if (typeof x.pose !== 'string' || !Object.hasOwn(data.poses ?? {}, x.pose)) problem(`${where}.pose: no pose "${String(x.pose)}" (poses: ${Object.keys(data.poses ?? {}).join(', ') || 'none'})`, 'reactions');
+    if (x.over !== undefined && !(typeof x.over === 'number' && x.over >= 0)) problem(`${where}.over: seconds, 0 or more (default ${DEFAULT_REACTION_OVER})`, 'reactions');
+    if (x.ease !== undefined && !EASE_NAMES.includes(x.ease as string)) problem(`${where}.ease: unknown ease "${String(x.ease)}" (${EASE_NAMES.join(', ')})`, 'reactions');
+  });
+}
+
 /** Problems in rig.json itself (for the editor's rig tab). */
-export function checkRig(rig: RigManifest): RigProblem[] {
+export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem[] {
   const data = rig.rig;
   if (!data) return [];
   const out: RigProblem[] = [];
@@ -239,8 +205,13 @@ export function checkRig(rig: RigManifest): RigProblem[] {
   const slots = slotsOf(rig);
   const names = new Set((rig.parts ?? []).map(partName));
   const variants = variantNames(rig);
-  for (const n of data.order ?? []) if (!names.has(n)) problem(`order: no part named "${n}"`, n);
+  const shapes = new Set(shapePartNames(data.parts));
+  for (const n of data.order ?? []) {
+    if (shapes.has(n) && !names.has(n)) problem(`order: "${n}" is a shape part, which has no art to stack; leave it out`, n);
+    else if (!names.has(n)) problem(`order: no part named "${n}"`, n);
+  }
   const raw = data as Record<string, unknown>;
+  if (raw.masks !== undefined) problem('masks was replaced by shape parts and clip links: a drawn shape is an entry of parts with a polygon (and bone or follow), and the clipped part has "clip": "<shape or part>"; see rig-json.md', 'masks');
   if (raw.groups !== undefined) problem('groups was replaced by bones and parts: give the members one bone (parts.<name>.bone) and key the bone; see rig-json.md', 'groups');
   const lookNames = new Set([...Object.keys(data.looks ?? {}), ...variants]);
   if (slots.has('look') && data.looks) problem('looks: a slot named "look" cannot be set by a look; "look" is reserved for naming another look', 'look');
@@ -265,15 +236,18 @@ export function checkRig(rig: RigManifest): RigProblem[] {
     if (!names.has(part)) problem(`pivots: no part named "${part}"${Object.hasOwn(data.bones ?? {}, part) ? ' (a bone takes its pivot in bones)' : ''}`, part);
     else if (!Array.isArray(pv) || pv.length !== 2 || !pv.every(Number.isFinite)) problem(`pivots.${part}: use [x, y] in pixels of the PSD canvas`, part);
   }
-  checkBones(data, names, problem);
+  checkBones(data, names, shapes, problem);
   checkParams(data, new Set([...names, ...Object.keys(data.bones ?? {})]), problem);
   checkPoses(data, problem);
-  checkDeformers(data, names, new Set(Object.keys(data.bones ?? {})), new Set(Object.values(data.animations ?? {}).flatMap(a => frameTracks(a?.frames).map(f => f.slot))), problem);
+  checkDeformers(data, names, new Set(Object.keys(data.bones ?? {})), new Set(Object.values(data.animations ?? {}).flatMap(a => frameTracks(a?.frames).map(f => f.slot))), problem,
+    new Map(Object.entries(data.parts ?? {}).flatMap(([p, def]) => (def && typeof def.bone === 'string' ? [[p, def.bone] as [string, string]] : []))), new Set(shapePartNames(data.parts)));
   checkMasks(data, names, new Set(Object.keys(data.bones ?? {})), problem);
+  checkClipGroups(data, problem);
   checkPhysics(data, new Set([...names, ...Object.keys(data.bones ?? {})]), problem);
-  const knownAnim = (n: string) => resolveAnim(n, data.animations) !== null;
-  const animList = [...ANIM_NAMES, ...Object.keys(data.animations ?? {})].join(', ');
-  checkAutonomous(data, slots, knownAnim, animList, problem);
+  if (raw.autonomous !== undefined) problem('autonomous was replaced by "auto" on an animation: blinking, talking and idling are animations with "auto": { "every": ... } or { "while": ... }; see rig-json.md', 'autonomous');
+  const paramIds = new Set((Array.isArray(data.parameters) ? data.parameters : []).map(p => p?.id).filter((x): x is string => typeof x === 'string'));
+  checkReactions(data, paramIds, vars, problem);
+  const autoFrameSlots = new Map<string, string>(); // slot -> the first automatic animation with a frame track on it
   for (const [name, def] of Object.entries(data.animations ?? {})) {
     const tracked = !!def && typeof def === 'object' && ((!!def.params && typeof def.params === 'object' && Object.keys(def.params).length > 0) || (Array.isArray(def.frames) && def.frames.length > 0));
     if (!def || typeof def !== 'object' || !Array.isArray(def.keys) || (def.keys.length === 0 && !tracked)) { problem(`animations.${name}: needs a non-empty "keys" list (or "params" or "frames" tracks)`, name); continue; }
@@ -281,6 +255,14 @@ export function checkRig(rig: RigManifest): RigProblem[] {
     checkFrames(name, def.frames, slots, problem);
     if (def.physicsOff !== undefined && !(def.physicsOff === true || def.physicsOff === false || (Array.isArray(def.physicsOff) && def.physicsOff.every(c => Object.hasOwn(data.physics ?? {}, c))))) problem(`animations.${name}.physicsOff: use true or a list of physics chain ids (${Object.keys(data.physics ?? {}).join(', ') || 'none'})`, name);
     if (def.dur !== undefined && !(def.dur > 0)) problem(`animations.${name}: dur must be more than 0 seconds`, name);
+    checkAuto(name, def, paramIds, vars, problem);
+    if (def.auto && typeof def.auto === 'object') {
+      for (const tr of frameTracks(def.frames)) {
+        const other = autoFrameSlots.get(tr.slot);
+        if (other) problem(`animations.${name}: automatic animations "${other}" and "${name}" both have a frame track on slot "${tr.slot}" (the later one wins)`, name);
+        else autoFrameSlots.set(tr.slot, name);
+      }
+    }
     def.keys.forEach((k, i) => {
       const at = `animations.${name}.keys[${i}]`;
       if (!k || typeof k !== 'object') { problem(`${at}: not a key`, name); return; }
@@ -316,7 +298,7 @@ function checkTracks(name: string, tracks: Record<string, unknown>, defs: RigDat
 }
 
 /** The `bones` and `parts` keys of rig.json: a bone's parent and pivot, the bone each part sits on, and bones that do nothing. */
-function checkBones(data: RigData, names: Set<string>, problem: (message: string, at: string) => void): void {
+function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, problem: (message: string, at: string) => void): void {
   const isPoint = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
   const bones: Record<string, BoneDef> = {};
   for (const [b, def] of Object.entries(data.bones ?? {})) {
@@ -331,12 +313,13 @@ function checkBones(data: RigData, names: Set<string>, problem: (message: string
   for (const loop of boneCycles(bones)) problem(`bones: parents form a loop (${[...loop, loop[0]].join(' > ')})`, loop[0]);
   const onBone = new Map<string, number>();
   for (const [part, def] of Object.entries(data.parts ?? {})) {
-    if (!names.has(part)) { problem(`parts.${part}: no part (slot or layer) named "${part}"`, part); continue; }
+    const shape = shapes.has(part) && !names.has(part);
+    if (!names.has(part) && !shape) { problem(`parts.${part}: no part (slot or layer) named "${part}"`, part); continue; }
     if (!def || typeof def !== 'object' || Array.isArray(def)) { problem(`parts.${part}: needs an object with bone and/or pivot`, part); continue; }
     if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`parts.${part}.pivot: use [x, y] in pixels of the PSD canvas`, part);
     if (def.bone === undefined) continue;
     if (typeof def.bone !== 'string' || !Object.hasOwn(bones, def.bone)) problem(`parts.${part}.bone: no bone named "${String(def.bone)}" (bones: ${Object.keys(bones).join(', ')})`, part);
-    else onBone.set(def.bone, (onBone.get(def.bone) ?? 0) + 1);
+    else if (!shape) onBone.set(def.bone, (onBone.get(def.bone) ?? 0) + 1); // a shape moves with its bone but cannot measure a pivot from it
   }
   // Warnings: a bone that moves nothing, or has nothing to turn about.
   const looped = new Set(boneCycles(bones).flat());
@@ -396,7 +379,9 @@ export function mergeRig(existing: RigData, rig: RigManifest): { rig: RigData; a
     order.splice(below ? order.indexOf(below) + 1 : 0, 0, n);
     added.push(n);
   });
-  const missing = order.filter(n => !names.includes(n));
+  // A shape part (an imageless entry of `parts`, see masks.ts) has no layer in the PSD: it is never added to `order` and never missing.
+  const shapes = new Set(shapePartNames(existing.parts));
+  const missing = order.filter(n => !names.includes(n) && !shapes.has(n));
   const fromArt = folderBones(rig), bones = { ...existing.bones }, parts = { ...existing.parts }, bonesAdded: string[] = [];
   // Only for the new parts: a bone that would hold nothing is not added, and nothing the author already has is touched.
   const needed = new Set<string>();

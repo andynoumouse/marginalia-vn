@@ -1,0 +1,127 @@
+# fx_audio.vn - feature index cards about sound: the music channel, sound effects (and ducking the music under them) and looping
+# sounds. The pattern is the one in fx_stage.vn. The index plays evening_theme, so these cards leave it playing when they end.
+# Browsers only start audio after a click, which the card you pressed already was.
+
+label fx_music:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Music", "One track plays on the music channel. Pause keeps its place, resume carries on from there, stop ends it.")
+  set fx_a_label = "Command"
+  set fx_a1 = "play"
+  set fx_a2 = "pause"
+  set fx_a3 = "resume"
+  set fx_a4 = "stop"
+
+label fx_music_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "music play evening_theme loop fade 1"
+      music play evening_theme loop fade 1
+    elif fx_pa == 2:
+      set fx_fired = "music pause fade 0.5"
+      music pause fade 0.5
+    elif fx_pa == 3:
+      set fx_fired = "music resume fade 0.5"
+      music resume fade 0.5
+    else:
+      set fx_fired = "music stop fade 1"
+      music stop fade 1
+    call fx_step_a(4)
+    jump fx_music_loop
+  elif act == "reset":
+    set fx_fired = "music play evening_theme loop fade 1"
+    music play evening_theme loop fade 1
+    jump fx_music_loop
+  music play evening_theme loop fade 1
+  hide iris fade 0.2
+  return
+
+label fx_sounds:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Sound effects", "A sound plays once. With duck, the music dips under it and eases back.")
+  set fx_a_label = "Sound"
+  set fx_a1 = "flip 1"
+  set fx_a2 = "flip 2"
+  set fx_a3 = "flip 3"
+  set fx_a4 = "thunder"
+  set fx_b_label = "Ducking"
+  set fx_b1 = "Off"
+  set fx_b2 = "On"
+
+label fx_sounds_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "sound play page_flip1"
+        sound play page_flip1
+      else:
+        set fx_fired = "sound play page_flip1 duck"
+        sound play page_flip1 duck
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "sound play page_flip2"
+        sound play page_flip2
+      else:
+        set fx_fired = "sound play page_flip2 duck"
+        sound play page_flip2 duck
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "sound play page_flip3"
+        sound play page_flip3
+      else:
+        set fx_fired = "sound play page_flip3 duck"
+        sound play page_flip3 duck
+    else:
+      if fx_pb == 1:
+        set fx_fired = "sound play thunder"
+        sound play thunder
+      else:
+        set fx_fired = "sound play thunder duck"
+        sound play thunder duck
+    jump fx_sounds_loop
+  elif act == "reset":
+    set fx_fired = "nothing yet"
+    jump fx_sounds_loop
+  hide iris fade 0.2
+  return
+
+label fx_sound_loops:
+  scene bg_library fade 0.4
+  show iris smile at 0.3 fade 0.3
+  call fx_open("Sound loops", "A looping sound (rain, a crowd) runs under the music until you stop it. Fades soften the start and end.")
+  set fx_a_label = "Rain"
+  set fx_a1 = "Start rain"
+  set fx_a2 = "Stop rain"
+  set fx_b_label = "Fade"
+  set fx_b1 = "Quick"
+  set fx_b2 = "Slow"
+
+label fx_sound_loops_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "sound loop rain fade 0.5"
+        sound loop rain fade 0.5
+      else:
+        set fx_fired = "sound loop rain fade 3"
+        sound loop rain fade 3
+    else:
+      if fx_pb == 1:
+        set fx_fired = "sound stop rain fade 0.5"
+        sound stop rain fade 0.5
+      else:
+        set fx_fired = "sound stop rain fade 3"
+        sound stop rain fade 3
+    call fx_step_a(2)
+    jump fx_sound_loops_loop
+  elif act == "reset":
+    set fx_fired = "sound stop fade 1"
+    sound stop fade 1
+    jump fx_sound_loops_loop
+  sound stop fade 0.5
+  hide iris fade 0.2
+  return

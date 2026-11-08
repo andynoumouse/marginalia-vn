@@ -1,4 +1,5 @@
 import type { Expr, Value } from './expr.js';
+import type { TransformDef } from './transform.js';
 import type { Segment } from './text.js';
 import type { ScreenDef, ScreenView } from './screens.js';
 
@@ -66,8 +67,8 @@ export interface MenuOption {
   to: number;
 }
 
-import type { SpriteAnim } from './anim.js';
-import type { FilterName, WeatherName } from './fx.js';
+import type { AnimDef, SpriteAnim } from './anim.js';
+import type { BurstName, FilterName, WeatherName } from './fx.js';
 
 export type Transition = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'iris' | 'blinds' | 'pixelate';
 export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'iris', 'blinds', 'pixelate'];
@@ -76,21 +77,25 @@ export type VisualBody =
   | { op: 'scene'; bg: string; transition: Transition; dir: string | null; mask: string | null; dur: number }
   | { op: 'show'; char: string; pose: string | null; more: string[]; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string; /** `pose=a,b`: rig.json poses laid over the character's parameters */ poses?: string[] } // order/behind: where it goes in the draw order (state.sprites, back to front)
   | { op: 'hide'; char: string; fade: number }
-  | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
+  | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; tint?: string | null; dur: number; ease: string } // null = unchanged; tint: a color, null = back to none, left out = unchanged
   | { op: 'shake'; target: string; dur: number; strength: number }
   | { op: 'hop'; char: string; dur: number }
-  | { op: 'animate'; char: string; name: string | null; dur: number | null; loop: boolean; strength: number; part: string | null } // name null = stop the loop; dur null = the animation's own length; part = move only that part
+  | { op: 'animate'; char: string; name: string | null; dur: number | null; loop: boolean; strength: number; part: string | null; args?: Expr[]; def?: AnimDef; auto?: 'on' | 'off' } // name null = stop the loop; dur null = the animation's own length; part = move only that part
   | { op: 'param'; char: string; poses: string[]; params: Record<string, number>; dur: number; ease: string | null } // `animate <char> pose=... p=v ... over <t>`: poses first, then the values; ease null = each parameter's own
-  | { op: 'flash'; color: string; dur: number }
+  | { op: 'perform'; name: string } // play a `choreography` block: every actor's part at once, ending with the longest
+  | { op: 'burst'; kind: BurstName; char?: string; x?: number; y?: number; count: number | null; dur: number | null } // a puff of particles at a character, or at a point (stage fractions); not kept in the state
+  | { op: 'flash'; color: string; dur: number; char?: string } // char: flash that character or picture instead of the screen
   | { op: 'tint'; color: string | null; strength: number; dur: number } // colour wash over the scene; null clears it
-  | { op: 'camera'; zoom: number | null; x: number; y: number; dur: number; ease: string } // zoom about (x, y), both 0-1; zoom null = a pan that keeps the zoom
+  | { op: 'camera'; zoom: number | null; x: number | null; y: number | null; roll?: number; dur: number; ease: string } // zoom about (x, y), both 0-1; zoom null = a pan that keeps the zoom; x/y null (a roll) keep the pivot; roll = degrees, left out keeps it
   | { op: 'weather'; kind: WeatherName | null; intensity: number; dur: number } // falling particles over the scene; null clears them
   | { op: 'filter'; name: FilterName | null; strength: number; dur: number } // screen-wide look (blur, grayscale, ...); null clears it
-  | { op: 'behaviors'; on: boolean } // rig.json "autonomous" (idle, speak, blink) on or off for the story from here
+  | { op: 'gravity'; factor: number } // how hard weather and bursts fall: 1 as authored, 0 none, negative up
+  | { op: 'wind'; strength: number; gusts: number; dur: number } // the scene's wind on physics chains: signed (positive blows right), 0 = calm; dur = seconds to reach it
+  | { op: 'behaviors'; on: boolean } // rig.json `auto` animations (idle, blink, talk) on or off for the story from here
   | { op: 'focus'; on: boolean } // speaker focus (game.json "speakerFocus") on or off for the story from here
-  | { op: 'image'; action: 'show'; name: string; file: string; x?: number; y?: number; scale?: number; rotation?: number; alpha?: number; anchor?: [number, number]; layer?: number; fixed?: boolean; keep?: boolean; fade: number } // an overlay picture; fields left out stay as they are
+  | { op: 'image'; action: 'show'; name: string; file: string; x?: number; y?: number; scale?: number; rotation?: number; alpha?: number; anchor?: [number, number]; layer?: number; fixed?: boolean; keep?: boolean; parallax?: number; tint?: string; fade: number } // an overlay picture; fields left out stay as they are
   | { op: 'image'; action: 'hide'; name: string; fade: number }
-  | { op: 'image'; action: 'move'; name: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; anchor: [number, number] | null; dur: number; ease: string } // null = unchanged
+  | { op: 'image'; action: 'move'; name: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; anchor: [number, number] | null; tint?: string | null; dur: number; ease: string } // null = unchanged
   | { op: 'music'; action: 'play' | 'stop' | 'pause' | 'resume'; name: string | null; loop: boolean; fade: number }
   | { op: 'sound'; action: 'play' | 'loop' | 'stop'; name: string | null; fade: number; duck?: boolean }
   | { op: 'movie'; name: string; noskip: boolean; loop: boolean }
@@ -158,6 +163,12 @@ export interface Program {
   preload?: Preload;
   /** Each character's rig.json `poses`, set by attachPreloads so the display state can resolve `pose=`; absent: poses are ignored. */
   rigPoses?: Record<string, Record<string, Record<string, number>>>;
+  /** The script's `transform` blocks by name, as keyframe animations the renderer plays like a rig's; absent: none. */
+  transforms?: Record<string, AnimDef>;
+  /** The transforms that are worked out when `animate` runs (parameters, script variables, `if`, `pick`), by name. */
+  dynamicTransforms?: Record<string, TransformDef>;
+  /** The script's `choreography` blocks by name: who plays which generated transform (in `transforms`), all of the same length; absent: none. */
+  choreographies?: Record<string, { target: string; transform: string }[]>;
 }
 
 // ---- runtime-facing types ----
@@ -170,12 +181,16 @@ export interface SpriteState {
   /** `pose` is the first bare word of the `show` line (a look, or the image of a flat character); `more` are the bare words after it, applied left to right. */
   char: string; pose: string | null; more: string[]; overrides: Record<string, string>;
   x: number; y: number; scale: number; rotation: number; alpha: number; flip: boolean;
+  /** A color the sprite is multiplied by (`move <char> tint=#rrggbb`); absent = none. */
+  tint?: string;
   /** The point `scale`, `rotation` and `flip` turn about, as fractions of the sprite (0,0 top left); the feet by default. */
   anchor: [number, number];
   /** The looping animation running on it (`animate <char> <name> loop`), if any. */
   anim: SpriteAnim | null;
   /** Parameter values the script has set (`pose=`, `animate <char> p=v`), by parameter id; the others are at their defaults. */
   params: Record<string, number>;
+  /** Automatic transforms attached with `animate <char> <name> auto`, in the order attached; absent = none. */
+  autos?: string[];
 }
 /**
  * An overlay picture (`image show <name> <file>`): an item, a CG, a letter. `x`/`y` are stage pixels of its
@@ -185,10 +200,21 @@ export interface SpriteState {
 export interface ImageState {
   name: string; file: string; x: number; y: number; scale: number; rotation: number; alpha: number;
   anchor: [number, number]; layer: number; fixed: boolean; keep: boolean;
+  /** A color the picture is multiplied by (`image move <name> tint=#rrggbb`); absent = none. */
+  tint?: string;
+  /** How much of the camera's zoom, pan and roll the picture follows (1 = all, the default; 0 = none, like `fixed`; above 1 = nearer than the characters). Absent = 1. */
+  parallax?: number;
+  /** The looping animation running on it (`animate <image> <name> loop`), if any; absent = none. Only body-level presets (`part` is always null). */
+  anim?: SpriteAnim | null;
+  /** Automatic transforms attached with `animate <image> <name> auto`; absent = none. */
+  autos?: string[];
 }
 /** A screen shown as a HUD (`hud on`); `keep` survives `scene`. */
 export interface HudState { name: string; keep: boolean }
-export interface Camera { zoom: number; x: number; y: number }
+/** `roll` is degrees about the pivot (x, y); absent = 0. `anim` and `autos` are what `animate camera ...` runs on top of the view (see CAMERA_TARGET). */
+export interface Camera { zoom: number; x: number; y: number; roll?: number; anim?: SpriteAnim | null; autos?: string[] }
+/** The name `animate` (and only it) takes for the camera: a character or picture of that name would be ambiguous, which is an error. */
+export const CAMERA_TARGET = 'camera';
 export interface DisplayState {
   bg: string | null; sprites: SpriteState[]; music: string | null; musicLoop: boolean;
   /** Lasting effects; absent in older saves and in the title screen state (= none). */
@@ -196,6 +222,10 @@ export interface DisplayState {
   camera?: Camera;
   weather?: { kind: WeatherName; intensity: number } | null;
   filter?: { name: FilterName; strength: number } | null;
+  /** `wind`: the scene's wind on physics chains (strength signed, positive to the right); absent or null = calm. */
+  wind?: { strength: number; gusts: number } | null;
+  /** `gravity`: the factor on how hard weather and bursts fall; absent or null = 1. */
+  gravity?: number | null;
   /** `music pause` is in effect (the track named in `music` waits); absent = playing. */
   musicPaused?: boolean;
   /** Looping sounds (`sound loop`), in the order started; absent in older saves (= none). */
@@ -206,7 +236,7 @@ export interface DisplayState {
   hud?: HudState[];
   /** `focus off` is in effect (speaker focus does not dim anyone); absent = on. Survives `scene`. */
   focus?: false;
-  /** `behaviors off` is in effect (no character idles, blinks or talks by itself); absent = on. Survives `scene`. */
+  /** `behaviors off` is in effect (no automatic animation runs); absent = on. Survives `scene`. */
   behaviors?: false;
 }
 
@@ -230,6 +260,8 @@ export interface SayEvent {
 
 /** Anything that can present the game: DOM, Pixi, a test double... */
 export interface Renderer {
+  /** The script's transforms (`animate <target> <name>` plays one when no rig animation has the name); called with the program and again when it is replaced. */
+  setTransforms?(transforms: Record<string, AnimDef>): void;
   /** Replace everything on screen with `state` instantly; also clears any open textbox or menu. */
   sync(state: DisplayState): void;
   /** Load what `state` shows; the runtime waits for this before sync() so nothing is drawn as a placeholder. */
@@ -248,6 +280,11 @@ export interface Renderer {
   clearPage?(): void;
   /** Hide the text box (`textbox hide`); the next line shows it again. */
   hideBox?(): void;
+  /**
+   * Show a line in the text box already typed, with nothing to wait for: a restore (rollback, load, reload) that ends at a choice,
+   * prompt or screen leaves the last line under it, as the first visit does. Called right after sync(), and not for NVL lines.
+   */
+  showLine?(ev: SayEvent): void;
   /** Show a line; resolve when the player advances. */
   say(ev: SayEvent): Promise<void>;
   /**

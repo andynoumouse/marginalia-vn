@@ -46,6 +46,10 @@
   "chapters": [
     {
       "label": "start",
+      "title": "Feature index"
+    },
+    {
+      "label": "tour_start",
       "title": "Arrival"
     },
     {
@@ -92,6 +96,11 @@
       "title": "Postcards",
       "description": "Open the box in the archive.",
       "hidden": true
+    },
+    {
+      "unlock": "tried_unlock",
+      "title": "Trying things out",
+      "description": "Fire the unlock card in the feature index."
     }
   ]
 }

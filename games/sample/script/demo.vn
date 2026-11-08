@@ -54,13 +54,19 @@ label demo:
   alice: ...and over there. #iqmh
   camera reset 0.6
 
-  # --- weather: falling particles (rain, snow, petals, embers); lasts until `weather off` or the next `scene` ---
+  # --- weather: falling particles (rain, snow, petals, embers); lasts until `weather off` or the next `scene`. `wind` and `gravity` act on it ---
   weather rain 0.7 1
   alice: Oh, it started to rain. #jyv8
   weather snow 0.5 1
   alice: Now it's snowing. #yguz
   weather petals 0.4 1
   alice: Petals, even. #j61h
+  wind left 0.8 gusts=0.6 1
+  alice: A wind from the right carries them off, and the gusts come and go. #wnvr
+  gravity 0.15
+  alice: Turn gravity down and they hardly fall at all. #nk7m
+  gravity reset
+  wind off 1
   weather off 1
 
   # --- filter: a look over the whole scene (blur, grayscale, sepia, night, vignette) ---

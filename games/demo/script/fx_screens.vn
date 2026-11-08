@@ -1,0 +1,262 @@
+# fx_screens.vn - feature index cards about screens: hotspots, a scroll box with a grid, tabs and radios, a HUD, bars and panels.
+# The pattern is the one in fx_stage.vn, except that these cards show a screen of their own on the left instead of the shared
+# panel (a scroll box or a map does not fit in a column of radios). Each of those screens carries its blurb, the last answer and
+# a Back button on the right, and the card loops: show the screen, react to the answer, show it again. The HUD card is the
+# exception: it keeps the shared panel, because a HUD is a second screen that stays up beside the story.
+
+# Story variables of these cards. fx_open (index.vn) puts them back, so no card leaves a mark on the next.
+set fx_hp = 50
+set fx_charm = 4
+set fx_lamp = false
+set fx_paper = "cream"
+set fx_words = ["mist", "drizzle", "shower", "downpour", "cloudburst", "squall", "sleet", "flurry", "dew", "haze", "gust", "fog", "hail", "monsoon", "thunder", "rainbow", "breeze", "frost", "snow", "thaw", "spray"]
+
+# Hotspot map: the library map scaled down, five places in three shapes. Each place answers with its id.
+screen fx_map_demo:
+  textbox off
+  panel at 40,40 size 1250,1000 color rgba(8,10,18,.78)
+  text at 80,60 "{b}The library{/b}   Point at a place and click it." #avmx font 34
+  image "bg/bg_library_map.png" at 105,110 size 1120,630
+  hotspot stacks at 198,285 size 245,222 "The stacks" #nc4b hover tint rgba(255,220,120,.30)
+  hotspot desk ellipse at 572,483 size 268,128 "The front desk" #wv9v hover scale 1.06
+  hotspot archive at 863,273 size 245,210 "The archive" #slla hover tint rgba(120,200,255,.30)
+  hotspot catalogue poly 502,238 793,227 817,390 490,402 "The card catalogue" #nknb hover tint rgba(200,255,160,.30)
+  hotspot board at 910,542 size 210,117 "The notice board" #tzxc hover scale 1.08
+  text at 80,780 "In the script:" #f4zr font 26 color #9aa6bd
+  text at 80,820 "hotspot stacks at 198,285 size 245,222 hover tint rgba(255,220,120,.30)" #c48h font 24
+  text at 80,860 "hotspot desk ellipse at 572,483 size 268,128 hover scale 1.06" #fw79 font 24
+  text at 80,900 "hotspot catalogue poly 502,238 793,227 817,390 490,402 hover tint rgba(200,255,160,.30)" #tq6d font 24
+  panel at 1330,40 size 560,1000
+  text at 1370,66 "{b}[fx_title]{/b}" #o5ev font 48
+  text at 1370,140 "[fx_about]" #mt4z font 26 width 480 lines 4
+  text at 1370,710 "Last click:" #unxn font 26 color #9aa6bd
+  text at 1370,745 "{b}[fx_fired]{/b}" #ww3j font 28 width 480 lines 3
+  button back at 1620,960 size 230,64 "Back" #zqoy hover scale 1.04
+  default desk
+  cancel
+
+label fx_hotspot_map:
+  scene bg_library fade 0.4
+  show iris smile at center fade 0.3
+  call fx_open("Hotspot map", "Places on a picture: a rectangle, an ellipse and a polygon. Each click is an answer the story reacts to.")
+
+label fx_hotspot_map_loop:
+  show screen fx_map_demo as act
+  if act == "stacks":
+    set fx_fired = 'if act == "stacks":'
+    sound play page_flip1
+    iris: The stacks: shelves up to the ceiling, and a ladder for the top ones. #ayq5
+    jump fx_hotspot_map_loop
+  elif act == "desk":
+    set fx_fired = 'if act == "desk":'
+    sound play page_flip1
+    iris: The front desk. Ask me anything. Or ask for a book. #rri9
+    jump fx_hotspot_map_loop
+  elif act == "archive":
+    set fx_fired = 'if act == "archive":'
+    sound play page_flip1
+    iris: The archive belongs to Theo and me. And to whoever has the key. #qyph
+    jump fx_hotspot_map_loop
+  elif act == "catalogue":
+    set fx_fired = 'if act == "catalogue":'
+    sound play page_flip1
+    iris: The card catalogue. Every card is one entry of a list. #arc7
+    jump fx_hotspot_map_loop
+  elif act == "board":
+    set fx_fired = 'if act == "board":'
+    sound play page_flip1
+    iris: The notice board. Somebody lost a green umbrella. #atzn
+    jump fx_hotspot_map_loop
+  hide iris fade 0.2
+  return
+
+# Scroll and grid: a grid of buttons built from a list, in a box that clips it and scrolls. Each button answers with its word.
+screen fx_scroll_demo:
+  textbox off
+  panel at 40,40 size 1250,1000 color rgba(8,10,18,.78)
+  text at 80,60 "{b}Weather words{/b}   Scroll, or use the arrow keys." #eyjh font 34
+  scroll at 80,130 size 1170,600:
+    grid 3 cell 370,100 gap 20:
+      each fx_words as w:
+        button w size 370,100 "[w]" #fgd7
+  text at 80,780 "In the script:" #k8qb font 26 color #9aa6bd
+  text at 80,820 "scroll at 80,130 size 1170,600:" #d5gd font 24
+  text at 80,860 "grid 3 cell 370,100 gap 20:" #xz28 font 24
+  text at 80,900 "each fx_words as w:" #m6ja font 24
+  text at 80,940 "button w size 370,100" #nksf font 24
+  panel at 1330,40 size 560,1000
+  text at 1370,66 "{b}[fx_title]{/b}" #rd1q font 48
+  text at 1370,140 "[fx_about]" #k1s7 font 26 width 480 lines 4
+  text at 1370,710 "Last pick:" #uf75 font 26 color #9aa6bd
+  text at 1370,745 "{b}[fx_fired]{/b}" #abvb font 28 width 480 lines 3
+  button back at 1620,960 size 230,64 "Back" #ee4o hover scale 1.04
+  cancel
+
+label fx_scroll_grid:
+  scene bg_library fade 0.4
+  call fx_open("Scroll and grid", "A scroll box clips a long grid of buttons built from a list, and scrolls it: wheel, bar, arrows or touch.")
+
+label fx_scroll_grid_loop:
+  show screen fx_scroll_demo as act
+  if act != "back" and act != "":
+    set fx_fired = "button " + act
+    sound play page_flip3
+    jump fx_scroll_grid_loop
+  return
+
+# Tabs, toggle and radio: the screen keeps its own state (the page, the tip, the lamp and the paper) and the story sees the
+# result only when the screen ends. Done writes the copies back to fx_lamp and fx_paper, and Backspace throws them away.
+screen fx_prefs_demo(inout fx_lamp, inout fx_paper):
+  state page = "light"
+  state tip = ""
+  textbox off
+  panel at 40,40 size 1250,1000 color rgba(8,10,18,.78)
+  text at 80,60 "{b}Reading preferences{/b}" #oeo7 font 40
+  tab tab_light page=light at 80,150 size 300,72 "Light" #yw5a
+  tab tab_paper page=paper at 400,150 size 300,72 "Paper" #nyif
+  toggle lamp_on fx_lamp at 80,290 size 520,72 "Reading lamp" #xuda
+    if page == "light"
+    on focus set tip = "A warm lamp for a rainy day."
+    on blur set tip = ""
+  radio cream fx_paper=cream at 80,290 size 520,72 "Cream" #mxuf if page == "paper"
+  radio white fx_paper=white at 80,390 size 520,72 "White" #cs8v if page == "paper"
+  radio dark fx_paper=dark at 80,490 size 520,72 "Dark" #ljqj if page == "paper"
+  text at 80,610 "[tip]" #wf0v font 30
+  text at 80,690 "page = [page]      fx_lamp = [fx_lamp]      fx_paper = [fx_paper]" #ddts font 30
+  text at 80,780 "In the script:" #sc8e font 26 color #9aa6bd
+  text at 80,820 "state page = light" #jza9 font 24
+  text at 80,860 "tab tab_paper page=paper at 400,150 size 300,72" #z8p9 font 24
+  text at 80,900 "toggle lamp_on fx_lamp at 80,290 on focus set tip = ..." #lhrj font 24
+  text at 80,940 "radio cream fx_paper=cream at 80,290 if page == paper" #jc4h font 24
+  panel at 1330,40 size 560,1000
+  text at 1370,66 "{b}[fx_title]{/b}" #sxib font 48
+  text at 1370,140 "[fx_about]" #c5hy font 26 width 480 lines 4
+  text at 1370,710 "Last answer:" #a57k font 26 color #9aa6bd
+  text at 1370,745 "{b}[fx_fired]{/b}" #nxdk font 28 width 480 lines 3
+  button done at 1370,860 size 480,84 "Done" #ou68 hover scale 1.04
+  button reset at 1370,960 size 230,64 "Reset" #txet hover scale 1.04
+  button back at 1620,960 size 230,64 "Back" #hgfo hover scale 1.04
+  default done
+  cancel
+
+label fx_tabs_toggle_radio:
+  scene bg_library fade 0.4
+  call fx_open("Tabs and radios", "Tabs, a checkbox and radios keep a screen's own state. Done writes it back; Backspace throws it away.")
+
+label fx_tabs_toggle_radio_loop:
+  show screen fx_prefs_demo(fx_lamp, fx_paper) as act
+  if act == "done":
+    set fx_fired = "Done: the lamp and the paper were written back to the story."
+    jump fx_tabs_toggle_radio_loop
+  elif act == "reset":
+    set fx_lamp = false
+    set fx_paper = "cream"
+    set fx_fired = "set fx_lamp = false, set fx_paper = cream"
+    jump fx_tabs_toggle_radio_loop
+  return
+
+# HUD: a screen that stays up beside the story. Its button runs a label, but only while a line is showing (a click during a
+# screen is dropped), so Fire puts the HUD up and a line asks for a click on it.
+screen fx_coins_hud:
+  panel at 40,40 size 380,200
+  text at 70,60 "Coins: [fx_count]" #h3xb font 40
+  button purse at 70,140 size 320,80 "Purse" #mx2y on click fx_purse hover scale 1.04
+
+label fx_purse:
+  set fx_count += 1
+  iris: You find a coin. Now you have [fx_count]. #i6qp
+  return
+
+label fx_hud:
+  scene bg_reading_room fade 0.4
+  show iris smile at center fade 0.3
+  call fx_open("HUD", "A HUD stays up beside the story. Its button runs a label while a line is showing, then the story goes on.")
+  set fx_a_label = "The HUD"
+  set fx_a1 = "Show it"
+  set fx_a2 = "Hide it"
+
+label fx_hud_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      set fx_fired = "hud on fx_coins_hud"
+      hud on fx_coins_hud
+      iris: The box in the corner is a HUD. Click Purse, then press Space to go on. #hpj4
+    else:
+      set fx_fired = "hud off fx_coins_hud"
+      hud off fx_coins_hud
+    call fx_step_a(2)
+    jump fx_hud_loop
+  elif act == "reset":
+    set fx_fired = "set fx_count = 0"
+    set fx_count = 0
+    jump fx_hud_loop
+  hud off fx_coins_hud
+  hide iris fade 0.2
+  return
+
+# Bar and panel: a framed box holds two bars that follow story variables. The buttons change a variable and show the screen
+# again; the story keeps each variable inside its range so the number on the bar stays honest.
+screen fx_bar_demo:
+  textbox off
+  panel at 40,40 size 1250,1000 color rgba(8,10,18,.78)
+  text at 80,60 "{b}Status bars{/b}   Press a button, the bars follow." #o3yy font 34
+  panel at 120,160 size 1050,400 padding 40:
+    text at 0,0 "Health" #iz86 font 34
+    bar fx_hp max 100 at 0,56 size 960,56 readout
+    text at 0,170 "Charm" #z36h font 34
+    bar fx_charm max 10 at 0,226 size 960,56 color #ff6688 readout
+  button hp_up at 120,620 size 250,84 "Health +25" #i1sq hover scale 1.04
+  button hp_down at 390,620 size 250,84 "Health -25" #rlx8 hover scale 1.04
+  button charm_up at 660,620 size 250,84 "Charm +2" #edi3 hover scale 1.04
+  button charm_down at 930,620 size 240,84 "Charm -2" #q88a hover scale 1.04
+  text at 80,780 "In the script:" #kows font 26 color #9aa6bd
+  text at 80,820 "panel at 120,160 size 1050,400 padding 40:" #dvdj font 24
+  text at 80,860 "bar fx_hp max 100 at 0,56 size 960,56 readout" #hcwr font 24
+  text at 80,900 "bar fx_charm max 10 at 0,226 size 960,56 color #ff6688 readout" #sv56 font 24
+  panel at 1330,40 size 560,1000
+  text at 1370,66 "{b}[fx_title]{/b}" #pran font 48
+  text at 1370,140 "[fx_about]" #tgnt font 26 width 480 lines 4
+  text at 1370,710 "Last fired:" #n3hu font 26 color #9aa6bd
+  text at 1370,745 "{b}[fx_fired]{/b}" #fdwp font 28 width 480 lines 3
+  button reset at 1370,960 size 230,64 "Reset" #t3gx hover scale 1.04
+  button back at 1620,960 size 230,64 "Back" #brxt hover scale 1.04
+  default hp_up
+  cancel
+
+label fx_bar_panel:
+  scene bg_library fade 0.4
+  call fx_open("Bars and panels", "A panel frames its children and a bar follows a variable. Press a button and watch the bars move.")
+
+label fx_bar_panel_loop:
+  show screen fx_bar_demo as act
+  if act == "hp_up":
+    set fx_fired = "set fx_hp += 25"
+    set fx_hp += 25
+    if fx_hp > 100:
+      set fx_hp = 100
+    jump fx_bar_panel_loop
+  elif act == "hp_down":
+    set fx_fired = "set fx_hp -= 25"
+    set fx_hp -= 25
+    if fx_hp < 0:
+      set fx_hp = 0
+    jump fx_bar_panel_loop
+  elif act == "charm_up":
+    set fx_fired = "set fx_charm += 2"
+    set fx_charm += 2
+    if fx_charm > 10:
+      set fx_charm = 10
+    jump fx_bar_panel_loop
+  elif act == "charm_down":
+    set fx_fired = "set fx_charm -= 2"
+    set fx_charm -= 2
+    if fx_charm < 0:
+      set fx_charm = 0
+    jump fx_bar_panel_loop
+  elif act == "reset":
+    set fx_fired = "set fx_hp = 50, set fx_charm = 4"
+    set fx_hp = 50
+    set fx_charm = 4
+    jump fx_bar_panel_loop
+  return

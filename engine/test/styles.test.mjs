@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Runtime, NullRenderer, assignIds, existingIds, resolveScreen, interpolate, checkAssets, themeCss, resolveTheme, getCompletions } from '../../dist/engine/src/index.js';
 
+const fromFile = theme => resolveTheme('t', { t: theme });
+
 const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const build = text => compile([{ file: 't.vn', text }]);
 
@@ -83,7 +85,7 @@ test('a style missing from a theme the player can pick is reported', () => {
 });
 
 test('a style gives menu, button and text rules without placement', () => {
-  const theme = resolveTheme({
+  const theme = fromFile({
     styles: {
       urgent: {
         choice: { background: '#400', width: 900, hover: { background: '#600' } },

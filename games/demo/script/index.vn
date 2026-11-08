@@ -1,0 +1,344 @@
+# index.vn - the demo's front page: a feature index. New game opens it. Each card is a small playground (fx_*.vn): a stage and a
+# panel on the right, where you fire the effect, change how it runs and fire it again; the panel shows the script line that ran.
+# The guided tour (start.vn, tour_start) and the library map (rooms.vn, hub) are one click away. Characters come from start.vn.
+#
+# A screen never runs script, so a card is a loop: show the panel, fire on "fire", show it again. The card's label fills in the
+# fx_* variables below; the panel reads them. See fx_stage.vn for the pattern.
+
+set index_page = "stage"
+
+# What the playground panel shows. fx_pa and fx_pb are the chosen option of each row (1, 2, 3 ...), kept by the panel's radios.
+set fx_title = ""
+set fx_about = ""
+set fx_fired = ""
+set fx_a_label = ""
+set fx_a1 = ""
+set fx_a2 = ""
+set fx_a3 = ""
+set fx_a4 = ""
+set fx_a5 = ""
+set fx_a6 = ""
+set fx_a7 = ""
+set fx_a8 = ""
+set fx_b_label = ""
+set fx_b1 = ""
+set fx_b2 = ""
+set fx_b3 = ""
+set fx_pa = 1
+set fx_pb = 1
+set fx_shown = 0
+set fx_count = 0
+set fx_bag = []
+
+# The index: one page per group of commands (named like the headings of docs/commands.md), a grid of cards under the page
+# buttons. The page buttons answer like the cards do and the loop below shows the screen again with the new page (index_page),
+# rather than being `tab`s: the playtest bot does not follow a tab, so it would call every card on the other pages unreachable.
+screen feature_index:
+  textbox off
+  panel size full color rgba(8,10,18,.78)
+  text at 80,44 "{b}Feature index{/b}" #p6yl font 72
+  text at 80,140 "Click a card to try it. You get a stage and a panel: fire the effect, change it, fire it again." #x2vi font 32
+  panel at 80,288 size 230,8 color #7cc4ff if index_page == "stage"
+  panel at 324,288 size 230,8 color #7cc4ff if index_page == "effects"
+  panel at 568,288 size 230,8 color #7cc4ff if index_page == "text"
+  panel at 812,288 size 230,8 color #7cc4ff if index_page == "audio"
+  panel at 1056,288 size 230,8 color #7cc4ff if index_page == "logic"
+  panel at 1300,288 size 230,8 color #7cc4ff if index_page == "screens"
+  panel at 1544,288 size 230,8 color #7cc4ff if index_page == "rigs"
+  button go_stage at 80,210 size 230,72 "Stage" #ao0h hover scale 1.04
+  button go_effects at 324,210 size 230,72 "Effects" #eecd hover scale 1.04
+  button go_text at 568,210 size 230,72 "Text" #ynr3 hover scale 1.04
+  button go_audio at 812,210 size 230,72 "Audio" #ioum hover scale 1.04
+  button go_logic at 1056,210 size 230,72 "Logic" #k9od hover scale 1.04
+  button go_screens at 1300,210 size 230,72 "Screens" #a8mq hover scale 1.04
+  button go_rigs at 1544,210 size 230,72 "Rigs" #l7u6 hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "stage":
+    button scene_transitions size 425,130 "Scene changes" #ye7i sub "scene: fade, wipe, iris ..." hover scale 1.04
+    button show_hide size 425,130 "Show and hide" #svgb sub "show, hide" hover scale 1.04
+    button draw_order size 425,130 "Draw order" #lg3o sub "order=, behind=" hover scale 1.04
+    button move_ease size 425,130 "Move and ease" #obua sub "move, ease=" hover scale 1.04
+    button shake_hop size 425,130 "Shake and hop" #hrzs sub "shake, hop, shake screen" hover scale 1.04
+    button animate_presets size 425,130 "Animate presets" #uebl sub "animate, loop, stop" hover scale 1.04
+    button transform size 425,130 "Transforms" #i5p9 sub "transform, animate" hover scale 1.04
+    button choreography size 425,130 "Choreography" #qq6y sub "choreography, perform" hover scale 1.04
+    button speaker_focus size 425,130 "Speaker focus" #sb3o sub "focus on, focus off" hover scale 1.04
+    button pictures size 425,130 "Pictures" #mvrp sub "image show, move, hide" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "effects":
+    button flash size 425,130 "Flash" #lm2w sub "flash" hover scale 1.04
+    button tint size 425,130 "Tint" #jfp3 sub "tint" hover scale 1.04
+    button filter size 425,130 "Filters" #j15k sub "filter: eight looks" hover scale 1.04
+    button camera size 425,130 "Camera" #ixsp sub "camera zoom, pan, roll" hover scale 1.04
+    button weather size 425,130 "Weather" #oqwi sub "rain, snow, petals, embers" hover scale 1.04
+    button gravity size 425,130 "Gravity" #f2b0 sub "gravity" hover scale 1.04
+    button burst size 425,130 "Particle bursts" #kez1 sub "burst" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "text":
+    button text_tags size 425,130 "Text tags" #id8s sub "italic, colour, wave, ruby" hover scale 1.04
+    button text_timing size 425,130 "Text timing" #d5ge sub "pause, wait, nw, speed" hover scale 1.04
+    button nvl size 425,130 "Full-page text" #ctx7 sub "nvl on, clear, off" hover scale 1.04
+    button menus size 425,130 "Menus" #w2d1 sub "menu, if / else, timeout" hover scale 1.04
+    button input size 425,130 "Asking a name" #hfv3 sub "input" hover scale 1.04
+    button number_formats size 425,130 "Number formats" #ihm1 sub "plural, decimals, thousands" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "audio":
+    button music size 425,130 "Music" #mw8l sub "music play, pause, resume, stop" hover scale 1.04
+    button sounds size 425,130 "Sound effects" #ytsz sub "sound play, duck" hover scale 1.04
+    button sound_loops size 425,130 "Sound loops" #s5ig sub "sound loop, sound stop" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "logic":
+    button variables size 425,130 "Variables" #y9ax sub "set, +=, -=, *=" hover scale 1.04
+    button lists size 425,130 "Lists" #uqmr sub "bag += , contains, count" hover scale 1.04
+    button random size 425,130 "Chance" #cyky sub "random, pick, chance" hover scale 1.04
+    button call_args size 425,130 "Calling a label" #g8nr sub "call name(args)" hover scale 1.04
+    button persistent size 425,130 "Across playthroughs" #wrjn sub "persistent, unlock" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "screens":
+    button hotspot_map size 425,130 "Hotspot map" #v9v7 sub "hotspot: rect, ellipse, poly" hover scale 1.04
+    button scroll_grid size 425,130 "Scroll and grid" #c1qn sub "scroll, grid, each" hover scale 1.04
+    button tabs_toggle_radio size 425,130 "Tabs and radios" #ne67 sub "state, tab, toggle, radio" hover scale 1.04
+    button hud size 425,130 "HUD" #yj7j sub "hud on, on click" hover scale 1.04
+    button bar_panel size 425,130 "Bars and panels" #vd0l sub "bar, panel" hover scale 1.04
+  grid 4 at 80,310 gap 24 cell 425,130 if index_page == "rigs":
+    button robo_animations size 425,130 "Rig animations" #x0oz sub "animate robo wave, nod, dance" hover scale 1.04
+    button robo_params size 425,130 "Rig parameters" #l0a7 sub "animate robo head_x=1, pose=" hover scale 1.04
+    button robo_warp size 425,130 "Mesh warp" #z41g sub "animate robo breathe loop" hover scale 1.04
+  row anchor bottomright margin 40 gap 20:
+    button library size 480,72 "Explore the library" #qpva hover scale 1.04
+    button tour size 480,72 "Take the guided tour" #m36l hover scale 1.04
+
+# The playground panel: the right-hand column, so the stage stays in view on the left. Row A has up to eight options (two
+# columns), row B up to three. Radios keep the choice in fx_pa / fx_pb; Fire, Reset and Back answer the screen.
+screen fx_panel(inout fx_pa, inout fx_pb):
+  textbox off
+  panel at 1330,40 size 560,1000
+  text at 1370,66 "{b}[fx_title]{/b}" #g03r font 48
+  text at 1370,140 "[fx_about]" #s8b3 font 26 width 480 lines 4
+  text at 1370,285 "[fx_a_label]" #zyhu font 28 if fx_a_label != ""
+  radio a1 fx_pa=1 at 1370,325 size 235,54 "[fx_a1]" #vsm4 font 28 if fx_a1 != ""
+  radio a2 fx_pa=2 at 1615,325 size 235,54 "[fx_a2]" #llul font 28 if fx_a2 != ""
+  radio a3 fx_pa=3 at 1370,385 size 235,54 "[fx_a3]" #oz21 font 28 if fx_a3 != ""
+  radio a4 fx_pa=4 at 1615,385 size 235,54 "[fx_a4]" #or8w font 28 if fx_a4 != ""
+  radio a5 fx_pa=5 at 1370,445 size 235,54 "[fx_a5]" #kc01 font 28 if fx_a5 != ""
+  radio a6 fx_pa=6 at 1615,445 size 235,54 "[fx_a6]" #kpvj font 28 if fx_a6 != ""
+  radio a7 fx_pa=7 at 1370,505 size 235,54 "[fx_a7]" #ybrl font 28 if fx_a7 != ""
+  radio a8 fx_pa=8 at 1615,505 size 235,54 "[fx_a8]" #mjyb font 28 if fx_a8 != ""
+  text at 1370,585 "[fx_b_label]" #w7pb font 28 if fx_b_label != ""
+  radio b1 fx_pb=1 at 1370,625 size 150,54 "[fx_b1]" #yf4h font 28 if fx_b1 != ""
+  radio b2 fx_pb=2 at 1535,625 size 150,54 "[fx_b2]" #zxll font 28 if fx_b2 != ""
+  radio b3 fx_pb=3 at 1700,625 size 150,54 "[fx_b3]" #k1hd font 28 if fx_b3 != ""
+  text at 1370,710 "Last fired:" #uk0w font 26 color #9aa6bd
+  text at 1370,745 "{b}[fx_fired]{/b}" #muvo font 28 width 480 lines 3
+  button fire at 1370,860 size 480,84 "Fire" #ivby hover scale 1.04
+  button reset at 1370,960 size 230,64 "Reset" #ora5 hover scale 1.04
+  button back at 1620,960 size 230,64 "Back" #isg5 hover scale 1.04
+  default fire
+  cancel
+
+# Home. New game starts here (and so does the Chapters list's "Feature index"). Nothing in the tour or the library leads back
+# here on purpose: the playtest bot tells situations apart by their variables, and a way back from the library multiplied
+# its work (every state of the tour times every state of the index) until it gave up. Esc, Leave the library, New game is the way.
+# For the same reason the tour and library cards put index_page back to "stage" before they jump away.
+label start:
+  scene bg_library fade 0.6
+  hud off status
+  sound stop fade 1
+  music play evening_theme loop fade 2
+
+label index_loop:
+  show screen feature_index as card
+  if card == "go_stage":
+    set index_page = "stage"
+  elif card == "go_effects":
+    set index_page = "effects"
+  elif card == "go_text":
+    set index_page = "text"
+  elif card == "go_audio":
+    set index_page = "audio"
+  elif card == "go_logic":
+    set index_page = "logic"
+  elif card == "go_screens":
+    set index_page = "screens"
+  elif card == "go_rigs":
+    set index_page = "rigs"
+  elif card == "tour":
+    set index_page = "stage"
+    jump tour_start
+  elif card == "library":
+    set index_page = "stage"
+    jump hub
+  elif card == "scene_transitions":
+    call fx_scene_transitions
+    call fx_close
+  elif card == "show_hide":
+    call fx_show_hide
+    call fx_close
+  elif card == "draw_order":
+    call fx_draw_order
+    call fx_close
+  elif card == "move_ease":
+    call fx_move_ease
+    call fx_close
+  elif card == "shake_hop":
+    call fx_shake_hop
+    call fx_close
+  elif card == "animate_presets":
+    call fx_animate_presets
+    call fx_close
+  elif card == "transform":
+    call fx_transform
+    call fx_close
+  elif card == "choreography":
+    call fx_choreography
+    call fx_close
+  elif card == "speaker_focus":
+    call fx_speaker_focus
+    call fx_close
+  elif card == "pictures":
+    call fx_pictures
+    call fx_close
+  elif card == "flash":
+    call fx_flash
+    call fx_close
+  elif card == "tint":
+    call fx_tint
+    call fx_close
+  elif card == "filter":
+    call fx_filter
+    call fx_close
+  elif card == "camera":
+    call fx_camera
+    call fx_close
+  elif card == "weather":
+    call fx_weather
+    call fx_close
+  elif card == "gravity":
+    call fx_gravity
+    call fx_close
+  elif card == "burst":
+    call fx_burst
+    call fx_close
+  elif card == "text_tags":
+    call fx_text_tags
+    call fx_close
+  elif card == "text_timing":
+    call fx_text_timing
+    call fx_close
+  elif card == "nvl":
+    call fx_nvl
+    call fx_close
+  elif card == "menus":
+    call fx_menus
+    call fx_close
+  elif card == "input":
+    call fx_input
+    call fx_close
+  elif card == "number_formats":
+    call fx_number_formats
+    call fx_close
+  elif card == "music":
+    call fx_music
+    call fx_close
+  elif card == "sounds":
+    call fx_sounds
+    call fx_close
+  elif card == "sound_loops":
+    call fx_sound_loops
+    call fx_close
+  elif card == "variables":
+    call fx_variables
+    call fx_close
+  elif card == "lists":
+    call fx_lists
+    call fx_close
+  elif card == "random":
+    call fx_random
+    call fx_close
+  elif card == "call_args":
+    call fx_call_args
+    call fx_close
+  elif card == "persistent":
+    call fx_persistent
+    call fx_close
+  elif card == "hotspot_map":
+    call fx_hotspot_map
+    call fx_close
+  elif card == "scroll_grid":
+    call fx_scroll_grid
+    call fx_close
+  elif card == "tabs_toggle_radio":
+    call fx_tabs_toggle_radio
+    call fx_close
+  elif card == "hud":
+    call fx_hud
+    call fx_close
+  elif card == "bar_panel":
+    call fx_bar_panel
+    call fx_close
+  elif card == "robo_animations":
+    call fx_robo_animations
+    call fx_close
+  elif card == "robo_params":
+    call fx_robo_params
+    call fx_close
+  elif card == "robo_warp":
+    call fx_robo_warp
+    call fx_close
+  jump index_loop
+
+# Back from a card: the effects it left on go off by name (a `scene` alone left a glitch filter running), then the index backdrop.
+label fx_close:
+  filter off
+  tint off
+  weather off
+  gravity reset
+  camera reset
+  animate camera stop
+  focus on
+  nvl off
+  hud off fx_coins_hud
+  # The panel's variables go back to empty, so every card leaves the story in the same state (the playtest bot counts situations by variables).
+  call fx_open("", "")
+  scene bg_library fade 0.4
+  return
+
+# After a fire, a card whose options are toggles (left / right, show / hide) moves its radio on to the next one, so the next
+# Fire shows something new. n is how many options the row has; after the last it wraps to the first.
+label fx_step_a(n):
+  if fx_pa >= n:
+    set fx_pa = 1
+  else:
+    set fx_pa += 1
+  return
+
+label fx_step_b(n):
+  if fx_pb >= n:
+    set fx_pb = 1
+  else:
+    set fx_pb += 1
+  return
+
+# Starts a card: the title and the blurb for the panel, no options, nothing fired yet. The card then names the options it has.
+label fx_open(heading, blurb):
+  set fx_title = heading
+  set fx_about = blurb
+  set fx_fired = "nothing yet"
+  set fx_a_label = ""
+  set fx_a1 = ""
+  set fx_a2 = ""
+  set fx_a3 = ""
+  set fx_a4 = ""
+  set fx_a5 = ""
+  set fx_a6 = ""
+  set fx_a7 = ""
+  set fx_a8 = ""
+  set fx_b_label = ""
+  set fx_b1 = ""
+  set fx_b2 = ""
+  set fx_b3 = ""
+  set fx_pa = 1
+  set fx_pb = 1
+  set fx_shown = 0
+  set fx_count = 0
+  set fx_bag = []
+  set fx_key = 0
+  set fx_hp = 50
+  set fx_charm = 4
+  set fx_lamp = false
+  set fx_paper = "cream"
+  return

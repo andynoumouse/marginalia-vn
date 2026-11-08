@@ -1,0 +1,87 @@
+# start.vn - "The Last Train", the game built in the tutorial.
+
+define narrator "" text=#d8d2c0
+define mina "Mina" color=#ff9ec4 blip=high
+define ren "Ren" color=#9ec4ff blip=low
+define you "You" color=#7cc4ff blip=mid
+
+# Variables hold what the player has done; "if" and menu options can read them.
+set warmth = 0
+
+label start:
+  scene bg_platform fade 0.8
+  music play evening_theme loop fade 2
+  sound loop rain fade 2
+  "The last train of the night is twenty minutes late." #zxe4
+  "The platform is empty except for one girl with a red umbrella." #pns1
+
+  show mina neutral at center fade 0.4
+  mina: You're waiting for the {i}last{/i} train too? #j3oe
+  you: Seems so. #a6jl
+  mina: Then we're stuck with each other. I'm Mina. #h99m
+
+  input name "And you are?" default="Alex" max=16 #xv05
+  mina: Nice to meet you, [name].{pause=0.4} Sit down. The rain isn't going anywhere. #rtse
+  jump bench
+
+label bench:
+  menu "Mina pats the bench beside her." #v5d7:
+    "Sit next to her." #uw86:
+      set warmth += 1
+      mina: There. Not so cold now, is it? #jyw3
+    "Stand by the railing." #vqw2:
+      mina: Suit yourself. I don't bite. #mn6n
+  "Thunder rolls somewhere far away." #k3pq
+  sound play thunder duck
+  shake 0.4
+  jump stranger
+
+label stranger:
+  move mina to left 0.5
+  show ren neutral at right fade 0.5
+  ren: Is this the platform for the night train? #bu1g
+  mina: The only one. Come stand under the roof. #ue68
+  menu "Who is he?" #ycrp:
+    "Ask him where he is going." #nae8 if warmth >= 1:
+      set warmth += 1
+      ren: Home. Eventually. #nkdq
+    "Ask him where he is going." #srb1:
+      ren: Away from the rain, mostly. #vtxm
+    "Say nothing." #bn6r:
+      ren: Not much of a talker, then. #rkxo
+  call chat("Mina", 1)
+  jump train
+
+# A subroutine: "call chat(...)" fills the parameters, "return" comes back.
+label chat(who, bonus):
+  "[who] and [name] swap stories while the rain falls." #ntrt
+  set warmth += bonus
+  return
+
+label train:
+  sound stop rain fade 3
+  "A light appears down the track. The train, at last." #v0bn
+  if warmth >= 3:
+    jump stay_ending
+  elif warmth >= 2:
+    jump together_ending
+  else:
+    jump alone_ending
+
+label together_ending:
+  unlock together_end
+  scene bg_platform fade 1
+  "All three of you board the same carriage, and nobody mentions how the evening began." #rot1
+  end
+
+label stay_ending:
+  unlock stay_end
+  scene cg_mina_end dissolve 1.5
+  mina: Let it go. We'll take the next one. #pbmw
+  "You stay on the bench, and the last train leaves without you." #lms3
+  end
+
+label alone_ending:
+  unlock alone_end
+  "You board alone and watch the platform shrink in the window." #kmcd
+  end

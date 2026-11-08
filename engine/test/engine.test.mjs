@@ -457,6 +457,45 @@ test('textbox hide: asks the renderer to hide the box before the next line; bad 
   assert.ok(getCompletions(p, 'textbox ').some(s => s.label === 'hide'));
 });
 
+test('a restore that ends at a choice, prompt or screen puts the last line back in the box', async () => {
+  const text = [
+    'screen room:', '  textbox off', '  button go at 0,0 "Go"',
+    'label start:',
+    '  set gold = 5',
+    '  "You have [gold] coins."',                  // step 0
+    '  set gold = 9',
+    '  menu:', '    "Take":', '      "Taken."',    // steps 1, 2
+    '  "Next."',                                   // 3
+    '  textbox hide',
+    '  menu:', '    "A":', '      "a."',           // 4, 5
+    '  nvl on',
+    '  "page"',                                    // 6
+    '  menu:', '    "B":', '      "b."',           // 7, 8
+    '  nvl off',
+    '  "Say."',                                    // 9
+    '  show screen room as r',                     // 10
+    '  "After."',                                  // 11
+    '  input name "Name?"',                        // 12
+    '',
+  ].join('\n');
+  const p = compile([{ file: 't.vn', text }]);
+  assert.deepEqual(errors(p), []);
+  const shown = async step => {
+    const r = new NullRenderer();
+    const lines = [];
+    r.showLine = ev => lines.push(ev.text);
+    r.sync = (sync => s => { sync(s); lines.length = 0; })(r.sync.bind(r)); // what sync() clears, showLine puts back: only a call after the last sync counts
+    await new Runtime(p, r).restore({ step });
+    return lines;
+  };
+  // at the menu the first visit shows the line before it; the text is as it was then, not as the variables are now
+  assert.deepEqual(await shown(1), ['You have 5 coins.']);
+  // a line types its own text; `textbox hide`, an NVL page and a screen with `textbox off` leave the box empty
+  for (const step of [0, 2, 4, 7, 9, 10]) assert.deepEqual(await shown(step), [], `step ${step}`);
+  // after the screen, the next line is the one under the prompt
+  assert.deepEqual(await shown(12), ['After.']);
+});
+
 test('restore into an unreachable line in the middle of an nvl page starts with nvl on', async () => {
   const text = 'label start:\n  "a"\n  end\nlabel hidden:\n  nvl on\n  "x"\n  "y"\n';
   const p = compile([{ file: 't.vn', text }]);

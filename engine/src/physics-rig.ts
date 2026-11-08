@@ -8,7 +8,7 @@
 //     "outputs":  [{ "param": "hair_sway", "scale": 1, "min": -40, "max": 40 }, { "part": "hair_back", "scale": 1 }],
 //     "wind":     { "strength": 6, "noise": 0.8 } } }
 
-import { restState, stepChain, type PhysicsChain, type PhysicsSegment, type PhysicsState, type PhysicsWind } from './physics.js';
+import { restState, stepChain, type PhysicsChain, type PhysicsSegment, type PhysicsState, type PhysicsWind, type WorldWind } from './physics.js';
 import type { Offset } from './anim.js';
 import type { KeyformDef, ParamDef } from './params.js';
 import { isNum } from './util.js';
@@ -18,7 +18,7 @@ export type PhysicsChannel = typeof PHYSICS_CHANNELS[number];
 
 export interface RigPhysicsInput { param?: string; bone?: string; channel?: PhysicsChannel; weight: number; smoothing?: number }
 export interface RigPhysicsOutput { param?: string; part?: string; scale: number; segment?: number; min?: number; max?: number }
-export interface RigPhysicsChain { inputs: RigPhysicsInput[]; segments: PhysicsSegment[]; outputs: RigPhysicsOutput[]; wind?: PhysicsWind }
+export interface RigPhysicsChain { inputs: RigPhysicsInput[]; segments: PhysicsSegment[]; outputs: RigPhysicsOutput[]; wind?: PhysicsWind; windScale?: number }
 
 const inKey = (i: RigPhysicsInput) => i.param !== undefined ? `p:${i.param}` : `b:${i.bone}.${i.channel ?? 'rot'}`;
 const outKey = (o: RigPhysicsOutput) => o.param !== undefined ? `p:${o.param}` : `r:${o.part}`;
@@ -30,6 +30,7 @@ export function toChain(c: RigPhysicsChain): PhysicsChain {
     segments: c.segments,
     outputs: c.outputs.map(o => ({ name: outKey(o), segment: o.segment, scale: o.scale, min: o.min, max: o.max })),
     wind: c.wind,
+    windScale: c.windScale,
   };
 }
 
@@ -56,16 +57,16 @@ export const isOff = (off: PhysicsOff, id: string): boolean => off === true || (
 
 /**
  * Step every chain by `dt`. `params` are the parameter values and `parts` the offsets of the parts and bones, both
- * before physics. A chain that is `off` is held at rest and writes nothing.
+ * before physics. A chain that is `off` is held at rest and writes nothing. `world` is the scene's wind.
  */
-export function stepPhysics(physics: Record<string, RigPhysicsChain>, states: ChainStates, params: Record<string, number>, parts: ReadonlyMap<string, Offset>, dt: number, off?: PhysicsOff): PhysicsResult {
+export function stepPhysics(physics: Record<string, RigPhysicsChain>, states: ChainStates, params: Record<string, number>, parts: ReadonlyMap<string, Offset>, dt: number, off?: PhysicsOff, world?: WorldWind | null): PhysicsResult {
   const next: ChainStates = {}, outParams: Record<string, number> = {}, outRot: Record<string, number> = {};
   for (const [id, rc] of Object.entries(physics)) {
     const chain = toChain(rc);
     if (isOff(off, id)) { next[id] = restState(chain); continue; }
     const inputs: Record<string, number> = {};
     for (const i of rc.inputs) inputs[inKey(i)] = i.param !== undefined ? params[i.param] ?? 0 : parts.get(i.bone ?? '')?.[i.channel ?? 'rot'] ?? 0;
-    const s = stepChain(chain, states[id] ?? restState(chain), inputs, dt);
+    const s = stepChain(chain, states[id] ?? restState(chain), inputs, dt, world);
     next[id] = s;
     rc.outputs.forEach((o, k) => {
       const v = s.outputs[k] ?? 0;
@@ -147,6 +148,7 @@ export function checkPhysics(
       if (o.segment !== undefined && !(Number.isInteger(o.segment) && o.segment >= 0 && o.segment < (c.segments?.length ?? 0))) problem(`${where}.segment: no segment ${String(o.segment)}`, id);
     });
     if (c.wind !== undefined && (!c.wind || typeof c.wind !== 'object' || !isNum(c.wind.strength))) problem(`${at}.wind: needs a numeric strength`, id);
+    if (c.windScale !== undefined && !isNum(c.windScale)) problem(`${at}.windScale: must be a number (1 = the scene's wind, 0 = none, negative = mirrored)`, id);
   }
   // A cycle: chain A writes something chain B reads. A parameter read counts as read by a bone input too when
   // keyforms of that bone depend on it.

@@ -38,6 +38,9 @@ export class AudioSystem {
   private voiceRun = 0; // bumped to cancel a voice that is still loading
   private voiceCache = new Map<string, Promise<AudioBuffer | null>>(); // decoded recordings by URL, least recently used first
   private voiceSource: AudioBufferSourceNode | null = null;
+  private voiceTapNode: AnalyserNode | null = null; // reads the voice line's loudness for lip sync; not connected on to the output
+  private get voiceTap(): AnalyserNode { return this.voiceTapNode ??= this.ctx.createAnalyser(); }
+  private voiceSamples = new Float32Array(512);
 
   constructor() {
     const master = this.ctx.createGain();
@@ -56,7 +59,7 @@ export class AudioSystem {
   mediaVolume() { return (this.levels.master * this.levels.sound) ** 2; }
 
   unlock() {
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.ctx.state !== 'running' && this.ctx.state !== 'closed') void this.ctx.resume().catch(() => {}); // iOS leaves it 'interrupted' after a call or a hidden tab
   }
 
   /** 0..1 slider value; squared so the slider feels even to the ear. */
@@ -133,6 +136,7 @@ export class AudioSystem {
         const source = this.ctx.createBufferSource();
         source.buffer = buf;
         source.connect(this.buses.voice);
+        source.connect(this.voiceTap); // before the volume option, so a quiet setting still moves the mouth
         source.onended = () => { if (this.voiceSource === source) this.voiceSource = null; resolve(); };
         this.voiceSource = source;
         source.start();
@@ -160,6 +164,15 @@ export class AudioSystem {
   }
 
   /** Cut the voice line that is playing (or loading). */
+  /** Loudness (RMS, 0-1) of the voice line playing now, or null when none is playing (a mouth then follows the typing instead). */
+  voiceLevel(): number | null {
+    if (!this.voiceSource || !this.voiceTapNode) return null;
+    this.voiceTap.getFloatTimeDomainData(this.voiceSamples);
+    let sum = 0;
+    for (const v of this.voiceSamples) sum += v * v;
+    return Math.sqrt(sum / this.voiceSamples.length);
+  }
+
   stopVoice() {
     this.voiceRun++;
     try { this.voiceSource?.stop(); } catch { /* already ended */ }

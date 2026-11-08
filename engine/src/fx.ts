@@ -1,7 +1,26 @@
 // Pure parts of the screen effects: `filter` colour matrices, `weather` particles and the shapes of the
 // `iris` and `blinds` transitions. The Pixi renderer only draws what these return.
 
-export const FILTER_NAMES = ['blur', 'grayscale', 'sepia', 'night', 'vignette'] as const;
+import { parseHex } from './colors.js';
+import { windWave, type WorldWind } from './physics.js';
+
+/** What the scene does to loose particles (weather, bursts): `gravity` scales their fall (1 as authored, 0 none, negative up), `windVx` is the air's sideways speed in px/s (positive right). */
+export interface FxEnv { gravity?: number; windVx?: number }
+
+/** Air speed (px/s) of a wind of strength 1. */
+export const WIND_PX = 420;
+
+/** The air's sideways speed now, for the script's `wind`: steady, or swelling and dying down with its gusts. */
+export function windVelocity(wind: WorldWind | null | undefined, t: number): number {
+  if (!wind || !wind.strength) return 0;
+  const g = Math.min(1, Math.max(0, wind.gusts));
+  return wind.strength * WIND_PX * (1 - g + g * (0.5 + 0.5 * windWave(t, 0.35, 0)));
+}
+
+export const FILTER_NAMES = ['blur', 'grayscale', 'sepia', 'night', 'vignette', 'glow', 'chromatic', 'glitch'] as const;
+
+/** The filters drawn by a shader of their own (preview/scene-effects.ts), not a color matrix or a blur; `glitch` moves, so reduced motion drops it. */
+export const SHADER_FILTERS: readonly FilterName[] = ['glow', 'chromatic', 'glitch'];
 export type FilterName = typeof FILTER_NAMES[number];
 export const isFilterName = (s: string): s is FilterName => (FILTER_NAMES as readonly string[]).includes(s);
 
@@ -46,13 +65,15 @@ export interface WeatherSpec {
   /** Sideways sway amplitude in px/s (snow, petals, embers wander). */
   sway: number;
   alpha: [number, number];
+  /** How much of the scene's wind it feels (heavy rain less, petals more). */
+  windy: number;
 }
 
 export const WEATHER: Record<WeatherName, WeatherSpec> = {
-  rain: { count: 420, color: 0xbfd4ff, vy: [1500, 2000], vx: [-260, -200], size: [2, 3], streak: true, sway: 0, alpha: [0.25, 0.5] },
-  snow: { count: 260, color: 0xffffff, vy: [70, 160], vx: [-20, 20], size: [3, 8], streak: false, sway: 40, alpha: [0.6, 0.95] },
-  petals: { count: 70, color: 0xffb7d0, vy: [70, 130], vx: [60, 150], size: [8, 15], streak: false, sway: 90, alpha: [0.75, 1] },
-  embers: { count: 90, color: 0xffa040, vy: [-150, -60], vx: [-30, 30], size: [2, 5], streak: false, sway: 50, alpha: [0.5, 1] },
+  rain: { count: 420, color: 0xbfd4ff, vy: [1500, 2000], vx: [-260, -200], size: [2, 3], streak: true, sway: 0, alpha: [0.25, 0.5], windy: 0.6 },
+  snow: { count: 260, color: 0xffffff, vy: [70, 160], vx: [-20, 20], size: [3, 8], streak: false, sway: 40, alpha: [0.6, 0.95], windy: 1 },
+  petals: { count: 70, color: 0xffb7d0, vy: [70, 130], vx: [60, 150], size: [8, 15], streak: false, sway: 90, alpha: [0.75, 1], windy: 1.3 },
+  embers: { count: 90, color: 0xffa040, vy: [-150, -60], vx: [-30, 30], size: [2, 5], streak: false, sway: 50, alpha: [0.5, 1], windy: 0.8 },
 };
 
 export interface Particle {
@@ -62,12 +83,15 @@ export interface Particle {
 const between = ([a, b]: [number, number], r: number) => a + (b - a) * r;
 
 /** A particle entering the screen (from the top, or the bottom for embers); `anywhere` places it at a random height instead. */
-export function spawnParticle(kind: WeatherName, rand: () => number, w: number, h: number, anywhere: boolean): Particle {
+export function spawnParticle(kind: WeatherName, rand: () => number, w: number, h: number, anywhere: boolean, env: FxEnv = {}): Particle {
   const s = WEATHER[kind];
-  const rising = s.vy[1] < 0;
+  const g = env.gravity ?? 1;
+  const rising = s.vy[1] * g < 0;
   const pad = 60;
-  // Rain and petals drift sideways, so they start left of the screen as often as above it.
-  const x = rand() * (w + 2 * pad) - pad - (s.vx[1] > 40 ? w * 0.2 * rand() : 0);
+  // Rain and petals drift sideways, so they start left of the screen as often as above it; so does whatever the wind carries.
+  const wind = (env.windVx ?? 0) * s.windy;
+  const lead = wind ? Math.max(-w, Math.min(w, wind * ((h + pad) / Math.max(60, Math.abs((s.vy[0] + s.vy[1]) / 2 * g))))) : 0; // how far it drifts while it crosses the screen
+  const x = rand() * (w + 2 * pad) - pad - (s.vx[1] > 40 ? w * 0.2 * rand() : 0) - (anywhere ? 0 : lead * rand());
   const y = anywhere ? rand() * h : rising ? h + pad * rand() : -pad * rand();
   return {
     x, y, vx: between(s.vx, rand()), vy: between(s.vy, rand()), size: between(s.size, rand()), alpha: between(s.alpha, rand()),
@@ -76,12 +100,14 @@ export function spawnParticle(kind: WeatherName, rand: () => number, w: number, 
 }
 
 /** Move a particle on by `dt` seconds at time `t`; false once it has left the screen (to be respawned). */
-export function stepParticle(p: Particle, kind: WeatherName, dt: number, t: number, w: number, h: number): boolean {
+export function stepParticle(p: Particle, kind: WeatherName, dt: number, t: number, w: number, h: number, env: FxEnv = {}): boolean {
   const s = WEATHER[kind];
-  p.x += (p.vx + (s.sway ? Math.sin(t * 1.5 + p.phase) * s.sway : 0)) * dt;
-  p.y += p.vy * dt;
+  const vx = p.vx + (s.sway ? Math.sin(t * 1.5 + p.phase) * s.sway : 0) + (env.windVx ?? 0) * s.windy, vy = p.vy * (env.gravity ?? 1);
+  p.x += vx * dt;
+  p.y += vy * dt;
   p.rot += p.spin * dt;
-  return p.y < h + 80 && p.y > -80 && p.x > -120 && p.x < w + 120;
+  // Gone once outside and not coming back: a particle that starts outside, upwind or against gravity, is on its way in.
+  return !(p.y > h + 80 && vy >= 0) && !(p.y < -80 && vy <= 0) && !(p.x < -120 && vx <= 0) && !(p.x > w + 120 && vx >= 0);
 }
 
 /** How many of the spec's particles are alive at an intensity 0-1. */
@@ -145,3 +171,103 @@ export function maskReveal(k: number, m: number, soft = MASK_SOFT): number {
 
 /** Pixelate transition: block size in px at progress `k`, growing to a peak at the middle where the picture is swapped, then shrinking. */
 export const pixelBlock = (k: number, max = 96) => Math.max(1, Math.round(1 + (max - 1) * (1 - Math.abs(2 * Math.max(0, Math.min(1, k)) - 1))));
+
+/** `#rgb` / `#rrggbb` (alpha ignored) as a 0xrrggbb number, white if it is not a color. */
+export function rgbNumber(color: string | undefined): number {
+  const c = color ? parseHex(color) : undefined;
+  if (!c) return 0xffffff;
+  const b = (v: number) => Math.round(v * 255);
+  return (b(c.r) << 16) | (b(c.g) << 8) | b(c.b);
+}
+
+/** Two 0xrrggbb colors multiplied channel by channel (white is the identity). */
+export function mulRgb(a: number, b: number): number {
+  const ch = (shift: number) => Math.round((((a >> shift) & 255) * ((b >> shift) & 255)) / 255);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+/** 0xrrggbb colors blended channel by channel; `k` 0 is `a`, 1 is `b`. */
+export function lerpRgb(a: number, b: number, k: number): number {
+  const ch = (shift: number) => Math.round(((a >> shift) & 255) + ((((b >> shift) & 255) - ((a >> shift) & 255)) * k));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+/** The 4x5 color matrix that mixes the picture `amount` (0-1) of the way to a flat `color` (0xrrggbb), alpha kept: a hit flash. */
+export function flashMatrix(color: number, amount: number): number[] {
+  const k = Math.max(0, Math.min(1, amount)), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
+  return [1 - k, 0, 0, 0, k * r, 0, 1 - k, 0, 0, k * g, 0, 0, 1 - k, 0, k * b, 0, 0, 0, 1, 0];
+}
+
+/** Loudness (RMS, 0-1) above which a voice recording counts as the mouth being open, and how long (seconds) it stays open after a quiet moment, so the gaps between letters do not flutter it. */
+export const MOUTH_ON = 0.02;
+export const MOUTH_HOLD = 0.12;
+
+/** Lip sync from a voice recording's `level`: the mouth is open while the voice is loud, and `hold` seconds after. `until` is the time (seconds) it stays open to, as returned last time. */
+export function mouthOpen(level: number, now: number, until: number): { open: boolean; until: number } {
+  const next = level >= MOUTH_ON ? now + MOUTH_HOLD : until;
+  return { open: now < next, until: next };
+}
+
+// ---- bursts (`burst <kind> at <where>`): a puff of particles at a place, not kept in saves ----
+
+export const BURST_NAMES = ['sparkle', 'smoke', 'confetti', 'dust'] as const;
+export type BurstName = typeof BURST_NAMES[number];
+export const isBurstName = (s: string): s is BurstName => (BURST_NAMES as readonly string[]).includes(s);
+
+export interface BurstSpec {
+  /** Particles and seconds they live, unless the script says otherwise. */
+  count: number; life: number;
+  /** Launch speed in px/s and direction in radians (0 right, -PI/2 up), both drawn from the range. */
+  speed: [number, number]; angle: [number, number];
+  /** Pull in px/s per second (positive down, negative up) and the share of speed lost per second. */
+  gravity: number; drag: number;
+  size: [number, number]; grow: number; colors: number[]; alpha: number;
+  /** A soft round blob, or a small flat rectangle (confetti) that turns. */
+  rect: boolean; spin: number;
+  /** How much of the scene's wind it feels. */
+  windy: number;
+}
+
+export const BURSTS: Record<BurstName, BurstSpec> = {
+  sparkle: { count: 48, life: 1, speed: [120, 420], angle: [-Math.PI, Math.PI], gravity: 0, drag: 2.5, size: [8, 22], grow: 0, colors: [0xffffff, 0xffe9a0, 0xfff2c0], alpha: 1, rect: false, spin: 0, windy: 0.2 },
+  smoke: { count: 14, life: 2.2, speed: [20, 70], angle: [-Math.PI * 0.75, -Math.PI * 0.25], gravity: -25, drag: 0.6, size: [40, 80], grow: 1.8, colors: [0x8a8a8a, 0xa4a4a4], alpha: 0.35, rect: false, spin: 0, windy: 1 },
+  confetti: { count: 60, life: 2.2, speed: [300, 800], angle: [-Math.PI * 0.8, -Math.PI * 0.2], gravity: 900, drag: 0.8, size: [8, 14], grow: 0, colors: [0xff5a6e, 0xffd24a, 0x5ac8fa, 0x7be07b, 0xc07bff], alpha: 1, rect: true, spin: 8, windy: 0.5 },
+  dust: { count: 18, life: 1.2, speed: [40, 160], angle: [-Math.PI * 0.6, -Math.PI * 0.4], gravity: 0, drag: 2, size: [20, 40], grow: 1.5, colors: [0xc9b79c], alpha: 0.4, rect: false, spin: 0, windy: 1 },
+};
+
+export interface BurstParticle {
+  x: number; y: number; vx: number; vy: number; size: number; rot: number; spin: number; age: number; life: number; color: number;
+}
+
+/** `count` particles leaving (x, y) (stage pixels). `life` and `count` default to the kind's own. Dust leaves sideways along the ground, so its angle is mirrored at random. */
+export function spawnBurst(kind: BurstName, rand: () => number, x: number, y: number, count?: number | null, life?: number | null): BurstParticle[] {
+  const s = BURSTS[kind];
+  return Array.from({ length: count ?? s.count }, () => {
+    const speed = between(s.speed, rand());
+    let a = between(s.angle, rand());
+    if (kind === 'dust') a = rand() < 0.5 ? -0.12 * Math.PI * rand() : Math.PI + 0.12 * Math.PI * rand(); // flat, out to either side
+    return {
+      x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, size: between(s.size, rand()), rot: rand() * Math.PI * 2, spin: (rand() - 0.5) * s.spin,
+      age: 0, life: (life ?? s.life) * (0.7 + 0.3 * rand()), color: s.colors[Math.floor(rand() * s.colors.length) % s.colors.length],
+    };
+  });
+}
+
+/** Move a burst particle on by `dt` seconds; false once its life is over. */
+export function stepBurst(p: BurstParticle, kind: BurstName, dt: number, env: FxEnv = {}): boolean {
+  const s = BURSTS[kind], keep = Math.max(0, 1 - s.drag * dt), air = (env.windVx ?? 0) * s.windy;
+  p.vx = air + (p.vx - air) * keep; // drag pulls toward the air's own speed
+  p.vy = p.vy * keep + s.gravity * (env.gravity ?? 1) * dt;
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  p.rot += p.spin * dt;
+  p.age += dt;
+  return p.age < p.life;
+}
+
+/** How a burst particle looks now: opacity (fading out over its life) and size in px (growing by the kind's `grow` over its life). */
+export function burstLook(p: BurstParticle, kind: BurstName): { alpha: number; size: number } {
+  const s = BURSTS[kind], k = Math.max(0, Math.min(1, p.age / p.life));
+  const fade = kind === 'confetti' ? Math.min(1, (1 - k) / 0.3) : (1 - k) ** 1.5; // confetti stays solid, then goes
+  return { alpha: s.alpha * fade, size: p.size * (1 + s.grow * k) };
+}

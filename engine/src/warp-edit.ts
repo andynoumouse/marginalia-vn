@@ -10,6 +10,8 @@ import {
   DEFORMER_DEFAULT_GRID, DEFORMER_MAX_GRID, deformerGrid, deformerPoints, segment,
   type DeformerDef, type DeformerKeyform, type ParamDef, type WarpPoints,
 } from './params.js';
+import { meshGraphDistance } from './mesh.js';
+import { boneSubtree, type Bones, type PartBones } from './anim-edit.js';
 
 export type WarpVec = [number, number];
 /** The size of a part's image box in stage units (pixels over `fxUnit`), the unit displacements are in. */
@@ -145,8 +147,17 @@ export function deleteWarpKey(def: DeformerDef, param: ParamDef, value: number):
  * Copies the keyform at `value` across the vertical axis of the lattice: `from` the left half to the right (or back), the
  * displacement of a mirrored point flipped in x. Points on the axis cannot move sideways in a symmetric shape, so their dx goes to 0.
  */
-export function mirrorWarp(def: DeformerDef, param: ParamDef, value: number, from: 'left' | 'right'): DeformerDef {
+export function mirrorWarp(def: DeformerDef, param: ParamDef, value: number, from: 'left' | 'right', only?: readonly number[]): DeformerDef {
   const [cols, rows] = deformerGrid(def), own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [];
+  if (only) {
+    // A selection is the source: each chosen point is copied onto its partner across the axis (one on the axis just loses its sideways move).
+    for (const p of new Set(only)) {
+      if (!(p >= 0 && p < (cols + 1) * (rows + 1))) continue;
+      const i = p % (cols + 1), j = Math.floor(p / (cols + 1)), q = j * (cols + 1) + (cols - i);
+      edits.push(i * 2 === cols ? [p, [0, own[p * 2 + 1]]] : [q, [-own[p * 2], own[p * 2 + 1]]]);
+    }
+    return setWarpOwn(def, param, value, edits);
+  }
   for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
     const p = j * (cols + 1) + i, q = j * (cols + 1) + (cols - i);
     if (i * 2 === cols) edits.push([p, [0, own[p * 2 + 1]]]);
@@ -155,15 +166,132 @@ export function mirrorWarp(def: DeformerDef, param: ParamDef, value: number, fro
   return setWarpOwn(def, param, value, edits);
 }
 
-/** Moves every point of the keyform at `value` `amount` (0-1) of the way to the average of its neighbours, evening out kinks. */
-export function smoothWarp(def: DeformerDef, param: ParamDef, value: number, amount = 0.5): DeformerDef {
-  const [cols, rows] = deformerGrid(def), own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [];
+/** Moves every point of the keyform at `value` `amount` (0-1) of the way to the average of its neighbours, evening out kinks; with `only`, just those points move. */
+export function smoothWarp(def: DeformerDef, param: ParamDef, value: number, amount = 0.5, only?: readonly number[]): DeformerDef {
+  const [cols, rows] = deformerGrid(def), own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [], chosen = only ? new Set(only) : null;
   for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
-    const p = j * (cols + 1) + i, around = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]].filter(([x, y]) => x >= 0 && x <= cols && y >= 0 && y <= rows).map(([x, y]) => y * (cols + 1) + x);
+    const p = j * (cols + 1) + i;
+    if (chosen && !chosen.has(p)) continue;
+    const around = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]].filter(([x, y]) => x >= 0 && x <= cols && y >= 0 && y <= rows).map(([x, y]) => y * (cols + 1) + x);
     const avg = [0, 1].map(c => around.reduce((s, q) => s + own[q * 2 + c], 0) / around.length);
     edits.push([p, [own[p * 2] + (avg[0] - own[p * 2]) * amount, own[p * 2 + 1] + (avg[1] - own[p * 2 + 1]) * amount]]);
   }
   return setWarpOwn(def, param, value, edits);
+}
+
+// ---- selections of points ----
+
+/** How a soft selection fades: `linear` straight down, `smooth` an ease, `constant` full strength out to the radius. */
+export type WarpCurve = 'linear' | 'smooth' | 'constant';
+export const WARP_CURVES: WarpCurve[] = ['linear', 'smooth', 'constant'];
+/** A soft selection's reach, in lattice cells, and its fade. A radius of 0 (or none) is a hard selection. */
+export interface WarpFalloff { radius: number; curve: WarpCurve }
+export const WARP_DEFAULT_FALLOFF: WarpFalloff = { radius: 1.5, curve: 'smooth' };
+
+/** The sorted, distinct valid point indices of `points` on a lattice of `n` points. */
+export const cleanSelection = (points: Iterable<number>, n: number): number[] => [...new Set(points)].filter(p => Number.isInteger(p) && p >= 0 && p < n).sort((a, b) => a - b);
+
+/** The points of row `j` (0 at the top), or none for a row the lattice does not have. */
+export function warpRow(def: Pick<DeformerDef, 'grid'>, j: number): number[] {
+  const [cols, rows] = deformerGrid(def);
+  return Number.isInteger(j) && j >= 0 && j <= rows ? Array.from({ length: cols + 1 }, (_, i) => j * (cols + 1) + i) : [];
+}
+/** The points of column `i` (0 at the left). */
+export function warpColumn(def: Pick<DeformerDef, 'grid'>, i: number): number[] {
+  const [cols, rows] = deformerGrid(def);
+  return Number.isInteger(i) && i >= 0 && i <= cols ? Array.from({ length: rows + 1 }, (_, j) => j * (cols + 1) + i) : [];
+}
+/** Every point of the lattice. */
+/** What the point helpers need of a deformer: a lattice's `grid`, or a free mesh's vertices and triangles. */
+export type PointedDef = Pick<DeformerDef, 'grid'> & { mesh?: { verts: ArrayLike<number>; tris?: ArrayLike<number> } };
+export const warpAllPoints = (def: PointedDef): number[] => Array.from({ length: deformerPoints(def) }, (_, i) => i);
+/** The points `selected` leaves out. */
+export const invertSelection = (def: PointedDef, selected: readonly number[]): number[] => { const s = new Set(selected); return warpAllPoints(def).filter(p => !s.has(p)); };
+/** `selected` with `points` added (`add`), flipped (`toggle`) or in its place (`set`). */
+export function combineSelection(selected: readonly number[], points: readonly number[], mode: 'set' | 'add' | 'toggle'): number[] {
+  if (mode === 'set') return cleanSelection(points, Infinity);
+  const s = new Set(selected);
+  for (const p of points) { if (mode === 'toggle' && s.has(p)) s.delete(p); else s.add(p); }
+  return cleanSelection(s, Infinity);
+}
+
+/** A weight 0-1 for a distance `d` cells from the selection. */
+export function falloffWeight(d: number, f: WarpFalloff): number {
+  if (d <= 0) return 1;
+  if (!(f.radius > 0) || d >= f.radius) return 0;
+  const t = 1 - d / f.radius;
+  return f.curve === 'constant' ? 1 : f.curve === 'smooth' ? t * t * (3 - 2 * t) : t;
+}
+
+/**
+ * How strongly each point follows an edit of `selected`: 1 for the chosen points, fading with the distance (in lattice cells) to
+ * the nearest chosen one. Points the fade does not reach are left out.
+ */
+export function softWeights(def: PointedDef, selected: readonly number[], falloff?: WarpFalloff): Map<number, number> {
+  if (def.mesh) return meshSoftWeights(deformerPoints(def), def.mesh.tris ?? [], selected, falloff);
+  const [cols] = deformerGrid(def), stride = cols + 1, n = deformerPoints(def), out = new Map<number, number>();
+  const chosen = cleanSelection(selected, n);
+  for (const p of chosen) out.set(p, 1);
+  if (!falloff || !(falloff.radius > 0)) return out;
+  for (let p = 0; p < n; p++) {
+    if (out.has(p)) continue;
+    let d = Infinity;
+    for (const s of chosen) d = Math.min(d, Math.hypot((p % stride) - (s % stride), Math.floor(p / stride) - Math.floor(s / stride)));
+    const w = falloffWeight(d, falloff);
+    if (w > 0) out.set(p, w);
+  }
+  return out;
+}
+
+/**
+ * The mesh counterpart of softWeights: the fade runs over hops along the mesh's edges (the radius is in hops), so a vertex across
+ * a gap in the art, or in another island, is not dragged along. `n` is the vertex count, `tris` the triangle indices.
+ */
+export function meshSoftWeights(n: number, tris: ArrayLike<number>, selected: readonly number[], falloff?: WarpFalloff): Map<number, number> {
+  const out = new Map<number, number>(), chosen = cleanSelection(selected, n);
+  for (const p of chosen) out.set(p, 1);
+  if (!falloff || !(falloff.radius > 0) || !chosen.length) return out;
+  const dist = meshGraphDistance(n, tris, chosen);
+  for (let p = 0; p < n; p++) {
+    if (out.has(p)) continue;
+    const w = falloffWeight(dist[p], falloff);
+    if (w > 0) out.set(p, w);
+  }
+  return out;
+}
+
+/** The points of the keyform at `value` move by `delta` times their weight (a drag of a selection, soft or hard). */
+export function moveWarpPoints(def: DeformerDef, param: ParamDef, value: number, weights: ReadonlyMap<number, number>, delta: WarpVec): DeformerDef {
+  const own = ownDisplacement(def, param, value), n = deformerPoints(def), edits: [number, WarpVec][] = [];
+  for (const [p, w] of weights) if (p >= 0 && p < n) edits.push([p, [own[p * 2] + delta[0] * w, own[p * 2 + 1] + delta[1] * w]]);
+  return setWarpOwn(def, param, value, edits);
+}
+
+/** The average displacement of `points` in the keyform at `value` (what the Point fields show for a selection), or null for none. */
+export function averageDisplacement(def: DeformerDef, param: ParamDef, value: number, points: readonly number[]): WarpVec | null {
+  const own = ownDisplacement(def, param, value), ok = cleanSelection(points, deformerPoints(def));
+  return ok.length ? [0, 1].map(c => ok.reduce((s, p) => s + own[p * 2 + c], 0) / ok.length) as WarpVec : null;
+}
+
+/**
+ * Scales (`scale`, per axis) and rotates (`rotate`, degrees, clockwise on screen) the chosen points of the keyform at `value`
+ * about the centre of where they sit now (`about` 'selection') or of the lattice. `box` is the part's size in stage units: the
+ * lattice's rest positions and the displacements have to share a unit for a rotation not to shear.
+ */
+export function transformWarpPoints(
+  def: DeformerDef, param: ParamDef, value: number, points: readonly number[], box: PartBox,
+  by: { scale?: number | WarpVec; rotate?: number; about?: 'selection' | 'lattice' },
+): DeformerDef {
+  const [cols, rows] = deformerGrid(def), n = deformerPoints(def), own = ownDisplacement(def, param, value), ok = cleanSelection(points, n);
+  if (!ok.length) return def;
+  const [sx, sy] = typeof by.scale === 'number' ? [by.scale, by.scale] : by.scale ?? [1, 1], a = ((by.rotate ?? 0) * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+  const rest = (p: number): WarpVec => [((p % (cols + 1)) / cols) * box.w, (Math.floor(p / (cols + 1)) / rows) * box.h];
+  const at = (p: number): WarpVec => { const r = rest(p); return [r[0] + own[p * 2], r[1] + own[p * 2 + 1]]; };
+  const pivot: WarpVec = by.about === 'lattice' ? [box.w / 2, box.h / 2] : [0, 1].map(c => ok.reduce((s, p) => s + at(p)[c], 0) / ok.length) as WarpVec;
+  return setWarpOwn(def, param, value, ok.map(p => {
+    const [x, y] = at(p), dx = (x - pivot[0]) * sx, dy = (y - pivot[1]) * sy, r = rest(p);
+    return [p, [pivot[0] + dx * cos - dy * sin - r[0], pivot[1] + dx * sin + dy * cos - r[1]]] as [number, WarpVec];
+  }));
 }
 
 // ---- the deformers of a rig ----
@@ -227,6 +355,8 @@ export interface WarpPresetOptions {
   waves?: number;
   /** Noise: the same seed gives the same shape. */
   seed?: number;
+  /** A free mesh: the part image's size in pixels, which the vertices' rest positions are measured against (they give u and v). */
+  pixels?: readonly [number, number];
 }
 export const WARP_PRESETS: { id: WarpPreset; label: string; amount: number; hint: string }[] = [
   { id: 'sway', label: 'Sway', amount: 0.08, hint: 'Bends sideways about the top edge: the bottom moves most. Amount is the share of the part\'s width.' },
@@ -242,11 +372,10 @@ function random(seed: number): () => number {
 }
 
 /** The displacement every point gets at the far end of the parameter (dense). */
-function pattern(kind: WarpPreset, cols: number, rows: number, box: PartBox, o: WarpPresetOptions): number[] {
+function pattern(kind: WarpPreset, uvs: readonly (readonly [number, number])[], box: PartBox, o: WarpPresetOptions): number[] {
   const out: number[] = [], amount = o.amount ?? WARP_PRESETS.find(p => p.id === kind)!.amount, rand = random(o.seed ?? 1);
   const [px, py] = o.pivot ?? [0.5, 1];
-  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
-    const u = i / cols, v = j / rows;
+  for (const [u, v] of uvs) {
     if (kind === 'sway') out.push(amount * box.w * v * v, 0);
     else if (kind === 'breathe') out.push((u - px) * box.w * amount, (v - py) * box.h * amount);
     else if (kind === 'sine') out.push(amount * box.w * Math.sin(2 * Math.PI * (o.waves ?? 1) * v), 0);
@@ -261,7 +390,16 @@ function pattern(kind: WarpPreset, cols: number, rows: number, box: PartBox, o: 
  * parameters' keyforms stay. `box` is the part's image size in stage units.
  */
 export function warpPreset(def: DeformerDef, param: ParamDef, kind: WarpPreset, box: PartBox, options: WarpPresetOptions = {}): DeformerDef {
-  const [cols, rows] = deformerGrid(def), shape = pattern(kind, cols, rows, box, options);
+  let uvs: [number, number][] = [];
+  if (def.mesh) {
+    // Each vertex's place in the part's image box, 0-1 (a vertex in the margin outside it is clamped to the edge).
+    const [pw, ph] = options.pixels ?? [0, 0], v = def.mesh.verts, c = (x: number) => Math.min(1, Math.max(0, x));
+    for (let i = 0; i + 1 < v.length; i += 2) uvs.push([pw > 0 ? c(v[i] / pw) : 0.5, ph > 0 ? c(v[i + 1] / ph) : 0.5]);
+  } else {
+    const [cols, rows] = deformerGrid(def);
+    for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) uvs.push([i / cols, j / rows]);
+  }
+  const shape = pattern(kind, uvs, box, options);
   const keys: { at: number; pts?: WarpPoints }[] = [];
   if (param.min < param.default) keys.push(keyOf(param.min, sparse(shape.map(x => -x))));
   keys.push({ at: param.default });
@@ -270,4 +408,69 @@ export function warpPreset(def: DeformerDef, param: ParamDef, kind: WarpPreset, 
   next.keyforms ??= [];
   if (i < 0) next.keyforms.push({ param: param.id, keys }); else next.keyforms[i].keys = keys;
   return next;
+}
+
+// ---- by id, and group warps (a lattice over several parts: docs/design/mesh-warp.md, "Group warps") ----
+
+/** The deformer with this id, if any (a part warp or a group warp). */
+export const deformerById = (deformers: readonly DeformerDef[] | undefined, id: string): DeformerDef | undefined => (deformers ?? []).find(d => d.id === id);
+
+/** The group warp `part` is a member of, if any (a part is in at most one). */
+export const groupOf = (deformers: readonly DeformerDef[] | undefined, part: string): DeformerDef | undefined => (deformers ?? []).find(d => Array.isArray(d.members) && d.members.includes(part));
+
+/** The deformers that bend `part`: its own warp first, then its group's. This is what the studio's target choice lists. */
+export const deformersOfPart = (deformers: readonly DeformerDef[] | undefined, part: string): DeformerDef[] => [deformerOf(deformers, part), groupOf(deformers, part)].filter((d): d is DeformerDef => !!d);
+
+/** `deformers` without the one with this id. */
+export const removeDeformerById = (deformers: readonly DeformerDef[], id: string): DeformerDef[] => deformers.filter(d => d.id !== id);
+
+/**
+ * The parts of `parts` that sit on `bone` or a bone below it, in the order `parts` lists them, then the mask `shapes` on those bones: what
+ * "Add group warp from this bone" covers. (A part comes first: the first member is the one a drag is measured in.)
+ */
+export function membersFromBone(bones: Bones, parts: PartBones, bone: string, shapes: Readonly<Record<string, { bone?: string }>> = {}): string[] {
+  const { bones: below, parts: onThem } = boneSubtree(bones, parts, bone), set = new Set(below);
+  return [...onThem, ...Object.keys(shapes).filter(n => typeof shapes[n]?.bone === 'string' && set.has(shapes[n].bone!))];
+}
+
+/** `members` without repeats, in order, dropping anything that is not a non-empty string. */
+const uniqueNames = (members: readonly string[]): string[] => [...new Set(members.filter(m => typeof m === 'string' && m !== ''))];
+
+/**
+ * `deformers` with the parts of `members` taken out of every other group warp (a part is in one group at most, so adding it to a
+ * group moves it). A group left with no members goes. `keep` is the id to leave alone.
+ */
+function withoutMembers(deformers: readonly DeformerDef[], members: readonly string[], keep: string): DeformerDef[] {
+  const out: DeformerDef[] = [];
+  for (const d of deformers) {
+    if (d.id === keep || !Array.isArray(d.members) || !d.members.some(m => members.includes(m))) { out.push(d); continue; }
+    const left = d.members.filter(m => !members.includes(m));
+    if (left.length) out.push({ ...d, members: left });
+  }
+  return out;
+}
+
+/**
+ * `deformers` with a new group warp over `members` (default grid, no keyforms). Its id is the `name` (a bone's, say) or the first
+ * member's, plus `_warp`, made unique. Parts that are in another group move to this one; nothing is added without a member.
+ */
+export function addGroupDeformer(deformers: readonly DeformerDef[], members: readonly string[], grid: readonly [number, number] = DEFORMER_DEFAULT_GRID, name?: string): DeformerDef[] {
+  const list = uniqueNames(members);
+  if (!list.length) return [...deformers];
+  const rest = withoutMembers(deformers, list, ''), taken = new Set(rest.map(d => d.id));
+  const base = `${name || list[0]}_warp`;
+  let id = base;
+  for (let i = 2; taken.has(id); i++) id = `${base}${i}`;
+  return [...rest, { id, members: list, grid: [clampGrid(grid[0]), clampGrid(grid[1])], keyforms: [] }];
+}
+
+/**
+ * The group warp `id` with these members, in this order (the first is the one a drag is measured in). Parts in another group move
+ * here; with no members, or for an id that is not a group, the list is returned as it was. The lattice and keyforms are kept.
+ */
+export function setMembers(deformers: readonly DeformerDef[], id: string, members: readonly string[]): DeformerDef[] {
+  const list = uniqueNames(members), cur = deformerById(deformers, id);
+  if (!cur || !Array.isArray(cur.members) || !list.length) return [...deformers];
+  if (list.length === cur.members.length && list.every((m, i) => m === cur.members![i])) return [...deformers];
+  return withoutMembers(deformers, list, id).map(d => (d.id === id ? { ...d, members: list } : d));
 }

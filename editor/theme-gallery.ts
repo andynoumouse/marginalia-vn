@@ -174,7 +174,7 @@ export class ThemeGallery {
       frame.style.width = `${TILE_W}px`;
       const scale = TILE_W / this.size.width;
       frame.style.height = `${Math.round(this.size.height * scale)}px`;
-      frame.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><base href="${new URL('../', location.href).href}">`
+      frame.srcdoc = `<!doctype html><html data-fitted><head><meta charset="utf-8"><base href="${new URL('../', location.href).href}">`
         + `<style>${src.css}</style><style id="themeStyle">${this.css}</style>`
         + '<style>html, body { margin: 0; overflow: hidden; background: #000; } #stage { left: 0 !important; top: 0 !important; translate: none; '
         + `width: ${this.size.width}px; height: ${this.size.height}px; transform: scale(${scale}) !important; transform-origin: 0 0 !important; }`

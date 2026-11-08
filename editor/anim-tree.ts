@@ -15,12 +15,15 @@ export interface TreeState {
   looks: Looks;
   bones: Bones;
   partBones: PartBones;
+  /** The mask shapes (imageless parts, Model mode) and the part or shape each clipped part is clipped to. */
+  shapes: Record<string, { bone?: string }>;
+  clips: Record<string, string>;
   /** The part (or bone) chosen, null for the whole character. */
   part: string | null;
   /** The animation on show, for its "keyed" marks. */
   anim: { name: string; def: AnimDef } | null;
-  /** Model mode with a parameter active: a tick on each row binds (or unbinds) that part to it; `bound` are the ones bound now, `what` names the parameter. */
-  bind: { bound: string[]; what: string } | null;
+  /** Model mode with a parameter active: a mark on each row shows whether that part is bound to it (`bound` are the ones bound now, `what` names the parameter). A display only: binding is done in the Bind block's picker. */
+  bind: { bound: string[]; what: string; kind: string } | null;
   /** Parts and bones hidden on the stage (a studio aid, never saved). */
   hidden: string[];
 }
@@ -31,10 +34,8 @@ export interface TreeHost {
   image(file: string): string | undefined;
   /** Replace some of the working copy as one undo step; `part` follows when given. */
   change(patch: { bones?: Bones; parts?: PartBones; looks?: Looks; part?: string | null }): void;
-  /** `add` (Ctrl held, Model mode): add the part to the chosen ones, or take it off. */
-  choosePart(part: string | null, add?: boolean): void;
-  /** Model mode: the tick of a row was pressed. */
-  toggleBind(part: string, subtree?: boolean): void;
+  /** `add` (Ctrl held, Model mode): add the part to the chosen ones, or take it off. `subtree` (Alt held): a bone's whole subtree, for a pick that binds. */
+  choosePart(part: string | null, add?: boolean, subtree?: boolean): void;
   /** Set a slot's variant on the stage (the one set already goes back to what the look picks). */
   toggleVariant(slot: string, variant: string): void;
   /** Hide a row's parts on the stage, or show them again; `solo` hides every other part instead. */
@@ -75,8 +76,7 @@ export class RigTree {
     if (d.slot !== undefined && d.variant !== undefined) this.host.toggleVariant(d.slot, d.variant);
     else if (d.eye !== undefined) this.host.toggleHidden(d.eye, e.altKey);
     else if (d.showAll !== undefined) this.host.showAll();
-    else if (d.bind !== undefined) this.host.toggleBind(d.bind, e.altKey);
-    else if (d.part !== undefined) this.host.choosePart(d.part || null, e.ctrlKey || e.metaKey);
+    else if (d.part !== undefined) this.host.choosePart(d.part || null, e.ctrlKey || e.metaKey, e.altKey);
   }
 
   /** Up / Down / Home / End move between the rows of the tree; Left / Right (and Home / End) between a slot's variants. */
@@ -97,9 +97,10 @@ export class RigTree {
     const { host, roots } = this;
     const s = host.state();
     const { char, bones, partBones } = s;
+    const shapeNames = s.mode === 'model' ? Object.keys(s.shapes) : [];
     const o = host.outline(s.pose, s.overrides, s.looks);
     const keyed = s.anim ? animParts(s.anim.def) : [];
-    const drawn = JSON.stringify([o, keyed, s.part, s.pose, s.overrides, s.anim?.name, bones, partBones, s.looks, s.mode, [...this.collapsed], s.bind, s.hidden]);
+    const drawn = JSON.stringify([o, keyed, s.part, s.pose, s.overrides, s.anim?.name, bones, partBones, shapeNames.map(n => [n, s.shapes[n].bone]), s.clips, s.looks, s.mode, [...this.collapsed], s.bind, s.hidden]);
     if (drawn === this.drawn) return;
     this.drawn = drawn;
     const model = s.mode === 'model';
@@ -122,16 +123,15 @@ export class RigTree {
       b.setAttribute('aria-pressed', String(s.part === part));
       return b;
     };
-    // Model mode: a tick before a row binds that part to the active parameter (or takes it off again).
+    // Model mode: a mark before a row says whether that part is bound to the active parameter. It is a display; "Bind parts…" is what binds, and the ✕ in the Bound parts list unbinds.
     const tick = (name: string): HTMLElement | null => {
       if (!s.bind) return null;
       const on = s.bind.bound.includes(name);
-      const b = el('button', { type: 'button', className: 'as-bind', textContent: on ? '✓' : '' });
+      const b = el('span', { className: 'as-bind', textContent: on ? '✓' : '' });
       b.dataset.bind = name;
-      b.title = on ? `${name} is bound to ${s.bind.what}: click to unbind it` : `Bind ${name} to ${s.bind.what}: keys at its minimum, default and maximum`;
-      b.setAttribute('aria-label', `${name} bound to ${s.bind.what}`);
-      b.setAttribute('role', 'checkbox');
-      b.setAttribute('aria-checked', String(on));
+      b.title = on ? `${name} is bound to ${s.bind.what}` : `${name} is not bound to ${s.bind.what}`;
+      b.setAttribute('role', 'img');
+      b.setAttribute('aria-label', on ? `${name} bound to ${s.bind.what}` : `${name} not bound to ${s.bind.what}`);
       return b;
     };
     // An eye before a row hides that part (a bone: its parts) on the stage; Alt-click shows only that one. Looking only: not saved.
@@ -165,6 +165,18 @@ export class RigTree {
       if (s.hidden.includes(p.name)) r.classList.add('as-stagehidden');
       const t = tick(p.name);
       roots.tree.append(el('div', { className: 'as-item as-bindrow' }, eye(p.name), ...(t ? [t] : []), r));
+    }
+    // A mask shape is a part with no image: a row of its own, with no thumbnail, no eye and no keys (nothing of it is drawn or animated).
+    if (shapeNames.length) {
+      roots.tree.append(el('h4', { textContent: 'Shapes', title: 'Mask shapes: imageless parts that clip other parts (Mask section)' }));
+      for (const name of shapeNames) {
+        const bone = s.shapes[name].bone, clipped = Object.keys(s.clips).filter(p => s.clips[p] === name);
+        const r = row(name, el('span', { className: 'as-thumb as-shape-icon', textContent: '◇', title: 'A mask shape' }), el('span', { className: 'as-pname', textContent: name }), badge('shape', 'A mask shape: an outline that clips other parts, with no image of its own'),
+          muted(`${bone ? `on ${bone}` : 'on the character'}${clipped.length ? `, clips ${clipped.join(', ')}` : ''}`));
+        r.title = `Mask shape ${name}${bone ? ` on bone ${bone}` : ''}${clipped.length ? `; clips ${clipped.join(', ')}` : '; clips nothing yet'}`;
+        const t = s.bind?.kind === 'mask' ? tick(name) : null;
+        roots.tree.append(el('div', { className: 'as-item as-bindrow as-shaperow' }, ...(t ? [t] : []), r));
+      }
     }
     // Dragging a bone row onto another makes it that bone's child (Model mode); onto this heading, a top bone.
     const reparent = (name: string, parent: string | null) => {
@@ -267,6 +279,9 @@ export class RigTree {
         }
         roots.detail.append(el('h4', { textContent: 'Variants' }), chips, el('p', { className: 'as-tree-hint', textContent: 'Click a variant to dress the stage (only for looking, not saved; * marks the default).' }));
       }
+    } else if (Object.hasOwn(s.shapes, chosen) && model) {
+      const bone = s.shapes[chosen].bone, clipped = Object.keys(s.clips).filter(p => s.clips[p] === chosen);
+      roots.detail.append(el('p', { className: 'as-muted as-bone-parts', textContent: `A mask shape${bone ? ` on ${bone}` : ''}${clipped.length ? `: it clips ${clipped.join(', ')}` : ', clipping nothing yet'}. Edit it in the Mask section (Mask tool, M).` }));
     } else if (Object.hasOwn(bones, chosen)) {
       const kids = new Set<string>();
       for (const { name: b } of boneNames) { for (let c: string | undefined = bones[b]?.parent, i = 0; c !== undefined && i < 99; c = bones[c]?.parent, i++) if (c === chosen) kids.add(b); }

@@ -3,6 +3,7 @@
 
 import { CHECK_TITLES, type BuildFinding, type BuildLanguages, type CheckId, type CheckLevel } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
+import { trapModal } from './modal.js';
 
 export interface BuildHost {
   /** Show a script line in the editor. */
@@ -113,6 +114,7 @@ export class BuildDialog {
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     q('.close').addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
+    trapModal(this.root, () => this.close());
     this.targetSel.addEventListener('change', () => { if (!this.folderEdited) this.folder.value = defaultFolder(this.target); this.update(); });
     this.folder.addEventListener('input', () => { this.folderEdited = true; this.update(); });
     this.ack.addEventListener('change', () => this.update());

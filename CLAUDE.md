@@ -14,7 +14,8 @@ README.md describes the features; `docs/commands.md` is the script command refer
   Tests import from `dist/`, so a stale build gives misleading results.
   The browser run serves a temp copy of `dist/`, so `tsc` during it is safe (it only uses the build as of its start).
 - Browser tests run `VN_BROWSER_JOBS` at a time (default 6, ~32 s; `VN_BROWSER_JOBS=1`
-  runs them in order, ~150 s, to tell a real failure from a load flake). Each test needs its own context and must not write to the sample project (mock `/api/...` routes instead).
+  runs them in order, ~150 s, to tell a real failure from a load flake; a test that fails only in a full run goes in the table in
+  `docs/design/flaky-tests.md`). Each test needs its own context and must not write to the sample project (mock `/api/...` routes instead).
 - `engine/test/browser.test.mjs` plays the sample in a real browser (system Edge/Chrome through playwright-core; skipped
   when none is found, `VN_BROWSER=<exe>` overrides). It starts its own dev server on a free port.
 - A fresh git worktree (`.claude/worktrees/...`) has no `node_modules`. Run `npm install` there before `npm test`, or
@@ -33,6 +34,10 @@ README.md describes the features; `docs/commands.md` is the script command refer
   (docs/online.md). After changing `online/`, the editor's URLs or `/api` routes, check it with `npm run build:online`
   and the `vn-online` preview (http://localhost:5180/marginalia-vn/); `online.test.mjs` covers the routes in node.
   Editor and preview URLs stay relative (`../assets/`, `../docs/`): the demo serves them under `p/<id>/`.
+- The demo opens on a feature index: `games/demo/script/index.vn` holds the screen and the loop, one `fx_<id>` label (plus
+  `fx_<id>_loop`) per card in `fx_*.vn` (README.md there, `docs/design/demo-feature-index.md`, `demo-index.test.mjs`).
+  Nothing in the tour or the library may lead back to the index, nor may the index page stay set when it jumps away: the
+  playtest bot counts situations by variables and gives up on the product of the two state spaces.
 - After adding or editing script lines run `npm run ids`, then `npm run strings`. The resulting changes to
   `games/sample/locale/en.json` and the scripts are expected.
 - Commit only when asked.

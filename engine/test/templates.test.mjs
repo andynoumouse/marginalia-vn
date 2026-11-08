@@ -98,6 +98,16 @@ test('the portrait template sets a portrait stage; a stage given by the caller w
   assert.equal(JSON.parse(wide['game.json']).stage, undefined);
 });
 
+test('templates that place things in landscape pixels refuse a portrait stage; the others accept it', () => {
+  const portrait = { width: 1080, height: 1920 };
+  for (const t of TEMPLATES) {
+    const make = () => newProjectFiles({ title: 'P', engineVersion: '0.4.0', kind: 'studio', template: t.id, stage: portrait });
+    if (t.landscapeOnly) assert.throws(make, /landscape/, t.id);
+    else assert.doesNotThrow(make, t.id);
+  }
+  assert.deepEqual(TEMPLATES.filter(t => t.landscapeOnly).map(t => t.id), ['branching', 'mystery']);
+});
+
 test('each style does what it says: endings, choices, NVL pages, the HUD and the clickable room', () => {
   const run = id => {
     const files = build(id), game = JSON.parse(files['game.json']);
@@ -105,7 +115,7 @@ test('each style does what it says: endings, choices, NVL pages, the HUD and the
     return { game, program, report: playtest(program, { game, allLabels: true }), text: files['script/start.vn'] };
   };
   assert.equal(run('classic-adv').report.endings.length, 2);
-  assert.equal(run('branching').report.endings.length, 3, 'one ending per route');
+  assert.equal(run('branching').report.endings.length, 4, 'one ending per route, plus walking alone');
   assert.deepEqual(run('branching').game.achievements.map(a => a.unlock).sort(), ['friends_end', 'mina_end', 'ren_end']);
   assert.equal(run('branching').game.gallery.length, 3, 'a CG per ending');
   assert.ok(run('branching').program.screens.status, 'a status HUD');
@@ -115,7 +125,7 @@ test('each style does what it says: endings, choices, NVL pages, the HUD and the
   assert.ok(run('mystery').program.screens.room, 'a room screen');
   assert.ok(run('mystery').program.screens.inventory, 'an inventory screen');
   assert.match(run('mystery').text, /^\s*input name /m, 'asks for a name');
-  assert.equal(run('mystery').report.endings.length, 1);
+  assert.equal(run('mystery').report.endings.length, 2, 'the door and the window');
   const nvl = run('kinetic-nvl');
   assert.match(nvl.text, /nvl on/);
   assert.ok(!nvl.program.ops.some(op => op.op === 'menu'), 'a kinetic novel has no choices');

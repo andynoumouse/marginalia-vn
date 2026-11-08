@@ -22,7 +22,7 @@ Files panel) shows the title in the preview, and edits then appear live.
   "titleScreen": { "background": "bg_park_evening", "music": "evening_theme", "showTitle": true,
                    "align": "center", "buttons": ["new_game", "continue", "options"] },
   "labels": { "new_game": "Begin" },
-  "theme": { "accent": "#5fd1c3", "font": "Georgia" } }
+  "theme": "default" }
 ```
 
 - `buttons` sets the order and visibility of the title buttons.

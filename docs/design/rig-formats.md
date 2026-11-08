@@ -33,7 +33,7 @@ vocabulary.
 | Bone hierarchy | A child inherits its parent's transform | Missing (flat groups only) |
 | Slots and attachments | A slot shows one of several attachments | Slots and variants |
 | Skins | Named sets of attachments (outfits) | Poses and `rig.json` shorthands |
-| Weighted meshes | One image bends under several bones | Missing (mesh-warp item) |
+| Weighted meshes | One image bends under several bones | Designed, not built: [skinning.md](skinning.md) |
 | Constraints | IK, sometimes physics for hair and cloth | Missing; physics is designed in [animation-studio-parameters.md](animation-studio-parameters.md) |
 | Timelines | Per-property keys with easing | Keys with `t` and `ease` |
 | Parameters | Named values driving several deformers (Live2D, Inochi2D) | Missing; a script could set one (`look=left`) |

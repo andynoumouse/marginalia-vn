@@ -1,27 +1,40 @@
 # Tutorial: make a visual novel with Marginalia VN Engine
 
-This tutorial walks through `games/demo/` ("Rainy Day Library"), a small game that uses most of the engine.
-Every snippet comes from its scripts, so you can open the file, run it and change it.
+You will make **The Last Train**, a short story about two strangers on a rainy platform, and finish with a game
+someone else can play. The finished project is in `games/tutorial/`.
 
-| Page | You learn |
+No programming experience is needed. You can follow the first five pages in Marginalia Studio, in the
+[online demo](https://andynoumouse.github.io/marginalia-vn/) (everything except the last page's build), or with Node.js.
+
+## Start here
+
+Read these in order. Each takes 10 to 20 minutes and ends with something you can play.
+
+| Page | You make |
 |---|---|
-| [The editor](00-the-editor.md) | a tour of the editor: live preview, Ctrl+P palette, variables, story outline, files, trash and git, refactoring |
-| [1. Your first scene](01-first-scene.md) | project layout, running the editor, `scene`, `show`, narration and dialogue, `music` |
-| [2. Choices and variables](02-choices-and-variables.md) | `menu`, `set`, `if`, `jump`, `input`, `[variables]` in text, lists, random |
-| [3. Staging and effects](03-staging-and-effects.md) | `move`, `hop`, `shake`, `animate`, named positions, `tint`, `filter`, `camera`, `flash`, weather, sound, text tags |
-| [4. Screens and memory](04-screens-and-memory.md) | clickable map, scrolling grid, HUD, `call` with parameters, timed menus, `unlock`, `persistent`, gallery and chapters, endings and achievements, a custom pause menu |
-| [5. Starting from a template](05-templates.md) | the six project templates, `vn init --template`, what each brings |
+| [1. Your first scene](01-first-scene.md) | a project from a template, a changed line, and the loop of type, save, see it |
+| [2. A story with choices](02-a-story-with-choices.md) | a branching scene with a typed name, a variable and three endings, checked by the playtest bot |
+| [3. Your own art and sound](03-your-own-art-and-sound.md) | your pictures, characters and music in place of the placeholders |
+| [4. Make it feel like a game](04-make-it-a-game.md) | a title screen, achievements, a gallery picture and chapters |
+| [5. Ship it](05-ship-it.md) | a web build to host, or a desktop zip to send |
 
-Planned: the PSD art pipeline, localization, and exporting for the web. The demo's art is placeholder shapes for now,
-so the screenshots show those. The full command list is in [../commands.md](../commands.md), `game.json` is in [../game-json.md](../game-json.md).
+## Go deeper
 
-## Set up
+Read any of these, in any order, when you need them.
 
-```bash
-cd demo
-npm install
-npm run dev
-```
+| Page | For |
+|---|---|
+| [A. Templates](deeper/a-templates.md) | the six project templates and what each brings |
+| [B. Staging and effects](deeper/b-staging.md) | moving characters, camera, tint, weather, sound, text effects |
+| [C. Screens and systems](deeper/c-screens.md) | a clickable map, a HUD, timed choices, persistent data, your own menus |
+| [D. Layered characters](deeper/d-layered-characters.md) | PSD characters, looks, and the animation studio |
+| [E. Localization and voice](deeper/e-localization-and-voice.md) | translating the game and recording lines |
+| [F. Coming from Ren'Py](deeper/f-from-renpy.md) | statements side by side, and what has no equivalent |
+| [G. Testing and quality](deeper/g-testing.md) | the playtest bot, statistics, checks, a release routine |
+| [H. The editor tour](deeper/h-editor-tour.md) | every editor feature, with screenshots |
 
-Open http://localhost:5173/editor/. The script is on the left and the running game on the right. Saving a script
-reloads the game and returns to the line you were on.
+The full command list is in [../commands.md](../commands.md) and `game.json` is in [../game-json.md](../game-json.md).
+Pages B, C and D quote the larger demo game in `games/demo/`, which opens on a feature index with a playable card for each
+group of commands (`npm run dev -- --project games/demo`, then New game).
+
+The snippets on pages 1 to 5 come from `games/tutorial/script/start.vn`, and a test keeps them in step with it.

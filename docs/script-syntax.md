@@ -31,6 +31,8 @@ label start:                            # entry point is "start" (or the first l
   image show letter cg/letter at 960,540 anchor=center fade 0.4  /  image move letter to 960,300 0.5  /  image hide letter   # overlay pictures: assets/ path, stage pixels, layer=-1 behind characters, fixed, keep; a file in assets/movie plays as a looping video
   camera zoom 1.5 at left y=0.4 0.8 ease=out  /  camera pan right 1  /  camera reset 0.5   # zoom about a point, slide it, reset; resets on `scene`
   weather rain|snow|petals|embers [0.6] [1]  /  weather off      # falling particles: intensity 0-1, fade-in seconds
+  wind right|left [0.5] [gusts=0.4] [1]  /  wind off   # blows on physics chains (hair, ribbons): strength 0-2, gustiness 0-1, build-up seconds
+  gravity 0.3  /  gravity reset         # how hard weather and bursts fall: 1 normal, 0 none, negative up
   filter blur|grayscale|sepia|night|vignette [1] [0.8]  /  filter off   # a look over the scene: strength 0-1, seconds
   nvl on  /  nvl clear  /  nvl off      # full-screen narration pages instead of the text box; a new page on clear or scene
   textbox hide                          # hide the text box until the next line

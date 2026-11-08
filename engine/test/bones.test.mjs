@@ -115,9 +115,9 @@ test('placeParts: a part follows its bone, its own offset goes on top about its 
   const own = placeParts(bones, parts, new Map([['loose', off({ rot: 180 })], ['hair', off({ rot: 180 })]]), () => null, [0, 0], 1);
   near(applyMatrix(own.loose, 20, 20), [30, 30]);
   near(applyMatrix(own.hair, 0, 0), [10, 10]);
-  // a legacy pivot wins over everything
-  const legacy = placeParts(bones, parts, new Map([['loose', off({ rot: 180 })]]), n => (n === 'loose' ? [0, 0] : null), [0, 0], 1);
-  near(applyMatrix(legacy.loose, 20, 20), [-20, -20]);
+  // a part pivot wins over everything
+  const pivoted = placeParts(bones, parts, new Map([['loose', off({ rot: 180 })]]), n => (n === 'loose' ? [0, 0] : null), [0, 0], 1);
+  near(applyMatrix(pivoted.loose, 20, 20), [-20, -20]);
 });
 
 test('checkRig: keys may name a bone', () => {

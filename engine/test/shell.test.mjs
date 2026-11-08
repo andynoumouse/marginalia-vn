@@ -329,6 +329,12 @@ test('palette fuzzy match: in order, case-insensitive, prefers runs and word sta
   assert.ok(fuzzy('park', 'park.vn').score > fuzzy('park', 'a_p_a_r_k.vn').score);
   assert.ok(fuzzy('gl', 'Go to Label').score > fuzzy('gl', 'xgxl').score);
   assert.notEqual(fuzzy('PARK', 'park.vn'), null);
+  // A whole-query run wins over letters picked from the front (UX round EP-3: `>trash` led to Empty Trash).
+  assert.deepEqual(fuzzy('trash', 'Files: Restore from Trash').hits, [20, 21, 22, 23, 24]);
+  const trash = rank(['Files: Empty Trash for good (no undo)', 'Transpose Characters around the Cursor', 'Files: Restore from Trash'], 'trash', f => f);
+  assert.equal(trash[0].entry, 'Files: Restore from Trash');
+  assert.deepEqual(fuzzy('p k', 'park.vn').hits, [0, 3]); // spaces in the query are skipped
+  assert.deepEqual(fuzzy('  ', 'park.vn'), { score: -0.07, hits: [] });
 });
 
 test('palette rank: filters, sorts by score, keeps order on ties and for empty queries', () => {

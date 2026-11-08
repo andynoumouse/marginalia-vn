@@ -114,7 +114,7 @@ export function partsUnder(bones: Record<string, BoneDef>, onBone: Record<string
 /**
  * The matrix each part is drawn with. A part follows the world matrix of its bone, with its own animated offset on top,
  * turning about its own `pivot`, else its bone's pivot, else the middle of its box. A part on no bone is just its own
- * offset. `pivotOf` gives a legacy pivot by part name (rig.json `pivots`). All coordinates share one space (the caller's).
+ * offset. `pivotOf` gives a part's own pivot by part name (rig.json `pivots`). All coordinates share one space (the caller's).
  */
 export function placeParts(bones: Record<string, BoneDef>, parts: Record<string, PlacedPart>, offsets: ReadonlyMap<string, Offset>, pivotOf: (part: string) => [number, number] | null, origin: [number, number], unit: number): Record<string, Matrix> {
   return placeRig(bones, parts, offsets, pivotOf, origin, unit).parts;

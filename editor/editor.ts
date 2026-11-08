@@ -2,8 +2,9 @@
 // next to the live preview. Files are saved to disk through the dev server, which is what
 // triggers the preview's hot reload. game.json (title screen and menus) is a JSON tab with a schema.
 
+import { keepPreviewDevice } from './preview-device.js';
 import {
-  COMMAND_WORDS, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
+  COMMAND_WORDS, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
   BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest,
 } from '../engine/src/index.js';
 import { AssetViewer } from './asset-viewer.js';
@@ -20,9 +21,10 @@ import { OutlineView } from './outline-view.js';
 import { Palette } from './palette.js';
 import { updateGameSchema } from './json-schemas.js';
 import { initPreviewLink, previewFromCursor, previewScreen, showPreviewLine, toggleFollow, toggleVars } from './preview-link.js';
+import { hidePreviewPane, initPreviewPane, narrowWindow, showPreviewPane } from './preview-pane.js';
 import { applyEdits, registerColors, registerRename } from './rename.js';
 import { buildCommands, NEW_FOLDER, NEW_PICK, paletteModes, type CommandHost } from './commands.js';
-import { collapsedDirs, initSidebar, renderSidebarAssets, renderSidebarFiles, sbFilter, setAssets, setSidebar, SIDEBAR_KEY, sidebarEl, type Project } from './sidebar.js';
+import { collapsedDirs, initSidebar, renderSidebarAssets, renderSidebarFiles, sbFilter, setAssets, setSidebar, SIDEBAR_KEY, sidebarEl, toast, toastError, type Project } from './sidebar.js';
 import { $, errorCount, files, GAME, GAME_URI, isDirty, norm, NOT_IN_DEMO, openTabs, postPreview, projectFiles, recentFiles, rigName, S, scripts, setStatus, themeFileName, themeSheetName, type FileState } from './state.js';
 
 declare const require: any;
@@ -183,6 +185,9 @@ function registerCompletions() {
       };
       const typed = /[^\s"=]*$/.exec(prefix)![0].length;
       const pathRange = { ...range, startColumn: position.column - typed };
+      // A typed `{` was closed by the editor: a text tag brings its own `}`, so it takes the one that is waiting after the cursor.
+      const closed = model.getValueInRange({ ...range, startColumn: position.column, endColumn: position.column + 1 }) === '}';
+      const tagRange = { ...range, endColumn: range.endColumn + 1 };
       const above = model.getLinesContent().slice(Math.max(0, position.lineNumber - 13), position.lineNumber - 1);
       const inScreen = insideScreen(model.getLinesContent().slice(0, position.lineNumber - 1), /^\s/.test(prefix));
       return {
@@ -193,7 +198,7 @@ function registerCompletions() {
           insertText: s.insertText ?? s.label,
           insertTextRules: s.insertText?.includes('$0') ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
           sortText: String(i).padStart(3, '0'),
-          range: s.path ? pathRange : range, // a path holds `/` and `.`, which end a word: replace everything typed since the quote, space or `=`
+          range: s.path ? pathRange : closed && s.insertText?.includes('}') ? tagRange : range, // a path holds `/` and `.`, which end a word: replace everything typed since the quote, space or `=`
         })),
       };
     },
@@ -227,8 +232,10 @@ function registerQuickFixes() {
 const stockModels = new Map<string, any>();
 
 function showStock(u: UiScreen) {
+  const code = screenStarter(u.name, S.program.stage); // follows the project's stage: a portrait one has its own layouts
   let model = stockModels.get(u.name);
-  if (!model) { model = monaco.editor.createModel(u.starter, 'vn', monaco.Uri.parse(`inmemory:///stock/${u.name}.vn`)); stockModels.set(u.name, model); }
+  if (!model) { model = monaco.editor.createModel(code, 'vn', monaco.Uri.parse(`inmemory:///stock/${u.name}.vn`)); stockModels.set(u.name, model); }
+  else if (model.getValue() !== code) model.setValue(code);
   S.stock = u;
   S.active = '';
   S.editor.setModel(model);
@@ -295,9 +302,35 @@ function renderTabs() {
     tab.append(b, x);
     return [tab];
   }).concat(stockTab));
+  setTabStops();
   revealSelectedTab();
   renderSidebarFiles();
 }
+
+// One Tab stop for the strip (UX round EL-6): the tab last focused (else the selected one) is tabbable, Left, Right, Home and End
+// move between the tabs, and Delete closes the focused one, so the Close buttons are not stops of their own.
+let tabStop: string | undefined;
+const tabButtons = () => [...tabsEl.querySelectorAll<HTMLElement>('[role="tab"]')];
+function setTabStops() {
+  const tabs = tabButtons();
+  const at = tabs.find(t => t.textContent === tabStop) ?? tabs.find(t => t.getAttribute('aria-selected') === 'true') ?? tabs[0];
+  for (const t of tabs) t.tabIndex = t === at ? 0 : -1;
+  for (const x of tabsEl.querySelectorAll<HTMLElement>('.close')) x.tabIndex = -1;
+}
+tabsEl.addEventListener('focusin', e => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
+  if (t) { tabStop = t.textContent ?? undefined; setTabStops(); }
+});
+tabsEl.addEventListener('keydown', e => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[role="tab"]');
+  if (!t || e.ctrlKey || e.altKey || e.metaKey) return;
+  const tabs = tabButtons(), i = tabs.indexOf(t);
+  const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+  if (e.key === 'Delete') { e.preventDefault(); t.parentElement?.querySelector<HTMLElement>('.close')?.click(); return; }
+  if (to < 0) return;
+  e.preventDefault();
+  tabs[Math.min(to, tabs.length - 1)]?.focus();
+});
 
 // Scrolls the strip (only it, not the page) so the selected tab is wholly visible.
 function revealSelectedTab() {
@@ -348,6 +381,18 @@ function closeTab(name: string) {
   S.editor.setModel(null);
   showPreviewLine();
   renderTabs();
+}
+
+/** Forgets a script that is gone from disk (deleted here, or outside the editor): its tab, its place in the recent list and its model. */
+function dropScript(f: FileState) {
+  clearTimeout(f.timer);
+  clearTimeout(f.retry);
+  f.saved = f.model.getValue(); // closing a tab saves it; this one is gone
+  closeTab(f.name);
+  files.delete(f.name);
+  const seen = recentFiles.indexOf(f.name);
+  if (seen >= 0) recentFiles.splice(seen, 1);
+  f.model.dispose();
 }
 
 let compileTimer = 0;
@@ -455,10 +500,19 @@ function save(f: FileState): Promise<void> {
   return run;
 }
 
+const SAVE_TIMEOUT = 15_000; // a save the server never answers fails, and is retried, instead of waiting for ever
+
+/** A save that went through (or is no longer needed): forget the failure and its retry. */
+function saveSettled(f: FileState) {
+  clearTimeout(f.retry);
+  f.failed = undefined;
+  f.tries = 0;
+}
+
 async function saveNow(f: FileState) {
   if (f.model.isDisposed()) return; // the file was deleted while its save waited its turn
   const text: string = f.model.getValue(); // read when its turn comes, so a queued save writes the latest text
-  if (norm(text) === norm(f.saved)) return;
+  if (norm(text) === norm(f.saved)) { saveSettled(f); return; }
   if (f.kind !== 'script' && f.kind !== 'themecss') {
     try { JSON.parse(text); } catch { setStatus(`${f.name} has errors; not saved`); return; }
   }
@@ -471,14 +525,26 @@ async function saveNow(f: FileState) {
       : f.kind === 'themecss' ? `/api/theme?name=${encodeURIComponent(f.char ?? '')}&ext=css`
       : `/api/script?file=${encodeURIComponent(f.name)}`;
     const r = await fetch(url, {
-      method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: text,
+      method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: text, signal: AbortSignal.timeout(SAVE_TIMEOUT),
     });
-    if (!r.ok) throw new Error(String(r.status));
+    if (!r.ok) throw new Error(`the dev server answered ${r.status}`);
     f.saved = text;
-    setStatus('saved');
+    const recovered = f.failed !== undefined;
+    saveSettled(f);
+    const stuck = [...files.values()].filter(x => x.failed !== undefined).map(x => x.name);
+    if (recovered) toast(`saved ${f.name} (the earlier save had failed)`);
+    else setStatus(stuck.length ? `saved; not saved yet: ${stuck.join(', ')}` : 'saved');
   } catch (e) {
     console.warn(`saving ${f.name} failed:`, e);
-    setStatus('save failed');
+    const why = e instanceof Error && e.message.startsWith('the dev server answered') ? e.message
+      : e instanceof DOMException && e.name === 'TimeoutError' ? 'the dev server did not answer' : 'the dev server cannot be reached';
+    // The first failure says so loudly; the retries (1 s, 2 s, 4 s, ... 30 s) go on quietly until one goes through.
+    if (f.failed === undefined) toastError(`Could not save ${f.name}: ${why}. Your text stays in this tab and the save is tried again.`);
+    f.failed = why;
+    f.tries = (f.tries ?? 0) + 1;
+    setStatus(`save failed: ${f.name}`);
+    clearTimeout(f.retry);
+    f.retry = window.setTimeout(() => void save(f), Math.min(1000 * 2 ** (f.tries - 1), 30_000));
   } finally {
     saving--;
     saveEpoch++;
@@ -585,10 +651,22 @@ async function newFolder(given?: string, parent?: string) {
   renderSidebarFiles();
 }
 
+/**
+ * Puts what is on disk into a tab with no unsaved edits. The text is set, not edited in: an edit would join the undo stack,
+ * and Ctrl+Z would write the old text back to disk. The cursor and scroll stay where they were.
+ */
+function adoptDisk(f: FileState, text: string) {
+  f.saved = text;
+  const view = S.editor.getModel() === f.model ? S.editor.saveViewState() : null;
+  f.model.setValue(text);
+  if (view) S.editor.restoreViewState(view);
+}
+
 // Pick up edits made outside the editor (for example in VS Code) when the file is not dirty here.
 async function syncFromDisk() {
   let proj: Project;
   const epoch = saveEpoch;
+  const known = new Set(files.keys()); // a tab made while the GET is in flight is not in its answer: it is not "gone"
   try { proj = await (await fetch('/api/project')).json(); } catch { return; }
   if (saving || epoch !== saveEpoch) return; // a save finished meanwhile: this disk text may be older than the model; the watcher fires again
   setAssets(proj);
@@ -600,30 +678,35 @@ async function syncFromDisk() {
     if (!f) { addFile(s.file, s.text); changed = true; continue; }
     if (norm(s.text) === norm(f.saved)) continue;
     if (norm(f.model.getValue()) !== norm(f.saved)) continue; // unsaved local edits win
-    f.saved = s.text;
-    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text: s.text }], () => null);
+    adoptDisk(f, s.text);
+    changed = true;
+  }
+  // A script deleted or renamed outside the editor (git pull, another editor) closes with its tab; unsaved edits keep it.
+  const onDisk = new Set(proj.scripts.map(s => s.file));
+  const gone = scripts().filter(f => known.has(f.name) && !onDisk.has(f.name) && !isDirty(f));
+  for (const f of gone) dropScript(f);
+  if (gone.length) {
+    const names = gone.map(f => f.name);
+    toast(`${names.length === 1 ? names[0] : `${names.length} scripts (${names.join(', ')})`} no longer ${names.length === 1 ? 'exists' : 'exist'} on disk: deleted or renamed outside the editor, so ${names.length === 1 ? 'its tab is' : 'their tabs are'} closed`);
     changed = true;
   }
   // Open rig.json tabs follow the disk the same way (they are never opened here: see openRig).
   for (const [char, text] of Object.entries(proj.rigTexts ?? {})) {
     const f = files.get(rigName(char));
     if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    f.saved = text;
-    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    adoptDisk(f, text);
     changed = true;
   }
   for (const [theme, text] of Object.entries(proj.themeTexts ?? {})) {
     const f = files.get(themeFileName(theme));
     if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    f.saved = text;
-    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    adoptDisk(f, text);
     changed = true;
   }
   for (const [theme, text] of Object.entries(proj.themeSheets ?? {})) {
     const f = files.get(themeSheetName(theme));
     if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    f.saved = text;
-    f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text }], () => null);
+    adoptDisk(f, text);
     changed = true;
   }
   if (changed) { recompile(); renderTabs(); }
@@ -631,14 +714,32 @@ async function syncFromDisk() {
 
 function setupSplitter() {
   const split = $('split');
+  /** The preview's width in px, kept between 280 and what leaves the code 320 beside the Files panel. */
+  const clampRight = (px: number) => Math.max(280, Math.min(px, window.innerWidth - 326 - sidebarEl.offsetWidth)); // 326: the code's 320 and the splitter's 6
+  const setRight = (px: number) => {
+    const v = clampRight(px);
+    document.documentElement.style.setProperty('--right', `${v}px`);
+    split.setAttribute('aria-valuenow', String(Math.round(v)));
+  };
+  $('skip').addEventListener('click', e => { e.preventDefault(); S.editor.focus(); });
+  split.tabIndex = 0;
+  split.setAttribute('aria-label', 'Resize the preview');
+  split.setAttribute('aria-valuemin', '280');
+  split.addEventListener('keydown', e => {
+    const dir = e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowRight' ? -1 : 0; // the preview is on the right: left grows it
+    if (!dir) return;
+    e.preventDefault();
+    setRight(preview.offsetWidth + dir * (e.shiftKey ? 100 : 20));
+  });
+  // a width dragged wide must not squeeze the code when the window shrinks
+  window.addEventListener('resize', () => {
+    if (document.documentElement.style.getPropertyValue('--right').endsWith('px')) setRight(preview.offsetWidth);
+  });
   split.addEventListener('pointerdown', e => {
     split.setPointerCapture(e.pointerId);
     split.classList.add('drag');
     preview.style.pointerEvents = 'none';
-    const move = (ev: PointerEvent) => {
-      const px = Math.min(Math.max(window.innerWidth - ev.clientX, 280), window.innerWidth - 320 - sidebarEl.offsetWidth);
-      document.documentElement.style.setProperty('--right', `${px}px`);
-    };
+    const move = (ev: PointerEvent) => setRight(window.innerWidth - ev.clientX);
     const up = () => {
       split.classList.remove('drag');
       preview.style.pointerEvents = '';
@@ -653,11 +754,14 @@ function setupSplitter() {
 // ---- commands and the Ctrl+P palette ----
 // To add a command: add an entry to the list in buildCommands(). `key` binds it in the code editor and shows
 // in the palette; `when` hides it where it does not apply.
-const toggleOutline = () => S.outlineView.toggle(buildOutline(S.program), () => S.editor.focus());
+/** Where focus goes when a dialog closes: the toolbar button that opened it, else the code editor (a key or the palette opened it). */
+const focusBack = (opener?: HTMLElement) => () => (opener ?? S.editor).focus();
+
+const toggleOutline = (opener?: HTMLElement) => S.outlineView.toggle(buildOutline(S.program), focusBack(opener));
 
 /** F1 / Help button: the command reference at the statement under the cursor; a game.json tab shows docs/game-json.md,
  *  a rig.json tab docs/rig-json.md at the key (order, bones, looks) the cursor is under. */
-function toggleHelp() {
+function toggleHelp(opener?: HTMLElement) {
   const kind = files.get(S.active)?.kind;
   let key: string | null = null;
   if (isScript()) {
@@ -666,7 +770,7 @@ function toggleHelp() {
   } else if (kind === 'rig') {
     key = rigHelpTopicAt(S.editor.getModel().getLinesContent(), S.editor.getPosition().lineNumber - 1);
   }
-  S.help.toggle(key, () => S.editor.focus(), isScript() ? 'commands' : kind === 'rig' ? 'rig-json' : 'game-json');
+  S.help.toggle(key, focusBack(opener), isScript() ? 'commands' : kind === 'rig' ? 'rig-json' : 'game-json');
 }
 
 const isScript = () => files.get(S.active)?.kind === 'script';
@@ -706,26 +810,33 @@ function goToLine(name: string, line: number, col?: number) {
   S.editor.focus();
 }
 
-/** Jump to the next error or warning in any file, game.json and rigs included, activating that file's tab. */
-function nextProblem() {
+/** Jump to the next (or, with -1, the previous) error or warning in any file, game.json and rigs included, activating that file's tab; the message shows under it. */
+function goToProblem(dir: 1 | -1) {
   interface Found { m: { startLineNumber: number; startColumn: number }; name: string }
   const all: Found[] = (monaco.editor.getModelMarkers({}) as { severity: number; resource: { toString(): string }; startLineNumber: number; startColumn: number }[])
     .filter(m => m.severity >= monaco.MarkerSeverity.Warning)
     .map(m => ({ m, name: [...files.values()].find(f => f.model.uri.toString() === m.resource.toString())?.name ?? '' }))
     .filter(p => p.name);
-  if (!all.length) return;
+  // The count in Problems includes the checks of rigs that are not open, which have no marker until their tab is: open one.
+  const unopened = () => { const rigs = liveRigs(); return Object.keys(rigs).find(c => !files.has(rigName(c)) && checkRig(rigs[c]).length > 0); };
+  if (!all.length) { const char = unopened(); if (char) openRig(char); return; }
   const order = [...files.keys()];
   const key = (name: string, line: number, col: number) => [order.indexOf(name), line, col];
   const cmp = (a: number[], b: number[]) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
   all.sort((a, b) => cmp(key(a.name, a.m.startLineNumber, a.m.startColumn), key(b.name, b.m.startLineNumber, b.m.startColumn)));
   const pos = S.editor.getPosition();
   const here = key(S.active, pos?.lineNumber ?? 0, pos?.column ?? 0);
-  const next = all.find(p => cmp(key(p.name, p.m.startLineNumber, p.m.startColumn), here) > 0) ?? all[0];
+  const side = (p: Found) => cmp(key(p.name, p.m.startLineNumber, p.m.startColumn), here);
+  const found = dir > 0 ? all.find(p => side(p) > 0) : [...all].reverse().find(p => side(p) < 0);
+  if (!found) { const char = unopened(); if (char) { openRig(char); return; } } // before going round again
+  const next = found ?? (dir > 0 ? all[0] : all[all.length - 1]);
   activate(next.name);
   S.editor.setPosition({ lineNumber: next.m.startLineNumber, column: next.m.startColumn });
   S.editor.revealLineInCenter(next.m.startLineNumber);
   S.editor.focus();
+  S.editor.trigger('vn', 'editor.action.showHover', null); // the message, not only the squiggle
 }
+const nextProblem = () => goToProblem(1), prevProblem = () => goToProblem(-1);
 
 /** Open a character's rig.json in a tab. Without a file yet the tab starts from a generated skeleton and stays unsaved. */
 function openRig(char: string) {
@@ -801,7 +912,6 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
   try { data = JSON.parse(f.model.getValue()); } catch { setStatus(`${f.name} has errors; fix them first`); return; }
   const manifest = S.projectAssets.rigs[f.char];
   const start = studioDocOf(data);
-  let applied = start.rig;
   S.animStudio.open(f.char, start, {
     ...manifestHost(manifest, data),
     returnFocus: () => {
@@ -839,11 +949,7 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
     anchors: namedAnchors(openGame()),
     image: file => `../assets/char/${encodeURIComponent(f.char!)}/${encodeURI(file)}`,
     apply: change => {
-      let current: unknown = {};
-      try { current = JSON.parse(f.model.getValue()); } catch { /* the write below reports it */ }
-      const ok = writeRigProperties(f, studioWrites(change, applied, current));
-      if (ok) applied = change.rig;
-      return ok;
+      return writeRigProperties(f, studioWrites(change));
     },
   }, animation, mode);
 }
@@ -974,9 +1080,13 @@ async function runTask(name: string, label: string, params = ''): Promise<{ ok: 
 
 /** Move keyboard focus between the three panes (Alt+1/2/3), showing the pane first when it is hidden. */
 function focusPane(pane: 'editor' | 'preview' | 'files') {
-  if (pane === 'editor') { S.editor.focus(); return; }
+  if (pane === 'editor') {
+    if (narrowWindow()) hidePreviewPane(); // the preview covers the code in a narrow window
+    S.editor.focus();
+    return;
+  }
   if (pane === 'preview') {
-    document.body.classList.remove('no-preview');
+    showPreviewPane();
     preview.focus();
     preview.contentWindow?.focus(); // the game listens for keys on its own window
     setStatus('preview focused: Alt+1 returns to the editor');
@@ -986,12 +1096,40 @@ function focusPane(pane: 'editor' | 'preview' | 'files') {
   $<HTMLInputElement>('sbFilter').focus();
 }
 
+keepPreviewDevice();
+
+// Ctrl+M: Tab (and Shift+Tab) leave the code for the next (previous) control instead of indenting. Monaco's own switch for this is
+// not in the standalone build, so it is done here: two commands that only apply while the context key is on (UX round EL-6).
+let tabLeavesKey: { set(v: boolean): void; get(): boolean | undefined } | undefined;
+let tabLeavesCommands = false;
+function moveFocusOut(dir: 1 | -1) {
+  const tabbable = [...document.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, iframe, [tabindex]')]
+    .filter(el => el.tabIndex >= 0 && !el.closest('.monaco-editor') && !el.closest('[hidden], [inert]') && el.getClientRects().length > 0);
+  // the first control after the editor in the page, or the last one before it
+  const host = S.editor.getDomNode()!;
+  const after = tabbable.filter(el => !!(host.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const before = tabbable.filter(el => !!(host.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING));
+  const to = dir === 1 ? (after[0] ?? tabbable[0]) : (before[before.length - 1] ?? tabbable[tabbable.length - 1]);
+  to?.focus();
+}
+function toggleTabLeaves(): boolean {
+  const key = tabLeavesKey ??= S.editor.createContextKey('vnTabLeaves', false) as NonNullable<typeof tabLeavesKey>;
+  if (!tabLeavesCommands) {
+    tabLeavesCommands = true;
+    S.editor.addCommand(monaco.KeyCode.Tab, () => moveFocusOut(1), 'vnTabLeaves');
+    S.editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => moveFocusOut(-1), 'vnTabLeaves');
+  }
+  const on = !key.get();
+  key.set(on);
+  return on;
+}
+
 function setupPalette() {
   const host: CommandHost = {
     activate, goToLine, closeTab, closeStock, saveFile, saveAllNow, backToProjects, newFile, newFolder, newFileBase,
     openRig, openTheme, openThemeSheet, openAnimStudio, openAnimationAtCursor, updateRigFromArt,
-    addIds, addIdsEverywhere, runPlaytest, showStats, runTask, toggleOutline, toggleHelp, previewFromCursor, nextProblem, focusPane,
-    toggleFollow, toggleVars,
+    addIds, addIdsEverywhere, runPlaytest, showStats, runTask, toggleOutline, toggleHelp, previewFromCursor, nextProblem, prevProblem, focusPane,
+    toggleFollow, toggleVars, toggleTabLeaves,
   };
   const commands = buildCommands(host);
   for (const c of commands) if (c.key) S.editor.addCommand(c.key.code, () => void c.run());
@@ -1079,26 +1217,28 @@ function setupTranslations() {
 
 /** Ctrl+P, F1 and Alt+1/2/3 work wherever focus is, the preview included. */
 function setupGlobalKeys() {
-  // Ctrl+P, F1 and Alt+1/2/3 work wherever focus is (capture phase beats Monaco and the browser's print shortcut),
-  // including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); F1 is help;
-  // Alt+1/2/3 focus the editor, the preview and the Files panel.
+  // Ctrl+P, Ctrl+S, F1 and Alt+1/2/3 work wherever focus is (capture phase beats Monaco and the browser's print and "save page"
+  // shortcuts), including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); Ctrl+S saves the
+  // open file; F1 is help; Alt+1/2/3 focus the editor, the preview and the Files panel.
   const panes = { Digit1: 'editor', Digit2: 'preview', Digit3: 'files' } as const;
+  const modalOpen = () => S.palette.isOpen || S.help.isOpen || S.assetViewer.isOpen || S.animStudio.isOpen || S.translations.isOpen || S.voiceDialog.isOpen || S.buildDialog.isOpen || S.themeDialog.isOpen || S.gitPanel.isOpen;
   const onKey = (e: KeyboardEvent) => {
     const pane = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? panes[e.code as keyof typeof panes] : undefined;
-    if (pane && !(S.palette.isOpen || S.help.isOpen || S.assetViewer.isOpen || S.animStudio.isOpen || S.translations.isOpen || S.voiceDialog.isOpen || S.buildDialog.isOpen || S.themeDialog.isOpen || S.gitPanel.isOpen)) {
+    if (pane && !modalOpen()) {
       e.preventDefault();
       e.stopPropagation();
       focusPane(pane);
       return;
     }
-    const ctrlP = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'p';
+    const ctrl = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+    const ctrlP = ctrl && e.key.toLowerCase() === 'p', ctrlS = ctrl && e.key.toLowerCase() === 's';
     const f1 = e.key === 'F1' && !e.ctrlKey && !e.altKey && !e.metaKey;
-    if (!(ctrlP || f1)) return;
+    if (!(ctrlP || ctrlS || f1)) return;
     if (f1) { e.preventDefault(); e.stopPropagation(); if (!S.palette.isOpen) toggleHelp(); return; }
-    if (S.palette.isOpen || S.help.isOpen || S.assetViewer.isOpen || S.animStudio.isOpen || S.translations.isOpen || S.voiceDialog.isOpen || S.buildDialog.isOpen || S.themeDialog.isOpen || S.gitPanel.isOpen) return;
+    if (modalOpen()) return;
     e.preventDefault();
     e.stopPropagation();
-    S.palette.open('');
+    if (ctrlS) saveFile(files.get(S.active)); else S.palette.open('');
   };
   window.addEventListener('keydown', onKey, true);
   const hookPreview = () => preview.contentWindow?.addEventListener('keydown', onKey, true);
@@ -1110,7 +1250,7 @@ function setupGlobalKeys() {
 async function boot() {
   initPreviewLink({ activate, goToLine, save });
   initSidebar({
-    showStock, activate, closeTab, recompile, save, previewScreen, previewFromCursor, newFile, newFolder, syncFromDisk,
+    showStock, activate, dropScript, recompile, save, previewScreen, previewFromCursor, newFile, newFolder, syncFromDisk,
     openRig, openTheme, openThemeSheet, openAnimStudio, runTask, applyEdits,
   });
   try { await loadMonaco(); }
@@ -1142,6 +1282,20 @@ function createEditor() {
     padding: { top: 10 },
   });
   S.decorations = S.editor.createDecorationsCollection([]);
+  // Monaco pairs a quote or bracket only on a line that is cheap to tokenize, and the new line after Enter is not until the next
+  // render. A key typed before it leaves the opening `"` alone, and the closing one then opens a pair: `"The rain.""`.
+  // Tab indents in the code, so a keyboard user can be stuck there: say once that Ctrl+M makes Tab leave (UX round EL-6).
+  let tabHinted = false;
+  S.editor.onKeyDown((e: { browserEvent: KeyboardEvent }) => {
+    const k = e.browserEvent;
+    if (k.key === 'Tab' && !tabHinted && !k.shiftKey && !k.ctrlKey && !k.altKey && S.editor.getSelection()?.isEmpty()) {
+      tabHinted = true;
+      toast('Tab indents here. To move on with Tab instead, press Ctrl+M (Alt+1, 2 and 3 jump between the panes).');
+    }
+    if (e.browserEvent.key.length !== 1 || !'"{[('.includes(e.browserEvent.key)) return;
+    const at = S.editor.getPosition();
+    if (at) S.editor.getModel()?.tokenization.forceTokenization(at.lineNumber);
+  });
 
   S.findDialog = new FindDialog({
     files: projectFiles, apply: applyEdits,
@@ -1169,21 +1323,22 @@ async function loadProject() {
 
 /** The sidebar, the toolbar buttons and the splitter. */
 function wireToolbar() {
-  let sidebarShown = true;
-  try { sidebarShown = localStorage.getItem(SIDEBAR_KEY) !== '0'; } catch { /* default: shown */ }
-  setSidebar(sidebarShown);
+  let sidebarShown = !narrowWindow(); // a narrow window starts with the code; the panel then covers it when asked for
+  try { const stored = localStorage.getItem(SIDEBAR_KEY); if (stored !== null && !narrowWindow()) sidebarShown = stored !== '0'; } catch { /* default */ }
+  setSidebar(sidebarShown, false);
+  initPreviewPane(() => S.editor.focus());
   sbFilter.addEventListener('input', () => { renderSidebarFiles(); renderSidebarAssets(); });
   $('filesBtn').addEventListener('click', () => setSidebar(sidebarEl.hidden));
   $('playHere').addEventListener('click', () => void previewFromCursor());
   $('commands').addEventListener('click', () => S.palette.open('>'));
-  $('helpBtn').addEventListener('click', toggleHelp);
-  $('outlineBtn').addEventListener('click', toggleOutline);
-  $('translateBtn').addEventListener('click', () => void S.translations.open(() => S.editor.focus()));
-  $('buildBtn').addEventListener('click', () => void S.buildDialog.open(() => S.editor.focus()));
+  $('helpBtn').addEventListener('click', () => toggleHelp($('helpBtn')));
+  $('outlineBtn').addEventListener('click', () => toggleOutline($('outlineBtn')));
+  $('translateBtn').addEventListener('click', () => void S.translations.open(focusBack($('translateBtn'))));
+  $('buildBtn').addEventListener('click', () => void S.buildDialog.open(focusBack($('buildBtn'))));
   $('buildBtn').hidden = !S.caps.tasks.includes('build');
   $('projectsBtn').hidden = !S.caps.online;
   $('projectsBtn').addEventListener('click', () => void backToProjects());
-  $('voiceBtn').addEventListener('click', () => void S.voiceDialog.open(() => S.editor.focus()));
+  $('voiceBtn').addEventListener('click', () => void S.voiceDialog.open(focusBack($('voiceBtn'))));
   $('taskOutputClose').addEventListener('click', () => { outputEl.hidden = true; });
   problemsEl.addEventListener('click', nextProblem);
   setupSplitter();
@@ -1192,6 +1347,22 @@ function wireToolbar() {
 /** Files changed on disk (an art edit, a git checkout) reach the editor. */
 function watchDisk() {
   const events = new EventSource('/__events');
+  // The stream reconnects by itself, so a server that is gone shows as errors with no open between them (one error alone is
+  // a stream that ended). Say so: nothing else in the page notices, and saves fail from then on.
+  let misses = 0, lost = false;
+  events.onopen = () => {
+    misses = 0;
+    if (!lost) return;
+    lost = false;
+    toast('the dev server is back');
+    for (const f of files.values()) if (f.failed !== undefined) { clearTimeout(f.retry); void save(f); }
+    void syncFromDisk();
+  };
+  events.onerror = () => {
+    if (++misses < 2 || lost) return;
+    lost = true;
+    toastError('The dev server stopped answering. What you type stays in the editor and is saved when it is back (restart it with the same command).');
+  };
   events.onmessage = e => {
     if (!['content', 'masters'].includes((JSON.parse(e.data) as { type: string }).type)) return;
     void syncFromDisk();

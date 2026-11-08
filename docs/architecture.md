@@ -3,7 +3,10 @@
 ## Layout
 
 ```
-engine/src/   expr, text, parser, compile, runtime, locale, ids, assets, theme (game.json theme -> CSS)   (no DOM, runs anywhere)
+engine/src/   no DOM, runs anywhere. The script language: expr, text, parser, compile, runtime, locale, ids, refactor. Assets and
+              art: assets, asset-refs, psd, theme (game.json theme -> CSS). Characters: rig, params, warp, mesh, physics, anim,
+              auto-anim (automatic animations and reactions), bones, masks. Studio logic: anim-edit, studio-doc, studio-focus,
+              studio-layout, warp-edit, mesh-edit, mask-edit, param-edit, keyform-edit, movie-export
 engine/test/  node:test suite
 preview/      dev-server.mjs (static + /api/project + live reload), index.html, preview.ts (game shell, with chapters.ts,
               quick-actions.ts, save-capture.ts, achievement-queue.ts, movies.ts), saves.ts, blips.ts,
@@ -14,12 +17,14 @@ preview/      dev-server.mjs (static + /api/project + live reload), index.html, 
               storage.ts (per-game storage: browser or desktop files), input.ts (keyboard/gamepad navigation), timeline.ts (rollback history)
 editor/       Monaco scene editor with the live preview beside it; palette.ts (Ctrl+P), help-dialog.ts (F1), asset-viewer.ts,
               commands.ts (palette command list), json-schemas.ts, rename.ts, preview-link.ts, sidebar.ts, state.ts,
-              anim-studio.ts (the Model | Animate studio; anim-bind is the bound-parts block under its Parameters section; anim-timeline, anim-keys, anim-stage, anim-history, anim-tree, anim-pivot, anim-place, anim-dom; anim-export, the movie export dialog),
+              anim-studio.ts (the Model | Animate studio; a file per section or tool: anim-params with anim-bind, anim-warp, anim-mask, anim-physics, anim-reactions, anim-poses, anim-frames, anim-place, anim-pivot; and anim-timeline, anim-keys, anim-stage, anim-gizmo, anim-tree, anim-history, anim-dom; anim-export, the movie export dialog),
               studio.html + studio-page.ts + character-store.ts (the same studio as a page of its own on a character folder, no game; studio.css is shared with index.html), studio-host.ts
 tools/        paths.mjs (engine vs project folder), vn-tool.mjs (ids, strings), psd-convert.mjs (art pipeline),
               export-web.mjs, project-data.mjs
 online/       the online demo: sw.ts (service worker: the dev server's API on IndexedDB), routes.ts, store.ts, projects.ts
 bin/vn.mjs    the vn command
+studio/       Marginalia Studio, the Electron shell (main.cjs, preload.cjs, projects screen)
+scripts/      repo scripts: test runner, browser gate, online build, Studio packaging, art generators
 games/        the sample game (sample/) and the Iris demo (demo/), each: script/ (*.vn scenes), locale/ (<lang>.json), game.json (menus, theme, gallery),
               masters/ (big PSDs, Git LFS), assets/ (game-ready art and audio)
 ```

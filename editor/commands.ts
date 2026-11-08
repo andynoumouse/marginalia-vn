@@ -1,11 +1,13 @@
 // The command list (Ctrl+P, ">") and the palette's modes: files, commands, labels, lines, assets and the name pickers.
 // editor.ts owns the tabs and dialogs and hands over what these call back into (CommandHost), as sidebar.ts does.
 
+import { DEVICES, setPreviewDevice } from './preview-device.js';
+import { previewVisible, showPreviewPane, togglePreviewPane } from './preview-pane.js';
 import { planMove, describeTrashEntry } from '../engine/src/index.js';
 import { confirmAsk } from './ask.js';
 import { rank, type PaletteItem, type PaletteMode } from './palette.js';
 import { openFind } from './rename.js';
-import { emptyTrash, movePath, newAssetFolder, openAsset, openTrash, RENAME, restoreTrash, setSidebar, sidebarEl, TRASH_PICK } from './sidebar.js';
+import { emptyTrash, movePath, newAssetFolder, openAsset, openTrash, RENAME, restoreTrash, setSidebar, sidebarEl, toast, TRASH_PICK } from './sidebar.js';
 import { $, errorCount, files, GAME, NEW_ASSET_FOLDER, norm, postPreview, recentFiles, rigName, S, scripts, setStatus, THEME_PICK, themeFileName, themeSheetName } from './state.js';
 
 declare const monaco: any;
@@ -48,7 +50,10 @@ export interface CommandHost {
   toggleVars(): void;
   previewFromCursor(): Promise<void>;
   nextProblem(): void;
+  prevProblem(): void;
   focusPane(pane: 'editor' | 'preview' | 'files'): void;
+  /** Ctrl+M: makes Tab leave the code editor, or indent again; returns whether Tab now leaves. */
+  toggleTabLeaves(): boolean;
 }
 
 // To add a command: add an entry to the list in buildCommands(). `key` binds it in the code editor and shows
@@ -73,13 +78,13 @@ export function buildCommands(h: CommandHost): Command[] {
     { title: 'Story: Script Statistics (words, lines and reading time per script, label and character)', run: h.showStats },
     { title: 'Help: Command Reference (for the statement at the cursor)', key: { code: C.F1, label: 'F1' }, run: h.toggleHelp },
     { title: 'Preview from Cursor', key: { code: K.CtrlCmd | C.Enter, label: 'Ctrl+Enter' }, run: () => h.previewFromCursor() },
-    { title: 'Preview: Splash (game.json splash cards)', run: () => postPreview({ type: 'splash' }) },
-    { title: 'Preview: Intro (game.json intro label)', run: () => postPreview({ type: 'intro' }) },
-    { title: 'Preview: New Game', run: () => postPreview({ type: 'restart' }) },
+    { title: 'Preview: Splash (game.json splash cards)', run: () => { showPreviewPane(); postPreview({ type: 'splash' }); } },
+    { title: 'Preview: Intro (game.json intro label)', run: () => { showPreviewPane(); postPreview({ type: 'intro' }); } },
+    { title: 'Preview: New Game', run: () => { showPreviewPane(); postPreview({ type: 'restart' }); } },
     { title: 'Preview: Reload', run: () => previewFrame().contentWindow?.location.reload() },
     { title: 'Preview: Toggle Follow', run: () => h.toggleFollow() },
     { title: 'Preview: Show or Hide Variables', run: () => h.toggleVars() },
-    { title: 'Preview: Show or Hide Pane', run: () => { document.body.classList.toggle('no-preview'); } },
+    { title: 'Preview: Show or Hide Pane', run: () => { togglePreviewPane(); setStatus(previewVisible() ? 'preview shown' : 'preview hidden'); } },
     { title: 'Preview: Reset Player Data (saves, settings, unlocks, read text)', run: async () => {
       if (!await confirmAsk('Delete all saves, settings, unlocks and read-text records of the preview in this browser?', 'Delete')) return;
       for (const k of Object.keys(localStorage)) if (k.startsWith('vn.') && !k.startsWith('vn.editor.')) localStorage.removeItem(k);
@@ -90,12 +95,18 @@ export function buildCommands(h: CommandHost): Command[] {
     { title: 'Add Localization IDs to All Files', run: h.addIdsEverywhere },
     { title: 'New Script File', run: () => h.newFile() },
     { title: 'New Script Folder', run: () => h.newFolder() },
-    { title: 'Files: Restore from Trash (deleted and replaced files)', run: () => void openTrash() },
-    { title: 'Files: Empty Trash', run: () => void emptyTrash() },
+    { title: 'Files: Restore from Trash', run: () => void openTrash() },
+    { title: 'Files: Empty Trash for good (no undo)', run: () => void emptyTrash() },
     { title: 'View: Show or Hide Files Panel', key: { code: K.CtrlCmd | C.KeyB, label: 'Ctrl+B' }, run: () => setSidebar(sidebarEl.hidden) },
+    ...DEVICES.map(d => ({ title: `Preview: ${d.label}`, run: () => { showPreviewPane(); setPreviewDevice(d.name); } })),
     { title: 'Focus: Editor', key: { code: K.Alt | C.Digit1, label: 'Alt+1' }, run: () => h.focusPane('editor') },
     { title: 'Focus: Preview (play with the keyboard)', key: { code: K.Alt | C.Digit2, label: 'Alt+2' }, run: () => h.focusPane('preview') },
     { title: 'Focus: Files Panel (filter box)', key: { code: K.Alt | C.Digit3, label: 'Alt+3' }, run: () => h.focusPane('files') },
+    { title: 'Editor: Make Tab Leave the Editor, or Indent Again', key: { code: K.CtrlCmd | C.KeyM, label: 'Ctrl+M' }, run: () => {
+      const on = h.toggleTabLeaves();
+      S.editor.focus();
+      toast(on ? 'Tab now moves on to the next control. Ctrl+M makes it indent again.' : 'Tab indents again.');
+    } },
     { title: 'Close Tab', key: { code: K.Alt | C.KeyW, label: 'Alt+W' }, when: () => S.active !== '' || !!S.stock, run: () => (S.stock ? h.closeStock() : h.closeTab(S.active)) },
     { title: 'Save', key: { code: K.CtrlCmd | C.KeyS, label: 'Ctrl+S' }, run: () => h.saveFile(files.get(S.active)) },
     { title: 'Save All', run: () => { for (const f of files.values()) h.saveFile(f); } },
@@ -110,7 +121,7 @@ export function buildCommands(h: CommandHost): Command[] {
     } },
     { title: 'Animation: Open the Animation on This Line in the Studio', key: { code: C.F12, label: 'F12' }, when: () => files.get(S.active)?.kind === 'script', run: h.openAnimationAtCursor },
     { title: 'Next Problem', key: { code: C.F8, label: 'F8' }, run: h.nextProblem },
-    { title: 'Previous Problem', key: { code: K.Shift | C.F8, label: 'Shift+F8' }, run: () => S.editor.trigger('vn', 'editor.action.marker.prevInFiles', null) },
+    { title: 'Previous Problem', key: { code: K.Shift | C.F8, label: 'Shift+F8' }, run: h.prevProblem },
     { title: 'Toggle Word Wrap', key: { code: K.Alt | C.KeyZ, label: 'Alt+Z' }, run: () => {
       S.editor.updateOptions({ wordWrap: S.editor.getOption(monaco.editor.EditorOption.wordWrap) === 'on' ? 'off' : 'on' });
     } },

@@ -3,6 +3,7 @@
 // an unset value comes from (an extended theme) and has a reset button.
 
 import { ThemeGallery } from './theme-gallery.js';
+import { trapModal } from './modal.js';
 import { TOKEN_FIELDS, componentKeys, componentStates, componentFields, setThemeValue, themeValueSource, contrastNote, COMMON_FONTS, fontNote, type ThemeField } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
 
@@ -61,6 +62,7 @@ export class ThemeDialog {
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     this.root.querySelector('.close')!.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
+    trapModal(this.root, () => this.close());
     this.nameSel.addEventListener('change', () => this.render());
     this.root.querySelector('.td-json')!.addEventListener('click', () => { const n = this.name; this.close(); if (n) this.h.openJson(n); });
     this.root.querySelector('.td-dup-btn')!.addEventListener('click', () => this.duplicate());

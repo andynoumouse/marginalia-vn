@@ -114,8 +114,8 @@ Valid screen names are the built-in screen ids (`title`, `pause`, `options`, `sa
   `game.json` about the game, lets a project keep several themes (and later let the player pick one), and lets authors
   copy a theme between projects. A single `theme.json` would cost the same plumbing (watching, export, schema, asset
   renames) and need a migration once a second theme is wanted.
-- **`theme` is a name or an object, never both.** A name picks `themes/<name>.json`; a missing file is a warning and the
-  game uses the built-in `base` look. An object is the old inline form (below).
+- **`theme` is a name.** It picks `themes/<name>.json`; a missing file is a warning and the
+  game uses the built-in `base` look.
 - **`"extends"`** names another theme to start from: a project theme or a built-in one (`"base"`, later `"paper"`,
   `"high-contrast"`). Built-in themes ship as JSON inside the engine, so they double as examples. The chain is resolved
   once in the engine, with a cycle guard.
@@ -128,18 +128,7 @@ Valid screen names are the built-in screen ids (`title`, `pause`, `options`, `sa
   project lacks. A Studio "Import theme" that copies them along may come later.
 - **Editor:** theme files show in the file tree and open in the theme panel, with the active one marked. A
   "Preview theme" choice in the preview bar switches the preview's theme without touching `game.json`.
-- **The old form keeps working:** a `theme` object in `game.json` is read as an inline theme and mapped onto the new keys:
-
-  | Old key | New place |
-  |---|---|
-  | `accent`, `font` | `tokens.accent`, `tokens.font` |
-  | `textbox`, `namebox`, `text` | `components.textbox`, `components.namebox`, `components.text` |
-  | `choices` (incl. `size`, `gap`) | `components.choice` |
-  | `hotFill`, `hotBorder`, `hotBorderWidth` | `components.hotspot` (`background`, `border`, `borderWidth`) |
-  | `tipBackground`, `tipColor`, `tipFont` | `components.tooltip` |
-  | `skins` | `styles` |
-
-  The editor offers a quick fix that moves it to `themes/default.json`. New projects get a `themes/default.json`.
+- **New projects** get a `themes/default.json`.
 
 Example:
 
@@ -164,12 +153,12 @@ Example:
 
 ### Engine (`engine/src/theme.ts`, pure, tested)
 
-- `normalizeTheme(raw)`: maps the legacy `game.json` form and resolves `extends` (with a cycle guard).
+- `normalizeTheme(raw)`: maps a theme file's layered keys onto the flat `Theme`; `resolveTheme` resolves `extends` (with a cycle guard).
 - `checkTheme(theme, assets)`: warnings with a JSON path (unknown key, placement in a style, a bad color, an unknown
   token, a missing font or `ui/` image). This replaces the theme part of `checkAssets`. Color checking moves into the
   engine, so node can do it (the color parser in `engine/src/colors.ts` gets extended to `rgb()`, `hsl()` and named colors).
-- `themeCss(theme, assets)`: emits CSS rules. Values go through the same filter as today. It lives in
-  `engine/src/theme.ts` (it was `preview/theme.ts`, which now only puts the result into the page).
+- `themeCss(theme, assets)`: emits CSS rules. Values go through the same filter as the rest. It lives in
+  `engine/src/theme.ts`; `preview/theme.ts` only puts the result into the page.
 - `explainValue(theme, path)`: says which layer a value comes from ("inherited from `$accent`" or "set in
   `screens.options`"). The editor uses it for its markers.
 - `contrast(a, b)`: WCAG contrast ratio, for editor warnings (text on `surface`, `onAccent` on `accent`).
@@ -228,7 +217,7 @@ Each phase ends usable, with tests (`engine/test/theme.test.mjs`; one browser te
    Tokens other than `accent` and `font` are not settable yet; that comes with theme files. The text box, name tag,
    choices, custom-screen buttons and toasts keep their own colors until phase 3.
 2. **Theme files.** `themes/<name>.json` picked by name in `game.json`, `extends` (project and built-in `base`), the
-   legacy mapping and quick fix, `checkTheme`, the schema, watching, export and the online demo, asset renames inside
+   `checkTheme`, the schema, watching, export and the online demo, asset renames inside
    theme files, and `themes/default.json` in new projects. No player Theme option yet.
 3. **Full component set.** Every component in the table, with states and screen overrides; docs for all keys.
    *Started:* color tokens and `button`, `panel`, `tab`, `row`, `pager`, `toast` (variants and states) are emitted as

@@ -13,10 +13,9 @@
 // lets the author pose the ends without moving the part at rest.
 
 import type { DeformerDef, DeformerKeyform, KeyformDef, PadDef, ParamDef } from './params.js';
-import type { MaskDef } from './masks.js';
+import type { ShapeDef } from './masks.js';
 import { isPadSpot, isRestForm, keyformDrivers, snapSpot, type KeyDriver, type KeySpot } from './keyform-edit.js';
-import { deformerOf, replaceDeformer } from './warp-edit.js';
-import { maskOf } from './masks.js';
+import { deformerById, deformerOf, groupOf, replaceDeformer } from './warp-edit.js';
 
 /** What the author picked: a parameter (a slider, or one axis of a pad) or a pad's two parameters (its grid). */
 export type BindDriver = KeyDriver;
@@ -107,40 +106,40 @@ export function removeKey(kfs: readonly KeyformDef[], defs: readonly ParamDef[],
 const restKeys = (d: ParamDef) => sliderLines(d).map(at => ({ at }));
 const keyformOf = (kfs: readonly DeformerKeyform[] | undefined, param: string): DeformerKeyform | undefined => (kfs ?? []).find(k => k.param === param && Array.isArray(k.keys));
 
-/** The deformer of `part` bound to a parameter: its keys at the minimum, default and maximum, no point moved. Nothing changes when there is no warp, it is bound, or the parameter is unknown. */
-export function bindDeformer(deformers: readonly DeformerDef[], defs: readonly ParamDef[], part: string, param: string): { deformers: DeformerDef[]; bound: boolean } {
-  const def = deformerOf(deformers, part), d = defOf(defs, param);
+/** The deformer of `part` (or the one named `id`, a group warp the part is in) bound to a parameter: its keys at the minimum, default and maximum, no point moved. Nothing changes when there is no warp, it is bound, or the parameter is unknown. */
+export function bindDeformer(deformers: readonly DeformerDef[], defs: readonly ParamDef[], part: string, param: string, id?: string): { deformers: DeformerDef[]; bound: boolean } {
+  const def = id !== undefined ? deformerById(deformers, id) : deformerOf(deformers, part), d = defOf(defs, param);
   if (!def || !d || keyformOf(def.keyforms, param)) return { deformers: deformers as DeformerDef[], bound: false };
   return { deformers: replaceDeformer(deformers, { ...def, keyforms: [...(def.keyforms ?? []), { param, keys: restKeys(d) }] }), bound: true };
 }
 
-/** The deformers with the keys of `param` taken off the warp of `part`. */
-export function unbindDeformer(deformers: readonly DeformerDef[], part: string, param: string): { deformers: DeformerDef[]; unbound: boolean } {
-  const def = deformerOf(deformers, part);
+/** The deformers with the keys of `param` taken off the warp of `part` (or the deformer named `id`). */
+export function unbindDeformer(deformers: readonly DeformerDef[], part: string, param: string, id?: string): { deformers: DeformerDef[]; unbound: boolean } {
+  const def = id !== undefined ? deformerById(deformers, id) : deformerOf(deformers, part);
   if (!def || !keyformOf(def.keyforms, param)) return { deformers: deformers as DeformerDef[], unbound: false };
   return { deformers: replaceDeformer(deformers, { ...def, keyforms: def.keyforms.filter(k => k.param !== param) }), unbound: true };
 }
 
-/** The mask polygon of `part` bound to a parameter, as a warp is. A mask that takes the shape of another part has no points to key. */
-export function bindMask(masks: readonly MaskDef[], defs: readonly ParamDef[], part: string, param: string): { masks: MaskDef[]; bound: boolean } {
-  const m = maskOf(masks, part), d = defOf(defs, param);
-  if (!m || !m.polygon || !d || keyformOf(m.keyforms, param)) return { masks: masks as MaskDef[], bound: false };
-  return { masks: masks.map(x => (x === m ? { ...m, keyforms: [...(m.keyforms ?? []), { param, keys: restKeys(d) }] } : x)), bound: true };
+/** The polygon of shape `name` bound to a parameter, as a warp is. */
+export function bindMask(shapes: Readonly<Record<string, ShapeDef>>, defs: readonly ParamDef[], name: string, param: string): { shapes: Record<string, ShapeDef>; bound: boolean } {
+  const m = shapes[name], d = defOf(defs, param);
+  if (!m || !d || keyformOf(m.keyforms, param)) return { shapes: shapes as Record<string, ShapeDef>, bound: false };
+  return { shapes: { ...shapes, [name]: { ...m, keyforms: [...(m.keyforms ?? []), { param, keys: restKeys(d) }] } }, bound: true };
 }
 
-/** The masks with the keys of `param` taken off the mask of `part` (a mask left with no keyform has none). */
-export function unbindMask(masks: readonly MaskDef[], part: string, param: string): { masks: MaskDef[]; unbound: boolean } {
-  const m = maskOf(masks, part);
-  if (!m || !keyformOf(m.keyforms, param)) return { masks: masks as MaskDef[], unbound: false };
+/** The shapes with the keys of `param` taken off shape `name` (a shape left with no keyform has none). */
+export function unbindMask(shapes: Readonly<Record<string, ShapeDef>>, name: string, param: string): { shapes: Record<string, ShapeDef>; unbound: boolean } {
+  const m = shapes[name];
+  if (!m || !keyformOf(m.keyforms, param)) return { shapes: shapes as Record<string, ShapeDef>, unbound: false };
   const left = m.keyforms!.filter(k => k.param !== param);
   const { keyforms: _gone, ...rest } = m;
-  return { masks: masks.map(x => (x === m ? (left.length ? { ...rest, keyforms: left } : rest) : x)), unbound: true };
+  return { shapes: { ...shapes, [name]: left.length ? { ...rest, keyforms: left } : rest }, unbound: true };
 }
 
 // ---- what is bound to what ----
 
 /** What the keyforms, warps and masks of a rig bind. */
-export interface BindDoc { keyforms: readonly KeyformDef[]; deformers: readonly DeformerDef[]; masks: readonly MaskDef[] }
+export interface BindDoc { keyforms: readonly KeyformDef[]; deformers: readonly DeformerDef[]; shapes: Readonly<Record<string, ShapeDef>> }
 
 /** A part (or bone) bound to a parameter: `keys` is how many keys it has there, `posed` how many of them are off rest. */
 export interface BoundPart { target: string; kind: BindKind; keys: number; posed: number }
@@ -163,11 +162,11 @@ export function boundParts(doc: BindDoc, driver: BindDriver): BoundPart[] {
   if ('param' in driver) {
     for (const d of doc.deformers) {
       const k = keyformOf(d.keyforms, driver.param);
-      if (k) out.push({ target: d.part, kind: 'warp', keys: k.keys!.length, posed: k.keys!.filter(pointsPosed).length });
+      if (k) out.push({ target: d.part ?? d.members?.[0] ?? d.id, kind: 'warp', keys: k.keys!.length, posed: k.keys!.filter(pointsPosed).length });
     }
-    for (const m of doc.masks) {
+    for (const [name, m] of Object.entries(doc.shapes)) {
       const k = keyformOf(m.keyforms, driver.param);
-      if (k) out.push({ target: m.part, kind: 'mask', keys: k.keys!.length, posed: k.keys!.filter(pointsPosed).length });
+      if (k) out.push({ target: name, kind: 'mask', keys: k.keys!.length, posed: k.keys!.filter(pointsPosed).length });
     }
   }
   return out;
@@ -180,7 +179,8 @@ export function affectedBy(doc: BindDoc, target: string): { driver: BindDriver; 
     for (const k of kfs ?? []) if (k.param && Array.isArray(k.keys)) out.push({ driver: { param: k.param }, kind });
   };
   keyed(deformerOf(doc.deformers, target)?.keyforms, 'warp');
-  keyed(maskOf(doc.masks, target)?.keyforms, 'mask');
+  keyed(groupOf(doc.deformers, target)?.keyforms, 'warp');
+  keyed(doc.shapes[target]?.keyforms, 'mask');
   return out;
 }
 

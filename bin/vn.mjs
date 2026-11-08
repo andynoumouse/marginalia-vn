@@ -21,6 +21,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { checkEngineVersion, engineRoot, engineVersion, findProject } from '../tools/paths.mjs';
 import { copyTemplateAssets } from '../tools/template-assets.mjs';
+import { ensureBuilt } from '../tools/build-plan.mjs';
 
 const TOOLS = {
   dev: ['preview/dev-server.mjs'],
@@ -63,6 +64,7 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
     process.exit(1);
   }
   checkEngineVersion(project);
+  if (cmd !== 'dev' && cmd !== 'export') requireBuild(); // those two build the engine themselves
   const [script, ...extra] = TOOLS[cmd];
   const r = spawnSync(process.execPath, [path.join(engineRoot, script), ...extra, ...argv.slice(1)], {
     cwd: engineRoot, stdio: 'inherit', env: { ...process.env, VN_PROJECT: project },
@@ -74,6 +76,12 @@ if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
   process.exit(1);
 }
 
+// A fresh clone of the engine has no dist/: build it once, or say what to do instead of a stack trace.
+function requireBuild() {
+  const problem = ensureBuilt(engineRoot);
+  if (problem) { console.error(problem); process.exit(1); }
+}
+
 // ---- vn init ----
 async function init(dir, title, stage, template) {
   if (!dir) { console.error('Use: vn init <folder> [--title "My Game"] [--stage 1920x1080] [--template blank]'); process.exit(1); }
@@ -82,6 +90,7 @@ async function init(dir, title, stage, template) {
     console.error(`${target} is not empty; vn init only creates new projects.`);
     process.exit(1);
   }
+  requireBuild();
   const { newProjectFiles, templateAssets, titleFromFolder } = await import(pathToFileURL(path.join(engineRoot, 'dist', 'engine', 'src', 'index.js')).href);
   const name = title ?? titleFromFolder(path.basename(target));
   const [width, height] = (stage ?? '').split('x').map(Number);

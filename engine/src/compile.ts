@@ -1,5 +1,7 @@
-import { collectVars, listArgs, usesRandom, type Expr } from './expr.js';
+import { collectVars, listArgs, parseExpr, usesRandom, type Expr } from './expr.js';
 import { parseFile, type Node, type ParsedFile } from './parser.js';
+import { ANIM_NAMES, type AnimDef } from './anim.js';
+import { buildChoreography, checkTransform, isDynamic, transformToAnim, type TransformDef } from './transform.js';
 import { ANCHORS, type Anchors } from './anchor.js';
 import { BUILTIN_POSITIONS, type Positions } from './positions.js';
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
@@ -7,7 +9,7 @@ import { isClickable, shellEntryFields, shellVars, validateScreen, type ScreenDe
 import { withFix } from './suggest.js';
 import { defaultScreenFiles } from './ui-screens.js';
 import { stackedShows } from './stacking.js';
-import { asPc, UNRESOLVED, type CharacterDef, type Diagnostic, type ItemDef, type MenuOption, type Op, type OpBody, type Pc, type Program, type Src } from './types.js';
+import { asPc, CAMERA_TARGET, UNRESOLVED, type CharacterDef, type Diagnostic, type ItemDef, type MenuOption, type Op, type OpBody, type Pc, type Program, type Src } from './types.js';
 
 export interface SourceFile { file: string; text: string }
 
@@ -29,9 +31,15 @@ class Compiler {
   private exprs: { e: Expr; src: Src; local?: Set<string> }[] = [];
   private stateDecls: { name: string; src: Src }[] = [];
   private eachLists: { list: string; src: Src }[] = [];
+  private transforms: Record<string, AnimDef> = {};
+  /** `choreography` blocks: who plays which generated transform, and the lines' targets to check once the pictures are known. */
+  private choreographies: Record<string, { target: string; transform: string }[]> = {};
+  private choreoTargets: { target: string; src: Src }[] = [];
+  private dynamicTransforms: Record<string, TransformDef> = {}; // worked out when `animate` runs (parameters, variables, if, pick)
+  private foreverTransforms = new Set<string>(); // `repeat` with no count: `animate` loops them without the word loop
 
   constructor(private files: SourceFile[], private positions: Positions, private anchors: Anchors, private stage: StageSize) {
-    this.parsed = [...files, ...defaultScreenFiles(files)].map(f => parseFile(f.file, f.text, this.diagnostics, positions, anchors, stage));
+    this.parsed = [...files, ...defaultScreenFiles(files, stage)].map(f => parseFile(f.file, f.text, this.diagnostics, positions, anchors, stage));
     for (const p of this.parsed) for (const c of p.characters) this.characters[c.id] = c;
   }
 
@@ -79,9 +87,10 @@ class Compiler {
             this.exprs.push({ e: b.expr, src: n.src });
           } else if (b.op === 'call') {
             for (const e of b.args ?? []) this.exprs.push({ e, src: n.src }); // random() is fine: arguments are evaluated once, at the call
-          } else if ((b.op === 'show' || b.op === 'hide' || b.op === 'move' || b.op === 'hop' || b.op === 'animate' || b.op === 'param') && !(b.char in this.characters)) {
+          } else if ((b.op === 'show' || b.op === 'hide' || b.op === 'move' || b.op === 'hop' || b.op === 'param') && !(b.char in this.characters)) {
             this.unknownChar(n.src, b.char);
           }
+          if (b.op === 'burst' && b.char !== undefined && !(b.char in this.characters)) this.unknownChar(n.src, b.char);
           if (b.op === 'show' && b.behind && !(b.behind in this.characters)) this.unknownChar(n.src, b.behind);
           this.emit(n.src, b);
           break;
@@ -149,6 +158,40 @@ class Compiler {
         this.items[it.id] = it;
         this.registerString(it.src, it.nameId, it.name);
       }
+      for (const tf of p.transforms) {
+        if (tf.name in this.transforms) { this.diag(tf.src, 'error', `Transform "${tf.name}" is defined twice`); continue; }
+        if (ANIM_NAMES.includes(tf.name)) this.diag(tf.src, 'warning', `Transform "${tf.name}" has the name of a preset and replaces it (a character's own rig.json animation of that name still wins)`);
+        for (const pr of checkTransform(tf)) this.diag(tf.src, pr.severity, pr.message);
+        if (isDynamic(tf) && tf.auto) this.diag(tf.src, 'error', `Transform "${tf.name}" runs by itself (every / while), so it cannot have parameters, expressions, if or pick yet`);
+        if (tf.auto?.while && !tf.auto.while.includes('param.')) {
+          try { this.exprs.push({ e: parseExpr(tf.auto.while), src: tf.src, local: new Set(['speaking', 'always']) }); } catch { /* the parser reported it */ }
+        }
+        if (isDynamic(tf)) {
+          this.dynamicTransforms[tf.name] = tf;
+          const local = new Set(tf.params.map(p => p.name));
+          const walk = (steps: TransformDef['steps']) => {
+            for (const st of steps) {
+              if (st.kind === 'tween') for (const v of [st.x, st.y, st.scale, st.rot, st.alpha]) { if (typeof v === 'object') this.exprs.push({ e: v, src: st.src, local }); }
+              else if (st.kind === 'preset') { if (typeof st.strength === 'object') this.exprs.push({ e: st.strength, src: st.src, local }); }
+              else if (st.kind === 'parallel' || st.kind === 'pick') st.branches.forEach(walk);
+              else if (st.kind === 'if') for (const br of st.branches) { if (br.cond) this.exprs.push({ e: br.cond, src: st.src, local }); walk(br.steps); }
+            }
+          };
+          walk(tf.steps);
+        } else this.transforms[tf.name] = transformToAnim(tf);
+        if (tf.repeat === 'forever') this.foreverTransforms.add(tf.name);
+      }
+      for (const ch of p.choreographies) {
+        if (ch.name in this.choreographies) { this.diag(ch.src, 'error', `Choreography "${ch.name}" is defined twice`); continue; }
+        const built = buildChoreography(ch);
+        for (const pr of built.problems) this.diag(pr.src, 'error', pr.message);
+        for (const { target, def } of built.members) {
+          for (const pr of checkTransform(def)) this.diag(ch.src, pr.severity, `${target} in "${ch.name}": ${pr.message}`);
+          this.transforms[def.name] = transformToAnim(def);
+        }
+        this.choreographies[ch.name] = built.members.map(m => ({ target: m.target, transform: m.def.name }));
+        for (const l of ch.lines) this.choreoTargets.push({ target: l.target, src: l.src });
+      }
       for (const sc of p.screens) {
         if (sc.name in this.screens) this.diag(sc.src, 'error', `Screen "${sc.name}" is defined twice`);
         this.screens[sc.name] = sc;
@@ -212,9 +255,31 @@ class Compiler {
 
   /** Jumps, calls, screens and HUD handlers name things that exist, with the right arguments. */
   private resolveReferences() {
+    const pictures = new Set(this.ops.flatMap(o => (o.op === 'image' && o.action === 'show' ? [o.name] : [])));
+    for (const { target, src } of this.choreoTargets) { // a choreography's actors are characters, pictures shown somewhere, or the camera
+      if (target !== CAMERA_TARGET && !(target in this.characters) && !pictures.has(target)) this.unknownChar(src, target);
+    }
     // 3. resolve jumps/calls
     for (const op of this.ops) {
-      if (op.op === 'jump' || op.op === 'call') {
+      if (op.op === 'perform') {
+        if (!(op.name in this.choreographies)) this.diagnostics.push(withFix(op.src, 'error', `Unknown choreography "${op.name}"`, op.name, Object.keys(this.choreographies), ' (declare it with "choreography ' + op.name + ':")'));
+      } else if (op.op === 'animate') { // the target is a character or a picture shown with `image show`, never both
+        if (op.name !== null && op.auto) {
+          const known = this.transforms[op.name];
+          if (Object.hasOwn(this.dynamicTransforms, op.name)) this.diag(op.src, 'error', `"${op.name}" has parameters, expressions, if or pick, which an automatic transform cannot have yet`);
+          else if (known ? !known.auto : ANIM_NAMES.includes(op.name)) this.diag(op.src, 'error', `"${op.name}" is not an automatic transform: give its transform line every <seconds> and/or while <condition> (a preset cannot be automatic)`);
+        } else if (op.name !== null && this.foreverTransforms.has(op.name)) op.loop = true;
+        if (op.name !== null) {
+          const own = this.dynamicTransforms[op.name], want = own?.params.length ?? 0;
+          if ((op.args?.length ?? 0) > want) this.diag(op.src, 'error', `"${op.name}" takes ${want} argument${want === 1 ? '' : 's'}${own ? ` (${own.params.map(p => p.name).join(', ')})` : ''}, but animate gives ${op.args!.length}`);
+          for (const e of op.args ?? []) this.exprs.push({ e, src: op.src });
+        }
+        if (op.char === CAMERA_TARGET) {
+          if (op.char in this.characters || pictures.has(op.char)) this.diag(op.src, 'error', `"${op.char}" is the camera for animate, but is also ${op.char in this.characters ? 'a character' : 'an image'}: rename it so animate knows which to move`);
+          else if (op.part) this.diag(op.src, 'error', 'The camera has no parts: animate camera takes no part=');
+        } else if (op.char in this.characters && pictures.has(op.char)) this.diag(op.src, 'error', `"${op.char}" is both a character and an image: rename one so animate knows which to move`);
+        else if (!(op.char in this.characters) && !pictures.has(op.char)) this.unknownChar(op.src, op.char);
+      } else if (op.op === 'jump' || op.op === 'call') {
         if (op.label in this.labels) op.target = this.labels[op.label];
         else this.diagnostics.push(withFix(op.src, 'error', `Unknown label "${op.label}"`, op.label, Object.keys(this.labels)));
         const want = this.params[op.label]?.length ?? 0;
@@ -295,8 +360,8 @@ class Compiler {
     this.emitProgram();
     this.resolveReferences();
     this.checkVariables();
-    const { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage } = this;
-    return { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage: { ...stage } };
+    const { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage, transforms, dynamicTransforms, choreographies } = this;
+    return { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage: { ...stage }, ...(Object.keys(transforms).length ? { transforms } : {}), ...(Object.keys(dynamicTransforms).length ? { dynamicTransforms } : {}), ...(Object.keys(choreographies).length ? { choreographies } : {}) };
   }
 }
 

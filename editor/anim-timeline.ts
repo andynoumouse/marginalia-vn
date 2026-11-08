@@ -1,7 +1,7 @@
 // The animation studio's timeline: one lane per key channel with the sampled curve, the key diamonds and a time axis,
 // drawn into an SVG, plus the geometry the pointer handlers need to turn a position back into a time and a value.
 
-import { KEY_CHANNELS, keysOf, sampleChannel, type AnimDef, type FrameBlock, type KeyChannel, type ParamKey } from '../engine/src/index.js';
+import { CHANNEL_REST, KEY_CHANNELS, keysOf, sampleChannel, type AnimDef, type FrameBlock, type KeyChannel, type ParamKey } from '../engine/src/index.js';
 import { svg } from './anim-dom.js';
 
 export const LANE = 52, AXIS = 22, LABEL = 70, PAD = 14;
@@ -19,17 +19,18 @@ export const frameLaneTop = (i: number, params: number) => LANE * KEY_CHANNELS.l
 /** Which frame row (index) is under height `y`, or -1, given `params` parameter lanes and `n` frame rows. */
 export const frameLaneAt = (y: number, params: number, n: number) => { const i = Math.floor((y - frameLaneTop(0, params)) / FLANE); return y >= frameLaneTop(0, params) && i < n ? i : -1; };
 /** The smallest range a lane shows, so a tiny value does not fill it. */
-const MIN_RANGE: Record<KeyChannel, number> = { x: 0.02, y: 0.02, scale: 0.02, rot: 2 };
+const MIN_RANGE: Record<KeyChannel, number> = { x: 0.02, y: 0.02, scale: 0.02, rot: 2, opacity: 0.5 };
 /** How much an arrow key changes a channel. */
-export const NUDGE: Record<KeyChannel, number> = { x: 0.005, y: 0.005, scale: 0.005, rot: 0.5 };
+export const NUDGE: Record<KeyChannel, number> = { x: 0.005, y: 0.005, scale: 0.005, rot: 0.5, opacity: 0.05 };
 
 export const timelineWidth = (tl: SVGSVGElement) => Math.max(320, tl.clientWidth);
 export const xOf = (tl: SVGSVGElement, t: number) => LABEL + t * (timelineWidth(tl) - LABEL - PAD);
 export const laneOf = (y: number) => Math.min(KEY_CHANNELS.length - 1, Math.max(0, Math.floor(y / LANE)));
-/** The channel value under height `y` in its lane, for a lane that shows +-`range`. */
+/** The channel value under height `y` in its lane, for a lane that shows +-`range` around the channel's rest value (opacity never goes below 0). */
 export function valueAt(ch: KeyChannel, y: number, range: number) {
   const i = KEY_CHANNELS.indexOf(ch), mid = i * LANE + LANE / 2;
-  return ((mid - y) / (LANE / 2 - 8)) * range;
+  const v = CHANNEL_REST[ch] + ((mid - y) / (LANE / 2 - 8)) * range;
+  return ch === 'opacity' ? Math.max(0, v) : v;
 }
 /** A pointer position over the timeline: pixels, and the time 0..1 along the lanes. */
 export function localPoint(tl: SVGSVGElement, e: PointerEvent | MouseEvent) {
@@ -67,15 +68,16 @@ export function drawTimeline(tl: SVGSVGElement, v: TimelineView): SVGLineElement
     const samples = sampleChannel(def, ch, v.part, 120);
     // A preset is only a sampled copy: its curve is shown, but no diamonds that look as if they could be moved.
     const keys = v.preset ? [] : keysOf(def, v.part).filter(k => typeof k.key[ch] === 'number');
-    const own = Math.max(MIN_RANGE[ch], ...samples.map(Math.abs), ...keys.map(k => Math.abs(k.key[ch]!)));
+    const rest = CHANNEL_REST[ch];
+    const own = Math.max(MIN_RANGE[ch], ...samples.map(x => Math.abs(x - rest)), ...keys.map(k => Math.abs(k.key[ch]! - rest)));
     const range = v.frozen?.[ch] ?? own;
     v.ranges[ch] = range;
-    const y = (val: number) => mid - (val / range) * (LANE / 2 - 8);
+    const y = (val: number) => mid - ((val - rest) / range) * (LANE / 2 - 8);
     tl.append(
       svg('rect', { x: 0, y: top, width: w, height: LANE, class: i % 2 ? 'tl-bg-b' : 'tl-bg-a' }),
       svg('line', { x1: LABEL, x2: w - PAD, y1: mid, y2: mid, class: 'tl-zero' }),
       svg('text', { x: 8, y: mid - 2, class: 'tl-label' }, ch),
-      svg('text', { x: 8, y: mid + 12, class: 'tl-range' }, `±${+range.toPrecision(2)}`),
+      svg('text', { x: 8, y: mid + 12, class: 'tl-range' }, `${rest ? `${rest} ` : ''}±${+range.toPrecision(2)}`),
       svg('polyline', { points: samples.map((val, s) => `${xOf(tl, s / 120)},${y(val)}`).join(' '), class: 'tl-curve' }),
     );
     for (const k of keys) {

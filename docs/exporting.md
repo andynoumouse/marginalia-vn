@@ -47,6 +47,12 @@ game and engine version, the script `file:line`, the error, the last lines shown
 (`engine/src/crash.ts`), for the player to send you. Its texts are `ui.crash_*` strings, translated like the other
 menu labels. The dev preview leaves such errors to the browser console.
 
+### Installable offline app
+
+Set `"pwa": true` in game.json (see [game-json.md](game-json.md#pwa)) and the export also writes `manifest.webmanifest` and `sw.js`. Players
+can then install the game from the browser (Add to Home Screen on a phone) and play it offline after the first visit. It needs the
+folder served over https, or from localhost.
+
 ## Desktop build
 
 ```

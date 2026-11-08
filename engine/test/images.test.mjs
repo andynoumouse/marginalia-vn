@@ -67,3 +67,33 @@ test('image: completions', () => {
   assert.ok(labels('image show x ').includes('cg/letter'));
   assert.ok(labels('image show x cg/letter ').includes('layer=-1'));
 });
+
+test('animate on an image: the loop is kept in the picture state until stop, hide or scene', async () => {
+  const { rt, seen } = await play([
+    'label start:', '  scene a',
+    '  image show lantern prop/lantern at 400,300 keep',
+    '  animate lantern sway loop strength=2',
+    '  "one"',
+    '  image move lantern to 500,300 0.1',
+    '  "two"',
+    '  animate lantern stop',
+    '  "three"',
+    '  animate lantern pulse loop',
+    '  scene b',
+    '  "four"', '',
+  ].join('\n'));
+  assert.deepEqual(seen.one[0].anim, { name: 'sway', dur: null, strength: 2, part: null });
+  assert.deepEqual(seen.two[0].anim, { name: 'sway', dur: null, strength: 2, part: null }); // image move keeps it
+  assert.equal(seen.three[0].anim, undefined);
+  assert.equal(seen.four[0].anim?.name, 'pulse'); // a kept picture keeps its loop through scene
+  assert.equal(rt.state.images.length, 1);
+});
+
+test('animate: a name that is both a character and an image is an error; an unknown target is a warning', () => {
+  const clash = compile([{ file: 't.vn', text: 'define lamp = Character("Lamp")\nlabel start:\n  image show lamp prop/lamp\n  animate lamp sway loop\n' }]);
+  assert.ok(errors(clash).some(d => /both a character and an image/.test(d.message)), JSON.stringify(clash.diagnostics));
+  const unknown = compile([{ file: 't.vn', text: 'label start:\n  animate ghost sway loop\n' }]);
+  assert.ok(unknown.diagnostics.some(d => /Unknown character "ghost"/.test(d.message)));
+  const fine = compile([{ file: 't.vn', text: 'label start:\n  animate lamp sway loop\n  image show lamp prop/lamp\n' }]); // shown later in the file: still known
+  assert.deepEqual(fine.diagnostics.filter(d => /Unknown character/.test(d.message)), []);
+});

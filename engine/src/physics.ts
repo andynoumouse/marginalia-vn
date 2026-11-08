@@ -56,7 +56,16 @@ export interface PhysicsChain {
   segments: PhysicsSegment[];
   outputs: PhysicsOutput[];
   wind?: PhysicsWind;
+  /** How much of the scene's wind (the script's `wind`) reaches this chain: 1 by default, 0 = none, negative = mirrored. */
+  windScale?: number;
 }
+
+/** The scene's wind, set by the script: `strength` is signed (positive blows right, negative left), `gusts` 0 = steady to 1 = fully gusting. */
+export interface WorldWind { strength: number; gusts: number }
+
+/** Push of a wind of strength 1 (degrees/s² at mass and length 1). Against stiffness 90 and mass 1 it holds long hair about 11 degrees off. */
+export const WIND_UNIT = 1000;
+const WORLD_GUST_HZ = 0.35;
 
 export interface PhysicsState {
   /** Swing angle of each segment, relative to its parent. */
@@ -101,7 +110,15 @@ export function windWave(t: number, frequency: number, seed: number): number {
   return (Math.sin(w + p1) + Math.sin(w * 1.618 + p2)) / 2;
 }
 
-function tick(chain: PhysicsChain, s: PhysicsState, inputs: Readonly<Record<string, number>>): PhysicsState {
+/** The push of the scene's wind on one chain at time `t`. Something that hangs from its top swings to the left for a positive angle, so a wind to the right is a negative push. */
+export function worldGust(chain: PhysicsChain, wind: WorldWind | null | undefined, t: number): number {
+  if (!wind || !wind.strength) return 0;
+  const g = Math.min(1, Math.max(0, wind.gusts));
+  const seed = chain.wind?.seed ?? 0;
+  return -wind.strength * (chain.windScale ?? 1) * WIND_UNIT * (1 - g + g * (0.5 + 0.5 * windWave(t, WORLD_GUST_HZ, seed)));
+}
+
+function tick(chain: PhysicsChain, s: PhysicsState, inputs: Readonly<Record<string, number>>, world?: WorldWind | null): PhysicsState {
   const smoothed = s.smoothed.slice();
   let push = 0;
   chain.inputs.forEach((inp, i) => {
@@ -114,7 +131,7 @@ function tick(chain: PhysicsChain, s: PhysicsState, inputs: Readonly<Record<stri
   const angles = s.angles.slice(), velocities = s.velocities.slice();
   const w = chain.wind;
   const noise = w?.noise ?? 0;
-  const gust = w ? w.strength * (1 - noise + noise * windWave(s.time, w.frequency ?? 0.5, w.seed ?? 0)) : 0;
+  const gust = (w ? w.strength * (1 - noise + noise * windWave(s.time, w.frequency ?? 0.5, w.seed ?? 0)) : 0) + worldGust(chain, world, s.time);
   let anchor = push; // how far the point this segment hangs from just moved
   chain.segments.forEach((seg, i) => {
     const len = Math.max(MIN_PART, seg.length), mass = Math.max(MIN_PART, seg.mass);
@@ -142,12 +159,12 @@ function tick(chain: PhysicsChain, s: PhysicsState, inputs: Readonly<Record<stri
  * fit and carries the rest, so any sequence of frame times that adds up to the same total gives the same result
  * (for inputs that are constant between frames).
  */
-export function stepChain(chain: PhysicsChain, state: PhysicsState, inputs: Readonly<Record<string, number>>, dt: number): PhysicsState {
+export function stepChain(chain: PhysicsChain, state: PhysicsState, inputs: Readonly<Record<string, number>>, dt: number, world?: WorldWind | null): PhysicsState {
   let s = state;
   let left = state.remainder + Math.min(MAX_FRAME, Math.max(0, dt));
-  if (!s.primed) s = tick(chain, s, inputs); // adopt the inputs as the rest values
+  if (!s.primed) s = tick(chain, s, inputs, world); // adopt the inputs as the rest values
   while (left >= STEP - 1e-9) {
-    s = tick(chain, s, inputs);
+    s = tick(chain, s, inputs, world);
     left -= STEP;
   }
   return { ...s, remainder: Math.max(0, left) };

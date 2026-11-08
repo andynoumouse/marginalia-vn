@@ -88,20 +88,17 @@ function gameKind(path: (string | number)[]): AssetRefKind | null {
   if (a === 'achievements' && typeof b === 'number' && n === 3 && c === 'icon') return 'ui';
   if (a === 'achievementToast' && n === 2 && b === 'sound') return 'sound';
   if (a === 'blips' && ((n === 3 && c === 'sound') || (n === 4 && c === 'vowels'))) return 'sound';
-  const box = (k: unknown) => k === 'textbox' || k === 'namebox' || k === 'choices';
-  if (a === 'theme' && ((n === 3 && box(b) && c === 'image') || (n === 5 && b === 'skins' && box(d) && path[4] === 'image'))) return 'ui';
   return null;
 }
 
-/** The kind of file a value in a theme file (`themes/<name>.json`) names: the `image` of a frame, in the layered or the legacy keys. */
+/** The kind of file a value in a theme file (`themes/<name>.json`) names: the `image` of a frame. */
 function themeFileKind(path: (string | number)[]): AssetRefKind | null {
   const last = path[path.length - 1], n = path.length;
   if (last !== 'image') return null;
-  const box = (k: unknown) => k === 'textbox' || k === 'namebox' || k === 'choices' || k === 'choice';
-  // textbox.image, components.textbox.image, skins.<s>.textbox.image, styles.<s>.textbox.image
-  if (n === 2 && box(path[0])) return 'ui';
+  const box = (k: unknown) => k === 'textbox' || k === 'namebox' || k === 'choice';
+  // components.textbox.image, styles.<s>.textbox.image
   if (n === 3 && path[0] === 'components' && box(path[1])) return 'ui';
-  if (n === 4 && (path[0] === 'skins' || path[0] === 'styles') && box(path[2])) return 'ui';
+  if (n === 4 && path[0] === 'styles' && box(path[2])) return 'ui';
   return null;
 }
 
@@ -128,7 +125,8 @@ export function assetRefs(files: ProjectFile[], assetFiles?: string[]): AssetRef
 /** How a mention of `kind` names the key `key`, or null when that kind cannot reach it (a track outside music/). */
 function nameFor(kind: AssetRefKind, key: string, ext: string): string | null {
   switch (kind) {
-    case 'bg': return key.startsWith('bg/') ? key.slice(3) : key;
+    // The checks, the preload and the player find a background only as bg/<name> or <name> at the root: no other folder, no subfolder.
+    case 'bg': return /^bg\/[^/]+$/.test(key) ? key.slice(3) : key.includes('/') ? null : key;
     case 'image': return key + ext;
     default: {
       const parts = key.split('/');
@@ -139,7 +137,7 @@ function nameFor(kind: AssetRefKind, key: string, ext: string): string | null {
 
 export interface AssetRename {
   edits: TextEdit[];
-  /** Mentions of what moved that cannot name its new place (`music play` only reaches files right in assets/music/). */
+  /** Mentions of what moved that cannot name its new place (`music play` only reaches files right in assets/music/, `scene` only bg/ and the root). */
   stranded: AssetRef[];
 }
 

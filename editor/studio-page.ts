@@ -56,7 +56,6 @@ async function openCharacter(store: CharacterStore, paths: string[], option: Cha
   urls = new Map(got.filter(g => IMAGE.test(g.path)).map(g => [g.path.slice(option.base.length), URL.createObjectURL(new Blob([g.bytes], { type: MIME[g.path.split('.').pop()!.toLowerCase()] ?? '' }))]));
 
   const start = studioDocOf(data);
-  let applied = start.rig;
   const host: StudioHost = {
     ...manifestHost(c.manifest, data),
     image: file => urls.get(file),
@@ -66,12 +65,10 @@ async function openCharacter(store: CharacterStore, paths: string[], option: Cha
         // The file as it is now (it may have been edited meanwhile; a character without one starts from the generated skeleton).
         let text = c.starter;
         try { text = await (await store.read(rigPath)).bytes.text(); } catch { /* none yet */ }
-        let current: unknown;
-        try { current = JSON.parse(text); } catch { return false; }
-        const out = writeRigText(text, studioWrites(change, applied, current));
+        try { JSON.parse(text); } catch { return false; }
+        const out = writeRigText(text, studioWrites(change));
         if (out === null) return false;
         await store.write(rigPath, out);
-        applied = change.rig;
         return true;
       } catch { return false; }
     },

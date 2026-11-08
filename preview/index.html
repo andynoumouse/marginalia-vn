@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>VN preview</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --ink: #0e1117; --panel: #171b23; --line: #2a303c; --text: #e6e9ef; --muted: #8b93a3;
@@ -41,13 +42,27 @@
     --vn-danger: #f0707a; --vn-warn: #e8b64c; }
   #canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-  #box { position: absolute; left: 160px; right: 160px; bottom: 56px; min-height: 250px; padding: 44px 56px 36px;
+  /* Touch devices (docs/design/mobile.md): no double-tap zoom, pull-to-refresh, long-press callout or selection on the stage,
+     and the page fills the dynamic viewport. Scoped to coarse pointers so a mouse keeps selecting and copying text. */
+  @media (pointer: coarse) {
+    html[data-mode="game"], html[data-mode="game"] body { height: 100dvh; overflow: hidden; overscroll-behavior: none; }
+    html[data-mode="game"] #stage { touch-action: manipulation; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  }
+  html[data-touch] #quickui > div { transform: scale(var(--quick-k, 1)); transform-origin: var(--quick-origin, 50% 100%); }
+  /* With gestures on (preview.ts) the page reads the stage's touches itself; lists that scroll opt back in. */
+  html[data-gestures] #stage { touch-action: none; }
+  html[data-gestures] #stage .sc-scroll, html[data-gestures] #stage .crash pre { touch-action: pan-x pan-y; }
+  /* A landscape game held upright (or the reverse): ask for the other way; the stage underneath is paused by the cover. */
+  #rotate { display: none; position: fixed; inset: 0; z-index: 70; background: #06080b; color: #e6e9ef; align-items: center;
+    justify-content: center; text-align: center; padding: 24px; font: 20px/1.4 system-ui, sans-serif; }
+  html[data-rotate] #rotate { display: flex; }
+  #box { position: absolute; left: calc(160px + var(--safe-left, 0px)); right: calc(160px + var(--safe-right, 0px)); bottom: calc(56px + var(--safe-bottom, 0px)); min-height: 250px; padding: 44px 56px 36px;
     background: rgba(10,13,19,calc(.84 * var(--box-alpha, 1))); border: 2px solid color-mix(in srgb, var(--vn-line) 14%, transparent); border-radius: 8px; display: none; }
   #box[data-visible="true"] { display: block; }
   #name { position: absolute; left: 40px; top: -26px; padding: 6px 28px; border-radius: 6px; font-size: 34px; font-weight: 600;
     background: #20252f; color: var(--ncolor, #fff); border: 2px solid var(--ncolor, rgba(255,255,255,.3)); }
   #name:empty { display: none; }
-  #text { font: calc(var(--text-size, 44px) * var(--text-scale, 1))/var(--text-line, 1.45) var(--vn-font); white-space: pre-wrap; max-width: 62ch; }
+  #text { font: calc(var(--text-size, 44px) * var(--text-scale, 1) * var(--touch-text, 1))/var(--text-line, 1.45) var(--vn-font); white-space: pre-wrap; max-width: 62ch; }
   #text .fx { display: inline-block; white-space: pre; }
   #text .fx-wave { animation: vn-wave 1.1s ease-in-out infinite; }
   #text .fx-shake { animation: vn-shake .14s linear infinite; }
@@ -73,7 +88,7 @@
     background: rgba(6,8,12,calc(.82 * var(--box-alpha, 1))); }
   #nvl[data-visible="true"] { display: block; }
   #nvl-page { height: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-start; gap: .5em;
-    font: calc(var(--text-size, 44px) * var(--text-scale, 1))/var(--text-line, 1.45) var(--vn-font); }
+    font: calc(var(--text-size, 44px) * var(--text-scale, 1) * var(--touch-text, 1))/var(--text-line, 1.45) var(--vn-font); }
   #nvl-page > div { white-space: pre-wrap; flex: none; }
   #nvl-page .who { font-weight: 600; color: var(--ncolor, #fff); margin-right: .4em; }
   #nvl-page .fx { display: inline-block; white-space: pre; }
@@ -163,8 +178,8 @@
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hover { position: absolute; max-width: none; pointer-events: none; user-select: none; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hover[hidden] { display: none; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-hover][data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) [data-hover]:focus-visible, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-hover]:hover { background: transparent; border-color: transparent; }
-  /* the quick bar reads as labels, not buttons: no box until hovered or focused */
-  #quickui .sc-btn { color: rgba(230,233,239,.7); background: transparent; border-color: transparent; padding: 6px 12px; text-shadow: 0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.6); }
+  /* the quick bar reads as labels, not buttons: no box until hovered or focused; a dark halo keeps them legible over light scenes (UX round PI-4, PC-7) */
+  #quickui .sc-btn { color: rgba(240,242,247,.92); background: transparent; border-color: transparent; padding: 6px 12px; text-shadow: 0 0 2px #000, 0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.85), 0 0 16px rgba(0,0,0,.6); }
   #quickui .sc-btn:hover, #quickui .sc-btn[data-active="true"], #quickui .sc-btn:focus-visible { color: var(--vn-text); background: rgba(255,255,255,.08); border-color: transparent; }
   /* a full-stage picture left up while the next scene fades in (see ScreenLayer.unlinger) takes no clicks */
   #screenui[data-linger] * { pointer-events: none !important; }
@@ -207,7 +222,11 @@
   #stage .osk button.space { width: 480px; text-transform: none; } #stage .osk button.wide { width: 160px; }
   #menu input + .osk + button, #menu input + button { width: 240px; text-align: center; }
   #hud { position: absolute; right: 24px; top: 20px; font-size: 24px; color: rgba(255,255,255,.55); text-align: right; }
-  #ended { position: absolute; inset: 50% 0 auto 0; transform: translateY(-50%); text-align: center; font-size: 28px; color: rgba(255,255,255,.5); display: none; }
+  /* The last line was read: a dimmed stage, so the words read over any picture; clicks go through to the stage. */
+  #ended { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    text-align: center; background: rgba(6,8,11,.62); color: #fff; pointer-events: none; }
+  #ended .end-title { font-size: 72px; font-weight: 600; letter-spacing: .04em; }
+  #ended .end-hint { font-size: 30px; color: rgba(255,255,255,.82); }
 
   .screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 40px; cursor: default; }
@@ -356,11 +375,12 @@
   <div id="bar">
     <span class="title">VN preview</span>
     <span id="status">loading...</span>
-    <label>Language <select id="lang" aria-label="Language"></select></label>
-    <button id="restart" type="button">Restart</button>
-    <button id="diagBtn" type="button" data-errors="0" data-warns="0">Problems: 0</button>
-    <button id="debugBtn" type="button">Debug</button>
+    <label title="The language of the text the preview shows">Language <select id="lang" aria-label="Language"></select></label>
+    <button id="restart" type="button" title="Start the story again from the first line">Restart</button>
+    <button id="diagBtn" type="button" data-errors="0" data-warns="0" title="Errors and warnings the preview found in the scripts it runs (the editor's count also includes game.json and rigs)">Problems: 0</button>
+    <button id="debugBtn" type="button" title="Debug console: story variables, jump to a label, reset saved progress">Debug</button>
   </div>
+  <div id="rotate" role="alert" data-ui="rotate_device">Turn your device to play.</div>
   <div id="viewport">
     <div id="stage">
       <div id="hud"></div>
@@ -369,7 +389,7 @@
       <div id="nvl" data-visible="false" data-done="false"><div id="nvl-page"></div></div>
       <div id="menu" data-visible="false"></div>
       <div id="screenui" data-visible="false"></div>
-      <div id="ended">End of script. Click to restart.</div>
+      <div id="ended"><div class="end-title"></div><div class="end-hint"></div></div>
       <div id="quickui" data-visible="false"></div>
       <div id="toast" role="status"></div>
       <div id="achtoastui" data-visible="false"></div>
@@ -497,6 +517,8 @@
         <span data-ui="stop">Stop</span>
         <span data-ui="achievement_unlocked">Achievement unlocked</span>
         <span data-ui="ending_reached">Ending reached</span>
+        <span data-ui="end_title">The End</span>
+        <span data-ui="end_hint">Click to return to the title screen</span>
         <span data-ui="hidden_achievement">???</span>
         <span data-ui="timed_announce">{n} seconds to choose</span>
         <span data-ui="quick_short">Q</span>

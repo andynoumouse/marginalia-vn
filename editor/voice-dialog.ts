@@ -7,6 +7,7 @@ import {
   type StringRow, type StringTable, type VoiceLock, type VoiceRow,
 } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
+import { trapModal } from './modal.js';
 
 export interface VoiceHost {
   /** The strings of the current scripts, in script order. */
@@ -88,6 +89,7 @@ export class VoiceDialog {
     this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
     q('.close').addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
+    trapModal(this.root, () => this.close());
     this.newLang = q('.vo-newlang');
     q('.vo-addlang').addEventListener('click', () => this.addLanguage());
     this.newLang.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.addLanguage(); } });

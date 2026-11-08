@@ -54,6 +54,7 @@ function tokenize(src: string): Tok[] {
     if ((m = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?/.exec(rest))) { out.push({ t: 'id', v: m[0] }); i += m[0].length; continue; }
     if ((m = /^(==|!=|<=|>=)/.exec(rest))) { out.push({ t: 'op', v: m[0] }); i += 2; continue; }
     if ('+-*/%<>(),[]'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue; }
+    if (c === '=') throw new ExprError('Unexpected "=": == compares (if trust == 1:) and set trust = 1 assigns');
     throw new ExprError(`Unexpected character "${c}"`);
   }
   return out;

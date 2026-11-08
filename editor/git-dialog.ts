@@ -4,6 +4,7 @@
 
 import { changeKind, type GitChange } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
+import { trapModal } from './modal.js';
 
 export interface GitHost {
   /** Write the unsaved tabs to disk first: a commit takes the files as they are on disk. */
@@ -72,6 +73,7 @@ export class GitPanel {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
       else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void this.commit(); }
     });
+    trapModal(this.root, () => this.close());
     this.message.addEventListener('input', () => { this.edited = true; this.update(); });
     this.ignoreBtn.addEventListener('click', () => void this.ignore());
     this.commitBtn.addEventListener('click', () => void this.commit());

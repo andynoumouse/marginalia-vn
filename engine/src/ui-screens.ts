@@ -1,4 +1,6 @@
 import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN } from './screens.js';
+import { DEFAULT_STAGE, type StageSize } from './stage.js';
+import { portraitStarters } from './ui-screens-portrait.js';
 
 /** One of the shell's built-in menus that a project can replace by declaring a `screen` of the same name. */
 export interface UiScreen {
@@ -39,7 +41,7 @@ const STARTERS: Record<string, string> = {
   [QUICKMENU_SCREEN]: `screen quickmenu:
   row anchor [quick_place] margin 14,160,10,160 gap 6:
     each quick_items as q:
-      button q "[q.label]" font 24 tooltip "[q.hint]" action [q]
+      button q "[q.label]" font 28 tooltip "[q.hint]" action [q]
 `,
   [OPTIONS_SCREEN]: `screen options:
   panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
@@ -87,6 +89,8 @@ const STARTERS: Record<string, string> = {
     button captions "[captions_word]" action cycle
     text "Screen reader reads dialogue" font 34
     button announce_lines "[announce_lines_word]" action cycle
+    text "Touch gestures" font 34 if has_touch
+    button touch_gestures "[touch_gestures_word]" action cycle if has_touch
     text "Timed choices" font 34
     select timed_choices
   row at 300,870 gap 20 on enter slide up 0.3 distance=30 on exit fade 0.15:
@@ -100,7 +104,7 @@ const STARTERS: Record<string, string> = {
   text at 170,60 "Load" font 52 if mode == "load" on enter slide down 0.3 distance=30 on exit fade 0.15
   text at 520,80 "[note]" font 28 color #e8706a if note != ""
   each pages as pg at 170,150 step 76,0 on enter fade 0.3 stagger 0.02 on exit fade 0.15:
-    button pg at 0,0 size 64,56 "[pg.name]" action page
+    button pg at 0,0 size 64,56 "[pg.name]" tooltip "[pg.title]" action page
     panel at 0,0 size 64,56 color rgba(255,255,255,.18) if pg == page
   button done at 1550,56 size 200,64 "Back" action close on enter fade 0.3 on exit fade 0.15
   grid 3 at 170,230 gap 24 cell 500,360:
@@ -109,12 +113,12 @@ const STARTERS: Record<string, string> = {
         button slot at 0,0 size 500,360 " " action slot enabled mode == "save" or not slot.empty
         image "[slot.thumb]" at 10,10 size 480,270 if slot.thumb != ""
         panel at 10,10 size 480,270 color rgba(0,0,0,.4) if slot.thumb == ""
-        text at 10,120 "[slot.text]" font 32 width 480 align center color #6b7385 if slot.empty
         text at 14,284 "[slot.heading]" font 28 width 300 lines 1
         text at 300,288 "[slot.when]" font 24 width 186 align right color #aab0be
+        text at 10,120 "[slot.text]" font 32 width 480 align center color #6b7385 if slot.empty
         text at 14,322 "[slot.text]" font 24 width 470 lines 1 color #c9ced8 if not slot.empty
-        button slot.rename at 380,16 size 48,48 "✎" action rename if can_rename and slot.renamable
-        button slot.remove at 436,16 size 48,48 "×" action remove if slot.removable
+        button slot.rename at 380,16 size 48,48 "✎" tooltip "Rename save" action rename if can_rename and slot.renamable
+        button slot.remove at 436,16 size 48,48 "×" tooltip "Delete save" action remove if slot.removable
 `,
   [HISTORY_SCREEN]: `screen history:
   panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
@@ -213,11 +217,21 @@ const TITLES: Record<string, string> = {
 };
 
 /**
+ * The code of a built-in screen for this stage: the landscape starter, or on a portrait stage (taller than wide) the portrait
+ * layout where there is one (the title, pause and quick menus are anchored and serve both).
+ */
+export function screenStarter(name: string, stage: StageSize = DEFAULT_STAGE): string {
+  return starters(stage)[name];
+}
+
+const starters = (stage: StageSize): Record<string, string> => (stage.height > stage.width ? { ...STARTERS, ...portraitStarters(stage) } : STARTERS);
+
+/**
  * The built-in screens drawn from their starter when the project declares none (every name of `UI_SCREENS`), compiled as virtual files after the project's own.
  */
-export function defaultScreenFiles(files: { file: string; text: string }[]): { file: string; text: string }[] {
-  const own = overriddenScreens(files);
-  return [TITLE_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, VIEWER_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].filter(n => !(n in own)).map(n => ({ file: `stock/${n}.vn`, text: STARTERS[n] }));
+export function defaultScreenFiles(files: { file: string; text: string }[], stage: StageSize = DEFAULT_STAGE): { file: string; text: string }[] {
+  const own = overriddenScreens(files), code = starters(stage);
+  return [TITLE_SCREEN, PAUSE_SCREEN, QUICKMENU_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, VIEWER_SCREEN, GALLERY_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].filter(n => !(n in own)).map(n => ({ file: `stock/${n}.vn`, text: code[n] }));
 }
 
 /** Every replaceable built-in menu, in the order the Files panel lists them. */

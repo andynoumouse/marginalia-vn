@@ -4,16 +4,20 @@
 //                assets/char/<char>/<pose>.(png|webp)     one image per pose ("default" when none is given)
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
-import { Application, Assets, Color, Container, Graphics, Matrix, MeshPlane, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js';
-import { imageBytes, type Resident, applyDisplacement, deformerGrid, evalDeformer, paramsKey, restLattice, unwarpPoint, type DeformerDef, type KeyformDef, type ParamDef, BONE_REST, evalPointKeyforms, maskChain,  MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, type MaskDef, type MaskPoint, addOffset, displayValues, evalAll, addPhysicsParams, restStates, stepPhysics, type ChainStates, type PhysicsOff, lerpParams, resolveParams, anchorOffset, type AnimDef, bgKey, blinkOf, cameraPivot, easing, EASES, focusLevels, raisedSpeaker, fxUnit, revealShapes, shakeOffset, maskKey, pixelBlock, lerp, mouthFrame, NO_OFFSET, resolveAnim, type Resolved, partsUnder, type GizmoTarget, rigLayers, showLooks, scaleOffset, speakOf, spriteKeys, startBlink, stepBlink, type BlinkState, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
-import { FX, type Actor, type Fx, type MaskNode } from './pixi-actor.js';
+import { Application, Assets, Color, ColorMatrixFilter, type ColorMatrix, Container, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js';
+import { AnimPlayer, overscanZoom, CAMERA_TARGET, mouthOpen, lerpRgb, mulRgb, rgbNumber, flashMatrix, imageBytes, type Resident, sampleLattice, unwarpMeshPoint, warpFreeMesh, warpMeshPoints, type DeformerMesh, applyDisplacement, deformerGrid, deformerPoints, evalDeformer, isGroupDeformer, memberMeshGrid, paramsKey, restLattice, unionLatticeBox, unwarpPoint, warpMemberMesh, type DeformerDef, type KeyformDef, type ParamDef, BONE_REST, evalPointKeyforms, maskChain, maskView, normalizeMasks, writeShapes, MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, bendShapeByGroup, shapeBentByGroup, type MaskDef, type MaskPoint, type ShapeDef, addOffset, displayValues, evalAll, addPhysicsParams, restStates, stepPhysics, windVelocity, type FxEnv, type WorldWind, type ChainStates, type PhysicsOff, lerpParams, autoAnimations, startAuto, stepAuto, everyBounds, reactionTarget, startReaction, stepReaction, type Value, type ReactionDef, resolveParams, anchorOffset, type AnimDef, bgKey, easing, EASES, focusLevels, raisedSpeaker, revealShapes, shakeOffset, maskKey, pixelBlock, lerp, NO_OFFSET, resolveAnim, type Resolved, partsUnder, type GizmoTarget, rigLayers, showLooks, scaleOffset, spriteKeys, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
+import { FX, type Actor, type Fx, type GroupWarp, type MaskNode } from './pixi-actor.js';
 import { PictureLayer } from './picture-layer.js';
+import { applyFlash } from './flash-filter.js';
+import { Bursts } from './bursts.js';
 import { SceneEffects } from './scene-effects.js';
 import { rigGeometry, StudioQueries } from './studio-queries.js';
 import { assetUrl, H, hue, stage, StageRenderer, W, type AssetFile, type WorldOp } from './stage-ui.js';
 
 const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 const SPRITE_W = 420, SPRITE_H = 940;
+/** What of a rig's deformers makes the meshes differ (who each warps, its lattice size and a group's box): the meshes are built again when it changes, not when only the points do. */
+const deformerShape = (list?: DeformerDef[]) => (list ?? []).map(d => `${d.id}:${d.part ?? ''}:${(d.members ?? []).join(',')}:${d.box?.join(',') ?? ''}:${d.mesh ? `m${d.mesh.verts.join(',')}/${d.mesh.tris.join(',')}` : deformerGrid(d).join('x')}`).sort().join('|');
 
 interface Tween { elapsed: number; dur: number; update: (k: number) => void; done: () => void }
 
@@ -24,8 +28,25 @@ const grey = (v: number) => { const g = Math.round(Math.max(0, Math.min(1, v)) *
 export class PixiRenderer extends StageRenderer {
   private app = new Application();
   private world = new Container();
+  /** The camera as last set (the world container's own transform cannot give back the pivot at zoom 1 or when rolled). */
+  private camNow = { zoom: 1, x: 0.5, y: 0.5, roll: 0 };
+  /** What `animate camera` is running (a sustained shake, a sway) and the offset it adds to the view now. */
+  private camFx = new AnimPlayer(() => this.transforms);
+  private camOffset: Offset = NO_OFFSET;
   private bgLayer = new Container();
   private spriteLayer = new Container();
+  private transforms: Record<string, AnimDef> = {};
+  /** The automatic transforms (`animate <target> <name> auto`) attached to a target, as animations for the scheduler; undefined when none. */
+  private attachedAutos(names?: string[]): Record<string, AnimDef> | undefined {
+    const out: Record<string, AnimDef> = {};
+    for (const n of names ?? []) if (Object.hasOwn(this.transforms, n)) out[n] = this.transforms[n];
+    return Object.keys(out).length ? out : undefined;
+  }
+  setTransforms(transforms: Record<string, AnimDef>) { this.transforms = transforms; this.pictures.transforms = transforms; }
+  private bursts = new Bursts(); // `burst` puffs, in the world above the pictures
+  private wind: WorldWind | null = null; // `wind`: what the physics chains feel right now (mid-ramp it is between the old and the new)
+  private gravity = 1; // `gravity`: the factor on how hard weather and bursts fall
+  private windClock = 0; // seconds, for the gusts the weather and bursts feel
   private pictures = new PictureLayer({ // overlay pictures (`image show`)
     files: () => this.files, art: key => this.art.get(key), canvasTexture: (...a) => this.canvasTexture(...a),
     takeLoopVideo: key => this.takeLoopVideo(key), releaseVideo: v => this.releaseVideo(v),
@@ -61,7 +82,7 @@ export class PixiRenderer extends StageRenderer {
     this.fade.alpha = 0;
     for (const g of [this.tintLayer, this.flashLayer]) { g.rect(0, 0, W, H).fill(0xffffff); g.alpha = 0; }
     this.spriteLayer.sortableChildren = true;
-    this.world.addChild(this.bgLayer, this.pictures.behind, this.spriteLayer, this.pictures.front);
+    this.world.addChild(this.bgLayer, this.pictures.behind, this.spriteLayer, this.pictures.front, this.bursts.layer);
     this.effects.init(g => this.app.renderer.generateTexture({ target: g, resolution: 1 }));
     this.scene.addChild(this.world, this.pictures.fixed, this.effects.weatherLayer);
     this.shaker.addChild(this.scene, this.effects.vignette, this.tintLayer, this.flashLayer);
@@ -136,13 +157,31 @@ export class PixiRenderer extends StageRenderer {
       if (k >= 1) { this.tweens.delete(t); t.done(); }
     }
     for (const a of this.actors.values()) { this.stepFx(a, ms / 1000); this.stepLive(a, ms / 1000); }
+    this.pictures.step(ms / 1000, FX());
+    this.stepCamera(ms / 1000);
+    this.pictures.stepAutos(ms / 1000, { behaviors: this.shown?.behaviors !== false && this.autoRuns, reduceMotion: this.reduceMotion, vars: this.scriptVars() });
     this.stepFocus(ms / 1000);
-    this.effects.stepWeather(ms / 1000);
+    this.windClock += ms / 1000;
+    const env: FxEnv = { gravity: this.gravity, windVx: windVelocity(this.wind, this.windClock) };
+    this.effects.stepWeather(ms / 1000, env);
+    this.effects.stepLook(ms / 1000);
+    this.bursts.step(ms / 1000, env);
   }
   private speaker: string | null = null;
   private speakUntil = 0;
+  /** Who spoke last, and until when (seconds) the voice recording keeps the mouth open: while a voice line plays its loudness moves that character's mouth, whatever the typing does. */
+  private lastSpeaker: string | null = null;
+  private mouthUntil = 0;
+  private lipSync(): { who: string; open: boolean } | null {
+    const level = this.lastSpeaker ? this.audio.voiceLevel() : null;
+    if (level === null || !this.lastSpeaker) return null;
+    const m = mouthOpen(level, performance.now() / 1000, this.mouthUntil);
+    this.mouthUntil = m.until;
+    return { who: this.lastSpeaker, open: m.open };
+  }
   protected override speakTick(who: string | null) {
     this.speaker = who;
+    if (who) this.lastSpeaker = who;
     if (who) this.speakUntil = performance.now() + 350; // typing goes on: the mouth does too, until the characters stop coming
   }
   /** How bright each character on stage should be now (speaker focus), and the speaker to raise, if any. */
@@ -164,37 +203,52 @@ export class PixiRenderer extends StageRenderer {
       const to = levels.get(c) ?? 1;
       if (a.lit === to) continue;
       a.lit = a.lit < to ? Math.min(to, a.lit + by) : Math.max(to, a.lit - by);
-      a.node.tint = grey(a.lit);
+      this.paintActor(a);
     }
     if (raised !== this.raised) { this.raised = raised; this.restack(state); }
   }
-  /** Blinking and talking: swap slot variants in and out, and loop the speak animation, while the character is talking. */
+  /** The story's variables (and unlocked./persistent. names) as a snapshot for the conditions of automatic animations and reactions; the game shell sets it. */
+  scriptVars: () => Record<string, Value> = () => ({});
+  /** False while the studio's Animate mode shows the animation under edit: automatic animations are suspended then. */
+  autoRuns = true;
+  /**
+   * Automatic animations (rig.json `auto`) and reactions: run the scheduler, start and stop what it says, and lay the slot
+   * variants of the automatic frame tracks over the script's (an explicit `slot=variant` beats them; a running `animate` beats them).
+   */
   private stepLive(a: Actor, seconds: number) {
     const data = this.files.rigs[a.s.char]?.rig;
-    if (!data) return;
-    const off = this.shown?.behaviors === false; // `behaviors off`: idle, blink and talk are suspended until `behaviors on`
-    const blink =off ? null : blinkOf(data), speak = off ? null : speakOf(data), now = performance.now();
-    const idle = data.autonomous?.idle;
-    if (idle && !this.reduceMotion) {
-      if (off && a.idle) a.idle = null;
-      else if (!off && !a.idle) a.idle = this.makeFx(a.s.char, idle, null, 1, true);
-    }
-    if (!off && !a.blink) { const def = blinkOf(data); if (def) a.blink = startBlink(def.every, Math.random); }
-    const speaking = !off && this.speaker === a.s.char && now < this.speakUntil;
-    if (speaking && !a.speaking) a.talkStart = now;
+    const attached = this.attachedAutos(a.s.autos);
+    if (!data && !attached && !a.auto) return;
+    const entries = autoAnimations({ ...attached, ...data?.animations }); // a rig's own animation of the same name wins over an attached transform
+    const lip = this.lipSync();
+    const speaking = lip ? lip.who === a.s.char && lip.open : this.speaker === a.s.char && performance.now() < this.speakUntil;
     a.speaking = speaking;
-    if (speak?.anim && !this.reduceMotion) {
-      if (speaking && !a.talk) a.talk = this.makeFx(a.s.char, speak.anim, null, 1, true);
-      else if (!speaking && a.talk) a.talk = null;
+    const vars = this.scriptVars();
+    const base = this.studio && this.studioValues ? resolveParams(data?.parameters, this.studioValues) : a.params; // the studio's panel stands for the script's values
+    if (entries.length || a.auto) {
+      const ctx = { speaking, behaviors: this.shown?.behaviors !== false && this.autoRuns, reduceMotion: this.reduceMotion, vars, params: base }; // `behaviors off` suspends them
+      const step = stepAuto(a.auto ?? startAuto(entries, Math.random), entries, seconds, ctx, Math.random);
+      a.auto = step.state;
+      if (step.stop.length) a.autoFx = a.autoFx.filter(f => !step.stop.includes(f.name ?? ''));
+      for (const name of step.start) {
+        const order = entries.findIndex(e => e.name === name);
+        const fx = this.makeFx(a.s.char, name, null, 1, everyBounds(entries[order].auto.every) === null);
+        if (fx) a.autoFx.push({ ...fx, auto: true, name, order });
+      }
+    }
+    if (data && (data.reactions?.length || a.reaction.entry !== null || Object.keys(a.reaction.now).length)) {
+      const target = reactionTarget(data.reactions, { speaking, vars, params: base });
+      const dt = this.reduceMotion || this.skipping ? 1e6 : seconds; // reduced motion: the move snaps
+      const before = this.studio ? JSON.stringify(a.reaction.now) : '';
+      a.reaction = stepReaction(a.reaction, data.reactions, target, dt, pose => data.poses?.[pose], data.parameters, base);
+      if (this.studio && JSON.stringify(a.reaction.now) !== before) queueMicrotask(() => this.studioRefresh?.()); // the studio poses on request: ask for the move's next step
     }
     const live: Record<string, string> = {};
-    if (blink && a.blink) {
-      a.blink = stepBlink(a.blink, seconds, blink, Math.random);
-      if (a.blink.closed && !(blink.slot in a.s.overrides)) live[blink.slot] = blink.variant; // an explicit slot=variant wins
-    }
-    if (speak && speaking) {
-      const frame = mouthFrame(speak.variants, (now - a.talkStart) / 1000, speak.rate);
-      if (frame) live[speak.slot] = frame;
+    for (const f of [...a.autoFx].sort((x, y) => (x.order ?? 0) - (y.order ?? 0))) { // the later one in the file wins a slot
+      if (this.studio) f.elapsed += seconds; // the studio does not step actors (stepFx), so the clock runs here
+      if (!f.frames) continue;
+      const frames = f.frames(Math.min(1, f.loop ? (f.elapsed % f.dur) / f.dur : f.elapsed / f.dur), f.loop ? f.elapsed % f.dur : Math.min(f.elapsed, f.dur));
+      for (const [slot, v] of Object.entries(frames)) if (!(slot in a.s.overrides)) live[slot] = v;
     }
     Object.assign(live, a.clip); // while a frame track plays it owns its slot: before and after, the script's value shows
     if (JSON.stringify(live) === JSON.stringify(a.live)) return;
@@ -203,6 +257,14 @@ export class PixiRenderer extends StageRenderer {
     if (!spriteKeys(shown, this.files).every(k => this.art.has(k))) return;
     a.live = live;
     this.dress(a, a.s);
+  }
+  /** The parameters a reaction holds right now that the script has not set (still at their default): they go under the script's values. */
+  private reactionLayer(a: Actor, base: Record<string, number> = a.params): Record<string, number> | null {
+    const now = a.reaction.now;
+    if (!Object.keys(now).length) return null;
+    const out: Record<string, number> = {};
+    for (const d of this.files.rigs[a.s.char]?.rig?.parameters ?? []) if (Object.hasOwn(now, d.id) && base[d.id] === d.default) out[d.id] = now[d.id];
+    return Object.keys(out).length ? out : null;
   }
   /** Draw the rig's parameters at `values`: the keyforms are evaluated again, and the next frame poses the parts by them. */
   private setParams(a: Actor, values: Record<string, number>) {
@@ -221,9 +283,10 @@ export class PixiRenderer extends StageRenderer {
     // The studio poses actors itself (studioPose, on every change and while playing). Stepping them here would pose the parameters'
     // defaults over that on every frame, so a rig with keyforms never showed the pose the author had set.
     if (this.studio) return;
-    const running = [...a.fx, ...(a.idle ? [a.idle] : []), ...(a.talk ? [a.talk] : [])];
+    const layer = this.reactionLayer(a);
+    const running = [...a.fx, ...a.autoFx];
     const chains = this.studio ? undefined : this.files.rigs[a.s.char]?.rig?.physics;
-    if (!running.length && !a.paramParts.size && !chains) {
+    if (!running.length && !a.paramParts.size && !chains && !layer) {
       if (a.posed) { this.poseBody(a, NO_OFFSET); this.posePartsOf(a, new Map()); this.applyWarps(a, a.params); a.posed = false; a.clip = {}; }
       return;
     }
@@ -240,15 +303,16 @@ export class PixiRenderer extends StageRenderer {
       else o = addOffset(o, body);
       if (f.parts) for (const [name, p] of Object.entries(f.parts(t))) addPart(name, scaleOffset(p, f.strength));
       if (f.params) Object.assign(tracked, f.params(t));
-      if (f.frames) Object.assign(clip, f.frames(t, f.loop ? f.elapsed % f.dur : Math.min(f.elapsed, f.dur)));
+      if (f.frames && !f.auto) Object.assign(clip, f.frames(t, f.loop ? f.elapsed % f.dur : Math.min(f.elapsed, f.dur))); // an automatic one's frames are laid by stepLive
     }
     a.clip = clip;
-    // The parameters first (the script's, with the animations' tracks over them), the animations' own motion on top.
+    // The parameters first (a reaction's pose under the script's values, the animations' tracks over them), the animations' own motion on top.
     const defs = this.files.rigs[a.s.char]?.rig?.parameters;
-    const values = Object.keys(tracked).length ? resolveParams(defs, { ...a.params, ...tracked }) : a.params;
+    const tweaked = !!layer || Object.keys(tracked).length > 0;
+    const values = tweaked ? resolveParams(defs, { ...a.params, ...layer, ...tracked }) : a.params;
     const anim = parts; // the animations' own motion; the parameters' go under it
     const withParams = (base: Map<string, Offset>) => { const m = new Map(anim); for (const [name, p] of base) m.set(name, addOffset(p, anim.get(name) ?? NO_OFFSET)); return m; };
-    let posed = withParams(Object.keys(tracked).length ? this.keyformParts(a.s.char, values) : a.paramParts);
+    let posed = withParams(tweaked ? this.keyformParts(a.s.char, values) : a.paramParts);
     if (!chains) this.applyWarps(a, values); // with chains, swing applies them once the physics is in
     if (chains) {
       // Physics goes last and adds: a paused game holds the swing where it is, skipping and reduced motion leave the chains at rest.
@@ -266,7 +330,7 @@ export class PixiRenderer extends StageRenderer {
   }
   /** Step the actor's chains by `dt` and lay their outputs over `posed` (parameters re-evaluated through `withParams`, rotations added). */
   private swing(a: Actor, chains: NonNullable<RigData['physics']>, values: Record<string, number>, posed: Map<string, Offset>, dt: number, off: PhysicsOff, withParams: (base: Map<string, Offset>) => Map<string, Offset>): Map<string, Offset> {
-    const r = stepPhysics(chains, a.physics, values, posed, dt, off);
+    const r = stepPhysics(chains, a.physics, values, posed, dt, off, this.wind);
     a.physics = r.states;
     if (Object.keys(r.params).length) {
       const driven = addPhysicsParams(this.files.rigs[a.s.char]?.rig?.parameters, values, r.params);
@@ -284,8 +348,9 @@ export class PixiRenderer extends StageRenderer {
     if (a) this.setParams(a, resolveParams(parameters, a.params));
   }
   // ---- the studio's questions about the stage (studio-queries.ts) ----
-  studioMask(char: string, part: string): { id: string; polygon: boolean; outlines: [number, number][][] } | null { return this.queries.studioMask(char, part); }
-  studioMaskDelta(char: string, part: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioMaskDelta(char, part, from, to); }
+  studioMask(char: string, shape: string): { id: string; polygon: boolean; outlines: [number, number][][] } | null { return this.queries.studioMask(char, shape); }
+  studioShapes(char: string): { name: string; outlines: [number, number][][] }[] { return this.queries.studioShapes(char); }
+  studioMaskDelta(char: string, shape: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioMaskDelta(char, shape, from, to); }
   studioPartBox(char: string, part: string): { x: number; y: number; w: number; h: number } | null { return this.queries.studioPartBox(char, part); }
   studioCanvasPoint(char: string, p: [number, number]): [number, number] | null { return this.queries.studioCanvasPoint(char, p); }
   studioTarget(char: string, name: string, offsets?: ReadonlyMap<string, Offset>): (GizmoTarget & { ox: number; oy: number; unit: number }) | null { return this.queries.studioTarget(char, name, offsets); }
@@ -293,6 +358,12 @@ export class PixiRenderer extends StageRenderer {
   studioSpace(char: string): { toStage(p: [number, number]): [number, number]; fromStage(p: [number, number]): [number, number] } | null { return this.queries.studioSpace(char); }
   studioLattice(char: string, part: string): { cols: number; rows: number; points: [number, number][]; box: { w: number; h: number } } | null { return this.queries.studioLattice(char, part); }
   studioLatticeDelta(char: string, part: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioLatticeDelta(char, part, from, to); }
+  studioDeformerLattice(char: string, id: string) { return this.queries.studioDeformerLattice(char, id); }
+  studioMesh(char: string, part: string) { return this.queries.studioMesh(char, part); }
+  studioDeformerMesh(char: string, id: string) { return this.queries.studioDeformerMesh(char, id); }
+  studioDeformerRestPoint(char: string, id: string, p: [number, number]) { return this.queries.studioDeformerRestPoint(char, id, p); }
+  studioPartAlpha(char: string, part: string) { return this.queries.studioPartAlpha(char, part); }
+  studioDeformerDelta(char: string, id: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioDeformerDelta(char, id, from, to); }
   studioBounds(char: string): { x: number; y: number; w: number; h: number } | null { return this.queries.studioBounds(char); }
   /** The studio's working copy of `physics` replaces the character's own and the chains start at rest. */
 
@@ -309,16 +380,28 @@ export class PixiRenderer extends StageRenderer {
   studioDeformers(char: string, deformers: DeformerDef[]) {
     const rig = this.files.rigs[char], a = this.actors.get(char);
     if (!rig) return;
-    const shape = (list?: DeformerDef[]) => (list ?? []).map(d => `${d.part}:${d.id}:${deformerGrid(d).join('x')}`).sort().join('|');
-    const rebuild = shape(rig.rig?.deformers) !== shape(deformers);
+    const rebuild = deformerShape(rig.rig?.deformers) !== deformerShape(deformers);
     rig.rig = { ...rig.rig, deformers };
     if (!a) return;
     if (rebuild) { a.key = ''; this.dress(a, a.s); return; }
     for (const [part, w] of a.warps) {
-      const def = deformers.find(d => d.part === part);
-      if (def) { w.def = def; w.key = null; }
+      if (w.def) w.def = deformers.find(d => !isGroupDeformer(d) && d.part === part) ?? w.def;
+      w.key = null;
     }
+    for (const g of a.groups.values()) { g.def = deformers.find(d => d.id === g.def.id) ?? g.def; g.key = null; }
     this.applyWarps(a, a.warpValues);
+  }
+  /** The studio's panel values (what it poses with) and how the page asks for a repaint; automatic animations and reactions read them in the studio. */
+  studioValues: Record<string, number> | null = null;
+  studioRefresh: (() => void) | null = null;
+  /** The studio's working copy of `animations`, `reactions` and `poses`, and its test variables, replaces the character's own (Model mode runs them). */
+  studioAuto(char: string, animations: Record<string, AnimDef>, reactions: ReactionDef[], poses: Record<string, Record<string, number>>, vars: Record<string, Value>) {
+    const rig = this.files.rigs[char];
+    if (!rig) return;
+    rig.rig = { ...rig.rig, animations, reactions, poses };
+    this.scriptVars = () => vars;
+    const a = this.actors.get(char);
+    if (a) { a.autoFx = []; a.auto = null; }
   }
   /** Set by the animation studio's page: it poses actors itself (`studioPose`), so the game's own stepping stays out of the way. */
   studio = false;
@@ -332,7 +415,10 @@ export class PixiRenderer extends StageRenderer {
     if (!a || !r) return false;
     const defs = this.files.rigs[char]?.rig?.parameters;
     // The panel's values with the animation's tracks over them (but not over a slider the animator is holding): the game's evaluation.
+    this.studioValues = panel?.values ?? null;
+    this.autoRuns = name === null; // Animate mode shows the animation under edit alone
     const shown = defs?.length ? displayValues(defs, panel?.values ?? {}, null, t, panel?.hold ?? []) : null;
+    if (shown && name === null) { const layer = this.reactionLayer(a, resolveParams(defs, panel?.values ?? {})); if (layer) Object.assign(shown, layer); }
     if (shown && r.params) for (const [id, v] of Object.entries(r.params(t))) if (!panel?.hold.includes(id) && Object.hasOwn(shown, id)) shown[id] = v;
     const anim = new Map<string, Offset>(); // the animation's own motion and an unkeyed drag; the parameters' go under it
     let o: Offset = NO_OFFSET;
@@ -356,6 +442,7 @@ export class PixiRenderer extends StageRenderer {
   studioRest(char: string) {
     const a = this.actors.get(char);
     if (!a) return;
+    this.autoRuns = false; // pivots belong to the rest pose
     this.poseBody(a, NO_OFFSET);
     this.posePartsOf(a, new Map());
     a.clip = {};
@@ -396,13 +483,18 @@ export class PixiRenderer extends StageRenderer {
   studioPivots(char: string, pivots: Record<string, [number, number]>, bones?: RigData['bones'], parts?: RigData['parts']) {
     const rig = this.files.rigs[char], a = this.actors.get(char);
     if (!rig) return;
-    rig.rig = { ...rig.rig, pivots, ...(bones ? { bones } : {}), ...(parts ? { parts } : {}) };
+    // The studio's `parts` hold bones and pivots only; its mask shapes and clips (studioMasks) go back in so they are not lost.
+    const masks = this.studioMaskSet.get(char);
+    rig.rig = { ...rig.rig, pivots, ...(bones ? { bones } : {}), ...(parts ? { parts: masks ? writeShapes(parts, masks.shapes, masks.clips) : parts } : {}) };
     if (a) { a.key = ''; this.dress(a, a.s); }
   }
   private poseBody(a: Actor, o: Offset) {
     a.body.position.set(o.dx * FX(), o.dy * FX());
     a.body.scale.set(1 + o.sx, 1 + o.sy);
     a.body.angle = o.rot;
+    a.body.alpha = Math.min(1, o.opacity ?? 1); // an animation's opacity key; the script's alpha lives on the node
+    a.body.tint = o.tint ?? 0xffffff; // a transform's tint= and flash= channels, over the sprite's own tint and the focus grey on the node
+    applyFlash(a.node, o.flash);
   }
   /** Stop every animation of an actor, ending one-shots so whoever awaits them goes on. */
   private clearFx(a: Actor) {
@@ -412,13 +504,13 @@ export class PixiRenderer extends StageRenderer {
     this.posePartsOf(a, new Map());
   }
   /** The animation `name` of character `char` (its rig.json one, else a preset) ready to play, or null for an unknown name. */
-  private makeFx(char: string, name: string, dur: number | null, strength: number, loop: boolean, part: string | null = null): Fx | null {
-    const a = resolveAnim(name, this.files.rigs[char]?.rig?.animations);
+  private makeFx(char: string, name: string, dur: number | null, strength: number, loop: boolean, part: string | null = null, def?: AnimDef): Fx | null {
+    const a = resolveAnim(name, { ...this.transforms, ...(def ? { [name]: def } : {}), ...this.files.rigs[char]?.rig?.animations }); // a character's own animation beats a script transform
     if (!a) { this.warnOnce(`${char} has no animation "${name}"`); return null; }
     return { fn: a.fn, parts: a.parts, params: a.params, frames: a.frames, physicsOff: a.physicsOff, part, dur: dur ?? a.dur, strength, loop, elapsed: 0 };
   }
-  private async playFx(a: Actor, char: string, name: string, dur: number | null, strength: number, part: string | null = null): Promise<void> {
-    const fx = this.makeFx(char, name, dur, strength, false, part);
+  private async playFx(a: Actor, char: string, name: string, dur: number | null, strength: number, part: string | null = null, def?: AnimDef): Promise<void> {
+    const fx = this.makeFx(char, name, dur, strength, false, part, def);
     if (fx) await new Promise<void>(done => a.fx.push({ ...fx, done }));
   }
   private tween(seconds: number, update: (k: number) => void): Promise<void> {
@@ -464,14 +556,15 @@ export class PixiRenderer extends StageRenderer {
     if (rig && !rig.flat) {
       const picks = rigLayers(rig, showLooks(s), s.overrides, msg => this.warnOnce(`${s.char}: ${msg}`));
       const dir = `char/${s.char}/`;
-      const deformers = new Map((rig.rig?.deformers ?? []).map(d => [d.part, d] as const));
+      const list = rig.rig?.deformers ?? [], own = new Map(list.filter(d => !isGroupDeformer(d)).map(d => [d.part, d] as const)), grouped = new Map<string, DeformerDef>();
+      for (const d of list) if (isGroupDeformer(d)) for (const m of d.members ?? []) if (!grouped.has(m)) grouped.set(m, d);
       return {
-        key: `rig:${picks.map(p => p.file).join('|')}${[...deformers.values()].map(d => `|w:${d.id}:${deformerGrid(d).join('x')}`).join('')}${(rig.rig?.masks ?? []).map(m => `|m:${m?.id}:${m?.part}`).join('')}`,
+        key: `rig:${picks.map(p => p.file).join('|')}|w:${deformerShape(list)}${maskView(rig.rig).map(m => `|m:${m.id}:${m.part}`).join('')}`,
         // Each layer sits in a container of its part that turns and scales about the part's pivot (see rig.json `pivots`).
         build: () => picks.map(p => {
-          const tex = this.art.get(dir + p.file.replace(IMAGE, '')) ?? Texture.EMPTY, def = deformers.get(p.part);
-          // A part with a deformer is a lattice mesh in place of its sprite; applyWarps shapes it.
-          const sp = def ? this.warpMesh(tex, def) : new Sprite(tex);
+          const tex = this.art.get(dir + p.file.replace(IMAGE, '')) ?? Texture.EMPTY, def = own.get(p.part), group = grouped.get(p.part);
+          // A part with a deformer, or in a group warp, is a lattice mesh in place of its sprite; applyWarps shapes it.
+          const sp = def?.mesh ? this.freeMesh(tex, def.mesh) : def || group ? this.warpMesh(tex, memberMeshGrid(def ? deformerGrid(def) : null, !!group)) : new Sprite(tex);
           const left = p.x - (rig.width ?? 0) / 2, top = p.y - (rig.height ?? 0);
           sp.position.set(left, top);
           const part = new Container();
@@ -485,8 +578,14 @@ export class PixiRenderer extends StageRenderer {
     const { tex, key } = this.spriteTexture(s);
     return { key, build: () => { const sp = new Sprite(tex); sp.anchor.set(0.5, 1); return [sp]; } };
   }
-  private warpMesh(tex: Texture, def: DeformerDef): MeshPlane {
-    const [cols, rows] = deformerGrid(def), mesh = new MeshPlane({ texture: tex, verticesX: cols + 1, verticesY: rows + 1 });
+  /** A part drawn on a free mesh (rig.json `deformers[].mesh`): its stored vertices, UVs over the image box, and its triangles. applyWarps shapes it. */
+  private freeMesh(tex: Texture, m: DeformerMesh): Mesh {
+    const w = Math.max(1, tex.width), h = Math.max(1, tex.height), positions = Float32Array.from(m.verts), uvs = new Float32Array(positions.length);
+    for (let i = 0; i + 1 < uvs.length; i += 2) { uvs[i] = positions[i] / w; uvs[i + 1] = positions[i + 1] / h; }
+    return new Mesh({ geometry: new MeshGeometry({ positions, uvs, indices: Uint32Array.from(m.tris) }), texture: tex });
+  }
+  private warpMesh(tex: Texture, grid: readonly [number, number]): MeshPlane {
+    const [cols, rows] = grid, mesh = new MeshPlane({ texture: tex, verticesX: cols + 1, verticesY: rows + 1 });
     mesh.autoResize = false; // the lattice is ours: a texture update must not rebuild (and so reset) it
     return mesh;
   }
@@ -496,12 +595,25 @@ export class PixiRenderer extends StageRenderer {
    */
   private applyWarps(a: Actor, values: Record<string, number>) {
     a.warpValues = values;
+    for (const g of a.groups.values()) {
+      const key = paramsKey(g.def, values);
+      if (key === g.key) continue;
+      g.key = key;
+      g.disp = evalDeformer(g.def, values);
+    }
     for (const w of a.warps.values()) {
-      const key = paramsKey(w.def, values);
+      // A member is dirty when its own warp's or its group's parameter values changed.
+      const key = `${w.def ? paramsKey(w.def, values) : ''}#${w.group?.key ?? ''}`;
       if (key === w.key) continue;
       w.key = key;
       const buf = w.mesh.geometry.getBuffer('aPosition');
-      applyDisplacement(w.rest, evalDeformer(w.def, values), FX(), FX(), buf.data as Float32Array);
+      if (w.tris) {
+        const gp = w.group;
+        warpFreeMesh(w.rest, w.def ? evalDeformer(w.def, values) : null, gp ? { box: gp.box, sample: (u, v) => sampleLattice(gp.disp, deformerGrid(gp.def), u, v) } : null, w.origin, FX(), buf.data as Float32Array);
+        buf.update();
+        continue;
+      }
+      warpMemberMesh(w.rest, w.grid, w.def ? { grid: deformerGrid(w.def), disp: evalDeformer(w.def, values) } : null, w.group ? { box: w.group.box, grid: deformerGrid(w.group.def), disp: w.group.disp } : null, w.origin, FX(), buf.data as Float32Array);
       buf.update();
     }
     this.applyMasks(a, values);
@@ -546,16 +658,18 @@ export class PixiRenderer extends StageRenderer {
   private buildMasks(a: Actor) {
     a.masks = [];
     a.holders = new Map();
-    const rig = this.files.rigs[a.s.char], raw = rig?.rig?.masks;
-    const list = Array.isArray(raw) ? raw.filter((m): m is MaskDef => !!m && typeof m === 'object' && typeof m.part === 'string') : [];
-    if (!rig || rig.flat || !list.length) return;
-    const names = new Set((rig.parts ?? []).map(partName)), ox = (rig.width ?? 0) / 2, oy = rig.height ?? 0;
-    const art = (name: string) => a.parts.get(name)?.children[0] as Sprite | MeshPlane | undefined;
-    const made = new Map<string, MaskNode>(), hide = new Set<string>();
+    const rig = this.files.rigs[a.s.char];
+    if (!rig || rig.flat) return;
+    const names = new Set((rig.parts ?? []).map(partName)), list = maskView(rig.rig, this.studioChars.has(a.s.char)), { clips } = normalizeMasks(rig.rig); // shape parts and `clip` links; the studio also draws shapes that clip nothing
+    if (!list.length) return;
+    const ox = (rig.width ?? 0) / 2, oy = rig.height ?? 0, deformers = rig.rig?.deformers ?? [];
+    const art =(name: string) => a.parts.get(name)?.children[0] as Sprite | Mesh | undefined;
+    const made = new Map<string, MaskNode>(), hide = new Set<string>(), loose: MaskNode[] = [];
     for (const def of list) {
-      if (!a.parts.has(def.part)) continue; // the clipped part is not drawn: nothing to clip
+      const free = def.part === ''; // a shape that clips nothing (the studio only)
+      if (!free && !a.parts.has(def.part)) continue; // the clipped part is not drawn: nothing to clip
       const frame = def.from ?? (def.on !== undefined && names.has(def.on) ? def.on : null), sp = frame !== null ? art(frame) : undefined;
-      if (frame !== null && !sp) { hide.add(def.part); continue; } // the shape follows a part that is not drawn
+      if (frame !== null && !sp) { if (!free) hide.add(def.part); continue; } // the shape follows a part that is not drawn
       let shapes: Float32Array[], at: [number, number] = [ox, oy];
       if (sp) {
         at = [ox + sp.x, oy + sp.y];
@@ -566,7 +680,11 @@ export class PixiRenderer extends StageRenderer {
         } else shapes = this.polygonShape(def, at);
       } else shapes = this.polygonShape(def, at);
       if (!shapes.length) continue; // a polygon that is no shape (checkRig says why): the part is drawn whole
-      made.set(def.part, { def, g: new Graphics(), shapes, frame, box: sp ? { w: sp.texture.width, h: sp.texture.height } : null, at, key: null, drawn: [] });
+      // A shape listed in a group warp's members bends with that lattice, unless it follows a member of the same group (already in that part's mesh).
+      const shapeName = def.shape ?? (def.polygon ? clips[def.part] : undefined), gd = shapeName !== undefined ? deformers.find(d => isGroupDeformer(d) && d.members?.includes(shapeName)) : undefined;
+      const group = gd && shapeBentByGroup(def.on, gd.members) ? a.groups.get(gd.id) ?? null : null;
+      const node: MaskNode = { def, g: new Graphics(), shapes, frame, box: sp ? { w: sp.texture.width, h: sp.texture.height } : null, at, key: null, drawn: [], group };
+      if (free) { node.g.renderable = false; loose.push(node); } else made.set(def.part, node);
     }
     const placed = new Set<MaskNode>();
     const hang = (n: MaskNode) => {
@@ -579,7 +697,7 @@ export class PixiRenderer extends StageRenderer {
       if (!h) { h = new Container(); a.holders.set(bone, h); a.body.addChild(h); }
       h.addChild(n.g);
     };
-    for (const [part, node] of made) {
+    for (const [part] of made) {
       const chain = maskChain(list, part).slice(0, 2).map(m => made.get(m.part));
       if (chain.some(n => !n)) { hide.add(part); continue; }
       const nodes = chain as MaskNode[];
@@ -588,21 +706,27 @@ export class PixiRenderer extends StageRenderer {
       if (nodes[1]) art(part)!.mask = nodes[1].g;
     }
     for (const part of hide) a.parts.get(part)!.visible = false;
-    for (const n of made.values()) if (placed.has(n)) a.masks.push(n); else n.g.destroy();
+    for (const n of loose) hang(n);
+    for (const n of [...made.values(), ...loose]) if (placed.has(n)) a.masks.push(n); else n.g.destroy();
     if (a.masks.length > MASK_WARN_COUNT) this.warnOnce(`${a.s.char}: ${a.masks.length} masks (more than ${MASK_WARN_COUNT}); each is stencil passes every frame, which has not been measured on weak phones`);
   }
   /** Draw the masks' shapes for the parameter `values`, again only where their own parameters or their frame part's warp changed. */
   private applyMasks(a: Actor, values: Record<string, number>) {
     for (const m of a.masks) {
       const warp = m.frame !== null ? a.warps.get(m.frame) : undefined, kf = m.def.keyforms;
-      const key = `${pointKeyformKey(kf, values)}#${warp?.key ?? ''}`;
+      const key = `${pointKeyformKey(kf, values)}#${warp?.key ?? ''}#${m.group?.key ?? ''}`;
       if (key === m.key) continue;
       m.key = key;
       m.g.clear();
       m.drawn = m.shapes.map(rest => {
         let pts = rest;
         if (m.def.polygon && Array.isArray(kf) && kf.length) pts = applyDisplacement(pts, evalPointKeyforms(kf, rest.length / 2, values), FX(), FX());
-        if (warp && m.box) pts = warpPoints(pts, m.box, deformerGrid(warp.def), warp.mesh.geometry.getBuffer('aPosition').data as Float32Array);
+        const keyed = pts;
+        // The mesh buffer holds the part as drawn (its own warp, then its group's), so the shape bends with both.
+        if (warp?.tris && m.box) pts = warpMeshPoints(pts, warp.rest, warp.mesh.geometry.getBuffer('aPosition').data as Float32Array, warp.tris);
+        else if (warp && m.box) pts = warpPoints(pts, m.box, warp.grid, warp.mesh.geometry.getBuffer('aPosition').data as Float32Array);
+        // A shape that is itself a group member: the lattice is read at its (keyform-moved) canvas position and added on top.
+        if (m.group) pts = bendShapeByGroup(keyed, m.at, { box: m.group.box, grid: deformerGrid(m.group.def), disp: m.group.disp }, FX(), pts);
         m.g.poly(Array.from(pts)).fill(0xffffff);
         return pts;
       });
@@ -610,20 +734,31 @@ export class PixiRenderer extends StageRenderer {
   }
   /** How many stencil masks are on stage now (each is extra draw passes every frame; the debug console's `memory` reports it). */
   override maskCount(): number { let n = 0; for (const a of this.actors.values()) n += a.masks.length; return n; }
+  /** The characters whose shapes the studio edits: every shape is drawn there, also one that clips nothing. */
+  private studioChars = new Set<string>();
+  private studioShapeSig = new Map<string, string>();
+  private studioMaskSet = new Map<string, { shapes: Record<string, ShapeDef>; clips: Record<string, string> }>();
+  /** What decides whether the stencils are built again: the shapes' names, bones, follows and sizes, and the clip links (not the points). */
+  private shapeSig(shapes: Record<string, ShapeDef>, clips: Record<string, string>): string {
+    return JSON.stringify([Object.entries(shapes).map(([k, v]) => [k, v.bone ?? '', v.follow ?? '', v.polygon.length]), Object.entries(clips)]);
+  }
   /**
-   * The studio's working copy of `masks` replaces the character's own. The parts are built again when a mask came, went or changed its
-   * source; when only a polygon's points or keyforms changed, the shapes are just drawn again.
+   * The studio's working copy of the shapes and clips replaces the character's own. The parts are built again
+   * when a shape or a clip came, went or changed its frame; when only a shape's points or keyforms changed, the shapes are just drawn again.
    */
-  studioMasks(char: string, masks: MaskDef[]) {
+  studioMasks(char: string, shapes: Record<string, ShapeDef>, clips: Record<string, string>) {
     const rig = this.files.rigs[char], a = this.actors.get(char);
     if (!rig) return;
-    const shape = (list?: MaskDef[]) => (list ?? []).map(m => `${m?.id}:${m?.part}:${m?.from ?? ''}:${m?.on ?? ''}:${m?.polygon?.length ?? 0}`).sort().join('|');
-    const rebuild = shape(rig.rig?.masks) !== shape(masks);
-    rig.rig = { ...rig.rig, masks };
+    const sig = this.shapeSig(shapes, clips), rebuild = !this.studioChars.has(char) || this.studioShapeSig.get(char) !== sig;
+    this.studioChars.add(char);
+    this.studioShapeSig.set(char, sig);
+    this.studioMaskSet.set(char, { shapes, clips });
+    rig.rig = { ...rig.rig, parts: writeShapes(rig.rig?.parts ?? {}, shapes, clips) };
     if (!a) return;
     if (rebuild) { a.key = ''; this.dress(a, a.s); return; }
+    const list = maskView(rig.rig, true);
     for (const m of a.masks) {
-      const def = masks.find(d => d?.id === m.def.id);
+      const def = list.find(d => d.id === m.def.id);
       if (!def) continue;
       m.def = def;
       if (def.polygon) m.shapes = this.polygonShape(def, m.at);
@@ -683,9 +818,24 @@ export class PixiRenderer extends StageRenderer {
     a.body.addChild(...nodes);
     a.parts = new Map(nodes.filter(c => c.label && !(c instanceof Sprite)).map(c => [c.label, c]));
     a.warps = new Map();
+    a.groups = new Map();
+    const defs = this.files.rigs[s.char]?.rig?.deformers ?? [], rigData = this.files.rigs[s.char];
     for (const [name, c] of a.parts) {
-      const mesh = c.children[0], def = this.files.rigs[s.char]?.rig?.deformers?.find(d => d.part === name);
-      if (mesh instanceof MeshPlane && def) a.warps.set(name, { mesh, def, rest: restLattice(mesh.texture.width, mesh.texture.height, deformerGrid(def)), key: null });
+      const mesh = c.children[0], def = defs.find(d => !isGroupDeformer(d) && d.part === name) ?? null, inGroup = defs.some(d => isGroupDeformer(d) && d.members?.includes(name));
+      if (!(mesh instanceof Mesh) || !(def || inGroup)) continue;
+      const free = def?.mesh ? def.mesh : null, grid: [number, number] = free ? [0, 0] : memberMeshGrid(def ? deformerGrid(def) : null, inGroup);
+      // The mesh sits at the part's box in the actor's space (the canvas shifted to its bottom middle): add that shift back for canvas pixels.
+      a.warps.set(name, { mesh, def, group: null, grid, rest: free ? Float32Array.from(free.verts) : restLattice(mesh.texture.width, mesh.texture.height, grid), tris: free ? Uint32Array.from(free.tris) : null, origin: [mesh.x + (rigData?.width ?? 0) / 2, mesh.y + (rigData?.height ?? 0)], key: null });
+    }
+    // A group warp's box is its own, or the union of its members' image boxes on the canvas; one with no member on stage has nothing to bend.
+    for (const d of defs) {
+      if (!isGroupDeformer(d)) continue;
+      const members = (d.members ?? []).filter(m => a.warps.has(m));
+      const box = d.box ?? unionLatticeBox(members.map(m => { const w = a.warps.get(m)!; return [w.origin[0], w.origin[1], w.mesh.texture.width, w.mesh.texture.height] as const; }));
+      if (!box) continue; // a group of shapes only has an explicit box (checkDeformers); shapes do not widen the default one
+      const g: GroupWarp = { def: d, box: [box[0], box[1], box[2], box[3]], disp: new Float32Array(deformerPoints(d) * 2), key: null, members };
+      a.groups.set(d.id, g);
+      for (const m of members) { const w = a.warps.get(m)!; if (!w.group) w.group = g; }
     }
     this.buildMasks(a);
     this.applyWarps(a, a.warpValues);
@@ -745,23 +895,30 @@ export class PixiRenderer extends StageRenderer {
   }
   /** The topmost part of `char` that has a non-transparent pixel under the stage point; null for none. */
   studioHit(char: string, x: number, y: number): string | null {
-    const a = this.actors.get(char);
-    if (!a) return null;
+    return this.hitWalk(char, x, y, true)[0] ?? null;
+  }
+  /** Every part of `char` with a non-transparent pixel under the stage point, frontmost first (so `studioHit` is its first). */
+  studioHitAll(char: string, x: number, y: number): string[] {
+    return this.hitWalk(char, x, y, false);
+  }
+  private hitWalk(char: string, x: number, y: number, firstOnly: boolean): string[] {
+    const out: string[] = [], a = this.actors.get(char);
+    if (!a) return out;
     const kids = a.body.children, gone = this.hiddenIn(a);
     for (let i = kids.length - 1; i >= 0; i--) {
-      const c = kids[i], sp = c.children[0] as Sprite | MeshPlane | undefined;
+      const c = kids[i], sp = c.children[0] as Sprite | Mesh | undefined;
       if (!sp || !c.label || !a.parts.has(c.label) || !c.visible || gone.has(c.label)) continue;
       let l: { x: number; y: number } | null = sp.toLocal({ x, y });
       const tex = sp.texture, warp = a.warps.get(c.label);
       // A lattice mesh is drawn deformed: the point is looked up on the art it shows there, not on the undeformed box.
-      if (warp && sp instanceof MeshPlane) {
-        const at = unwarpPoint(sp.geometry.getBuffer('aPosition').data as Float32Array, warp.rest, deformerGrid(warp.def), l.x, l.y);
+      if (warp && sp instanceof Mesh) {
+        const pos = sp.geometry.getBuffer('aPosition').data as Float32Array, at = warp.tris ? unwarpMeshPoint(warp.rest, pos, warp.tris, l.x, l.y) : unwarpPoint(pos, warp.rest, warp.grid, l.x, l.y);
         l = at && { x: at[0], y: at[1] };
       }
       if (!l || l.x < 0 || l.y < 0 || l.x >= tex.width || l.y >= tex.height) continue;
-      if (this.alphaAt(tex, l.x, l.y) > 8) return c.label;
+      if (this.alphaAt(tex, l.x, l.y) > 8) { out.push(c.label); if (firstOnly) break; }
     }
-    return null;
+    return out;
   }
   private hitCanvas: HTMLCanvasElement | null = null;
   private alphaAt(tex: Texture, x: number, y: number): number {
@@ -789,16 +946,17 @@ export class PixiRenderer extends StageRenderer {
     a.turn.position.set(o.x, o.y);
     a.body.position.set(-o.x, -o.y);
   }
+  /** The tint of a character: the speaker-focus grey times its own `tint=`. */
+  private paintActor(a: Actor) { a.node.tint = mulRgb(grey(a.lit), a.hue); }
   private makeActor(s: SpriteState, kept?: ChainStates): Actor {
     const node = new Container(), turn = new Container(), body = new Container();
     node.addChild(turn);
     turn.addChild(body);
-    const a: Actor = { node, turn, body, size: null, key: '', fx: [], s, idle: null, talk: null, live: {}, clip: {}, blink: null, speaking: false, talkStart: 0, posed: false, parts: new Map(), partPose: new Map(), params: {}, paramParts: new Map(), warps: new Map(), masks: [], holders: new Map(), warpValues: {}, physics: kept ?? restStates(this.files.rigs[s.char]?.rig?.physics), lit: 1 };
-    if (this.shown) { a.lit = this.focusNow(this.shown).levels.get(s.char) ?? 1; node.tint = grey(a.lit); } // a newcomer starts as lit or dimmed as they will be
-    const data = this.files.rigs[s.char]?.rig, blink = blinkOf(data);
-    if (data?.autonomous?.idle && !this.reduceMotion && this.shown?.behaviors !== false) a.idle = this.makeFx(s.char, data.autonomous.idle, null, 1, true);
-    if (blink && this.shown?.behaviors !== false) a.blink = startBlink(blink.every, Math.random);
-    const loop = s.anim && !this.reduceMotion ? this.makeFx(s.char, s.anim.name, s.anim.dur, s.anim.strength, true, s.anim.part) : null;
+    const a: Actor = { node, turn, body, size: null, key: '', fx: [], s, auto: null, autoFx: [], reaction: startReaction(), live: {}, clip: {}, speaking: false, posed: false, parts: new Map(), partPose: new Map(), params: {}, paramParts: new Map(), warps: new Map(), groups: new Map(), masks: [], holders: new Map(), warpValues: {}, physics: kept ?? restStates(this.files.rigs[s.char]?.rig?.physics), lit: 1, hue: rgbNumber(s.tint) };
+    if (this.shown) a.lit = this.focusNow(this.shown).levels.get(s.char) ?? 1; // a newcomer starts as lit or dimmed as they will be
+    this.paintActor(a);
+    const data = this.files.rigs[s.char]?.rig;
+    const loop = s.anim && !this.reduceMotion ? this.makeFx(s.char, s.anim.name, s.anim.dur, s.anim.strength, true, s.anim.part, s.anim.def) : null;
     if (loop) a.fx.push(loop);
     this.setParams(a, resolveParams(data?.parameters, s.params));
     this.dress(a, s);
@@ -812,7 +970,13 @@ export class PixiRenderer extends StageRenderer {
     // Clear the layer, not just `actors`: a sprite mid-hide is no longer in the map.
     for (const c of this.spriteLayer.removeChildren()) c.destroy({ children: true });
     this.actors.clear();
-    this.pictures.rebuild(state);
+    this.pictures.rebuild(state, this.reduceMotion);
+    // A scene starts with the camera at rest (the state already says so): back to the normal view, and its animations ended.
+    this.syncCameraFx(state);
+    this.setCamera(state.camera ?? { zoom: 1, x: 0.5, y: 0.5 });
+    this.bursts.clear();
+    this.wind = state.wind ?? null; // a scene calms the wind and restores gravity (the state already says so)
+    this.gravity = state.gravity ?? 1;
     for (const s of state.sprites) {
       const a = this.makeActor(s, kept.get(s.char));
       this.actors.set(s.char, a);
@@ -831,15 +995,55 @@ export class PixiRenderer extends StageRenderer {
       .sort((a, b) => a.node.zIndex - b.node.zIndex)
       .map(a => {
         const r = a.node.getBounds();
-        return { char: a.s.char, z: a.node.zIndex, lit: a.lit, tint: a.node.tint, alpha: a.node.alpha, masks: a.masks.length,
+        return { char: a.s.char, z: a.node.zIndex, lit: a.lit, tint: a.node.tint, alpha: a.node.alpha, fxTint: a.body.tint, flashing: Array.isArray(a.node.filters) ? a.node.filters.length : a.node.filters ? 1 : 0, masks: a.masks.length,
           bounds: [r.x, r.y, r.width, r.height].map(Math.round) };
       });
   }
 
+  /** Run the camera's animations a frame and move the view by what they add. */
+  private stepCamera(seconds: number) {
+    this.camFx.stepAutos(seconds, { behaviors: this.shown?.behaviors !== false && this.autoRuns, reduceMotion: this.reduceMotion, vars: this.scriptVars() });
+    const o = this.camFx.step(seconds);
+    if (!o) return;
+    this.camOffset = o;
+    this.setCamera(this.camNow);
+  }
+  /** Start from the camera animations the state has (a load, a rollback, a scene): its loop and its automatic transforms. */
+  private syncCameraFx(state: DisplayState) {
+    this.camFx.clear();
+    this.camOffset = NO_OFFSET;
+    const c = state.camera;
+    if (c?.anim && !this.reduceMotion) this.camFx.start(c.anim.name, c.anim.dur, c.anim.strength, true, undefined, c.anim.def);
+    this.camFx.attach(c?.autos);
+  }
+  private async worldAnimateCamera(op: Extract<WorldOp, { op: 'animate' }>, state: DisplayState): Promise<void> {
+    if (op.auto) { this.camFx.attach(state.camera?.autos); return; }
+    if (op.name === null) {
+      this.camFx.stop();
+      if (!this.camFx.running) { this.camOffset = NO_OFFSET; this.setCamera(this.camNow); }
+      return;
+    }
+    if (this.reduceMotion) return;
+    if (op.loop) { if (!this.camFx.start(op.name, op.dur, op.strength, true, undefined, op.def)) this.warnOnce(`camera has no animation "${op.name}"`); return; }
+    let known = true;
+    await new Promise<void>(done => { known = this.camFx.start(op.name!, op.dur, op.strength, false, done, op.def); if (!known) done(); });
+    if (!known) this.warnOnce(`camera has no animation "${op.name}"`);
+  }
+
   /** Zoom about the point (x, y) of the screen, which stays where it is. */
   private setCamera(c: Camera) {
-    this.world.scale.set(c.zoom);
-    this.world.position.set(c.x * W * (1 - c.zoom), c.y * H * (1 - c.zoom));
+    const o = this.camOffset;
+    const px = c.x * W, py = c.y * H, r = ((c.roll ?? 0) + o.rot) * Math.PI / 180;
+    let z = c.zoom * (1 + o.sx);
+    // Overscan: a roll or a shake at zoom 1 or more would show the stage edge, so zoom in just enough to hide it (a zoomed-out camera shows it on purpose).
+    if (c.zoom >= 1 && (r !== 0 || o.dx !== 0 || o.dy !== 0)) z = Math.max(z, overscanZoom(W, H, px, py, r, o.dx * FX(), o.dy * FX()));
+    const cos = Math.cos(r), sin = Math.sin(r);
+    this.camNow = { zoom: c.zoom, x: c.x, y: c.y, roll: c.roll ?? 0 }; // the view the script set, without what `animate camera` adds
+    this.world.scale.set(z);
+    this.world.rotation = r;
+    // Zoom and turn about the pivot, which stays where it is (at no roll: P * (1 - z)); the animation's shift on top.
+    this.world.position.set(px - z * (cos * px - sin * py) + o.dx * FX(), py - z * (sin * px + cos * py) + o.dy * FX());
+    this.pictures.followCamera(this.world, FX());
   }
   private setTint(t: { color: string; strength: number } | null) {
     if (t) this.tintLayer.tint = t.color;
@@ -851,11 +1055,14 @@ export class PixiRenderer extends StageRenderer {
     this.tweens.clear();
     this.shaker.position.set(0, 0);
     this.flashLayer.alpha = 0;
+    this.syncCameraFx(state);
     this.setCamera(state.camera ?? { zoom: 1, x: 0.5, y: 0.5 });
     this.setTint(state.tint ?? null);
     this.effects.pixelate = null;
     this.effects.setWeather(state.weather ?? null);
     this.effects.setLook(state.filter ?? null);
+    this.wind = state.wind ?? null;
+    this.gravity = state.gravity ?? 1;
     this.fade.alpha = 0;
     this.setBg(state.bg);
     this.shown = state;
@@ -868,7 +1075,7 @@ export class PixiRenderer extends StageRenderer {
     this.shown = state; // `focus on/off` needs nothing more: stepFocus follows it
     if (this.reduceMotion) {
       // Anything that moves or flashes is dropped or shown as its result.
-      if (op.op === 'shake' || op.op === 'hop' || op.op === 'animate' || op.op === 'flash') return;
+      if (op.op === 'shake' || op.op === 'hop' || op.op === 'animate' || op.op === 'flash' || op.op === 'burst') return;
       if (op.op === 'camera') { this.setCamera(state.camera ?? { zoom: 1, x: 0.5, y: 0.5 }); return; }
       if (op.op === 'weather') { this.effects.setWeather(null); return; }
       if (op.op === 'filter') { this.effects.setLook(state.filter ?? null); return; }
@@ -881,14 +1088,17 @@ export class PixiRenderer extends StageRenderer {
       case 'move': return this.worldMove(op, state);
       case 'image': return this.worldImage(op, state, alive);
       case 'shake': return this.worldShake(op);
+      case 'burst': return this.worldBurst(op);
       case 'flash': return this.worldFlash(op);
       case 'tint': return this.worldTint(op);
       case 'camera': return this.worldCamera(op, state);
       case 'weather': return this.worldWeather(op, state, alive);
       case 'filter': return this.worldFilter(op, state, alive);
+      case 'wind': return this.worldWind(op, state, alive);
+      case 'gravity': this.gravity = state.gravity ?? 1; return;
       case 'hop': return this.worldHop(op);
       case 'param': return this.worldParam(op, state);
-      case 'animate': return this.worldAnimate(op);
+      case 'animate': return this.worldAnimate(op, state);
     }
   }
 
@@ -1006,8 +1216,10 @@ export class PixiRenderer extends StageRenderer {
     this.turnAbout(a, s); // the anchor applies from the first frame, like mirroring
     const from = { x: n.x, y: n.y, scale: Math.abs(tn.scale.y), angle: tn.angle, alpha: n.alpha };
     const to = { x: s.x * W, y: H + s.y * H, scale: s.scale, angle: s.rotation, alpha: s.alpha };
+    const hue0 = a.hue, hue1 = rgbNumber(s.tint);
     await this.tween(this.reduceMotion ? 0 : op.dur, t => { // reduced motion: the slide snaps to its end
       const k = ease(t);
+      if (op.tint !== undefined) { a.hue = lerpRgb(hue0, hue1, k); this.paintActor(a); }
       n.position.set(lerp(from.x, to.x, k), lerp(from.y, to.y, k));
       const sc = lerp(from.scale, to.scale, k);
       tn.scale.set(sc * (s.flip ? -1 : 1), sc); // mirroring is not tweened: it applies from the first frame
@@ -1039,8 +1251,10 @@ export class PixiRenderer extends StageRenderer {
     const target = sp, ease = easing(op.ease);
     target.anchor.set(img.anchor[0], img.anchor[1]); // like a character's anchor, applies from the first frame
     const from = { x: target.x, y: target.y, scale: target.scale.x, angle: target.angle, alpha: target.alpha };
+    const hue0 = target.tint, hue1 = rgbNumber(img.tint);
     await this.tween(this.reduceMotion ? 0 : op.dur, t => {
       const k = ease(t);
+      if (op.tint !== undefined) target.tint = lerpRgb(hue0, hue1, k);
       target.position.set(lerp(from.x, img.x, k), lerp(from.y, img.y, k));
       target.scale.set(lerp(from.scale, img.scale, k));
       target.angle = lerp(from.angle, img.rotation, k);
@@ -1060,10 +1274,37 @@ export class PixiRenderer extends StageRenderer {
     return;
   }
 
+  /** A puff of particles at a character (the middle of its body on screen) or at a point of the stage; it does not hold the script up. */
+  private async worldBurst(op: Extract<WorldOp, { op: 'burst' }>): Promise<void> {
+    let x = (op.x ?? 0.5) * W, y = (op.y ?? 0.5) * H;
+    if (op.char !== undefined) {
+      const a = this.actors.get(op.char);
+      if (!a) return;
+      const b = a.node.getBounds(), at = this.world.toLocal({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+      x = at.x; y = at.y;
+    }
+    this.bursts.add(op.kind, x, y, op.count, op.dur);
+  }
+
   private async worldFlash(op: Extract<WorldOp, { op: 'flash' }>): Promise<void> {
+    if (op.char) return this.flashSprite(op.char, rgbNumber(op.color), op.dur);
     this.flashLayer.tint = op.color;
     await this.tween(op.dur, k => { this.flashLayer.alpha = (1 - k) ** 2; });
     return;
+  }
+
+  /** A hit flash: the character or picture mixes to `color` and back, through a color matrix filter that lasts only as long as the flash. */
+  private async flashSprite(name: string, color: number, dur: number): Promise<void> {
+    const target = this.actors.get(name)?.node ?? this.pictures.get(name)?.parent;
+    if (!target) return;
+    const flash = new ColorMatrixFilter(), before = target.filters;
+    target.filters = [...(Array.isArray(before) ? before : before ? [before] : []), flash];
+    try {
+      await this.tween(dur, k => { flash.matrix = flashMatrix(color, (1 - k) ** 2) as ColorMatrix; });
+    } finally {
+      if (!target.destroyed) target.filters = before ? [...(Array.isArray(before) ? before : [before])] : [];
+      flash.destroy();
+    }
   }
 
   private async worldTint(op: Extract<WorldOp, { op: 'tint' }>): Promise<void> {
@@ -1074,13 +1315,12 @@ export class PixiRenderer extends StageRenderer {
   }
 
   private async worldCamera(op: Extract<WorldOp, { op: 'camera' }>, state: DisplayState): Promise<void> {
-    const w = this.world, ease = easing(op.ease);
-    const z0 = w.scale.x, to = op, fix = state.camera ?? { zoom: op.zoom ?? 1, x: op.x, y: op.y };
-    // Interpolate the zoom and the pivot together, so a zoom that also pans moves smoothly.
-    const p0 = cameraPivot(z0, w.x, w.y, W, H, to);
+    const ease = easing(op.ease);
+    const c0 = this.camNow, fix = state.camera ?? { zoom: op.zoom ?? 1, x: op.x ?? 0.5, y: op.y ?? 0.5, roll: op.roll ?? 0 };
+    // Interpolate the zoom, the pivot and the roll together, so a zoom that also pans moves smoothly.
     await this.tween(op.dur, t => {
       const k = ease(t);
-      this.setCamera({ zoom: z0 + (fix.zoom - z0) * k, x: p0.x + (fix.x - p0.x) * k, y: p0.y + (fix.y - p0.y) * k });
+      this.setCamera({ zoom: c0.zoom + (fix.zoom - c0.zoom) * k, x: c0.x + (fix.x - c0.x) * k, y: c0.y + (fix.y - c0.y) * k, roll: c0.roll + ((fix.roll ?? 0) - c0.roll) * k });
     });
     return;
   }
@@ -1108,6 +1348,12 @@ export class PixiRenderer extends StageRenderer {
     return;
   }
 
+  private async worldWind(op: Extract<WorldOp, { op: 'wind' }>, state: DisplayState, alive: () => boolean): Promise<void> {
+    const s0 = this.wind?.strength ?? 0, s1 = op.strength, gusts = op.strength ? op.gusts : this.wind?.gusts ?? 0;
+    await this.tween(op.dur, k => { this.wind = { strength: s0 + (s1 - s0) * k, gusts }; });
+    if (alive()) this.wind = state.wind ?? null;
+  }
+
   private async worldHop(op: Extract<WorldOp, { op: 'hop' }>): Promise<void> {
     const a = this.actors.get(op.char);
     if (!a) return;
@@ -1124,14 +1370,30 @@ export class PixiRenderer extends StageRenderer {
     return;
   }
 
-  private async worldAnimate(op: Extract<WorldOp, { op: 'animate' }>): Promise<void> {
+  /** `animate <image> ...`: a preset on a picture shown with `image show` (a rig's parts and animations do not apply). */
+  private async worldAnimatePicture(op: Extract<WorldOp, { op: 'animate' }>, state: DisplayState): Promise<void> {
+    const sp = this.pictures.get(op.char);
+    if (!sp) return;
+    if (op.auto) { this.pictures.attach(sp, state.images?.find(i => i.name === op.char)?.autos); return; }
+    if (op.name === null) { this.pictures.stop(sp); return; }
+    if (this.reduceMotion) return;
+    if (op.loop) { if (!this.pictures.start(sp, op.name, op.dur, op.strength, true, undefined, op.def)) this.warnOnce(`${op.char} has no animation "${op.name}"`); return; }
+    let known = true;
+    await new Promise<void>(done => { known = this.pictures.start(sp, op.name!, op.dur, op.strength, false, done, op.def); if (!known) done(); });
+    if (!known) this.warnOnce(`${op.char} has no animation "${op.name}"`);
+    return;
+  }
+
+  private async worldAnimate(op: Extract<WorldOp, { op: 'animate' }>, state: DisplayState): Promise<void> {
+    if (op.char === CAMERA_TARGET) return this.worldAnimateCamera(op, state);
     const a = this.actors.get(op.char);
-    if (!a) return;
+    if (!a) return this.worldAnimatePicture(op, state);
+    if (op.auto) return; // attached in the state: the scheduler picks it up on the next frame
     if (op.name === null) { this.clearFx(a); return; }
     if (op.loop) {
-      const fx = this.makeFx(op.char, op.name, op.dur, op.strength, true, op.part);
+      const fx = this.makeFx(op.char, op.name, op.dur, op.strength, true, op.part, op.def);
       if (fx) a.fx = [...a.fx.filter(f => !f.loop), fx]; // a new loop replaces the running one
-    } else await this.playFx(a, op.char, op.name, op.dur, op.strength, op.part);
+    } else await this.playFx(a, op.char, op.name, op.dur, op.strength, op.part, op.def);
     return;
   }
 }

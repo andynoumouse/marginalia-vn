@@ -1,6 +1,6 @@
 # Animation studio: workflows, modes and layout
 
-Status: proposed 2026-11-07, implemented in the same change (see Migration). Not to be confused with
+Status: proposed 2026-11-07, implemented. Not to be confused with
 [studio.md](studio.md), which is Marginalia Studio, the desktop app. "The studio" here is the character studio the editor
 opens over itself (`editor/anim-studio.ts`, stage in `preview/studio.ts`).
 
@@ -70,17 +70,16 @@ the poses become that parameter's keyforms), in Animate *an animation moves the 
 other's data, and the panel says which it is doing: the Parameters section's **Active parameter** block in Model, the timeline's lanes in Animate.
 
 **Parameter first.** Model's keyform authoring works in the order of Cubism: the parameter is picked first (a click on its row; nothing is guessed from the
-control used last or from the chosen part), the parts it moves are picked from the preview or the Parts tree, and each pick binds the part and makes its keys.
-Picking a part with *no* active parameter only selects it, and so does a Shift-click on the stage while one is active. A Ctrl-click (stage or tree row) *adds* the part to the chosen ones, or takes it off: the picks bind each added part, the stage dims all but the chosen set, and one gizmo drag writes the same delta into every chosen part's keyform at the key (`dragForms`, one undo step). An earlier part-first flow (choose a part, then
-the control; a "keyed target" line and a Keyform row in the Parameters section) was built first and has been removed: it had to guess which control a drag meant.
-For a while the parameter-first flow lived in a third mode, Keyforms, beside Model, so the old flow stayed available while the new one was tried; it was folded into Model once it had been.
+control used last or from the chosen part), the parts it moves are bound with **Bind parts…** (a picker in the right column; the stage and the Parts tree only choose), and each bind makes the part's keys.
+The studio has one focus (a parameter, a part, or a keyform: a part at a parameter's value) and a click only chooses; see [studio-focus-and-verbs.md](studio-focus-and-verbs.md).
+A Ctrl-click (stage or tree row) *adds* the part to the chosen ones, or takes it off the stage dims all but the chosen set, and one gizmo drag writes the same delta into every chosen part's keyform at the key (`dragForms`, one undo step).
 Model keeps its other jobs: pivots, bones, looks, physics, "By itself", and the Warp and Mask tools.
 
 | | **Model** | **Animate** |
 |---|---|---|
-| A parameter control | a palette: a click on its name makes it the *active parameter*; ticks mark the chosen part's keys (filled: posed, dim: at rest); its key button adds or removes a key of the chosen part at the value (a pad has none: its corners are the keys) | moves the value at the playhead, and its key button writes a key on the timeline |
-| Picking a part (stage click, tree tick) | with an active parameter, **binds** the part to it and makes its keys at rest (slider: min, default, max; pad: a 2 × 2, 3 × 3 or 5 × 5 grid); a part bound already is only chosen. With none, or with Shift held, only chooses | chooses it |
-| A gizmo drag (W, E, R) | writes the keyform of the **active** parameter at its value (the pad's grid corner nearest the dot, binding the part first if need be), one undo step; the pivot is the Pivot tool's (Q) | writes a key at the playhead (Auto-key), or previews until Key |
+| A parameter control | a palette: a click on its name makes it the *active parameter* (paired with the chosen part when it moves it); marks on the track show the chosen part's keys (filled: posed, dim: at rest); its key button adds or removes a key of the chosen part at the value (a pad has none: its corners are the keys) | moves the value at the playhead, and its key button writes a key on the timeline |
+| Picking a part (stage click, tree row) | **chooses** it (a part the active parameter moves stays paired with it; any other replaces the parameter in focus). Binding is **Bind parts…**, a picker in the right column that binds the ticked parts and makes its keys at rest (slider: min, default, max; pad: a 2 × 2, 3 × 3 or 5 × 5 grid) | chooses it |
+| A gizmo drag (W, E, R) | writes the keyform of the **active** parameter at its value (the pad's grid corner nearest the dot), one undo step, for a part that is bound to it; a part that is not, or no parameter in focus, writes nothing and says what to do; the pivot is the Pivot tool's (Q) | writes a key at the playhead (Auto-key), or previews until Key |
 | Stage shows | the model at the parameter values (the defaults until a slider moves), pivot crosses and the skeleton | the animation at the playhead, with the parameters and the physics |
 | Timeline, animation picker | none | yes |
 | Writes to | `parameters`, `pads`, `keyforms`, `pivots`, `bones`, `parts`, `looks`, `physics`, `autonomous`, `poses`, `deformers`, `masks` | `animations` (and `poses`) |
@@ -191,8 +190,8 @@ drawn. Defaults in bold.
 | **Poses** | all (closed until opened; left column above Parameters) | the pose picker with Use pose and ✕ (delete), a name field with Save as pose, Reset all and, in Animate, Key changed; the summary counts the poses |
 | Frames | Animate | the frame track of a slot (was the Frames tab) |
 | Place in scene | Animate | x, y, scale, flip, anchor, the `show` line, Copy, Insert (was the Stage tab) |
-| Warp | Model | the mesh warp of the chosen part: add / remove, lattice size, the parameter and its keys, point fields, reset, mirror, smooth, presets. Closed until the Warp tool is chosen. |
-| Mask | Model | the clip of the chosen part: nothing / the shape of another part / a drawn shape, what a drawn shape follows, its points by number, add and remove a point, the problems of the mask. The stage outlines the mask of the chosen part. Closed until the Mask tool is chosen. |
+| Warp | Model | the mesh warp of the chosen part, or the group warp over several parts it is in (target choice, members, Add group warp from a bone): add / remove, lattice size, the parameter and its keys, point fields, multi-select (rectangle, Shift-click, rows / columns, soft falloff), reset, scale / rotate, mirror, smooth, presets. Closed until the Warp tool is chosen. |
+| Mask | Model | a part row: what it is clipped to (nothing / a shape / another part) and **New shape**; a shape row: its name (rename), **Delete shape**, the bone it sits on, the part it follows, the parts it clips, its points by number, add and remove a point, the problems of the mask, and a note with a button when a group warp bends a clipped part but not its shape. The stage outlines the chosen shape (the shape of a chosen part). Closed until the Mask tool is chosen. |
 | Physics | Model | the chains, presets, Shake (was the Physics tab) |
 | By itself | Model | idle, talking, blink, and the mouth and blink fields (was the Character tab) |
 
@@ -201,19 +200,21 @@ rig (no parameters, no frames) shows the section header with "none" and a line s
 
 ### Where the next panels go
 
-- **Keyform editing, parameter first** (Model), built, in the order of Live2D Cubism: the parameter is picked first and decides, the parts follow. No section of
+- **Keyform editing, parameter first** (Model), built, in the order of Live2D Cubism: the parameter decides, the parts follow. No section of
   its own: it is the Parameters section's second job, *binding*. All sliders and pads are in that one palette (viewed, created, renamed, re-ranged and deleted
   there, as in Model). A click on a name makes the row the **active parameter** (highlighted; nothing is guessed from the control used last or from the chosen part).
-  Under the list a block holds, in the order of the work: the **Active parameter** and what it spans; the **Bound parts** list (each a button that chooses the
-  part, with its kind (pose, warp or mask), how many keys it has and how many are posed, and a ✕ that unbinds it); **Bind** and, for a pad, the grid size (2 × 2, 3 × 3, 5 × 5);
-  the **Keys** of the chosen part on a slider (click one to put the slider there; **Add key here** / **Remove this key**); the **Pose** fields stored at the slider's value;
-  and **Moved by**, the reverse lookup (the parameters and pads that move the chosen part, each a button that makes that one active). **Picking** a part binds it and
-  makes its keys at once, all at rest: a click on the stage (the tool says what it binds: a pose with Move, Rotate or Scale, a lattice with Warp, a drawn mask with Mask) or
-  the **tick** on its row in the Parts tree (a checkbox beside the row: the row itself only chooses). **Posing** is the gizmo (W, E, R) or the Warp tool at a key, which
-  writes into that key; a drag on a part that is not bound yet binds it first. Why a block under the list rather than a section of its own: it is the properties
-  of the one active row, so it stays next to the list it belongs to; the list scrolls inside its own box (40 % of the window height) so the block stays in view. Why a tick in
-  the tree and not a button per row: the tree is a flat list of rows with nothing else on them, and binding is a property of a row, as the bone fold arrow is. The Warp section
-  has no slider and no parameter choice of its own here: its keys are the active parameter's, so every slider is in the one palette.
+  The studio has **one focus**: a parameter, a part, or a part at a parameter's value (a *keyform*). The block, now the first thing in the right column in Model, starts with a
+  **breadcrumb** (`spine › wave @ 1 · key`; each word a button that goes up one level), then, in the order of the work: the **Active parameter** and what it spans; the
+  **Bound parts** list (each a button that chooses the part, with its kind (pose, warp or mask), how many keys it has and how many are posed, and a ✕ that unbinds it);
+  **Bind parts…** and, for a pad, the grid size (2 × 2, 3 × 3, 5 × 5); the **Keys** of the chosen part on a slider (click one to put the slider there, or step with ‹ ›;
+  **Add key here** / **Remove this key**); the **Pose** fields stored at the slider's value; **Copy keys**; and **Moved by**, the reverse lookup (the parameters and pads that
+  move the chosen part, each a button that pairs it with the part), with **Bind to parameter…**. **Binding** is a verb that asks for its target afterwards, in a picker that opens inside this block (a filterable checklist; the left lists and the stage never answer a verb):
+  **Bind parts…** lists the parts not yet bound to the active parameter (a checkbox adds what hangs on a ticked bone) and **Bind to parameter…** the parameters the chosen part is not bound to; Esc or Cancel closes it. Each bind makes the keys at once, all at rest (the tool says what it binds: a
+  pose with Move, Rotate or Scale, a lattice with Warp, a shape's points with Mask). The tree's mark beside a row is a display of what is bound to the active parameter.
+  **Posing** is the gizmo (W, E, R) or the Warp tool at a key, which writes into that key; it writes only into a keyform (a drag at a value with no key adds the key), and a part that is not
+  bound, or has no parameter in focus, gets a note saying what to do. Why a block at the top of the right column rather than a section of its own: it is the properties of the focus,
+  and the palette stays a clean control surface. The Warp section has no slider and no parameter choice of its own here: its keys are the active parameter's, so every slider is in the one palette.
+  See [animation-studio-parameters.md](animation-studio-parameters.md), Model mode, as built, and [studio-focus-and-verbs.md](studio-focus-and-verbs.md).
   See [animation-studio-parameters.md](animation-studio-parameters.md), Model mode, as built.
 - **Parameters and pads** (Model), built: **New parameter**, **New pad** and a ✎ fold-out under each control (name, group, min, max, default, ease;
   a pad's two parameters), so a rig can be authored without editing JSON.
@@ -222,8 +223,12 @@ rig (no parameters, no frames) shows the section header with "none" and a line s
   smooth, presets; see [mesh-warp.md](mesh-warp.md)). A section rather than a block inside Selection, because Selection in
   Model mode already carries the pivot and bone controls, and the warp has as many controls again. Mesh points are keyform
   targets exactly like a bone's transform.
-- **Masks** (built): the same pattern as Warp, a tool beside it (**M**, the points of a drawn shape as handles on the stage) and a Mask section of its own after Warp, closed
-  until the tool is chosen; the chosen part's mask is outlined on the stage in Model mode whichever tool is on. A section rather than a block in Selection, for the
+- **Masks** (built): the same pattern as Warp, a tool beside it (**M**, the points of the chosen shape as handles on the stage, every other shape outlined, a click near an
+  outline picks that shape) and a Mask section of its own after Warp, closed
+  until the tool is chosen; the chosen shape (or the shape of the chosen part) is outlined on the stage in Model mode whichever tool is on. **Tree rows.** A mask shape is
+  a part without an image, so it has a row of its own under a **Shapes** heading, after the parts and before the bones: a dashed diamond for the thumbnail, a *shape* badge, the
+  bone it sits on and the parts it clips as muted text; no eye (nothing of it is drawn), no keys mark (it is not animated), a bind mark only while the Mask tool is on (a
+  shape's points are keyed). The row is chosen like any other (click, Ctrl-click to add it to the chosen rows, Up / Down), in Model mode only. A section rather than a block in Selection, for the
   reason Warp's is one (see [animation-studio-parameters.md](animation-studio-parameters.md), Masks, as built).
 - **Presets**: a preset picker in the section header it belongs to (physics presets in Physics, pose presets in Parameters).
 - **Curve editor**: a Dope sheet | Curves switch on the transport row.
@@ -323,32 +328,13 @@ vertically, as it does today, but what is above the fold is the picker, the stag
 - Open and closed sections, the Parts block included: stored in `localStorage` under `vn.editor.studioLayout` (guarded; the studio works without it). The rules (modes, sections, defaults, reading a stored layout) are pure functions in `engine/src/studio-layout.ts`.
 - Working copy, undo, Apply: unchanged.
 
-## Migration
-
-Done in one change, in steps that each keep `npm test` green (as built; the Model-mode preview needed one stage-page change: `studioPose` takes a null animation name and poses the character from its parameters, keyforms and physics alone):
-
-1. This document.
-2. Rename the mode `rig` to `model` (type, entry points, sidebar button and menu, tests) and reorder the switch.
-3. Three-column frame: header with the switch, left column (picker and tree), centre (tool row, stage, transport,
-   timeline), right column of sections replacing the tabs; the status line takes the key hint.
-4. The tree's per-row controls move to the Selection section; `Lanes of` goes; the number fields leave the tool row.
-5. Model mode gets Parameters and Physics (the stage page poses the model at the parameter values and steps the chains
-   in rest mode too), Animate keeps Frames and Place.
-6. Narrow layout, stored section state, tests (browser tests updated for the new structure: mode switch order, the
-   picker, sections instead of tabs, the tree's selection details), docs (`rig-json.md`, `art-pipeline.md`, README if it
-   names the toggle), TODO.
-
-Tests that asserted tab order or tab visibility are rewritten for sections, deliberately: what they protect (a control
-exists in the mode that needs it, focus starts inside, the studio fits 1280 x 720 without scrolling, keyboard reaches
-everything) stays.
-
 ## Open questions
 
 - Whether Looks deserve their own section once there are more than a handful (the select scales; chips did not).
 - Whether the timeline should become collapsible to its transport row, for a stage-only review of an animation.
-- Model now opens on the Move tool, not Pivot (decided with the fold of Keyforms into Model): with Pivot on, a click on the stage moves the chosen part's pivot, which would
+- Model opens on the Move tool, not Pivot: with Pivot on, a click on the stage moves the chosen part's pivot, which would
   fight picking parts to bind. The Pivot tool (Q, or Pick on stage) is one click away; whether setting a rig up deserves a first-run nudge toward pivots is open.
-- Whether a stage click should bind at once, as built (the tool says what a pick binds; Shift-click, the ✕ and Ctrl+Z are the way back), or whether picking and binding should be
-  separate, with a Bind button or a toggle instead of a modifier key.
+- Decided 2026-11-07: binding is a verb that asks for its target (**Bind parts…**, **Bind to parameter…**); a click only chooses, and the studio has one focus
+  (see [studio-focus-and-verbs.md](studio-focus-and-verbs.md)).
 - Keyform authoring's undo granularity is decided: one gizmo drag is one keyform written and one undo step; a field edit, a key / unkey and a
   parameter edit are one step each.

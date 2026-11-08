@@ -5,7 +5,7 @@
 // carries out what is pressed (`BindHost`); this only draws. Order of the work, top to bottom: bound parts, keys of the chosen part,
 // its pose, what moves it.
 
-import { EASE_NAMES, PAD_SIZES, type BindKind, type FullForm, type FormValue, type PadSize } from '../engine/src/index.js';
+import { EASE_NAMES, PAD_SIZES, type Breadcrumb, type BindKind, type FullForm, type FormValue, type PadSize, type PickVerb } from '../engine/src/index.js';
 import { el } from './anim-dom.js';
 
 export type FormField = keyof FormValue;
@@ -18,8 +18,11 @@ export interface BindView {
   /** The chosen part or bone, null for none. */
   chosen: string | null;
   bound: BindRow[];
-  /** Pressing "Bind" would bind the chosen part now (it is not bound to the active parameter yet, and can be). */
-  canBind: boolean;
+  /** The focus in words: the part, the parameter and the value, each word that can be a way up a button. */
+  crumb: Breadcrumb;
+  /** The neighbouring keys of the chosen part either side of the slider's value (null: none, or not a slider). */
+  prevKey: number | null;
+  nextKey: number | null;
   /** What a slider key does for the chosen part at the slider's value: add one, remove the one there, or nothing (the default key stays). Null for a pad or while not bound. */
   keyAction: 'add' | 'remove' | 'default' | null;
   keys: BindKeyButton[];
@@ -32,13 +35,21 @@ export interface BindView {
   hint: string;
 }
 
+export type BindVerb = Extract<PickVerb, 'bindParts' | 'bindToParam'>;
+export interface PickItem { id: string; label: string; note?: string }
+
 export interface BindHost {
   view(): BindView;
   /** A row of the bound list was chosen: the studio chooses that part (and the tool that edits its kind). */
   focus(target: string, kind: BindKind): void;
   unbind(target: string, kind: BindKind): void;
-  bindChosen(): void;
+  /** What the picker of a verb offers (parts not bound to the parameter yet, or parameters the chosen part is not bound to). */
+  candidates(verb: BindVerb): PickItem[];
+  /** The picker's button was pressed with these ids ticked; `subtree`: a ticked bone takes the bones below it and their parts along. */
+  commit(verb: BindVerb, ids: string[], subtree: boolean): void;
   setSize(size: PadSize): void;
+  /** A word of the breadcrumb was pressed: go up to the part alone or to the parameter alone. */
+  goUp(to: 'part' | 'param'): void;
   /** The slider goes to the key at `at` (clicking a key). */
   jump(at: number): void;
   keyHere(): void;
@@ -70,6 +81,8 @@ const KIND_TITLE: Record<BindKind, string> = {
 
 export class BindPanel {
   private drawn: Record<string, string> = {};
+  private prev: number | null = null;
+  private next: number | null = null;
   private head: HTMLElement;
   private hint: HTMLElement;
   private list: HTMLElement;
@@ -83,15 +96,30 @@ export class BindPanel {
   private affect: HTMLElement;
   private sizeSel: HTMLSelectElement;
   private bindBtn: HTMLButtonElement;
+  private bindToBtn: HTMLButtonElement;
+  private crumbEl: HTMLElement;
+  private prevBtn: HTMLButtonElement;
+  private nextBtn: HTMLButtonElement;
+  private picker: HTMLElement;
+  private open: { verb: BindVerb; sig: string } | null = null;
+  private ticked = new Set<string>();
 
   constructor(private root: HTMLElement, private host: BindHost) {
     this.root.innerHTML = `
+      <div class="ab-crumb" role="group" aria-label="What is in focus"></div>
       <div class="ab-head"><span class="as-pivot-name">Active parameter</span><strong class="ab-name"></strong><span class="ab-span as-pivot-hint"></span></div>
       <p class="as-pivot-hint ab-hint"></p>
       <div class="ab-bound"><h4 class="ab-h">Bound parts</h4><ul class="ab-list"></ul></div>
       <div class="ab-bindrow"><button type="button" class="ab-bind"></button>
         <label class="ab-size">Grid on a pad <select aria-label="Grid of a pad's keys when a part is bound to it">${PAD_SIZES.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label></div>
-      <div class="ab-keys"><span class="as-pivot-name">Keys</span><span class="ab-keybtns" role="group" aria-label="Keys of the chosen part: click one to put the slider there"></span>
+      <div class="ab-picker" role="dialog" aria-label="Choose what to bind" hidden>
+        <div class="ab-pickhead"><strong class="ab-picktitle"></strong><button type="button" class="ab-pickx" aria-label="Close the picker" title="Close (Esc)">✕</button></div>
+        <input type="search" class="ab-pickfilter" placeholder="Filter" aria-label="Filter the list">
+        <ul class="ab-picklist"></ul>
+        <label class="ab-picksub" title="A ticked bone also takes the bones below it and their parts"><input type="checkbox" class="ab-picksubbox"> and what hangs on a ticked bone</label>
+        <div class="ab-pickbtns"><button type="button" class="ab-pickgo"></button><button type="button" class="ab-pickcancel">Cancel</button></div>
+      </div>
+      <div class="ab-keys"><span class="as-pivot-name">Keys</span><button type="button" class="ab-prev" aria-label="Previous key" title="Put the slider on the key before">‹</button><span class="ab-keybtns" role="group" aria-label="Keys of the chosen part: click one to put the slider there"></span><button type="button" class="ab-next" aria-label="Next key" title="Put the slider on the key after">›</button>
         <button type="button" class="ab-keyhere"></button></div>
       <div class="ab-form"><span class="as-pivot-name">Pose</span><span class="ab-formtext"></span>
         ${FORM_INPUTS.map(f => `<label title="${f.title}">${f.label} <input type="number" data-bf="${f.field}" step="${f.step}"${f.field === 'opacity' ? ' min="0"' : ''}></label>`).join('')}
@@ -101,7 +129,8 @@ export class BindPanel {
         <select class="ab-copyfrom" aria-label="Part whose keys the chosen part takes over"></select>
         <label title="Flip the poses sideways (x and rotation change sign) and the parameter's range end for end, as for the left and right of a face"><input type="checkbox" class="ab-mirror"> mirror</label>
         <button type="button" class="ab-copybtn" title="Replace the chosen part's keys on this parameter with the picked ones (a part on another parameter too, mapped min to min and max to max)">Copy</button></div>
-      <div class="ab-affect"><span class="as-pivot-name">Moved by</span><span class="ab-affbtns" role="group" aria-label="Parameters that move the chosen part: click one to make it the active parameter"></span></div>`;
+      <div class="ab-affect"><span class="as-pivot-name">Moved by</span><span class="ab-affbtns" role="group" aria-label="Parameters that move the chosen part: click one to make it the active parameter"></span>
+        <button type="button" class="ab-bindto"></button></div>`;
     const q = <T extends Element>(s: string) => this.root.querySelector<T>(s)!;
     this.head = q('.ab-head');
     this.hint = q('.ab-hint');
@@ -116,7 +145,26 @@ export class BindPanel {
     this.formText = q('.ab-formtext');
     this.affect = q('.ab-affbtns');
     this.inputs = Object.fromEntries(FORM_INPUTS.map(f => [f.field, q<HTMLInputElement>(`[data-bf="${f.field}"]`)]));
-    this.bindBtn.addEventListener('click', () => this.host.bindChosen());
+    this.picker = q('.ab-picker');
+    this.bindBtn.addEventListener('click', () => this.toggle('bindParts'));
+    this.bindToBtn = q<HTMLButtonElement>('.ab-bindto');
+    this.crumbEl = q('.ab-crumb');
+    this.prevBtn = q<HTMLButtonElement>('.ab-prev');
+    this.nextBtn = q<HTMLButtonElement>('.ab-next');
+    this.prevBtn.addEventListener('click', () => { if (this.prev !== null) this.host.jump(this.prev); });
+    this.nextBtn.addEventListener('click', () => { if (this.next !== null) this.host.jump(this.next); });
+    this.bindToBtn.addEventListener('click', () => this.toggle('bindToParam'));
+    q('.ab-pickx').addEventListener('click', () => this.close());
+    q('.ab-pickcancel').addEventListener('click', () => this.close());
+    q('.ab-pickgo').addEventListener('click', () => {
+      const verb = this.open?.verb, ids = [...this.ticked];
+      if (!verb || !ids.length) return;
+      const subtree = q<HTMLInputElement>('.ab-picksubbox').checked;
+      this.close();
+      this.host.commit(verb, ids, subtree);
+    });
+    q<HTMLInputElement>('.ab-pickfilter').addEventListener('input', () => this.drawList());
+    this.picker.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
     this.sizeSel.addEventListener('change', () => this.host.setSize(Number(this.sizeSel.value) as PadSize));
     this.keyHere.addEventListener('click', () => this.host.keyHere());
     for (const f of FORM_INPUTS) this.inputs[f.field].addEventListener('change', () => {
@@ -134,9 +182,29 @@ export class BindPanel {
   /** Draw again from the studio's state. A part of the block whose content did not change is left as it is, so a focused button keeps focus. */
   show() {
     const v = this.host.view(), act = v.active;
+    if (this.open && this.open.sig !== this.sigOf(this.open.verb, v)) this.close(); // the picker belongs to the focus it was opened for
     this.head.querySelector<HTMLElement>('.ab-name')!.textContent = act ? act.name : 'none';
     this.head.querySelector<HTMLElement>('.ab-span')!.textContent = act ? act.span : '';
     this.hint.textContent = v.hint;
+    this.redraw('crumb', v.crumb, () => {
+      const parts: (Node | string)[] = [];
+      v.crumb.crumbs.forEach((c, i) => {
+        if (i) parts.push(i === v.crumb.crumbs.length - 1 && !c.up ? ' ' : ' › '); // the value (the last word, not a button) follows its parameter without an arrow
+        if (c.up) {
+          const b = el('button', { type: 'button', className: 'ab-crumbbtn', textContent: c.text, title: c.up === 'part' ? `Go up to ${c.text} alone` : `Go up to ${c.text} alone, with the parts it moves` });
+          const up = c.up;
+          b.addEventListener('click', () => this.host.goUp(up));
+          parts.push(b);
+        } else parts.push(el('span', { className: 'ab-crumbword', textContent: c.text }));
+      });
+      if (v.crumb.status) parts.push(el('span', { className: 'as-muted ab-crumbstatus', textContent: ` · ${v.crumb.status}` }));
+      this.crumbEl.replaceChildren(...parts);
+    });
+    this.crumbEl.hidden = !v.crumb.crumbs.length;
+    this.prev = v.prevKey;
+    this.next = v.nextKey;
+    this.prevBtn.disabled = v.prevKey === null;
+    this.nextBtn.disabled = v.nextKey === null;
     this.redraw('list', [v.bound, v.chosen, act?.control], () => {
       this.list.replaceChildren(...v.bound.map(b => {
         const pick = el('button', { type: 'button', className: 'ab-part' },
@@ -154,11 +222,16 @@ export class BindPanel {
     });
     this.root.querySelector<HTMLElement>('.ab-h')!.textContent = act ? `Bound parts (${v.bound.length})` : 'Bound parts';
     this.root.querySelector<HTMLElement>('.ab-bound')!.hidden = !act;
-    this.bindRow.hidden = !act || (!v.canBind && !act.pad);
-    this.bindBtn.hidden = !v.chosen || !v.canBind;
-    this.bindBtn.textContent = v.chosen ? `Bind ${v.chosen}` : 'Bind';
-    this.bindBtn.disabled = !v.canBind;
-    this.bindBtn.title = v.chosen ? (v.canBind ? `Bind ${v.chosen} to ${act?.name}: keys at its minimum, default and maximum, all at rest` : `${v.chosen} is bound to ${act?.name}, or cannot be (a warp or a mask must exist first)`) : '';
+    this.bindRow.hidden = !act;
+    const binding = this.open?.verb === 'bindParts';
+    this.bindBtn.textContent = 'Bind parts…';
+    this.bindBtn.setAttribute('aria-pressed', String(binding));
+    this.bindBtn.title = `Choose from a list the parts ${act?.name ?? 'the parameter'} moves: each is bound at once, keys at its minimum, default and maximum, all at rest`;
+    const bindingTo = this.open?.verb === 'bindToParam';
+    this.bindToBtn.hidden = !v.chosen;
+    this.bindToBtn.textContent = 'Bind to parameter…';
+    this.bindToBtn.setAttribute('aria-pressed', String(bindingTo));
+    this.bindToBtn.title = `Choose from a list the parameters ${v.chosen ?? 'the chosen part'} is bound to`;
     this.sizeSel.value = String(v.size);
     this.root.querySelector<HTMLElement>('.ab-size')!.hidden = !act?.pad;
     // The keys of the chosen part on a slider: one button each, the one the slider is on pressed.
@@ -202,6 +275,52 @@ export class BindPanel {
         return b;
       }) : [el('span', { className: 'as-muted', textContent: `nothing yet: ${v.chosen} is not bound to a parameter` })]));
     });
+  }
+
+  private sigOf(verb: BindVerb, v: BindView): string { return verb === 'bindParts' ? `${v.active?.control ?? ''}` : `${v.chosen ?? ''}`; }
+  private toggle(verb: BindVerb) {
+    if (this.open?.verb === verb) { this.close(); return; }
+    const v = this.host.view();
+    this.open = { verb, sig: this.sigOf(verb, v) };
+    this.ticked.clear();
+    const q = <T extends Element>(s: string) => this.picker.querySelector<T>(s)!;
+    q('.ab-picktitle').textContent = verb === 'bindParts' ? `Bind parts to ${v.active?.name ?? 'the parameter'}` : `Bind ${v.chosen ?? 'the chosen part'} to a parameter`;
+    q<HTMLInputElement>('.ab-pickfilter').value = '';
+    q<HTMLInputElement>('.ab-picksubbox').checked = false;
+    q<HTMLElement>('.ab-picksub').hidden = verb !== 'bindParts';
+    this.picker.hidden = false;
+    this.drawList();
+    q<HTMLInputElement>('.ab-pickfilter').focus();
+    this.show();
+  }
+  private close() {
+    if (!this.open) return;
+    const verb = this.open.verb;
+    this.open = null;
+    this.picker.hidden = true;
+    this.show();
+    (verb === 'bindParts' ? this.bindBtn : this.bindToBtn).focus();
+  }
+  private drawList() {
+    const open = this.open;
+    if (!open) return;
+    const q = <T extends Element>(s: string) => this.picker.querySelector<T>(s)!;
+    const f = q<HTMLInputElement>('.ab-pickfilter').value.trim().toLowerCase();
+    const items = this.host.candidates(open.verb).filter(i => !f || i.label.toLowerCase().includes(f));
+    const go = q<HTMLButtonElement>('.ab-pickgo');
+    const count = () => { go.textContent = this.ticked.size ? `Bind ${this.ticked.size}` : 'Bind'; go.disabled = !this.ticked.size; };
+    q('.ab-picklist').replaceChildren(...(items.length ? items.map(i => {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = this.ticked.has(i.id);
+      box.addEventListener('change', () => { if (box.checked) this.ticked.add(i.id); else this.ticked.delete(i.id); count(); });
+      const label = document.createElement('label'), li = document.createElement('li');
+      label.append(box, el('span', { textContent: i.label }));
+      if (i.note) label.append(el('span', { className: 'as-muted', textContent: i.note }));
+      li.append(label);
+      return li;
+    }) : [Object.assign(el('li'), { className: 'as-muted', textContent: f ? 'Nothing matches.' : open.verb === 'bindParts' ? 'Every part is bound already.' : 'No parameter is left to bind to.' })]));
+    count();
   }
 
   private redraw(part: string, sig: unknown, draw: () => void) {

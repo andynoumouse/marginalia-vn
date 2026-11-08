@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { themeCss, themeStylesheet, isCssColor, resolveTheme, projectFromListing, projectTextFiles, checkGame, renameAssetRefs, newProjectFiles } from '../../dist/engine/src/index.js';
 
+const fromFile = theme => resolveTheme('t', { t: theme });
+
 test('theme css: skins, fonts, 9-slice frames; unsafe values are dropped', () => {
   const css = themeCss({
     accent: '#5fd1c3',
@@ -59,7 +61,8 @@ test('theme files: a name picks themes/<name>.json, extends is followed, layered
   assert.match(warns.pop(), /extends itself/);
   assert.deepEqual(resolveTheme('nope', files, warn), {});
   assert.match(warns.pop(), /No theme "nope"/);
-  assert.deepEqual(resolveTheme({ accent: '#fff' }, files, warn), { accent: '#fff' }, 'the inline form still works');
+  assert.deepEqual(resolveTheme({ accent: '#fff' }, files, warn), {}, 'an inline object is not a theme name');
+  assert.match(warns.pop(), /needs the name of a theme file/);
   assert.deepEqual(resolveTheme(undefined, files, warn), {});
   assert.deepEqual(resolveTheme('toString', files, warn), {}, 'prototype names are not themes');
 });
@@ -124,9 +127,9 @@ test('theme checks: bad colors and missing ui images are reported; asset renames
   const msgs = checkGame({ theme: { accent: 'tealish', textbox: { image: 'gone', background: 'url(x)' }, skins: { a: { namebox: { border: 'blu' } } } } },
     { files: ['ui/box.png'], rigs: {}, blips: [], skins: ['a'] }, '').map(d => d.message);
   assert.equal(msgs.filter(m => /theme\./.test(m)).length, 4, msgs.join('\n'));
-  const text = '{"extends":"base","components":{"textbox":{"image":"box"}},"styles":{"a":{"textbox":{"image":"box"}}},"textbox":{"image":"box"},"tokens":{"font":"box"}}';
+  const text = '{"extends":"base","components":{"textbox":{"image":"box"}},"styles":{"a":{"textbox":{"image":"box"}}},"tokens":{"font":"box"}}';
   const res = renameAssetRefs([{ name: 'themes/night.json', text }], 'assets/ui/box.png', 'assets/ui/frame.png');
-  assert.equal(res.edits.length, 3);
+  assert.equal(res.edits.length, 2);
   assert.ok(res.edits.every(e => e.text === 'frame'));
 });
 
@@ -137,7 +140,7 @@ test('a new project gets themes/default.json and names it in game.json', () => {
 });
 
 test('theme components: tokens and button/panel/tab/toast looks with variants and states', () => {
-  const theme = resolveTheme({
+  const theme = fromFile({
     tokens: { accent: '#e0a050', surface: '#201810', danger: 'nope', text: 'red; } x {' },
     components: {
       button: { radius: 2, hover: { border: '#fff' }, disabled: { opacity: 0.2 } },
@@ -160,13 +163,13 @@ test('theme components: tokens and button/panel/tab/toast looks with variants an
 });
 
 test('theme components: field and quickmenu', () => {
-  const css = themeCss(resolveTheme({ components: { field: { border: '#fff' }, quickmenu: { selected: { color: '#f00' } } } }, {}));
+  const css = themeCss(fromFile({ components: { field: { border: '#fff' }, quickmenu: { selected: { color: '#f00' } } } }, {}));
   assert.match(css, /#stage #menu input, #stage \.save-name input \{ border-color: #fff; \}/);
   assert.match(css, /#stage #quickui \.sc-btn\[aria-pressed="true"\] \{ color: #f00; \}/);
 });
 
 test('theme components: slider, title and choice states', () => {
-  const css = themeCss(resolveTheme({ components: {
+  const css = themeCss(fromFile({ components: {
     slider: { color: '#f80', size: 40 }, title: { color: '#eee', size: 130 },
     choice: { hover: { border: '#fff' }, disabled: { opacity: 0.3 } },
   } }, {}));
@@ -177,32 +180,32 @@ test('theme components: slider, title and choice states', () => {
 });
 
 test('theme tokens: gap, uiSize and uiFont become variables', () => {
-  const css = themeCss(resolveTheme({ tokens: { borderWidth: 3, gap: 24, uiSize: 36, uiFont: 'Lora', radius: 4 } }, {}));
+  const css = themeCss(fromFile({ tokens: { borderWidth: 3, gap: 24, uiSize: 36, uiFont: 'Lora', radius: 4 } }, {}));
   assert.match(css, /--vn-border-width: 3px;/);
   assert.match(css, /--vn-gap: 24px;/);
   assert.match(css, /--vn-ui-size: 36px;/);
   assert.match(css, /--vn-ui-font: "Lora", /);
-  assert.doesNotMatch(themeCss(resolveTheme({ tokens: { gap: -1, uiSize: 0 } }, {})), /--vn-gap|--vn-ui-size/);
+  assert.doesNotMatch(themeCss(fromFile({ tokens: { gap: -1, uiSize: 0 } }, {})), /--vn-gap|--vn-ui-size/);
 });
 
 test('theme screens: a component override scoped to one built-in screen', () => {
-  const css = themeCss(resolveTheme({ screens: { options: { panel: { width: 1300 }, 'button.primary': { color: '#000' }, nope: { width: 1 } }, bogus: { panel: { width: 5 } } } }, {}));
+  const css = themeCss(fromFile({ screens: { options: { panel: { width: 1300 }, 'button.primary': { color: '#000' }, nope: { width: 1 } }, bogus: { panel: { width: 5 } } } }, {}));
   assert.match(css, /#stage #options \.panel \{ width: 1300px; \}/);
   assert.match(css, /#stage #options button\[data-variant="primary"\][^{]*\{ color: #000; \}/);
   assert.doesNotMatch(css, /bogus|5px|nope/);
 });
 
 test('theme token radius reaches the stage as --vn-radius; a negative one is left out', () => {
-  assert.match(themeCss(resolveTheme({ tokens: { radius: 2 } }, {})), /#stage \{ --vn-radius: 2px; \}/);
-  assert.doesNotMatch(themeCss(resolveTheme({ tokens: { radius: -1 } }, {})), /--vn-radius/);
+  assert.match(themeCss(fromFile({ tokens: { radius: 2 } }, {})), /#stage \{ --vn-radius: 2px; \}/);
+  assert.doesNotMatch(themeCss(fromFile({ tokens: { radius: -1 } }, {})), /--vn-radius/);
 });
 
 test('theme tokens.fonts: a font per language through :lang(); bad codes and fonts are dropped', () => {
-  const css = themeCss(resolveTheme({ tokens: { font: 'Lora', fonts: { ja: 'Noto Sans JP', 'zh-Hans': 'Noto "Sans" SC', 'x){y': 'Evil', fi: 'a; } b' } } }, {}));
+  const css = themeCss(fromFile({ tokens: { font: 'Lora', fonts: { ja: 'Noto Sans JP', 'zh-Hans': 'Noto "Sans" SC', 'x){y': 'Evil', fi: 'a; } b' } } }, {}));
   assert.match(css, /#stage:lang\(ja\) \{ --vn-font: "Noto Sans JP", [^}]*--vn-ui-font: "Noto Sans JP"/);
   assert.match(css, /#stage:lang\(zh-Hans\) \{[^}]*"Noto Sans SC"/);
   assert.doesNotMatch(css, /Evil|x\)|b;/);
-  assert.equal(resolveTheme({ tokens: { fonts: 'ja' } }, {}).tokens, undefined, 'a non-object is ignored');
+  assert.equal(fromFile({ tokens: { fonts: 'ja' } }, {}).tokens, undefined, 'a non-object is ignored');
 });
 
 test('theme panel: set, remove and trace values in a theme file', async () => {
@@ -280,7 +283,7 @@ test('theme panel: contrast notes for tokens and components', async () => {
 });
 
 test('token references: $name is the token, $name/N its color at N% opacity; unset tokens drop the value', () => {
-  const css = themeCss(resolveTheme({
+  const css = themeCss(fromFile({
     tokens: { accent: '#ff0000', surface: 'rgb(0, 0, 255)' },
     components: { button: { hover: { border: '$accent' } }, tab: { selected: { background: '$accent/50' } }, panel: { background: '$danger' } },
   }, {}));

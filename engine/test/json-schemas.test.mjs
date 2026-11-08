@@ -1,6 +1,6 @@
 // Characterization of the Monaco JSON schemas (editor/json-schemas.ts): updateGameSchema runs against a fixed program, asset
 // list and set of open files, and the schemas it hands to Monaco are compared with fixtures/json-schemas.json. It pins the
-// output so splitting the big functions (REFACTOR-PLAN step 5.1) shows every change. After a deliberate change to a schema:
+// output so splitting the big functions shows every change. After a deliberate change to a schema:
 //   UPDATE_SNAPSHOT=1 node --test engine/test/json-schemas.test.mjs     and review the fixture diff.
 
 import { test } from 'node:test';
@@ -48,4 +48,36 @@ test('updateGameSchema: the schemas for game.json, themes and rigs are what the 
     return;
   }
   assert.deepEqual(got, JSON.parse(fs.readFileSync(FIXTURE, 'utf8')));
+});
+
+// UX round ES-1 and EP-1: opening a character's rig.json took Problems from 3 to 29, because the schema (additionalProperties: false)
+// knew only seven of the file's keys. The sample rigs are the file as the animation studio writes it: every key in them has a place.
+test('the rig.json schema accepts every key the sample characters use, and still refuses an unknown one', () => {
+  const dir = new URL('../../games/sample/assets/char/', import.meta.url);
+  const who = fs.readdirSync(dir).filter(w => fs.existsSync(new URL(`${w}/rig.json`, dir)) && fs.existsSync(new URL(`${w}/sprite.json`, dir)));
+  assert.ok(who.length >= 2, 'the sample has layered characters');
+  const text = Object.fromEntries(who.map(w => [w, fs.readFileSync(new URL(`${w}/rig.json`, dir), 'utf8')]));
+  // The editor builds a character's schema from its sprite.json (the parts, slots and variants) and the rig.json tab's own text.
+  S.projectAssets = { files: [], masters: [], dirs: [], rigTexts: {}, rigs: Object.fromEntries(who.map(w => [w, { ...JSON.parse(fs.readFileSync(new URL(`${w}/sprite.json`, dir), 'utf8')), rig: JSON.parse(text[w]) }])) };
+  files.clear();
+  for (const w of who) files.set(`char/${w}/rig.json`, { name: `char/${w}/rig.json`, kind: 'rig', char: w, model: model(text[w]), saved: '', timer: 0 });
+  updateGameSchema();
+  const schemas = JSON.parse(JSON.stringify(options)).schemas;
+  const unknown = (schema, value, at, out) => {
+    if (!schema || typeof value !== 'object' || value === null) return;
+    if (Array.isArray(value)) { for (const item of value) unknown(schema.items, item, `${at}[]`, out); return; }
+    for (const [k, v] of Object.entries(value)) {
+      const sub = schema.properties?.[k] ?? (typeof schema.additionalProperties === 'object' ? schema.additionalProperties : null);
+      if (!sub && schema.additionalProperties === false) out.push(`${at}.${k}`);
+      unknown(sub, v, `${at}.${k}`, out);
+    }
+  };
+  for (const w of who) {
+    const out = [];
+    unknown(schemas.find(s => s.uri === `vn://schema/rig/${w}`).schema, JSON.parse(text[w]), w, out);
+    assert.deepEqual(out, [], `${w}/rig.json has keys the schema refuses`);
+  }
+  const typo = [];
+  unknown(schemas.find(s => s.uri === `vn://schema/rig/${who[0]}`).schema, { bonse: {}, animations: { nod: { keys: [], durr: 1 } } }, 'x', typo);
+  assert.deepEqual(typo, ['x.bonse', 'x.animations.nod.durr']);
 });

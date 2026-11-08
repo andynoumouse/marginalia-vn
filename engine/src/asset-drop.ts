@@ -2,7 +2,7 @@
  * Where a file dropped on the editor's Assets panel goes. `folder` is the asset folder it was dropped on ('music', 'bg', ...),
  * absent when it landed on the panel itself. Images, sounds and fonts go to `assets/<folder>/`; a PSD goes to `masters/<folder>/`
  * (only bg, char and ui have a converter). Without a folder the file type picks one: images -> bg, sounds -> music, fonts -> fonts, movies -> movie.
- * Returns a project-relative path, or why the file is refused.
+ * A folder of the engine's own takes its kind of file only (bg: images, music: sounds, ...). Returns a project-relative path, or why the file is refused.
  */
 
 const IMAGE = ['png', 'webp', 'jpg', 'jpeg', 'avif', 'svg'];
@@ -10,6 +10,12 @@ const AUDIO = ['ogg', 'mp3', 'wav', 'm4a', 'flac', 'opus'];
 const FONT = ['woff2', 'woff', 'ttf', 'otf'];
 const MOVIE = ['webm', 'mp4', 'm4v', 'ogv'];
 const MASTER_FOLDERS = ['bg', 'char', 'ui'];
+// What the engine's own folders take; a folder of the author's own (cg/, map/) takes any supported type.
+const TAKES: Record<string, { exts: string[]; what: string }> = {
+  bg: { exts: IMAGE, what: 'images' }, ui: { exts: IMAGE, what: 'images' }, transitions: { exts: IMAGE, what: 'images' },
+  music: { exts: AUDIO, what: 'sounds' }, sound: { exts: AUDIO, what: 'sounds' }, voice: { exts: AUDIO, what: 'sounds' },
+  fonts: { exts: FONT, what: 'fonts' }, movie: { exts: MOVIE, what: 'movies' },
+};
 
 export type DropPlan = { dest: string } | { error: string };
 
@@ -27,6 +33,10 @@ export function planDrop(fileName: string, folder = ''): DropPlan {
   }
   const fallback = IMAGE.includes(ext) ? 'bg' : AUDIO.includes(ext) ? 'music' : FONT.includes(ext) ? 'fonts' : MOVIE.includes(ext) ? 'movie' : '';
   if (!fallback) return { error: `${name}: unsupported file type (images ${IMAGE.join(', ')}; sounds ${AUDIO.join(', ')}; fonts ${FONT.join(', ')}; movies ${MOVIE.join(', ')})` };
+  const [top, ...inside] = folder.split('/');
+  if (top === 'char' && !inside.length) return { error: `${name}: char/ holds a folder per character: drop it on a character's folder (char/<name>), or drop a PSD on char` };
+  const takes = TAKES[top];
+  if (takes && !takes.exts.includes(ext)) return { error: `${name}: ${top}/ takes ${takes.what} (${takes.exts.join(', ')})` };
   return { dest: `assets/${folder || fallback}/${name}` };
 }
 

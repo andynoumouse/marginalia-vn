@@ -314,3 +314,17 @@ test('checkRig: deformers', () => {
   assert.deepEqual(msgs([{ ...ok, part: 'hair' }], framed), []);
   assert.ok(msgs([{ ...ok, part: 'eyes' }], framed).some(m => m.includes('has a frame track')));
 });
+
+test('mergeRig leaves shape parts alone: never missing, never added to order', () => {
+  const rig = { parts: [{ file: 'a.png' }, { file: 'b.png' }] };
+  const existing = { order: ['a', 'b'], parts: { a: { clip: 'lid' }, lid: { bone: 'head', polygon: [[0, 0], [1, 0], [1, 1]] } } };
+  const out = mergeRig(existing, rig);
+  assert.deepEqual([out.added, out.missing], [[], []]);
+  assert.deepEqual(out.rig.order, ['a', 'b']);
+  assert.deepEqual(out.rig.parts, existing.parts);
+  const grown = mergeRig(existing, { parts: [{ file: 'a.png' }, { file: 'b.png' }, { file: 'c.png' }] });
+  assert.deepEqual(grown.added, ['c']);
+  assert.deepEqual(grown.rig.order, ['a', 'b', 'c'], 'a new layer is added, the shape is not');
+  assert.deepEqual(mergeRig(existing, { parts: [{ file: 'a.png' }] }).missing, ['b'], 'a real part that went is still reported');
+  assert.deepEqual(mergeRig({ ...existing, order: ['a', 'lid', 'b'] }, rig).missing, [], 'even a shape wrongly listed in order is not reported missing');
+});

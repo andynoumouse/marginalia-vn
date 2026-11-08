@@ -19,12 +19,12 @@ errors is not saved. Pixel values are on the stage, 1920x1080 unless `stage` say
   "chapters": [ { "label": "start", "title": "The bench" } ],
   "blips": { "alice": { "synth": "square", "pitch": 760 } },
   "labels": { "new_game": "Begin" },
-  "theme": { "accent": "#5fd1c3", "font": "Georgia" }
+  "theme": "default"
 }
 ```
 
 A new project can start from a template that sets several of these options at once (`stage`, `titleScreen`, `quickMenu`,
-`chapters`, `achievements`, `theme` and so on); see [the template page](tutorial/05-templates.md).
+`chapters`, `achievements`, `theme` and so on); see [the template page](tutorial/deeper/a-templates.md).
 
 ## Stage size
 
@@ -39,9 +39,11 @@ What follows the size and what does not:
   (centred, edges cropped). The camera and screen wipes follow the size.
 - Animation offsets (`shake`, `hop`, `animate`, rig `x`/`y` keys) are fractions of the stage's **shorter side** (its height on a
   landscape stage, so existing projects are unchanged), and the built-in 8 px shake and 44 px hop are written against 1080.
-- Pixel coordinates in `screen` blocks and `image` lines are yours to place; nothing rescales them. The default text box, title,
-  pause and options screens are laid out for a landscape stage: on a portrait one, supply `screen title`, `screen options` and the
-  rest yourself.
+- Pixel coordinates in `screen` blocks and `image` lines are yours to place; nothing rescales them. The built-in screens
+  are drawn for the stage: on a portrait one (taller than wide) Options, Save and Load, History, Gallery, Music, Chapters and
+  Achievements use portrait layouts, written for a stage about 9:16 or taller and scaled to its width, and the editor's
+  "Edit This Screen" copies those. A landscape stage other than 1920x1080 still gets the 1920x1080 layouts: supply
+  `screen options` and the rest yourself (Files panel, Built-in screens, Edit This Screen, then change the numbers).
 - Nothing derived from the size is stored in saves (they hold the story position and variables), so a save loads at any stage size.
 - Editing `stage` in the dev preview reloads the page.
 
@@ -77,6 +79,8 @@ What follows the size and what does not:
 | `achievementToast` | The notice an unlocked achievement pops up, below. |
 | `speakerFocus` | Dim the characters who are not speaking, below. |
 | `sideImages` | The speaker's portrait in the text box, below. |
+| `touch` | Gestures on a touch screen, below. |
+| `pwa` | `true` makes the web export installable and playable offline, below. |
 | `blips` | Text sound voices, below. |
 | `labels` | Menu text overrides, below. |
 | `theme` | Look of the text box, text and choices, below. |
@@ -204,6 +208,9 @@ show you its code to start from). The `background`, `music` and `fade` keys stil
 The bar is the default `quickmenu` screen. To design it yourself, declare `screen quickmenu:` in a script with buttons that use `action <name>` (see "Screens" in
 commands.md); it replaces the default whole, and these keys only fill in the variables it can use.
 
+On a touch screen the default bar is enlarged (up to twice, as far as the stage has room) so its buttons are at least about 32 CSS pixels
+tall on a small window; a `screen quickmenu` of your own is not touched.
+
 ## gallery
 
 A list of `{ "image", "title", "unlock" }`. `image` is a background name (`assets/bg/<image>.png`), usually a CG
@@ -286,6 +293,37 @@ key optional:
 Scripts turn it off and on with `focus off` / `focus on`, `define <id> ... focus=off` keeps one character always lit, and
 players can turn it off in Options (Game tab; the switch shows only in games that have `speakerFocus`).
 
+## touch
+
+On a touch screen, while the story plays (no menu or blocking screen open), a tap on the stage advances as a click does, and:
+
+| Gesture | Does |
+|---|---|
+| Swipe right | Rolls back one line. |
+| Swipe up | Opens the history. |
+| Swipe down | Hides the interface (any touch brings it back). |
+| Long press, or a tap with two fingers | Opens the pause menu (there is no right click on a phone). |
+
+A swipe never advances the story. A touch that starts on a button, a hotspot or a scrolling list is left to it.
+
+On a touch screen a button also counts as at least 44 CSS pixels wide and tall around its centre while a menu or a screen is up: a tap
+beside a small button presses the nearest one, and a tap that lands on a button always presses that button. This needs nothing from
+the screen's layout, so your own screens get it too.
+
+On a touch screen the browser is also asked to keep the screen on while auto-advance or a movie plays (browsers without the Screen Wake
+Lock API ignore this), and sound is resumed when the player comes back to the tab.
+Gestures are on by default. `"touch": { "gestures": false }` turns them off for the game (use it when your own screens need
+swipes); players can also switch them off under Options, Accessibility, "Touch gestures" (shown on touch screens only, in
+games that have not turned them off).
+
+## pwa
+
+`"pwa": true` makes the web export (`vn export`) an installable app that also plays with no network. The export then holds a
+`manifest.webmanifest` (the game's title, its icon, full screen, landscape or portrait by the stage size) and a service worker
+(`sw.js`) that, on the first visit, keeps every file of the build on the player's device and answers from there afterwards. A new
+export replaces the old copy at the next visit. Off by default: the whole game is downloaded at once, which suits a small or
+medium game and not a gigabyte of art. The desktop export is unaffected.
+
 ## sideImages
 
 Draws the speaker's portrait in the text box (off when absent), for characters defined with `side=<name>` (see `define` in
@@ -327,10 +365,13 @@ Menu text in the source language, e.g. `"new_game": "Begin"`. Other languages us
 `locale/<lang>.json` (`npm run strings` leaves them alone). The keys are the `data-ui` attributes in
 `preview/index.html`, and the quick menu buttons as `q_<item>` (`q_skip`). The editor completes the full list, and the Translations dialog lists every label as a row (`menu label`,
 id `ui.<key>`) beside the script's strings, so they are translated, filtered and exported to CSV the same way.
+Two of them are on screens people meet without opening a menu: `end_title` and `end_hint` are the words shown when the
+story ends ("The End", "Click to return to the title screen"), and `rotate_device` is the cover that asks a phone held
+the wrong way to turn.
 
 ## theme
 
-`theme` is either an object (the keys below) or the name of a theme file: `"theme": "night"` uses `themes/night.json`.
+`theme` is the name of a theme file: `"theme": "night"` uses `themes/night.json` (new projects get `themes/default.json`).
 `"themes": ["default", "night", "high-contrast"]` lets the player pick the look in Options (a Theme row, shown when there are two or more;
 a name is a theme file or a built-in theme). The choice is a player setting, not part of a save, and the stylesheet changes at once.
 Without a pick, `theme` is used.
@@ -338,9 +379,9 @@ A theme can also have a stylesheet, `themes/<name>.css`, added after everything 
 extends), for what the keys cannot say: the stage is `#stage`, and the stage's `--vn-*` variables and the component selectors are
 the ones `themeCss` writes. Use paths like `url("assets/ui/frame.png")`; `@import` and `url()` of a web address are removed. Edit it in the editor from a theme's sidebar menu (Open Stylesheet) or the command `Theme: Open or Create a Theme Stylesheet`.
 Edit the file in any text editor; the preview reloads when it changes (the editor has no tab for it yet).
-A theme file holds the same keys, or the layered form: `tokens` (`accent`, `font`), `components` (`textbox`, `namebox`,
+A theme file holds `tokens` (`accent`, `font`), `components` (`textbox`, `namebox`,
 `text`, `choice`, `hotspot` with `background`/`border`/`borderWidth`, `tooltip` with `background`/`color`/`font`) and
-`styles` (the old `skins`). `"extends": "other"` starts from another theme file or a built-in one (`base`, the light warm `paper`, or the black-and-white `high-contrast`); the child's
+`styles`. `"extends": "other"` starts from another theme file or a built-in one (`base`, the light warm `paper`, or the black-and-white `high-contrast`); the child's
 values win. A missing file is a warning and the game uses the plain look.
 
 In the editor, `Theme: Panel` edits a theme file as form fields (palette, then every component with its states; each field
@@ -348,9 +389,7 @@ says whether its value is set in this file, inherited from an `extends` theme or
 Next to the fields it shows a gallery of small live renderings of the text box, choices, title, pause, options, saves,
 confirm dialog, history, chapters and a toast, drawn from fixed sample data and updated on every edit; clicking a part
 of one opens the component (and state) that styles it. A color that would be hard to read (WCAG contrast under 4.5:1 for
-text, 3:1 for accent colors; only hex and `rgb()` colors are judged) is marked with its ratio. An inline `theme` object
-in game.json gets a hint on its line, and Ctrl+. (or `Theme: Move the Inline Theme of game.json to a Theme File`) moves
-it to `themes/default.json` (or the first free name), mapping the old keys onto the layered ones, and sets `"theme": "default"`.
+text, 3:1 for accent colors; only hex and `rgb()` colors are judged) is marked with its ratio.
 
 In a theme file, `tokens` also takes `radius` (corner radius of menu buttons, panels, fields and toasts, in pixels), `borderWidth` (border width of menu buttons, panels and fields, default 2), `gap` (spacing in menu columns and the options grid, default 18), `uiSize` (menu text size, default 40), `uiFont` (menu font, default `font`), `fonts` (a font per language code, e.g. `{"ja": "Noto Sans JP"}`: in that language, the picked one replaces `font` and `uiFont`; `ja` also covers `ja-JP`; put a font file in `assets/fonts/` for a font the player may not have) and the colors `text`, `muted`, `surface`, `line`, `danger` and `warn`, and `components` A color may be a token reference: `"$accent"`, or `"$accent/15"` for the token at 15% opacity (only `accent` and the colors above can be named; a token that is not set drops the value).
 takes these menu building blocks. A key is the component, or `component.variant`; each has the look keys below, and
@@ -387,15 +426,15 @@ Unknown screen names are ignored.
 
 | Key | Meaning |
 |---|---|
-| `accent` | Highlight color for menus and sliders, e.g. `"#5fd1c3"`. |
-| `hotFill`, `hotBorder`, `hotBorderWidth` | Highlight of a hovered or focused hotspot or button in screens and HUDs: fill color (default `rgba(255,255,255,.18)`), border color (default `accent`) and border width in stage pixels (default 2). `hover none` and `hover "file"` on an element override it (docs/commands.md "Screens"). |
-| `tipBackground`, `tipColor`, `tipFont` | Hotspot tooltip: background and text color, and font (a file name in `assets/fonts/` or an installed font; default the theme `font`). |
-| `font` | Font for story text and menus: a file name in `assets/fonts/` (woff2, woff, ttf, otf) or an installed font. |
-| `textbox` | The dialogue box. |
-| `namebox` | The name tag; `x` and `y` are relative to the text box. Also takes `size` (font size). |
-| `text` | `size` (44), `color`, `lineHeight` (1.45), `lines` (3): how many lines the text box shows at once. A longer line is split into pages at line breaks; the player clicks to see the next page. |
-| `choices` | Choice buttons. Like a box but without `x`/`y`; also `size` and `gap` (space between buttons). |
-| `skins` | Named styles (`styles` in a theme file): `{ "alice": { "textbox": {...}, "namebox": {...}, "text": {...}, "choice": {...}, "button": {...} } }`. A character with `define alice ... style=alice` uses `alice` while speaking; `alice: "..." style=whisper` uses `whisper` for one line, `menu ... style=urgent` styles that menu's `choice` buttons (with `hover`, `focus`, `disabled`), and `button ... style=x` / `text ... style=x` in a screen use `button` and `text`. Appearance only: `x`, `y`, `width`, `height` are ignored. |
+| `tokens.accent` | Highlight color for menus and sliders, e.g. `"#5fd1c3"`. |
+| `components.hotspot`: `background`, `border`, `borderWidth` | Highlight of a hovered or focused hotspot or button in screens and HUDs: fill color (default `rgba(255,255,255,.18)`), border color (default the accent) and border width in stage pixels (default 2). `hover none` and `hover "file"` on an element override it (docs/commands.md "Screens"). |
+| `components.tooltip`: `background`, `color`, `font` | Hotspot tooltip: background and text color, and font (a file name in `assets/fonts/` or an installed font; default `tokens.font`). |
+| `tokens.font` | Font for story text and menus: a file name in `assets/fonts/` (woff2, woff, ttf, otf) or an installed font. |
+| `components.textbox` | The dialogue box. |
+| `components.namebox` | The name tag; `x` and `y` are relative to the text box. Also takes `size` (font size). |
+| `components.text` | `size` (44), `color`, `lineHeight` (1.45), `lines` (3): how many lines the text box shows at once. A longer line is split into pages at line breaks; the player clicks to see the next page. |
+| `components.choice` | Choice buttons. Like a box but without `x`/`y`; also `size` and `gap` (space between buttons). |
+| `styles` | Named styles: `{ "alice": { "textbox": {...}, "namebox": {...}, "text": {...}, "choice": {...}, "button": {...} } }`. A character with `define alice ... style=alice` uses `alice` while speaking; `alice: "..." style=whisper` uses `whisper` for one line, `menu ... style=urgent` styles that menu's `choice` buttons (with `hover`, `focus`, `disabled`), and `button ... style=x` / `text ... style=x` in a screen use `button` and `text`. Appearance only: `x`, `y`, `width`, `height` are ignored. |
 
 A box (`textbox`, `namebox`, `choices`) takes:
 

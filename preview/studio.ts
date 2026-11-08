@@ -3,6 +3,7 @@
 // while an animation plays. Messages from the editor:
 //   { type: 'studioShow', pose, overrides }               dress the character
 //   { type: 'studioAnims', anims }                        the working copy of the character's `animations`
+//   { type: 'studioAuto', reactions, poses, vars }        rig.json `reactions` and `poses` as edited, and the Test variables (studio-only): Model mode runs the automatic animations and reactions from them
 //   { type: 'studioSeek', name, t, part }                 stop and pose at progress t (0-1)
 //   { type: 'studioPlay', name, dur, loop, part }         play from the start; `studioPause` stops where it is
 //   { type: 'studioPivots', pivots, bones, parts, width, height }   the working copy of rig.json `pivots`, `bones`, `parts` and the PSD canvas size
@@ -23,14 +24,18 @@
 //   { type: 'studioExtra', extra }                        offsets by name laid over the pose (a drag that is not keyed yet); ends a drag
 //   { type: 'studioView', whole }                         fit the view to the character (or to the whole stage)
 //   { type: 'studioDeformers', deformers }                the working copy of rig.json `deformers` (mesh warps); the character is shaped by it
-//   { type: 'studioWarp', part, point }                   the Warp tool: draw the lattice of that part's warp (null part: no tool), `point` the selected one;
-//                                                         answers { type: 'studioWarpBox', part, w, h } (the part's size in animation units) and, for a
-//                                                         lattice point dragged, { type: 'studioWarpDrag', phase, part, point, delta } (see studio-gizmo.ts)
-//   { type: 'studioMasks', masks }                        the working copy of rig.json `masks` (clips of a part to a shape); the character is clipped by it
-//   { type: 'studioMask', part, tool, point }             draw the outline of that part's mask (null part: none); with `tool` a polygon's points are handles,
-//                                                         `point` the selected one; answers { type: 'studioMaskBox', part, x, y, w, h } (the part's image box
-//                                                         in canvas pixels), { type: 'studioMaskDrag', phase, part, point, delta } for a point dragged,
-//                                                         { type: 'studioMaskAdd', part, index, at } for a click on an edge and { type: 'studioMaskRemove', part, point }
+//   { type: 'studioWarp', id, points, radius, curve, topo, anchor }     the Warp tool (topo: the topology tool of a free mesh, else null; anchor: the vertex an Add edge started from): draw the lattice of the deformer with that id, a part's or a group's (null id: no tool), `points` the selected ones,
+//                                                         `radius` (cells, 0 for none) and `curve` the soft selection's fade;
+//                                                         answers { type: 'studioWarpBox', id, w, h } (the lattice's size in animation units) and, for a
+//                                                         lattice point dragged, { type: 'studioWarpDrag', phase, id, point, delta } (see studio-gizmo.ts);
+//                                                         in topology mode also { type: 'studioMeshTopo', id, op, vertex | a, b | at } (see studio-gizmo.ts)
+//   { type: 'studioAlpha', id, part }                     the alpha channel of that part's image; answers { type: 'studioAlphaData', id, part, w, h, alpha } (a Uint8Array, transferred; w 0: unreadable)
+//   { type: 'studioMasks', shapes, clips }                the working copy of the mask shapes (rig.json shape parts) and the `clip` link of each clipped part; the character is clipped by it
+//   { type: 'studioMask', shape, part, tool, point }      draw the outline of mask shape `shape` (null: none); with `tool` every shape is outlined and the chosen one's points
+//                                                         are handles, `point` the selected one; a click near another shape's outline selects it. `part` is the chosen part row:
+//                                                         answers { type: 'studioMaskBox', part, x, y, w, h } (its image box in canvas pixels),
+//                                                         { type: 'studioMaskDrag', phase, shape, point, delta } for a point dragged,
+//                                                         { type: 'studioMaskAdd', shape, index, at } for a click on an edge and { type: 'studioMaskRemove', shape, point }
 //   { type: 'studioScene', file, line }                   draw the background and the other characters as the story has them
 //                                                         at that script line (null file: a plain stage again); not while picking
 //   { type: 'studioExportBegin', id, name, fps, loop, loops, leadIn, width, height, framing, background }
@@ -40,22 +45,25 @@
 //   { type: 'studioExportFrame', id, n }                  pose frame n (in order, from 0), draw it and answer { type: 'studioExportData', id, n, bytes } (a PNG, transferred)
 //   { type: 'studioExportEnd', id }                       the export is over or cancelled: the stage returns to what it showed; answers { type: 'studioExportDone', id }
 
-import { exportBackground, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type MaskDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
+import { exportBackground, type ReactionDef, type Value, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type ShapeDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
 import { StageTools } from './studio-gizmo.js';
 
-interface Drive { param?: string; bone?: string; channel: keyof Offset; amp: number; hz: number }
+interface Drive { param?: string; bone?: string; channel: 'dx' | 'dy' | 'sx' | 'sy' | 'rot'; amp: number; hz: number }
 interface Run { name: string; dur: number; loop: boolean; part: string | null; start: number }
 /** A movie export under way: the plan, the piece of the stage drawn, and the next frame the editor may ask for. */
 interface Export { id: number; name: string; plan: MoviePlan; width: number; height: number; frame: Box; background: string | null; next: number }
-type Msg = { type?: string; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; tool?: unknown; space?: unknown; whole?: unknown; anims?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown };
+type Msg = { type?: string; shapes?: unknown; clips?: unknown; shape?: unknown; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; points?: unknown; radius?: unknown; curve?: unknown; tool?: unknown; topo?: unknown; space?: unknown; whole?: unknown; anims?: unknown; reactions?: unknown; poses?: unknown; vars?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown };
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const num = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
 
 export class Studio {
   private anims: Record<string, AnimDef> = {};
+  private reactions: ReactionDef[] = [];
+  private poses: Record<string, Record<string, number>> = {};
+  private vars: Record<string, Value> = {};
   private pose: string | null = null;
   private overrides: Record<string, string> = {};
   private last: { name: string; t: number; part: string | null } | null = null;
@@ -95,6 +103,7 @@ export class Studio {
     const bar = (css: string) => `<div style="position:absolute;background:#ff3b6b;box-shadow:0 0 0 2px #000;${css}"></div>`;
     this.marker.innerHTML = bar('left:-30px;top:-1.5px;width:60px;height:3px') + bar('left:-1.5px;top:-30px;width:3px;height:60px');
     renderer.studio = true;
+    renderer.studioRefresh = () => { if (!this.run) this.render(); };
     stage.append(this.marker);
     this.lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     this.lines.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -293,6 +302,7 @@ export class Studio {
       case 'studioPlace': return this.onPlace(m);
       case 'studioScene': return this.onScene(m);
       case 'studioAnims': return this.onAnims(m);
+      case 'studioAuto': return this.onAuto(m);
       case 'studioSeek': return this.onSeek(m);
       case 'studioPlay': return this.onPlay(m);
       case 'studioPivots': return this.onPivots(m);
@@ -311,6 +321,7 @@ export class Studio {
       case 'studioMask': return this.onMask(m);
       case 'studioHidden': return this.onHidden(m);
       case 'studioFocus': return this.onFocus(m);
+      case 'studioAlpha': return this.onAlpha(m);
       case 'studioExportBegin': return this.exportBegin(m);
       case 'studioExportFrame': return this.exportFrame(m);
       case 'studioExportEnd': return this.exportEnd(m);
@@ -339,8 +350,20 @@ export class Studio {
 
   private onAnims(m: Msg) {
     if (m.anims && typeof m.anims === 'object') this.anims = m.anims as Record<string, AnimDef>;
+    this.pushAuto();
     if (!this.run) this.render();
   }
+
+  private onAuto(m: Msg) {
+    this.reactions = Array.isArray(m.reactions) ? m.reactions as ReactionDef[] : [];
+    this.poses = m.poses && typeof m.poses === 'object' ? m.poses as Record<string, Record<string, number>> : {};
+    this.vars = m.vars && typeof m.vars === 'object' ? m.vars as Record<string, Value> : {};
+    this.pushAuto();
+    if (!this.run) this.render();
+  }
+
+  /** Hand the renderer the working copy of what runs by itself (see PixiRenderer.studioAuto). */
+  private pushAuto() { this.renderer.studioAuto(this.char, this.anims, this.reactions, this.poses, this.vars); }
 
   private onSeek(m: Msg) {
     const name = str(m.name);
@@ -395,7 +418,7 @@ export class Studio {
     this.hasChains = Object.keys(chains).length > 0;
     const d = m.drive as Partial<Drive> | null;
     const was = this.drive;
-    this.drive = d && typeof d === 'object' && (typeof d.param === 'string' || typeof d.bone === 'string') ? { param: d.param, bone: d.bone, channel: (d.channel ?? 'rot') as keyof Offset, amp: num(d.amp, 1), hz: Math.max(0.1, num(d.hz, 1)) } : null;
+    this.drive = d && typeof d === 'object' && (typeof d.param === 'string' || typeof d.bone === 'string') ? { param: d.param, bone: d.bone, channel: (d.channel ?? 'rot') as Drive['channel'], amp: num(d.amp, 1), hz: Math.max(0.1, num(d.hz, 1)) } : null;
     if (this.drive) { if (!was) this.driveStart = performance.now(); this.physicsAt = performance.now(); this.swing(); }
     else if (was) this.settleUntil = performance.now() + 2500;
     if (!this.drive && !was && !this.run) this.render();
@@ -430,23 +453,35 @@ export class Studio {
   }
 
   private onWarp(m: Msg) {
-    const part = str(m.part);
-    this.tools.setWarp(part ? { part, point: typeof m.point === 'number' && Number.isInteger(m.point) ? m.point : null } : null);
+    const id = str(m.id);
+    const points = Array.isArray(m.points) ? m.points.filter((p): p is number => Number.isInteger(p)) : [];
+    const radius = typeof m.radius === 'number' && m.radius > 0 ? m.radius : 0, curve = m.curve === 'linear' || m.curve === 'constant' ? m.curve : 'smooth';
+    const topo = typeof m.topo === 'string' ? m.topo : null, anchor = typeof m.anchor === 'number' && Number.isInteger(m.anchor) ? m.anchor : null;
+    this.tools.setWarp(id ? { id, points, falloff: { radius, curve }, topo, anchor } : null);
   }
 
   private onMasks(m: Msg) {
-    this.renderer.studioMasks(this.char, Array.isArray(m.masks) ? m.masks.filter((d): d is MaskDef => !!d && typeof d === 'object') : []);
+    const shapes: Record<string, ShapeDef> = {}, clips: Record<string, string> = {};
+    if (m.shapes && typeof m.shapes === 'object') for (const [k, v] of Object.entries(m.shapes as Record<string, ShapeDef>)) if (v && typeof v === 'object' && Array.isArray(v.polygon)) shapes[k] = v;
+    if (m.clips && typeof m.clips === 'object') for (const [k, v] of Object.entries(m.clips as Record<string, unknown>)) if (typeof v === 'string') clips[k] = v;
+    this.renderer.studioMasks(this.char, shapes, clips);
     if (!this.run) this.render();
   }
 
   private onMask(m: Msg) {
-    const part = str(m.part);
-    this.tools.setMask(part ? { part, tool: m.tool === true, point: typeof m.point === 'number' && Number.isInteger(m.point) ? m.point : null } : null);
+    const shape = str(m.shape), part = str(m.part);
+    this.tools.setMask(shape || part || m.tool === true ? { shape, part, tool: m.tool === true, point: typeof m.point === 'number' && Number.isInteger(m.point) ? m.point : null } : null);
   }
 
   private onHidden(m: Msg) {
     this.hiddenParts = Array.isArray(m.parts) ? m.parts.filter((x): x is string => typeof x === 'string') : [];
     if (!this.exp) this.renderer.studioHidden(this.char, this.hiddenParts);
+  }
+
+  /** The editor asks for the alpha channel of a part's image (the mesh generator's input): answered with the pixels, or `w` 0 when they cannot be read. */
+  private onAlpha(m: Msg) {
+    const part = str(m.part), a = part ? this.renderer.studioPartAlpha(this.char, part) : null;
+    this.reply({ type: 'studioAlphaData', id: m.id, part, w: a?.w ?? 0, h: a?.h ?? 0, alpha: a?.alpha ?? null }, a ? [a.alpha.buffer] : []);
   }
 
   private onFocus(m: Msg) {

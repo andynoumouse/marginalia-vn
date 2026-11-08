@@ -141,6 +141,53 @@ label ask(drink):
   assert.equal(r3.says[0].text, 'want tea?');
 });
 
+test('restore to a source line is not caught by a subroutine written further down the file', async () => {
+  const text = `label start:
+  "intro"
+  call chat("Mina", 1)
+  jump train
+label train:
+  "a light appears"
+  if warmth >= 1:
+    "warm"
+  end
+label chat(who, bonus):
+  "[who] swaps stories"
+  set warmth += bonus
+  return
+`;
+  const p = build(text);
+  const lineOf = needle => text.split('\n').findIndex(l => l.includes(needle)) + 1;
+  for (const [needle, say] of [['label train', 'a light appears'], ['"a light appears"', 'a light appears'], ['"warm"', 'warm']]) {
+    const r = new NullRenderer();
+    await new Runtime(p, r).restore({ file: 't.vn', line: lineOf(needle) });
+    assert.equal(r.says[0].text, say, `cursor on ${needle}`);
+  }
+  const r = new NullRenderer(), rt = new Runtime(p, r); // on the subroutine itself, the call is the way in
+  await rt.restore({ file: 't.vn', line: lineOf('swaps stories') });
+  assert.equal(r.says[0].text, 'Mina swaps stories');
+});
+
+test('restore to a source line ignores top-level lines below it, and still enters a label nothing reaches', async () => {
+  const text = `label start:
+  "one"
+  "two"
+  end
+label orphan:
+  "lost one"
+  "lost two"
+  end
+set late = 1
+`;
+  const p = build(text);
+  const lineOf = needle => text.split('\n').findIndex(l => l.includes(needle)) + 1;
+  for (const [needle, say] of [['"two"', 'two'], ['"lost two"', 'lost two'], ['label orphan', 'lost one']]) {
+    const r = new NullRenderer();
+    await new Runtime(p, r).restore({ file: 't.vn', line: lineOf(needle) });
+    assert.equal(r.says[0].text, say, `cursor on ${needle}`);
+  }
+});
+
 test('compile checks: argument count, unknown label, bad parameter names', () => {
   const base = 'label shop(item, cost):\n  "x [item] [cost]"\n';
   assert.match(problems(build(`label start:\n  call shop("a")\n${base}`))[0], /takes 2 arguments .* gives 1/);

@@ -118,3 +118,36 @@ test('one-shot effects leave the state as it was', () => {
   for (const op of [{ op: 'flash' }, { op: 'shake', target: 'screen', dur: 1, strength: 1 }, { op: 'hop', char: 'a' }, { op: 'wait', seconds: 1 }]) applyToState(s, op);
   assert.equal(JSON.stringify(s), before);
 });
+
+test('camera roll keeps the zoom and pivot, survives a pan, and reset clears it', () => {
+  const s = stateWith({ op: 'camera', zoom: 2, x: 0.3, y: 0.4 }, { op: 'camera', zoom: null, x: null, y: null, roll: 6 });
+  assert.deepEqual(s.camera, { zoom: 2, x: 0.3, y: 0.4, roll: 6 });
+  applyToState(s, { op: 'camera', zoom: null, x: 0.7, y: 0.5 });
+  assert.deepEqual(s.camera, { zoom: 2, x: 0.7, y: 0.5, roll: 6 }, 'a pan keeps the roll');
+  applyToState(s, { op: 'camera', zoom: 1, x: 0.5, y: 0.5, roll: 0 });
+  assert.deepEqual(s.camera, { zoom: 1, x: 0.5, y: 0.5 }, 'no roll key when it is 0');
+});
+
+test('image parallax is kept when given, dropped at 1, and kept by a later show without it', () => {
+  const img = (over = {}) => ({ op: 'image', action: 'show', name: 'sky', file: 'sky.png', fade: 0, ...over });
+  const s = stateWith(img({ parallax: 0.4 }));
+  assert.equal(s.images[0].parallax, 0.4);
+  applyToState(s, img());
+  assert.equal(s.images[0].parallax, 0.4);
+  applyToState(s, img({ parallax: 1 }));
+  assert.ok(!('parallax' in s.images[0]));
+});
+
+test('move and image move keep a tint, none clears it, and a move without tint leaves it', () => {
+  const s = stateWith(show('ann'), move('ann', { tint: '#ff8080' }));
+  assert.equal(s.sprites[0].tint, '#ff8080');
+  applyToState(s, move('ann', { x: 0.5 }));
+  assert.equal(s.sprites[0].tint, '#ff8080');
+  applyToState(s, move('ann', { tint: null }));
+  assert.ok(!('tint' in s.sprites[0]));
+  const img = (over = {}) => ({ op: 'image', action: 'move', name: 'sky', x: null, y: null, scale: null, rotation: null, alpha: null, anchor: null, dur: 0, ease: 'inout', ...over });
+  applyToState(s, { op: 'image', action: 'show', name: 'sky', file: 'sky.png', fade: 0, tint: '#00ff00' });
+  assert.equal(s.images[0].tint, '#00ff00');
+  applyToState(s, img({ tint: null }));
+  assert.ok(!('tint' in s.images[0]));
+});

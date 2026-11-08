@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compile, Runtime, NullRenderer, getCompletions,
-  filterMatrix, IDENTITY, blurRadius, weatherCount, WEATHER, WEATHER_NAMES, spawnParticle, stepParticle, mulberry32,
+  filterMatrix, IDENTITY, blurRadius, weatherCount, WEATHER, WEATHER_NAMES, spawnParticle, stepParticle, spawnBurst, stepBurst, windVelocity, WIND_PX, mulberry32,
   irisRadius, blindsRects, revealShapes, shakeOffset, cameraPivot, pixelBlock, maskReveal, assetContext, opAssets, checkAssets,
 } from '../../dist/engine/src/index.js';
 
@@ -55,7 +55,7 @@ test('weather and filter: parsing, lasting state, reset on scene', async () => {
 });
 
 test('weather and filter: bad arguments are parse errors', () => {
-  for (const bad of ['weather', 'weather hail', 'weather rain 2', 'filter', 'filter glow', 'filter blur 1.5']) {
+  for (const bad of ['weather', 'weather hail', 'weather rain 2', 'filter', 'filter glitter', 'filter blur 1.5']) {
     const p = build(['label start:', `  ${bad}`]);
     assert.equal(p.diagnostics.length, 1, bad);
   }
@@ -183,4 +183,72 @@ test('cameraPivot: recovers the pivot from the world offset, the fallback at zoo
   assert.deepEqual(cameraPivot(1, 0, 0, 100, 50, { x: 0.3, y: 0.7 }), { x: 0.3, y: 0.7 });
   // zoom 2 around (0.25, 0.5): offset = pivot * size * (1 - zoom)
   assert.deepEqual(cameraPivot(2, 25 * -1, 25 * -1, 100, 50, { x: 0, y: 0 }), { x: 0.25, y: 0.5 });
+});
+
+test('wind: parsing, lasting state, reset on scene, bad arguments', async () => {
+  const p = build([
+    'label start:', '  scene a', '  wind right 0.6 gusts=0.2 1.5', '  "x"', '  wind left', '  "y"', '  wind off 2', '  "z"', '  wind right 1', '  scene b', '  "w"',
+  ]);
+  assert.deepEqual(p.diagnostics, []);
+  const [right, left, off] = ops('wind', p);
+  assert.deepEqual([right.strength, right.gusts, right.dur], [0.6, 0.2, 1.5]);
+  assert.deepEqual([left.strength, left.gusts, left.dur], [-0.5, 0.4, 0]);
+  assert.deepEqual([off.strength, off.dur], [0, 2]);
+  const rt = new Runtime(p, new NullRenderer());
+  const seen = [];
+  rt.renderer.say = async () => { seen.push(structuredClone(rt.state.wind)); };
+  await rt.start();
+  assert.deepEqual(seen, [{ strength: 0.6, gusts: 0.2 }, { strength: -0.5, gusts: 0.4 }, null, null]);
+  for (const bad of ['wind', 'wind up', 'wind right 3', 'wind right gusts=2', 'wind right gusts=x', 'wind right 1 1 1', 'wind off gusts=0.1', 'wind right fast']) {
+    assert.equal(build(['label start:', `  ${bad}`]).diagnostics.length, 1, bad);
+  }
+});
+
+test('wind completions', () => {
+  const p = build(['label start:', '  "x"']);
+  const labels = line => getCompletions(p, line).map(s => s.label);
+  assert.ok(labels('  wi').includes('wind'));
+  assert.deepEqual(labels('  wind ').slice(0, 3), ['right', 'left', 'off']);
+});
+
+test('wind and gravity act on weather: sideways push, stronger for light things, fall scaled, zero-g hangs', () => {
+  const at = (kind, env) => { const p = spawnParticle(kind, mulberry32(3), 1920, 1080, true); const x = p.x, y = p.y; stepParticle(p, kind, 0.1, 0, 1920, 1080, env); return { dx: p.x - x, dy: p.y - y }; };
+  assert.ok(at('snow', { windVx: 400 }).dx > at('snow', {}).dx + 30, 'a wind to the right carries snow right');
+  assert.ok(at('snow', { windVx: -400 }).dx < at('snow', {}).dx - 30, 'and a wind to the left carries it left');
+  const heavy = at('rain', { windVx: 400 }).dx - at('rain', {}).dx, light = at('petals', { windVx: 400 }).dx - at('petals', {}).dx;
+  assert.ok(light > heavy, 'petals feel more of the wind than rain');
+  assert.equal(at('snow', { gravity: 0 }).dy, 0);
+  assert.ok(Math.abs(at('snow', { gravity: 2 }).dy - 2 * at('snow', {}).dy) < 1e-9);
+  assert.ok(at('snow', { gravity: -1 }).dy < 0, 'negative gravity lifts snow');
+  // upside-down snow enters from the bottom, and a particle off screen and heading in is not culled
+  assert.ok(spawnParticle('snow', mulberry32(1), 1920, 1080, false, { gravity: -1 }).y > 1080);
+  const p = spawnParticle('snow', mulberry32(1), 1920, 1080, true);
+  p.y = 1200;
+  assert.equal(stepParticle(p, 'snow', 0, 0, 1920, 1080, { gravity: -1 }), true);
+  assert.equal(stepParticle(p, 'snow', 0, 0, 1920, 1080, { gravity: 1 }), false);
+});
+
+test('wind and gravity act on bursts', () => {
+  const fall = env => { const p = spawnBurst('confetti', mulberry32(5), 0, 0, 1)[0]; p.vx = 0; p.vy = 0; for (let i = 0; i < 10; i++) stepBurst(p, 'confetti', 0.1, env); return p; };
+  assert.ok(fall({ gravity: 0 }).y === 0 && fall({}).y > 100 && fall({ gravity: -1 }).y < -100);
+  assert.ok(fall({ windVx: 400 }).x > 50 && fall({ windVx: -400 }).x < -50);
+  assert.equal(windVelocity(null, 1), 0);
+  assert.equal(windVelocity({ strength: 1, gusts: 0 }, 5), WIND_PX);
+  const gusty = [0, 1, 2, 3, 4, 5, 6].map(t => windVelocity({ strength: 1, gusts: 1 }, t));
+  assert.ok(Math.max(...gusty) - Math.min(...gusty) > 100 && gusty.every(v => v >= 0 && v <= WIND_PX));
+});
+
+test('gravity: parsing, lasting state, reset on scene, bad arguments, completions', async () => {
+  const p = build(['label start:', '  scene a', '  gravity 0.3', '  "x"', '  gravity -1', '  "y"', '  gravity reset', '  "z"', '  gravity 2', '  scene b', '  "w"']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(ops('gravity', p).map(o => o.factor), [0.3, -1, 1, 2]);
+  const rt = new Runtime(p, new NullRenderer());
+  const seen = [];
+  rt.renderer.say = async () => { seen.push(rt.state.gravity ?? null); };
+  await rt.start();
+  assert.deepEqual(seen, [0.3, -1, null, null]);
+  for (const bad of ['gravity', 'gravity heavy', 'gravity 9', 'gravity 1 2', 'gravity reset 1']) {
+    assert.equal(build(['label start:', `  ${bad}`]).diagnostics.length, 1, bad);
+  }
+  assert.ok(getCompletions(p, '  gra').map(s => s.label).includes('gravity'));
 });

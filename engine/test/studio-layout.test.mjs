@@ -12,7 +12,7 @@ test('an entry point names the mode; Model also answers to its old name, anythin
 
 test('each mode has the Parts tree first, and only its own other sections; Model puts the Parameters straight after the tree', () => {
   assert.deepEqual(sectionIds('animate'), ['tree', 'sel', 'poses', 'params', 'frames', 'place']);
-  assert.deepEqual(sectionIds('model'), ['tree', 'poses', 'params', 'keyforms', 'sel', 'warp', 'mask', 'physics', 'auto']);
+  assert.deepEqual(sectionIds('model'), ['tree', 'poses', 'params', 'keyforms', 'sel', 'warp', 'mask', 'physics', 'reactions']);
   for (const mode of Object.keys(STUDIO_SECTIONS)) assert.equal(new Set(sectionIds(mode)).size, sectionIds(mode).length, `${mode} has no duplicate ids`);
 });
 
@@ -57,9 +57,9 @@ test('what the author chose beats the defaults, per mode', () => {
 
 test('withSection leaves the layout it was given alone', () => {
   const base = withSection(NO_LAYOUT, 'model', 'physics', true);
-  const next = withSection(base, 'model', 'auto', true);
+  const next = withSection(base, 'model', 'reactions', true);
   assert.deepEqual(base.open.model, { physics: true });
-  assert.deepEqual(next.open.model, { physics: true, auto: true });
+  assert.deepEqual(next.open.model, { physics: true, reactions: true });
   assert.deepEqual(NO_LAYOUT, { open: {} });
 });
 
@@ -86,7 +86,7 @@ test('the studio dock holds every section of both modes once, Parameters over Pa
   assert.deepEqual(defaultDock(spec), {
     left: ['poses', 'params', 'tree'],
     left2: [],
-    right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'auto', 'place'],
+    right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'reactions', 'place'],
   });
   assert.ok(spec.panels.every(p => !p.zones), 'any section may go in any column');
 });
@@ -117,6 +117,6 @@ test('studioPresent is the mode\'s sections less what the host leaves out', () =
 
 test('a dock layout saved before Poses existed still shows it, at the end of its default column', () => {
   const spec = studioDockSpec();
-  const old = readDock(spec, JSON.stringify({ left: ['tree', 'params'], right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'auto', 'place'] }));
+  const old = readDock(spec, JSON.stringify({ left: ['tree', 'params'], right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'reactions', 'place'] }));
   assert.deepEqual(old.left, ['tree', 'params', 'poses']);
 });

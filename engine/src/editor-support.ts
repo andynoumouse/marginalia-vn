@@ -1,7 +1,7 @@
 import { ANIM_NAMES, EASE_NAMES } from './anim.js';
 import { BLIP_PRESETS, type RigManifest } from './assets.js';
 import { rigAnimNames, rigPartNames, rigLookNames, rigSlotNames } from './rig.js';
-import { FILTER_NAMES, WEATHER_NAMES } from './fx.js';
+import { BURST_NAMES, FILTER_NAMES, WEATHER_NAMES } from './fx.js';
 import { TRANSITIONS, type Program } from './types.js';
 import type { CommandWord } from './parser.js';
 import { childNodes, isClickable, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
@@ -39,14 +39,16 @@ const COMMANDS = [
   ['animate', 'animate <character> <name|stop> [seconds] [loop]  |  animate <character> pose=<name> | <parameter>=<value> ... [over <seconds>]'],
   ['hud', 'hud on <screen> [keep] | hud off <screen>  (keep a screen up while the story runs)'],
   ['image', 'image show <name> <file> [at x,y] [layer=] | image move <name> ... | image hide <name>'],
-  ['flash', 'flash [#color] [seconds]'], ['tint', 'tint <#color> [strength] [seconds] | tint off'],
+  ['choreography', 'choreography name:  (indented lines: <seconds> <character|picture|camera>: <step>; play it with perform name)'], ['perform', 'perform <choreography>'],
+  ['burst', 'burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=] [count=] [seconds]'], ['flash', 'flash [#color] [seconds]'], ['tint', 'tint <#color> [strength] [seconds] | tint off'],
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
-  ['behaviors', 'behaviors on | behaviors off  (rig.json "autonomous": idling, blinking and talking by themselves)'],
-  ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera reset'],
-  ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
+  ['behaviors', 'behaviors on | behaviors off  (rig.json "auto" animations: idling, blinking and talking by themselves)'],
+  ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera roll <degrees> | camera reset'],
+  ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['wind', 'wind <right|left> [strength] [gusts=] [seconds] | wind off'], ['gravity', 'gravity <factor> | gravity reset'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
    ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <seconds>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['textbox', 'textbox hide  (hide the text box until the next line)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
+  ['transform', 'transform name:  (indented lines: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [seconds] [ease=], wait <seconds>, repeat [times]; play it with animate <char|image> name)'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ] as const;
 // The compiler keeps this list and the parser's COMMAND_WORDS in step (`on` is the menu's timeout block, not a statement of its own).
@@ -88,7 +90,7 @@ const SCREEN_ELEMENTS: [string, string][] = [
 ];
 const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (isClickable(n) ? [n.id, ...elementIds(childNodes(n))] : childNodes(n).length ? elementIds(childNodes(n)) : []));
 const DIRECTIONS = ['left', 'right', 'up', 'down'];
-const EASES = EASE_NAMES.map(n => `ease=${n}`);
+const EASES = [...EASE_NAMES.map(n => `ease=${n}`), 'ease=bezier(0.25,0.1,0.25,1)'];
 
 /** The screens the project declares (not the starter title and pause screens the shell adds when it has none). */
 const projectScreens = (program: Program): string[] => Object.values(program.screens ?? {}).filter(sc => !sc.src.file.startsWith('stock/')).map(sc => sc.name);
@@ -226,21 +228,27 @@ function storyArguments(c: ArgCtx): Suggestion[] | undefined {
     }
     case 'hide': return arg === 0 ? characters : kw(['fade', 'nowait']);
     case 'hop': return arg === 0 ? characters : kw(['nowait']);
+    case 'perform': return arg === 0 ? kw(Object.keys(program.choreographies ?? {})) : kw(['nowait']);
+    case 'burst':
+      if (arg === 0) return kw([...BURST_NAMES]);
+      if (last === 'at') return [...characters, ...kw(Object.keys(program.positions))];
+      return kw(['at', 'y=0.5', 'count=20', 'nowait']);
     case 'animate': {
-      if (arg === 0) return characters;
+      if (arg === 0) return [...characters, { label: 'camera', kind: 'keyword' as const, detail: 'the view' }, ...[...new Set(program.ops.flatMap(o => (o.op === 'image' && o.action === 'show' ? [o.name] : [])))].map(label => ({ label, kind: 'keyword' as const, detail: 'image' }))];
       const poseWords = Object.keys(rigs[prev[1]]?.rig?.poses ?? {}).map(p => ({ label: `pose=${p}`, kind: 'keyword' as const, detail: `pose of ${prev[1]}` }));
       const paramWords = (rigs[prev[1]]?.rig?.parameters ?? []).map(p => ({ label: `${p.id}=${p.default}`, kind: 'keyword' as const, detail: `parameter ${p.min} to ${p.max}` }));
       if (prev.slice(2).some(t => t.includes('='))) return [...poseWords, ...paramWords, ...kw(['over', ...EASES, 'nowait'])];
       if (arg === 1) {
-        const own = rigs[prev[1]] ? rigAnimNames(rigs[prev[1]]) : [];
-        return [...[...new Set([...own, ...ANIM_NAMES, 'stop'])].map(label => ({ label, kind: 'keyword' as const, detail: label === 'stop' ? 'end the loop' : own.includes(label) ? `animation of ${prev[1]}` : 'animation' })), ...poseWords, ...paramWords];
+        const own = rigs[prev[1]] ? rigAnimNames(rigs[prev[1]]) : [], scripted = [...Object.keys(program.transforms ?? {}).filter(n => !n.includes(':')), ...Object.keys(program.dynamicTransforms ?? {})];
+        return [...[...new Set([...own, ...scripted, ...ANIM_NAMES, 'stop'])].map(label => ({ label, kind: 'keyword' as const, detail: label === 'stop' ? 'end the loop' : own.includes(label) ? `animation of ${prev[1]}` : scripted.includes(label) ? 'transform' : 'animation' })), ...poseWords, ...paramWords];
       }
-      return kw(['loop', 'strength=1', ...(rigs[prev[1]] ? rigPartNames(rigs[prev[1]]).map(p => `part=${p}`) : []), 'nowait']);
+      if (last === 'auto') return kw(['off']);
+      return kw(['loop', 'strength=1', 'auto', ...(rigs[prev[1]] ? rigPartNames(rigs[prev[1]]).map(p => `part=${p}`) : []), 'nowait']);
     }
     case 'move':
       if (arg === 0) return characters;
       if (last === 'to') return kw(Object.keys(program.positions));
-      return kw([...(prev.includes('to') ? [] : ['to']), 'y=0', 'scale=1', 'rot=0', 'alpha=1', 'flip=on', 'flip=off', ...anchorWords(program), ...EASES, 'nowait']);
+      return kw([...(prev.includes('to') ? [] : ['to']), 'y=0', 'scale=1', 'rot=0', 'alpha=1', 'tint=#ff8080', 'tint=none', 'flip=on', 'flip=off', ...anchorWords(program), ...EASES, 'nowait']);
     case 'shake':
       return arg === 0 ? [...characters, { label: 'screen', kind: 'keyword' as const }] : kw(['strength=8', 'nowait']);
     case 'scene': {
@@ -259,16 +267,18 @@ function storyArguments(c: ArgCtx): Suggestion[] | undefined {
         const used = new Set(program.ops.flatMap(o => (o.op === 'image' && o.action === 'show' ? [o.file] : [])));
         return [...[...used].map(label => ({ label, kind: 'asset' as const, detail: 'image', path: true })), ...imagePaths(files).filter(s => !used.has(s.label) && !used.has(stripExt(s.label)))];
       }
-      return kw(['at', 'scale=1', 'rot=0', 'alpha=1', 'layer=-1', 'fixed', 'keep', 'fade', ...anchorWords(program), 'nowait']);
+      return kw(['at', 'scale=1', 'rot=0', 'alpha=1', 'layer=-1', 'parallax=0.5', 'tint=#ff8080', 'fixed', 'keep', 'fade', ...anchorWords(program), 'nowait']);
     }
     case 'tint': return arg === 0 ? kw(['off']) : [];
     case 'weather': return arg === 0 ? kw([...WEATHER_NAMES, 'off']) : kw(['nowait']);
+    case 'gravity': return arg === 0 ? kw(['0', '0.3', '1', '-0.3', 'reset']) : kw(['nowait']);
+    case 'wind': return arg === 0 ? kw(['right', 'left', 'off']) : kw(['gusts=0.4', 'nowait']);
     case 'filter': return arg === 0 ? kw([...FILTER_NAMES, 'off']) : kw(['nowait']);
     case 'nvl': return arg === 0 ? kw(['on', 'off', 'clear']) : [];
     case 'textbox': return arg === 0 ? kw(['hide']) : [];
     case 'focus': case 'behaviors': return arg === 0 ? kw(['on', 'off']) : [];
     case 'camera':
-      if (arg === 0) return kw(['zoom', 'pan', 'reset']);
+      if (arg === 0) return kw(['zoom', 'pan', 'roll', 'reset']);
       if (last === 'at' || last === 'pan') return kw(Object.keys(program.positions));
       if (prev[1] === 'pan') return kw(['y=0.5', ...EASES, 'nowait']);
       return prev[1] === 'zoom' ? kw(['at', 'y=0.5', ...EASES, 'nowait']) : kw([...EASES, 'nowait']);

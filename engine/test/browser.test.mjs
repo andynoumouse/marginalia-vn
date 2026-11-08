@@ -6,9 +6,10 @@
 // Tests hard-code the start of park.vn (see CLAUDE.md), and need the build in dist/ (`npm test` does that).
 import { before, after, describe, test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import http from 'node:http';
 import { inflateSync } from 'node:zlib';
-import { existsSync, readFileSync, readdirSync, mkdtempSync, cpSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, mkdtempSync, cpSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,8 +30,9 @@ let server, browser, base, skipReason, snapshot, sampleCopy;
 
 // Every test has its own browser context (own localStorage, own mocked /api routes) and the dev server is read-only here,
 // so they do not interact: they are collected and run VN_BROWSER_JOBS at a time (default 6; 1 runs them in order) by the suite at the
-// end of the file. 6 jobs take ~32 s against ~150 s for 1 and passed 6 runs out of 6 (also with tsc running alongside), but
-// an earlier 4-job run failed one pointer/timing test once, so if a test fails only in a full run, retry it with VN_BROWSER_JOBS=1.
+// end of the file. 6 jobs take ~100 s now (more tests, heavier pages) against ~400 s for 1. A test that fails only in a full
+// run is a race with a loaded page (focus taken by a late load, an assertion right after an async layout): retry it with
+// VN_BROWSER_JOBS=1, and see docs/design/flaky-tests.md before adding a fixed wait.
 const queued = [];
 const test = (...args) => { queued.push(args); };
 
@@ -41,6 +43,22 @@ before(async () => {
     try { browser = await chromium.launch(opts); break; } catch { /* try the next one */ }
   }
   if (!browser) { skipReason = 'no Chrome or Edge found (set VN_BROWSER)'; return; }
+  // The editor keeps loading after `load` (the project, the git status, the file tree, Monaco's workers) and takes the focus
+  // from whatever a test has started on a loaded machine (a palette query, an Escape meant for a dialog): a page that opens
+  // the editor is let settle first.
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (...args) => {
+    const context = await newContext(...args);
+    context.on('page', page => {
+      const goto = page.goto.bind(page);
+      page.goto = async (url, options) => {
+        const response = await goto(url, options);
+        if (/\/editor\/?(\?|$)/.test(url)) await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+        return response;
+      };
+    });
+    return context;
+  };
   // The dev server serves PixiJS and Monaco from the project's own node_modules. A fresh git worktree has none (node
   // still finds playwright-core in a parent folder, so the tests do not skip): fail now, not 30 s per test later.
   for (const dep of ['pixi.js', 'monaco-editor']) {
@@ -99,19 +117,41 @@ const text = page => page.locator('#text').innerText();
 const status = page => page.locator('#status').innerText();
 // A generous wait: it costs time only when a test is failing anyway, and a machine that is busy with something else
 // (another build, a virus scan) stalled the typing timers past the old 8 s now and then, in a different test each time.
-const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 20000 });
+// A timeout says what the page looked like (a flake used to say only "Timeout 20000ms exceeded"): whether it was
+// visible, the editor's toast and the palette's list.
+const until = async (page, fn, arg) => {
+  try {
+    return await page.waitForFunction(fn, arg, { timeout: 20000 });
+  } catch (e) {
+    const seen = await page.evaluate(() => JSON.stringify({
+      visibility: document.visibilityState, focus: document.hasFocus(),
+      toast: document.querySelector('#toast span')?.textContent ?? null,
+      palette: [...document.querySelectorAll('#paletteList li')].map(li => li.textContent).slice(0, 5),
+      dialogs: [...document.querySelectorAll('dialog[open], #gitCommit:not([hidden])')].map(d => `${d.id || d.className}: ${d.textContent.replace(/\s+/g, ' ').slice(0, 200)}`),
+    })).catch(() => 'the page is gone');
+    throw new Error(`${e.message.split('\n')[0]}\nPage state: ${seen}`, { cause: e });
+  }
+};
+// Bind parts… opens the picker in the right column: tick the parts by name and press Bind.
+const bindParts = async (studio, ...names) => {
+  await studio.locator('.ab-bind').click();
+  for (const n of names) await studio.locator(`.ab-picklist label:has(span:text-is("${n}")) input`).check();
+  await studio.locator('.ab-pickgo').click();
+};
 const newGame = async page => {
   await page.getByRole('button', { name: 'New game' }).click();
   await until(page, () => document.getElementById('box').dataset.visible === 'true');
 };
 const textDone = page => until(page, () => document.getElementById('box').dataset.done === 'true');
 const menuOpen = page => until(page, () => document.getElementById('menu').dataset.visible === 'true');
-// Press Space until the choice menu is up: finishes the typing and moves through the lines before it.
+// Click the stage's corner until the choice menu is up: finishes the typing and moves through the lines before it. Not Space:
+// on a loaded page the menu can open between the check and the key, and Space on the menu's focused first option picks it
+// (a click on the stage is ignored while a menu is open).
 async function toChoice(page) {
   for (let i = 0; i < 12; i++) {
     if (await page.locator('#menu[data-visible="true"]').count()) return;
     await textDone(page).catch(() => {});
-    await page.keyboard.press('Space');
+    await page.locator('#stage').click({ position: { x: 4, y: 4 } });
     await page.waitForTimeout(150);
   }
   await menuOpen(page);
@@ -191,14 +231,150 @@ play('choices: number keys pick an option and the story branches', async page =>
   await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
 });
 
+// UX round EP-1 and EP-4: the sample's characters open with the problems they had (the schema does not add its own), and the
+// Problems count, which includes rigs that are not open, can be followed: a click opens one.
+inEditor('problems: opening the rig.json tabs adds no schema warnings, and a click on the count opens a rig that has some', async page => {
+  const count = () => page.locator('#problems').innerText();
+  assert.equal(await count(), 'Problems: 3');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#tabs .tab [role=tab]')].filter(t => t.textContent.endsWith('rig.json')).length), 0);
+  await page.locator('#problems').click();
+  await until(page, () => document.querySelector('#tabs .tab[data-selected="true"] [role=tab]')?.textContent.endsWith('rig.json'));
+  await page.locator('#sbList .item', { hasText: 'psd · rig.json' }).filter({ hasText: 'mina' }).first().click();
+  await page.locator('#sbList .item', { hasText: 'psd · rig.json' }).filter({ hasText: 'robo' }).first().click();
+  await page.waitForTimeout(800);
+  assert.equal(await count(), 'Problems: 3', 'the sample rigs open clean');
+});
+
+// UX round PC-1 and PC-2. A key meant to read the line must not pick for the player as the choices come up: Space or Enter
+// tapped as they appear, or held (auto-repeat) through them. And Tab onto the quick menu's Back must not leave it the next Space.
+// The menu is waited for frame by frame, so the key follows it by a few milliseconds, as a player's second tap would.
+const toChoiceAtOnce = async page => {
+  let seen = false;
+  const shown = page.evaluate(() => new Promise(r => { const tick = () => (document.getElementById('menu').dataset.visible === 'true' ? r() : requestAnimationFrame(tick)); tick(); }));
+  shown.then(() => { seen = true; });
+  for (let i = 0; i < 12 && !seen; i++) {
+    await textDone(page).catch(() => {});
+    if (seen) break;
+    await page.locator('#stage').click({ position: { x: 4, y: 4 } });
+    await Promise.race([page.waitForTimeout(150), shown]);
+  }
+  await shown;
+};
+play('choices: Space or Enter as the menu appears, or a held key, picks nothing; a press a moment later picks the focused option', async page => {
+  await newGame(page);
+  await toChoiceAtOnce(page);
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#menu').getAttribute('data-visible'), 'true', 'a tap as the choices appear picks nothing');
+  await page.waitForTimeout(350); // the guard is over: a held key is the next case
+  await page.keyboard.down('Space');
+  for (let i = 0; i < 4; i++) { await page.waitForTimeout(40); await page.keyboard.down('Space'); } // auto-repeat
+  await page.keyboard.up('Space');
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#menu').getAttribute('data-visible'), 'true', 'a key held through the choices picks nothing when let go');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('menu').dataset.visible !== 'true');
+  await until(page, () => /Sorry, I got lost|Don't flatter yourself|You didn't have to wait|Sorry/.test(document.getElementById('text').textContent) || document.getElementById('name').textContent !== '');
+});
+
+play('choices: Tab onto the quick menu, then a number key, leaves no button focused to undo the pick', async page => {
+  await newGame(page);
+  await toChoice(page);
+  await page.waitForTimeout(400);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.getElementById('menu').contains(document.activeElement)), false, 'focus went on to the quick menu');
+  await page.keyboard.press('2');
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+  assert.equal(await page.evaluate(() => document.activeElement === document.body), true, 'no button keeps the focus');
+  await textDone(page);
+  await page.keyboard.press('Space'); // the story goes on; it does not roll back to the menu
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#menu').getAttribute('data-visible') === 'true', false);
+});
+
 play('choices: arrow keys move focus and Enter picks', async page => {
   await newGame(page);
   await toChoice(page);
+  await page.waitForTimeout(350); // an Enter before that is taken for the key that read the line (PC-1)
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   assert.equal(await page.evaluate(() => document.activeElement.textContent), "You didn't have to wait.");
   await page.keyboard.press('Enter');
   await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+});
+
+// Script transforms run in the renderer: a picture attached to one whose condition holds moves, one whose condition is false
+// stays put. The pictures are placeholders (no such files), well away from the characters and the text box.
+play('transforms: an automatic transform moves its picture while its condition holds, and a false one does not', async page => {
+  await newGame(page);
+  await textDone(page);
+  const box = await page.locator('canvas#canvas').boundingBox();
+  const regions = {
+    moving: { x: box.x, y: box.y + box.height * 0.06, width: box.width * 0.3, height: box.height * 0.4 },
+    still: { x: box.x + box.width * 0.66, y: box.y + box.height * 0.14, width: box.width * 0.24, height: box.height * 0.28 },
+  };
+  const shots = { moving: [], still: [] };
+  for (let i = 0; i < 8; i++) {
+    for (const [name, clip] of Object.entries(regions)) shots[name].push(await page.screenshot({ clip }));
+    await page.waitForTimeout(150);
+  }
+  const distinct = list => new Set(list.map(b => b.toString('base64'))).size;
+  assert.ok(distinct(shots.moving) > 1, 'the picture on the running transform changes between frames');
+  assert.equal(distinct(shots.still), 1, 'the picture whose condition is false does not move');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    for (const s of proj.scripts) if (s.file === 'park.vn') {
+      const NL = String.fromCharCode(10), block = (...l) => l.join(NL) + NL;
+      s.text = s.text
+        .replace('set trust = 0' + NL, block('transform lean while trust == 0:', '  rot=-12 0.4', '  rot=12 0.8', '  rot=0 0.4', '', 'transform never while trust > 5:', '  rot=-30 0.4', '  rot=30 0.4', '', 'set trust = 0'))
+        .replace('  music play evening_theme loop' + NL, block('  music play evening_theme loop', '  image show lamp prop/lamp at 300,300 anchor=center scale=1.5 keep', '  image show lamp2 prop/lamp2 at 1500,300 anchor=center keep', '  animate lamp lean auto', '  animate lamp2 never auto'));
+    }
+    await route.fulfill({ response: res, json: proj });
+  });
+});
+
+// The 2D effects added after the first transforms, played in the real renderer: `camera roll` and zoom with a sustained
+// `animate camera shake` (the view jitters and is turned), `move ... tint=` (the character's tint), a choreography, a burst and
+// the glitch filter (a shader that has to compile). Each is read from vnStage() or the console, not from pixels.
+play('camera shake, roll, tint, flash channels, choreography, burst and the glitch filter run without errors', async page => {
+  const problems = [];
+  page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') problems.push(m.text()); });
+  await newGame(page);
+  await textDone(page);
+  await page.locator('#stage').click({ position: { x: 4, y: 4 } }); // past the narration: alice shows and the effects start
+  await until(page, () => window.vnStage().some(a => a.char === 'alice'));
+  await page.waitForTimeout(900); // the choreography (0.6 s) has ended: only the shake still moves her
+  const xs = new Set(), heights = [];
+  for (let i = 0; i < 10; i++) {
+    const alice = (await stageNow(page)).find(a => a.char === 'alice');
+    xs.add(alice.bounds[0]); heights.push(alice.bounds[3]);
+    await page.waitForTimeout(70);
+  }
+  assert.ok(xs.size > 3, `the sustained shake moves the view between frames (saw ${[...xs]})`);
+  assert.ok(Math.min(...heights) > 1000, `zoom 1.2 and a roll make her bigger than the normal 940 (saw ${Math.min(...heights)})`);
+  const alice = (await stageNow(page)).find(a => a.char === 'alice');
+  assert.equal(alice.tint & 0xffffff, 0xff8040, 'move ... tint= multiplies her');
+  assert.equal(alice.fxTint & 0xffffff, 0x40ff40, 'the tint= channel of a transform multiplies her on top');
+  assert.equal(alice.flashing, 1, 'the flash= channel of a transform puts a filter on her');
+  assert.equal(await page.evaluate(() => /Script error/.test(document.body.innerText)), false, 'the new commands and the choreography compile');
+  assert.deepEqual(problems.filter(p => !/favicon|ERR_|Failed to load resource/.test(p)), [], 'no console errors or warnings (a shader that fails to compile logs one)');
+}, async context => {
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    for (const s of proj.scripts) if (s.file === 'park.vn') {
+      const NL = String.fromCharCode(10), block = (...l) => l.join(NL) + NL;
+      s.text = s.text
+        .replace('set trust = 0' + NL, block('transform stain:', '  tint=#40ff40 0.05', '  flash=#ff0000:0.5 0.05', '  wait 3', '  repeat', '', 'choreography entrance:', '  0 alice: x=0.02 0.3', '  0.3 camera: rot=1 0.3', '', 'set trust = 0'))
+        .replace('  show alice neutral at center fade 0.4' + NL, block('  show alice neutral at center', '  camera zoom 1.2 at center', '  camera roll 4', '  animate camera shake loop strength=2', '  move alice tint=#ff8040', '  burst sparkle at alice', '  filter glitch 0.4', '  perform entrance nowait', '  animate alice stain loop'));
+    }
+    await route.fulfill({ response: res, json: proj });
+  });
 });
 
 play('Tab does not skip unread text and says so', async page => {
@@ -240,6 +416,24 @@ play('PageUp rolls back to the previous line', async page => {
   await page.keyboard.press('PageUp');
   await until(page, () => document.getElementById('name').textContent === '');
   await until(page, () => /^The park was nearly/.test(document.getElementById('text').textContent));
+});
+
+// UX round PC-6: rolling back to a choice leaves the line before it in the text box, as the first visit did (and the save made
+// there says that line, not the one the picked option led to).
+play('PageUp back to a choice shows the line before it under the options', async page => {
+  await newGame(page);
+  await toChoice(page);
+  const line = await text(page), who = await page.locator('#name').innerText();
+  assert.ok(line.length > 0);
+  await page.waitForTimeout(400); // the guard against a key meant for the line (PC-1)
+  await page.keyboard.press('2');
+  await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
+  await textDone(page);
+  await page.keyboard.press('PageUp');
+  await menuOpen(page);
+  assert.equal(await page.locator('#box').getAttribute('data-visible'), 'true');
+  assert.equal(await text(page), line);
+  assert.equal(await page.locator('#name').innerText(), who);
 });
 
 play('F5 quick saves and F9 returns to the saved line', async page => {
@@ -685,6 +879,18 @@ play('Continue is disabled without a save and resumes the newest one, showing it
   assert.equal(await page.locator('#name').innerText(), 'Alice');
 });
 
+play('title: with a save to go on from, the focus starts on Continue, so Enter does not start over (UX round PC-3)', async page => {
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.act), 'start', 'with no save, New game is first');
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Space');
+  await until(page, () => document.getElementById('name').textContent === 'Alice');
+  await page.keyboard.press('Escape');
+  await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
+  await confirmYes(page);
+  await until(page, () => document.activeElement?.dataset.act === 'continue');
+});
+
 // A second language is injected into the project the page fetches; the sample ships only English.
 const withFinnish = async context => {
   await context.route('**/api/project', async route => {
@@ -792,6 +998,211 @@ play('error screen: an exported game stops on a runtime error with a report and 
   await page.getByRole('button', { name: 'New game' }).waitFor();
 }, asBrokenExport);
 
+// Touch gestures (docs/design/mobile.md, step 2): an exported game on an emulated phone, touches sent through the DevTools
+// protocol (page.touchscreen only taps). `touch` is game.json's "touch" for the run.
+async function onPhone(touch, fn, viewport = { width: 844, height: 390 }, setup) {
+  const { compile, packProgram } = await import('../../dist/engine/src/index.js');
+  const program = compile([{ file: 'touch.vn', text: 'label start:\n  "One."\n  "Two."\n  "Three."\n  "Four."\n  end' }]);
+  const context = await browser.newContext({ viewport, hasTouch: true, isMobile: true });
+  await setup?.(context);
+  await context.route(url => url.pathname === '/', async route => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replace(/<html\b/, '<html data-mode="game"') });
+  });
+  await context.route('**/project.json', async route => {
+    const proj = await (await route.fetch({ url: new URL('/api/project', route.request().url()).href })).json();
+    await route.fulfill({ json: { game: { ...proj.game, ...(touch ? { touch } : {}) }, assets: proj.assets, rigs: proj.rigs, locales: {}, program: packProgram(program, 'v1'), engine: '9.9.9' } });
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(base);
+    await page.getByRole('button', { name: 'New game' }).waitFor();
+    await newGame(page);
+    const cdp = await context.newCDPSession(page);
+    const send = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 0 }] });
+    // A swipe or a hold on the stage's upper part, away from the text box and the quick bar.
+    const swipe = async (dx, dy) => {
+      const x = 422, y = 120;
+      await send('touchStart', x, y);
+      for (let i = 1; i <= 6; i++) { await page.waitForTimeout(15); await send('touchMove', x + (dx * i) / 6, y + (dy * i) / 6); }
+      await send('touchEnd', x + dx, y + dy);
+    };
+    const hold = async ms => { await send('touchStart', 422, 120); await page.waitForTimeout(ms); await send('touchEnd', 422, 120); };
+    const tap = async () => { await send('touchStart', 422, 120); await send('touchEnd', 422, 120); };
+    const advanceTo = async line => {
+      for (let i = 0; i < 8 && (await text(page)) !== line; i++) {
+        await tap();
+        await page.waitForTimeout(200);
+      }
+      await until(page, l => document.getElementById('text').textContent === l && document.getElementById('box').dataset.done === 'true', line);
+    };
+    const twoFingerTap = async () => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 400, y: 120, id: 0 }, { x: 460, y: 120, id: 1 }] });
+      await page.waitForTimeout(40);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    };
+    await fn({ page, swipe, hold, tap, twoFingerTap, advanceTo });
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+}
+
+test('touch: a tap advances; swipe right rolls back, left does nothing, down hides the interface, up opens the history', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone(null, async ({ page, swipe, advanceTo }) => {
+    await advanceTo('Three.');
+    await swipe(-150, 5);
+    await page.waitForTimeout(300);
+    assert.equal(await text(page), 'Three.', 'a swipe left never advances');
+    await swipe(150, 5);
+    await until(page, () => document.getElementById('text').textContent === 'Two.');
+    await swipe(5, 120);
+    await until(page, () => document.getElementById('stage').dataset.uiHidden === 'true');
+    await swipe(5, 120); // the same swipe brings it back
+    await until(page, () => document.getElementById('stage').dataset.uiHidden === 'false');
+    await swipe(5, -120);
+    await until(page, () => document.getElementById('historyui').dataset.visible === 'true');
+    assert.equal(await text(page), 'Two.', 'the swipe up opened the history and moved nothing');
+  });
+});
+
+test('touch: a long press opens the pause menu, a tap with two fingers too, and neither advances the story', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone(null, async ({ page, hold, twoFingerTap, advanceTo }) => {
+    await advanceTo('Two.');
+    await hold(800);
+    await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
+    assert.equal(await text(page), 'Two.');
+    await page.keyboard.press('Escape');
+    await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'hidden' });
+    await page.waitForTimeout(500);
+    assert.equal(await text(page), 'Two.', 'the click after a long press did not advance');
+    await twoFingerTap();
+    await page.locator('#pauseui [data-act="resume"]').waitFor({ state: 'visible' });
+    assert.equal(await text(page), 'Two.');
+  });
+});
+
+test('touch: the quick bar is enlarged to a tappable size and stays inside the window', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone(null, async ({ page }) => {
+    await page.locator('#quickui .sc-btn').first().waitFor({ state: 'visible' });
+    await until(page, () => Number(document.getElementById('quickui').style.getPropertyValue('--quick-k')) > 1);
+    const boxes = await page.locator('#quickui .sc-btn').evaluateAll(els => els.map(e => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, h: r.height }; }));
+    assert.ok(boxes.length >= 4);
+    for (const b of boxes) {
+      assert.ok(b.h >= 22, `a quick bar button is ${b.h.toFixed(1)} CSS px tall`);
+      assert.ok(b.left >= -0.5 && b.right <= 844.5 && b.top >= -0.5 && b.bottom <= 390.5, 'inside the window');
+    }
+  });
+});
+
+test('touch: a tap just above a small button of the pause menu still presses it', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone(null, async ({ page, hold, advanceTo }) => {
+    await advanceTo('Two.');
+    await hold(800);
+    const resume = page.locator('#pauseui [data-act="resume"]');
+    await resume.waitFor({ state: 'visible' });
+    const r = await resume.boundingBox();
+    assert.ok(r.height < 40, `the button is small on the phone (${r.height.toFixed(1)} CSS px)`);
+    const x = r.x + r.width / 2, y = r.y - 5;
+    assert.equal(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('button'), [x, y]), false, 'the tap lands beside the button');
+    await page.touchscreen.tap(x, y);
+    await resume.waitFor({ state: 'hidden' });
+    assert.equal(await text(page), 'Two.', 'it pressed Resume, it did not advance the story');
+  });
+});
+
+test('touch: dialogue text is never smaller than 16 CSS px on a small phone', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone(null, async ({ page }) => {
+    const shown = await page.evaluate(() => {
+      const stage = document.getElementById('stage');
+      const scale = stage.getBoundingClientRect().width / stage.offsetWidth;
+      return parseFloat(getComputedStyle(document.getElementById('text')).fontSize) * scale;
+    });
+    assert.ok(shown >= 15.9, `the dialogue text is ${shown.toFixed(1)} CSS px`);
+  }, { width: 640, height: 300 });
+});
+
+test('touch: the screen stays on (wake lock) while auto-advance runs, and is let go when it stops', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const fakeWakeLock = context => context.addInitScript(() => {
+    window.__wake = { requests: 0, releases: 0 };
+    Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: { request: async () => {
+      window.__wake.requests++;
+      return { release: async () => { window.__wake.releases++; }, addEventListener() {} };
+    } } });
+  });
+  await onPhone(null, async ({ page, advanceTo }) => {
+    await advanceTo('One.');
+    assert.deepEqual(await page.evaluate(() => window.__wake), { requests: 0, releases: 0 });
+    await page.keyboard.press('a');
+    await until(page, () => window.__wake.requests === 1);
+    await page.keyboard.press('a');
+    await until(page, () => window.__wake.releases === 1);
+  }, undefined, fakeWakeLock);
+});
+
+test('pwa export: "pwa": true writes a manifest and a service worker, and the game starts again with the network off', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const dir = mkdtempSync(path.join(tmpdir(), 'vn-pwa-'));
+  let site, context;
+  try {
+    cpSync(path.join(root, 'games/demo'), path.join(dir, 'proj'), { recursive: true });
+    const gameFile = path.join(dir, 'proj', 'game.json');
+    writeFileSync(gameFile, JSON.stringify({ ...JSON.parse(readFileSync(gameFile, 'utf8')), pwa: true }));
+    execFileSync(process.execPath, [path.join(root, 'tools/export-web.mjs'), '--no-build', '--no-playtest'], { env: { ...process.env, VN_PROJECT: path.join(dir, 'proj') }, stdio: 'ignore' });
+    const web = path.join(dir, 'proj', 'build', 'web');
+    const manifest = JSON.parse(readFileSync(path.join(web, 'manifest.webmanifest'), 'utf8'));
+    assert.equal(manifest.display, 'fullscreen');
+    assert.match(readFileSync(path.join(web, 'index.html'), 'utf8'), /<link rel="manifest" href="manifest.webmanifest">/);
+    const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
+    site = http.createServer((req, res) => {
+      const file = path.join(web, decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/\/$/, '/index.html'));
+      if (!file.startsWith(web) || !existsSync(file)) { res.writeHead(404).end(); return; }
+      res.writeHead(200, { 'content-type': types[path.extname(file)] ?? 'application/octet-stream' }).end(readFileSync(file));
+    });
+    await new Promise(resolve => site.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${site.address().port}/`;
+    context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(url);
+    await page.getByRole('button', { name: 'New game' }).waitFor();
+    await page.evaluate(() => navigator.serviceWorker.ready.then(() => 0));
+    // the worker has all the files once it has installed: wait for the cache, then take the network away
+    await until(page, async () => (await caches.keys()).some(k => k.startsWith('vn-')) && (await (await caches.open((await caches.keys())[0])).keys()).length > 100);
+    await context.setOffline(true);
+    await page.reload();
+    await page.getByRole('button', { name: 'New game' }).waitFor();
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context?.close();
+    site?.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('touch: game.json "touch": { "gestures": false } leaves only the tap', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  await onPhone({ gestures: false }, async ({ page, swipe, hold, advanceTo }) => {
+    await advanceTo('Three.');
+    await swipe(150, 5);
+    await page.waitForTimeout(300);
+    assert.equal(await text(page), 'Three.', 'a swipe does not roll back');
+    await hold(800); // a hold is only a tap here: no pause menu
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator('#pauseui [data-act="resume"]').isVisible(), false, 'no pause menu');
+    assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-gestures')), false);
+  });
+});
+
 // A pad the page can read: navigator.getGamepads() returns this object, and the test presses its buttons.
 const withPad = async context => {
   await context.addInitScript(() => {
@@ -839,12 +1250,25 @@ play('gamepad: in the game A advances, and at a choice the d-pad moves between o
   await tap(page, 13);
   await tap(page, 13);
   assert.equal(await focusedText(page), "You didn't have to wait.");
+  await page.waitForTimeout(350); // an A before that is taken for the press that read the line (PC-1)
   await tap(page, 0);
   await until(page, () => /Don't flatter yourself/.test(document.getElementById('text').textContent));
 }, withPad);
 
+play('gamepad: A pressed as the choices appear picks nothing; a press a moment later picks the focused option', async page => {
+  await newGame(page);
+  await toChoiceAtOnce(page);
+  await tap(page, 0);
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('#menu').getAttribute('data-visible'), 'true', 'a press as the choices appear picks nothing');
+  await page.waitForTimeout(400); // the guard is over
+  await tap(page, 0);
+  await until(page, () => document.getElementById('menu').dataset.visible === 'false');
+}, withPad);
+
 play('NVL: narration fills a full-screen page, a clear starts a new one, off returns to the box', async page => {
-  await page.evaluate(() => window.postMessage({ type: 'goto', file: 'demo.vn', line: 104 }, location.origin));
+  const nvlOn = readFileSync(path.join(root, 'games/sample/script/demo.vn'), 'utf8').split('\n').findIndex(l => l.trim() === 'nvl on') + 1; // not a fixed line: the demo grows above it
+  await page.evaluate(line => window.postMessage({ type: 'goto', file: 'demo.vn', line }, location.origin), nvlOn);
   await until(page, () => document.getElementById('nvl').dataset.visible === 'true');
   const nvlDone = () => until(page, () => document.getElementById('nvl').dataset.done === 'true');
   const next = async () => { await nvlDone(); await page.keyboard.press('Space'); };
@@ -927,6 +1351,113 @@ test('editor: the preview error banner jumps to the line of the error', async t 
       if (!rows.some(r => /jump\s+nowhere/.test(r))) await page.waitForTimeout(200);
     }
     assert.ok(rows.some(r => /jump\s+nowhere/.test(r)), `the cursor is on the failing line, saw ${JSON.stringify(rows)}`);
+  } finally {
+    await context.close();
+  }
+});
+
+test('editor: dialogs keep Tab inside, Esc closes them wherever focus is, and focus goes back to the button (UX round EL-5, EP-9, EP-12)', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1400, height: 850 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/api/build-check*', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ findings: [], errors: 0, warnings: 0, languages: { source: 'en', text: [], voice: [] } }) }));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('.monaco-editor .view-line').first().waitFor();
+    const inside = sel => page.evaluate(sel => !!document.activeElement?.closest(sel), sel);
+    const hidden = sel => page.locator(sel).evaluate(el => el.hidden);
+    const focusedId = () => page.evaluate(() => document.activeElement?.id ?? '');
+
+    // From a toolbar button: 40 Tabs never leave the dialog, Esc closes it, and the button has the focus again.
+    for (const [button, dialog] of [['#buildBtn', '#build'], ['#translateBtn', '#translations'], ['#voiceBtn', '#voice'], ['#outlineBtn', '#outline'], ['#helpBtn', '#help']]) {
+      await page.locator(button).click();
+      await page.locator(`${dialog}:not([hidden])`).waitFor();
+      await page.locator(`${dialog} [role="dialog"]`).waitFor();
+      await until(page, sel => !!document.activeElement?.closest(sel), dialog); // the dialog takes the focus once its first load is done
+      for (let i = 0; i < 40; i++) await page.keyboard.press('Tab');
+      assert.equal(await inside(dialog), true, `${dialog}: Tab stays inside`);
+      for (let i = 0; i < 5; i++) await page.keyboard.press('Shift+Tab');
+      assert.equal(await inside(dialog), true, `${dialog}: Shift+Tab stays inside`);
+      await page.keyboard.press('Escape');
+      await until(page, sel => document.querySelector(sel).hidden, dialog);
+      assert.equal(await focusedId(), button.slice(1), `${dialog}: focus is back on its button`);
+    }
+
+    // Focus that fell onto the page (a button that disabled itself) no longer makes Esc dead: it closes the dialog from there.
+    await page.locator('#buildBtn').click();
+    await page.locator('#build:not([hidden])').waitFor();
+    await page.evaluate(() => document.activeElement?.blur());
+    assert.equal(await focusedId(), '', 'nothing has the focus');
+    await page.keyboard.press('Escape');
+    await until(page, () => document.getElementById('build').hidden);
+
+    // Opened from the palette, Outline and Theme Panel keep the focus the palette handed them: Esc closes them, typing does not
+    // reach the script behind.
+    for (const [command, dialog] of [['>Story: Show Outline', '#outline'], ['>Theme: Panel', '#themePanel']]) {
+      const before = await page.evaluate(() => monaco.editor.getModels().map(m => m.getValue()).join('\n'));
+      await palette(page, command);
+      await page.locator(`${dialog}:not([hidden])`).waitFor();
+      await until(page, sel => !!document.activeElement?.closest(sel), dialog);
+      await page.keyboard.type('zzz');
+      assert.equal(await page.evaluate(() => monaco.editor.getModels().map(m => m.getValue()).join('\n')), before, `${dialog}: typing leaves the script alone`);
+      await page.keyboard.press('Escape');
+      assert.equal(await hidden(dialog), true, `${dialog}: Esc closes it`);
+    }
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('editor: the top bar fits at laptop widths, and a narrow window shows the preview over the code instead of dropping it (UX round EL-1, EL-2)', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1024, height: 768 } });
+  const page = await context.newPage();
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('.monaco-editor .view-line').first().waitFor();
+    const onScreen = sel => page.locator(sel).evaluate(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.left >= 0 && r.right <= innerWidth + 1 && r.bottom <= document.getElementById('main').getBoundingClientRect().top + 1; });
+    const barFits = async () => assert.deepEqual(
+      await page.evaluate(() => ({ scroll: document.getElementById('bar').scrollWidth - document.getElementById('bar').clientWidth, page: document.documentElement.scrollWidth - innerWidth })),
+      { scroll: 0, page: 0 }, 'the bar neither scrolls nor overflows the page');
+    for (const width of [1024, 960, 901]) {
+      await page.setViewportSize({ width, height: 768 });
+      await barFits();
+      assert.equal(await onScreen('#problems'), true, `${width}px: Problems is on screen, above the panes`);
+      assert.equal(await onScreen('#status'), true, `${width}px: the status is on screen`);
+      assert.equal(await page.evaluate(() => document.getElementById('preview').getBoundingClientRect().width > 250), true, `${width}px: the preview pane is beside the code`);
+    }
+
+    // 900 px and below: the preview is not a pane any more; showing it covers the code and the Editor button goes back.
+    await page.setViewportSize({ width: 800, height: 700 });
+    const previewShown = () => page.evaluate(() => getComputedStyle(document.getElementById('preview')).display !== 'none');
+    assert.equal(await previewShown(), false, 'no room for the pane at 800 px');
+    assert.equal(await page.locator('#paneBack').isVisible(), false, 'no Editor button while the code is showing');
+    await page.locator('#playHere').click();
+    await until(page, () => getComputedStyle(document.getElementById('preview')).display !== 'none');
+    const cover = await page.evaluate(() => { const p = document.getElementById('preview').getBoundingClientRect(), m = document.getElementById('main').getBoundingClientRect(); return { w: Math.round(p.width - m.width), h: Math.round(p.height - m.height) }; });
+    assert.deepEqual(cover, { w: 0, h: 0 }, 'the preview covers the code');
+    await page.locator('#paneBack').click();
+    assert.equal(await previewShown(), false, 'the Editor button brings the code back');
+    assert.equal(await page.evaluate(() => !!document.activeElement?.closest('.monaco-editor')), true, 'the code has the focus');
+    await palette(page, '>Preview: Show or Hide Pane');
+    await until(page, () => getComputedStyle(document.getElementById('preview')).display !== 'none');
+    assert.match(await page.locator('#status').innerText(), /preview shown/);
+    await page.keyboard.press('Alt+1');
+    assert.equal(await previewShown(), false, 'Alt+1 returns to the code');
+    await page.setViewportSize({ width: 1200, height: 700 });
+    assert.equal(await previewShown(), true, 'widening the window puts the pane beside the code again');
+
+    // The Files panel covers the code in a narrow window instead of leaving it 150 px; opening a file puts it away.
+    await page.setViewportSize({ width: 500, height: 700 });
+    const editorWidth = () => page.locator('#editor').evaluate(el => el.getBoundingClientRect().width);
+    await page.keyboard.press('Alt+3'); // shows the panel and focuses its filter
+    await page.locator('#sidebar:not([hidden])').waitFor();
+    assert.equal(await editorWidth() > 450, true, 'the code keeps its width under the panel');
+    await page.locator('#sbList .item', { hasText: 'park.vn' }).click();
+    await until(page, () => document.getElementById('sidebar').hidden);
   } finally {
     await context.close();
   }
@@ -1050,18 +1581,14 @@ test('files panel: a delete toast offers Undo, and Restore from Trash lists the 
     assert.equal(await toastEl.getByRole('button', { name: 'Undo' }).isVisible(), false, 'a restore with nothing pushed aside has no Undo');
     assert.deepEqual(calls, [{ route: 'delete', path: 'script/demo.vn' }, { route: 'restore', id: 'entry-new' }]);
 
-    await page.keyboard.press('Control+p');
-    await page.keyboard.type('>Files: Restore from Trash');
-    await page.keyboard.press('Enter');
+    await palette(page, '>Files: Restore from Trash');
     const items = page.locator('#paletteList li');
     await until(page, () => document.querySelectorAll('#paletteList li .detail').length === 2);
     // The detail is drawn inside the label's .main span.
     assert.deepEqual(await items.locator('.detail').allInnerTexts(), ['deleted 1 min ago, 2.0 KB', 'replaced 3 h ago, 3.0 MB']);
     const labels = await items.locator('.main').allInnerTexts();
     assert.ok(labels[0].startsWith('script/demo.vn') && labels[1].startsWith('assets/bg/old.png and 1 more'), JSON.stringify(labels));
-    await page.keyboard.type('old');
-    await until(page, () => document.querySelectorAll('#paletteList li').length === 1);
-    await page.keyboard.press('Enter');
+    await palette(page, '#trash:old'); // reopens the picker if the palette lost the focus meanwhile: see `palette`
     await until(page, () => document.querySelector('#toast span')?.textContent === 'restored assets/bg/old.png');
     assert.deepEqual(calls.at(-1), { route: 'restore', id: 'entry-old' });
     assert.deepEqual(errors, []);
@@ -1162,7 +1689,8 @@ test('git commit dialog: the bar counts changes, the dialog lists them, ignores,
     assert.deepEqual(await dialog.locator('.gd-note[data-kind="warning"]').allInnerTexts(), ['masters/big.psd is 40 MB: put PSDs in Git LFS.']);
     const message = dialog.getByRole('textbox', { name: 'Commit message' });
     assert.equal(await message.inputValue(), 'Update park.vn, add bg_new.png', 'the suggested message');
-    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('gd-message')), true, 'focus starts in the message');
+    // The focus moves after the rows are drawn (the dialog saves, reads the status, renders, then focuses).
+    await until(page, () => document.activeElement?.classList.contains('gd-message')); // focus starts in the message
 
     const ignore = dialog.getByRole('button', { name: 'Add to .gitignore' });
     await ignore.click();
@@ -1183,9 +1711,7 @@ test('git commit dialog: the bar counts changes, the dialog lists them, ignores,
 
     // A blocker (here a merge conflict) keeps Commit off and is shown first; Esc closes.
     status = { ...status, changes: [{ path: 'script/park.vn', x: 'U', y: 'U' }], blockers: ['Resolve the merge conflict in script/park.vn first.'] };
-    await page.keyboard.press('Control+p');
-    await page.keyboard.type('>Git: Commit All Changes');
-    await page.keyboard.press('Enter');
+    await palette(page, '>Git: Commit All Changes');
     await until(page, () => document.querySelector('#gitCommit .gd-kind')?.textContent === 'conflict');
     assert.deepEqual(await dialog.locator('.gd-note[data-kind="blocker"]').allInnerTexts(), ['Resolve the merge conflict in script/park.vn first.']);
     await message.fill('anything');
@@ -1204,6 +1730,8 @@ const openSection = async (studio, id) => {
   const head = studio.locator(`.as-sect[data-sect="${id}"] .as-sect-head`);
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
 };
+/** The pad's two axis sliders as "head_x 0, head_y 0" (the pad shows no text of its own). */
+const padReadout = async studio => `head_x ${await studio.locator('.ap-row[data-ctl="head_x"] .ap-num').inputValue()}, head_y ${await studio.locator('.ap-row[data-ctl="head_y"] .ap-num').inputValue()}`;
 /** The + in the Parameters header opens a menu: New parameter or New pad (Model mode). */
 const addControl = async (studio, kind) => {
   await studio.locator('.ap-add').click();
@@ -1225,6 +1753,11 @@ test('animation studio: a section is dragged to the other column or moved with A
     };
     let studio = await open();
     const column = (zone) => studio.locator(`.as-dock[data-zone="${zone}"] > .as-sect:not([hidden])`).evaluateAll(els => els.map(e => e.dataset.sect));
+    // A resize or a click re-lays the docks out a moment later: poll for the order, then assert it (for the message).
+    const columnBecomes = async (zone, want) => {
+      for (let i = 0; i < 100 && JSON.stringify(await column(zone)) !== JSON.stringify(want); i++) await page.waitForTimeout(100);
+      assert.deepEqual(await column(zone), want);
+    };
     assert.deepEqual(await column('left'), ['poses', 'params', 'tree']);
     assert.deepEqual(await column('right'), ['sel', 'frames', 'place']);
     assert.equal(await studio.locator('[data-t="resetdock"]').isVisible(), false, 'nothing to reset yet');
@@ -1255,20 +1788,20 @@ test('animation studio: a section is dragged to the other column or moved with A
     studio = await open();
     assert.deepEqual(await column('left'), ['sel', 'poses', 'tree', 'params']);
     await studio.locator('.as-modes [data-mode="model"]').click();
-    assert.deepEqual(await column('left'), ['sel', 'poses', 'tree', 'params']);
-    assert.deepEqual(await column('right'), ['keyforms', 'warp', 'mask', 'physics', 'auto'], 'Model has its own sections, in the order kept');
+    await columnBecomes('left', ['sel', 'poses', 'tree', 'params']);
+    await columnBecomes('right', ['keyforms', 'warp', 'mask', 'physics', 'reactions']); // Model has its own sections, in the order kept
     await studio.locator('.as-modes [data-mode="animate"]').click();
 
     // A narrow window shows the first layout and no grab buttons; the kept layout comes back when it widens.
     await page.setViewportSize({ width: 800, height: 800 });
-    assert.deepEqual(await column('left'), ['poses', 'params', 'tree']);
+    await columnBecomes('left', ['poses', 'params', 'tree']);
     assert.equal(await studio.locator('.as-sect[data-sect="sel"] .as-sect-grab').isVisible(), false);
     await page.setViewportSize({ width: 1280, height: 800 });
-    assert.deepEqual(await column('left'), ['sel', 'poses', 'tree', 'params']);
+    await columnBecomes('left', ['sel', 'poses', 'tree', 'params']);
 
     await studio.locator('[data-t="resetdock"]').click();
-    assert.deepEqual(await column('left'), ['poses', 'params', 'tree']);
-    assert.deepEqual(await column('right'), ['sel', 'frames', 'place']);
+    await columnBecomes('left', ['poses', 'params', 'tree']);
+    await columnBecomes('right', ['sel', 'frames', 'place']);
     assert.equal(await page.evaluate(() => localStorage.getItem('vn.editor.studioDock')), null);
     assert.equal(await studio.locator('[data-t="resetdock"]').isVisible(), false);
     assert.deepEqual(errors, []);
@@ -1362,7 +1895,7 @@ test('animation studio: Model | Animate, Model hides the picker and timeline, An
     assert.equal(await studio.locator('.as-timeline').isVisible(), false);
     assert.equal(await studio.locator('.as-transport').isVisible(), false);
     assert.equal(await studio.locator('.as-picker').isVisible(), false, 'no animation picker in Model mode');
-    assert.deepEqual(await sections(), ['poses', 'params', 'tree', 'keyforms', 'sel', 'warp', 'mask', 'physics', 'auto']);
+    assert.deepEqual(await sections(), ['poses', 'params', 'tree', 'keyforms', 'sel', 'warp', 'mask', 'physics', 'reactions']);
     const leftOf = sel => studio.locator(sel).evaluate(e => e.closest('.as-side') !== null);
     assert.equal(await leftOf('.ap'), true, 'the sliders are in the left column');
     assert.equal(await leftOf('.ab'), false, 'and the Keyforms block is not');
@@ -1465,7 +1998,7 @@ test('animation studio: the Model button opens Model mode, and dragging on the s
   }
 });
 
-test('animation studio: bones are edited in the Selection section of Model mode (new bone, parent, part on a bone, pivot, remove) and written by Apply', async t => {
+test('animation studio: bones are edited in the Properties section of Model mode (new bone, parent, part on a bone, pivot, remove) and written by Apply', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -1528,7 +2061,7 @@ test('animation studio: bones are edited in the Selection section of Model mode 
   }
 });
 
-test('animation studio: the mouth and blink fields (By itself, Model mode) are written to rig.json by Apply', async t => {
+test('animation studio: the Automatic line of an animation is written to rig.json by Apply', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -1543,27 +2076,24 @@ test('animation studio: the mouth and blink fields (By itself, Model mode) are w
   });
   try {
     await page.goto(`${base}editor/`);
-    await page.locator('button.anim', { hasText: 'Model' }).first().click();
+    await page.locator('button.anim', { hasText: 'Animate' }).first().click(); // the picker and the Automatic line belong to Animate mode
     const studio = page.locator('#animStudio');
-    await openSection(studio, 'auto');
-    await studio.locator('.as-sp-vars').waitFor();
+    await studio.locator('.as-anim').selectOption('blink');
+    assert.equal(await studio.locator('.as-every-min').inputValue(), '3', 'the blink animation of the sample starts every 3 to 6 seconds');
+    assert.equal(await studio.locator('.as-every-max').inputValue(), '6');
     const field = async (sel, v) => { await studio.locator(sel).fill(v); await studio.locator(sel).press('Tab'); };
-    assert.equal(await studio.locator('.as-bl-slot').isDisabled(), !(await studio.locator('.as-blink').isChecked()));
-    await field('.as-sp-vars', 'open, neutral');
-    await field('.as-sp-rate', '6');
-    await studio.locator('.as-blink').check();
-    await field('.as-bl-min', '2');
-    await field('.as-bl-dur', '0.2');
-    assert.equal(await studio.locator('.as-bl-max').inputValue(), '6'); // an empty end takes its default
-    await field('.as-bl-max', '1'); // a range that runs backwards is not kept
-    assert.equal(await studio.locator('.as-bl-max').inputValue(), '6');
+    await field('.as-every-min', '2');
+    await field('.as-every-max', '1'); // a range that runs backwards is not kept
+    assert.equal(await studio.locator('.as-every-max').inputValue(), '6');
+    await field('.as-while', 'speaking and mood >');
+    assert.equal(await studio.locator('.as-while').inputValue(), '', 'a condition that does not parse is not kept');
+    await field('.as-while', 'speaking');
     await studio.locator('[data-t="apply"]').click();
     for (let i = 0; !saved.length && i < 50; i++) await page.waitForTimeout(100);
     assert.ok(saved.length, 'the rig.json tab was not saved');
     const rig = JSON.parse(saved.at(-1));
-    assert.deepEqual(rig.autonomous.speak, { slot: 'mouth', variants: ['open', 'neutral'], rate: 6 });
-    assert.deepEqual(rig.autonomous.blink, { slot: 'eyes', variant: 'closed', every: [2, 6], dur: 0.2 });
-    assert.ok(rig.animations && rig.pivots && rig.autonomous.idle, 'the rest of the file stays');
+    assert.deepEqual(rig.animations.blink.auto, { every: { min: 2, max: 6 }, while: 'speaking' });
+    assert.ok(rig.animations.talk.auto && rig.pivots && !rig.autonomous, 'the rest of the file stays');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -1593,7 +2123,7 @@ test('animation studio: the Parameters section moves a pad and a slider, keys th
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width * 0.9, pad.y + pad.height * 0.5);
     await studio.locator('.ap-padrow .ap-key').click();
-    assert.equal(await studio.locator('.ap-row[data-ctl="head_x"] .ap-num').inputValue(), await studio.locator('.ap-read').textContent().then(t => String(Number(/head_x (\S+),/.exec(t)[1]))), 'the axis slider follows the pad');
+    assert.equal(await studio.locator('.ap-row[data-ctl="head_x"] .ap-num').inputValue(), String(Number((await padReadout(studio)).match(/head_x (\S+),/)[1])), 'the axis slider follows the pad');
     await studio.locator('.ap-row[data-ctl="arm_r_lift"] .ap-num').fill('0.5');
     await studio.locator('.ap-row[data-ctl="arm_r_lift"] .ap-key').click();
     assert.equal(await studio.locator('.tl-pkey').count(), 3, 'head_x, head_y and arm_r_lift each got a key');
@@ -1611,7 +2141,7 @@ test('animation studio: the Parameters section moves a pad and a slider, keys th
     assert.match(await studio.locator('.as-sect[data-sect="poses"] .as-sect-sum').textContent(), /^[0-9]+ poses?$/);
     assert.equal(await studio.locator('.ap-pose-sel option').allTextContents().then(l => l.includes('turned')), true);
     await studio.locator('.ap-padrow .ap-reset').click();
-    assert.match(await studio.locator('.ap-read').textContent(), /head_x 0, head_y 0/);
+    assert.match(await padReadout(studio), /head_x 0, head_y 0/);
     await page.keyboard.press('Escape');
     await page.keyboard.press('Escape'); // the first one warns about unapplied changes
     assert.deepEqual(errors, [], 'the page threw errors');
@@ -1643,7 +2173,7 @@ test('animation studio: Model mode previews the parameters and keys them as keyf
     assert.equal(await studio.locator('.as-rest-note').isVisible(), false, 'nothing to say while the parameters are at their defaults');
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width * 0.9, pad.y + pad.height * 0.5);
-    assert.match(await studio.locator('.ap-read').textContent(), /head_x 0\.[0-9]+/);
+    assert.match(await padReadout(studio), /head_x 0\.[0-9]+/);
     assert.equal(await studio.locator('.as-rest-note').isVisible(), true, 'a parameter is off its default: the stage shows that pose');
     await studio.locator('.ap-reset-all').click();
     assert.equal(await studio.locator('.as-rest-note').isVisible(), false);
@@ -1860,9 +2390,13 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width - 2, pad.y + pad.height * 0.5); // the pad is picked by using it; this is the right-hand corner of the middle row
     assert.equal(await studio.locator('.ab-name').textContent(), 'head_turn');
-    assert.match(await studio.locator('.ab-formtext').textContent(), /^eyes is not bound to head_turn yet/);
+    assert.equal(await studio.locator('.as-row[data-part="eyes"]').getAttribute('aria-pressed'), 'false', 'eyes is not moved by the pad: the pad replaces it in focus');
     assert.equal(await studio.locator('.ap-corner').count(), 0, 'no grid yet');
     await studio.locator('[data-gz="move"]').click();
+    // A drag does not bind: Bind parts… and a click on the part make the grid first.
+    await bindParts(studio, 'eyes');
+    assert.equal(await studio.locator('.ap-corner').count(), 9, 'binding made the grid: min, default and max on each axis');
+    assert.equal(await studio.locator('.ap-corner.ap-authored').count(), 0);
     const frame = page.frames().find(f => f.url().includes('studio='));
     const arrow = frame.locator('svg polygon[fill="#ff5d5d"]'); // the x arrow of the move gizmo
     await arrow.waitFor({ timeout: 10000 });
@@ -1872,12 +2406,12 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     await page.mouse.move(ax + 20, ay, { steps: 5 });
     await page.mouse.up();
     await page.waitForTimeout(300);
-    assert.equal(await studio.locator('.ap-corner').count(), 9, 'the first drag made the grid: min, default and max on each axis');
+    assert.equal(await studio.locator('.ap-corner').count(), 9);
     assert.equal(await studio.locator('.ap-corner.ap-authored').count(), 1, 'one corner is posed');
     assert.ok(Number(await studio.locator('[data-bf="dx"]').inputValue()) > 0, 'the corner holds the move');
-    assert.match(await note.textContent(), /^Bound eyes to head_turn and wrote eyes at head_x 1, head_y 0 as a keyform/);
+    assert.match(await note.textContent(), /^Wrote eyes at head_x 1, head_y 0 as a keyform/);
     await undo.click();
-    assert.equal(await studio.locator('.ap-corner').count(), 0, 'one undo removes the grid again');
+    assert.equal(await studio.locator('.ap-corner.ap-authored').count(), 0, 'one undo takes the pose back; the grid stays');
     await studio.locator('[data-t="redo"]').click();
     // + column: a grid line at the dot's x. The dot moves off the corner first.
     await page.mouse.click(pad.x + pad.width * 0.75, pad.y + pad.height * 0.5);
@@ -1909,7 +2443,14 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     assert.equal(await rows(), n0, 'the ✕ deleted the new parameter');
     const pads0 = await studio.locator('.ap-padrow').count();
     await addControl(studio, 'pad');
-    assert.equal(await studio.locator('.ap-padrow').count(), pads0 + 1, 'New pad in the + menu');
+    assert.equal(await studio.locator('.ap-padrow').count(), pads0, 'New pad only opens a form: nothing is picked or made yet');
+    const draft = studio.locator('.ap-draft');
+    assert.deepEqual(await draft.locator('select').evaluateAll(e => e.map(s => s.options[s.selectedIndex].text)), ['＋ New parameter', '＋ New parameter'], 'both axes start as new parameters');
+    await draft.locator('input[type="text"]').fill('my pad');
+    assert.equal(await draft.locator('input[type="text"]').inputValue(), 'my_pad', 'a space becomes _ as you type');
+    await draft.locator('.ap-apply').click();
+    assert.equal(await studio.locator('.ap-padrow').count(), pads0 + 1, 'Create made the pad');
+    assert.equal(await studio.locator('.ap-row[data-ctl="my_pad_x"]').count(), 1, 'over a new parameter');
     await studio.locator('.ap-padrow.ap-active .ap-del-btn').click();
     assert.equal(await studio.locator('.ap-padrow').count(), pads0, 'the ✕ on a pad deletes the pad');
 await studio.locator('.ap-row[data-ctl="smile"] label').click();
@@ -1917,7 +2458,7 @@ await studio.locator('.ap-row[data-ctl="smile"] label').click();
     await studio.locator('[data-t="apply"]').click();
     for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100); // the rig.json tab is saved a moment after Apply
     const rig = JSON.parse(saved.at(-1));
-    assert.deepEqual(rig.parameters.at(-1), { id: 'smile', min: -1, max: 3, default: 0 });
+    assert.deepEqual(rig.parameters.find(p => p.id === 'smile'), { id: 'smile', min: -1, max: 3, default: 0 });
     const grid = rig.keyforms.find(k => k.target === 'eyes');
     assert.deepEqual(grid.params, ['head_x', 'head_y']);
     assert.deepEqual(grid.grid.x, [-1, 0, 0.5, 1]);
@@ -1989,40 +2530,84 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await editor.press('Enter');
     assert.equal(await active.textContent(), 'wave');
     assert.equal(await bound.count(), 0);
-    assert.match(await studio.locator('.ab-hint').textContent(), /Click a part on the stage, or tick it in the Parts tree, to bind it to wave/);
-    await studio.locator('.as-row[data-part="torso"]').click(); // another part is chosen, then a Shift-click on the spine only selects it
-    await page.keyboard.down('Shift');
-    for (let i = 0; i < 20 && (await spineRow.getAttribute('aria-pressed')) !== 'true'; i++) {
-      await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.5);
-      await page.waitForTimeout(400);
-    }
-    await page.keyboard.up('Shift');
-    assert.equal(await spineRow.getAttribute('aria-pressed'), 'true', 'the Shift-click chose the spine');
-    assert.equal(await bound.count(), 0, 'but did not bind it');
+    assert.match(await studio.locator('.ab-hint').textContent(), /No parts are bound to wave yet. Press Bind parts…/);
+    // A click only chooses, and the focus is one thing: a part that wave does not move replaces wave as the parameter in focus.
+    // (Each try is a few pixels from the last, so it is a new click on a new spot, not the next part of a cycle.)
+    const clickSpine = async i => { await page.mouse.click(stage.x + stage.width * 0.5 + (i % 2) * 9, stage.y + stage.height * 0.5); await page.waitForTimeout(400); };
+    await studio.locator('.as-row[data-part="torso"]').click();
+    assert.equal(await active.textContent(), 'none', 'torso is not moved by wave: choosing it replaces the parameter');
+    for (let i = 0; i < 20 && (await spineRow.getAttribute('aria-pressed')) !== 'true'; i++) await clickSpine(i);
+    assert.equal(await spineRow.getAttribute('aria-pressed'), 'true', 'the click chose the spine');
     assert.doesNotMatch(await note.textContent(), /^Bound/);
-    for (let i = 0; i < 20 && !/^Bound/.test(await note.textContent()); i++) { // the art may still be loading: a click on nothing picks nothing
-      await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.5); // the middle of the robo: the spine
-      await page.waitForTimeout(400);
-    }
+    await studio.locator('.ap-row[data-ctl="wave"] > label').click(); // and a parameter replaces a part it does not move
+    assert.equal(await active.textContent(), 'wave');
+    assert.equal(await spineRow.getAttribute('aria-pressed'), 'false');
+    assert.equal(await bound.count(), 0, 'nothing was bound by any of it');
+    // Bind parts… opens a picker in the right column; the stage and the left lists never answer it.
+    const bindBtn = studio.locator('.ab-bind'), picker = studio.locator('.ab-picker');
+    assert.equal(await bindBtn.textContent(), 'Bind parts…');
+    await bindBtn.click();
+    assert.equal(await picker.isVisible(), true);
+    await studio.locator('.as-tree .as-row[data-part="forearm_r"]').click();
+    assert.equal(await bound.count(), 0, 'a click in the tree binds nothing while the picker is open');
+    assert.equal(await picker.isVisible(), false, 'choosing another part closes a picker that belonged to the focus');
+    await studio.locator('.ap-row[data-ctl="wave"] > label').click();
+    await bindBtn.click();
+    await page.keyboard.press('Escape');
+    assert.equal(await picker.isVisible(), false, 'Esc closes the picker only');
+    assert.equal(await studio.isVisible(), true);
+    await bindParts(studio, 'spine');
     assert.match(await note.textContent(), /^Bound spine to wave: keys at -1, 0, 1, all at rest/);
     assert.equal(await bound.count(), 1);
     assert.match(await bound.first().textContent(), /^spinepose3 keys$/, 'three keys, none posed');
     assert.equal(await studio.locator('.ap-row[data-ctl="wave"] .ap-tick').count(), 3, 'a mark on the track for each key');
-    assert.equal(await studio.locator('.as-bind[data-bind="spine"]').getAttribute('aria-checked'), 'true', 'and its tick in the Parts tree');
+    assert.equal(await studio.locator('.as-bind[data-bind="spine"]').textContent(), '✓', 'and its mark in the Parts tree');
     await undo.click();
     assert.equal(await bound.count(), 0, 'binding is one undo step');
     await studio.locator('[data-t="redo"]').click();
-    // The tick of another row binds that part too (and a second tick unbinds it).
-    await studio.locator('.as-bind[data-bind="forearm_r"]').click();
+    // The picker lists only what is not bound yet. The mark in the tree is a display, not a button.
+    assert.equal(await studio.locator('button.as-bind').count(), 0, 'the marks are not buttons');
+    await bindBtn.click();
+    assert.equal(await studio.locator('.ab-picklist label', { hasText: /^spine/ }).count(), 0, 'spine is bound already: not offered');
+    await studio.locator('.ab-pickfilter').fill('forearm_r');
+    assert.equal(await studio.locator('.ab-picklist label').count(), 1, 'the filter narrows the list');
+    await page.keyboard.press('Escape');
+    await bindParts(studio, 'forearm_r');
     assert.equal(await bound.count(), 2);
-    assert.equal(await studio.locator('.as-row[data-part="forearm_r"]').getAttribute('aria-pressed'), 'true', 'a bound pick is chosen as well');
-    await studio.locator('.as-bind[data-bind="forearm_r"]').click();
+    await studio.locator('.ab-item', { hasText: 'forearm_r' }).locator('.ab-unbind').click(); // the ✕ unbinds
     assert.equal(await bound.count(), 1);
+    await studio.locator('.as-row[data-part="torso"]').click();
+    assert.equal(await active.textContent(), 'none', 'a click on a row only chooses (and replaces the parameter)');
+    await studio.locator('.ap-row[data-ctl="wave"] > label').click();
+    assert.equal(await bound.count(), 1, 'nothing was bound by it');
     // Click a key, pose there with the gizmo: one undo step, the key is posed, the others stay at rest.
     await studio.locator('.as-row[data-part="spine"]').click();
     assert.deepEqual(await studio.locator('.ab-key').allTextContents(), ['-1', '0', '1']);
     await studio.locator('.ab-key', { hasText: /^1$/ }).click();
     assert.equal(await studio.locator('.ap-row[data-ctl="wave"] .ap-num').inputValue(), '1', 'the slider went to the key');
+    // The focus in words: the part, the parameter, the value, and whether a key is there. Previous and next walk the keys; a word goes up.
+    const crumb = studio.locator('.ab-crumb');
+    assert.equal(await crumb.textContent(), 'spine › wave @ 1 · key');
+    assert.equal(await studio.locator('.ab-next').isDisabled(), true, 'the last key has no next');
+    await studio.locator('.ab-prev').click();
+    assert.equal(await studio.locator('.ap-row[data-ctl="wave"] .ap-num').inputValue(), '0');
+    assert.equal(await crumb.textContent(), 'spine › wave @ 0 · key');
+    await studio.locator('.ab-next').click();
+    assert.equal(await studio.locator('.ap-row[data-ctl="wave"] .ap-num').inputValue(), '1');
+    await studio.locator('.ap-row[data-ctl="wave"] .ap-num').fill('0.5');
+    await studio.locator('.ap-row[data-ctl="wave"] .ap-num').press('Enter');
+    assert.equal(await crumb.textContent(), 'spine › wave @ 0.5 · no key here: a drag adds one');
+    await studio.locator('.ab-key', { hasText: /^1$/ }).click();
+    await studio.locator('.ab-crumbbtn', { hasText: 'wave' }).click(); // up to the parameter alone
+    assert.equal(await crumb.textContent(), 'wave');
+    assert.equal(await spineRow.getAttribute('aria-pressed'), 'false');
+    await studio.locator('.as-row[data-part="spine"]').click(); // and a part wave moves pairs with it again
+    assert.equal(await crumb.textContent(), 'spine › wave @ 1 · key');
+    await studio.locator('.ab-crumbbtn', { hasText: 'spine' }).click(); // up to the part alone
+    assert.equal(await crumb.textContent(), 'spine');
+    assert.equal(await active.textContent(), 'none');
+    await studio.locator('.ab-aff', { hasText: 'wave' }).click(); // a parameter that moves it pairs with it
+    assert.equal(await crumb.textContent(), 'spine › wave @ 1 · key');
     await studio.locator('[data-gz="rotate"]').click();
     await dragRing(page, 25);
     assert.match(await note.textContent(), /^Wrote spine at wave = 1 as a keyform/);
@@ -2034,21 +2619,27 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.match(await bound.first().textContent(), /^spinepose3 keys$/, 'the drag was one step; the binding stays');
     await studio.locator('[data-t="redo"]').click();
     // Ctrl-click adds a part to the chosen ones: one drag poses both by the same delta, as one undo step; a plain click goes back to one.
+    await studio.locator('.as-row[data-part="spine"]').click();
     await studio.locator('.as-row[data-part="torso"]').click({ modifiers: ['Control'] });
     assert.equal(await studio.locator('.as-row[data-part="spine"]').getAttribute('aria-pressed'), 'true', 'the spine stays the chosen part');
     assert.equal(await bound.count(), 1, 'adding does not bind by itself');
     await dragRing(page, 15);
-    assert.match(await note.textContent(), /^Bound 2 parts \(spine, torso\) to wave and wrote 2 parts \(spine, torso\) at wave = 1 as keyforms/);
+    assert.match(await note.textContent(), /^Nothing was written: torso is not bound to wave yet. Use Bind parts…/, 'a drag does not bind the part it poses');
+    assert.equal(await bound.count(), 1);
+    await bindParts(studio, 'torso'); // the picker binds it; the chosen set (spine) stays
+    await studio.locator('.as-row[data-part="spine"]').click();
+    await studio.locator('.as-row[data-part="torso"]').click({ modifiers: ['Control'] });
     assert.equal(await bound.count(), 2);
+    await dragRing(page, 15);
+    assert.match(await note.textContent(), /^Wrote 2 parts \(spine, torso\) at wave = 1 as keyforms/);
     await undo.click();
-    assert.equal(await bound.count(), 1, 'the whole drag, binding included, is one undo step');
+    assert.equal(await bound.count(), 2, 'the binding stays; the drag was one step');
     await studio.locator('[data-t="redo"]').click();
-    assert.equal(await bound.count(), 2);
     await studio.locator('.as-row[data-part="spine"]').click(); // a plain click drops the added part from the chosen set
     await dragRing(page, 5);
     assert.match(await note.textContent(), /^Wrote spine at wave = 1 as a keyform/);
     await undo.click();
-    await studio.locator('.as-bind[data-bind="torso"]').click(); // unbind it again so the rest of the test sees one bound part
+    await studio.locator('.ab-item', { hasText: 'torso' }).locator('.ab-unbind').click(); // unbind it again so the rest of the test sees one bound part
     assert.equal(await bound.count(), 1);
     // The default key cannot be removed; another one can.
     await studio.locator('.ab-key', { hasText: /^0$/ }).click();
@@ -2063,17 +2654,17 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await studio.locator('.ap-padrow[data-ctl="pad:head_turn"] > label').click();
     assert.equal(await active.textContent(), 'head_turn');
     assert.equal(await bound.count(), 0, 'no part has a grid on this pad yet');
-    await studio.locator('.as-bind[data-bind="eyes"]').click();
+    await bindParts(studio, 'eyes');
     assert.match(await note.textContent(), /^Bound eyes to head_turn: a 3 × 3 grid of corners, all at rest/);
     assert.equal(await studio.locator('.ap-corner').count(), 9);
     assert.equal(await studio.locator('.ap-corner.ap-authored').count(), 0);
     await studio.locator('.ab-size select').selectOption('2');
-    await studio.locator('.as-bind[data-bind="mouth"]').click();
+    await bindParts(studio, 'mouth');
     assert.match(await note.textContent(), /^Bound mouth to head_turn: a 2 × 2 grid/, 'the size applies to the next part bound');
     assert.equal(await studio.locator('.ap-corner').count(), 4, 'and the pad shows the corners of the chosen part');
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width - 3, pad.y + 3);
-    assert.match(await studio.locator('.ap-read').textContent(), /head_x 1, head_y 1/, 'the dot snapped onto the corner');
+    assert.match(await padReadout(studio), /head_x 1, head_y 1/, 'the dot snapped onto the corner');
     // What moves a part, from the other side: choose head, its parameters are buttons, one makes that parameter active.
     await studio.locator('.as-tree .as-row[data-part="head"]').click();
     assert.deepEqual(await studio.locator('.ab-aff').allTextContents(), ['head_x', 'head_y']);
@@ -2087,16 +2678,42 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.match(await note.textContent(), /^Unbound spine from wave/);
     await undo.click();
     assert.equal(await bound.count(), 1, 'undo binds it again, posed key included');
-    // A gizmo drag on a part that is not bound yet binds it first, still one undo step.
+    // A gizmo drag needs a part and a parameter in focus together: with a part alone it writes nothing and says what to do; once the part is bound it writes.
     await studio.locator('.as-tree .as-row[data-part="forearm_r"]').click();
+    assert.equal(await active.textContent(), 'none', 'forearm_r is not moved by wave');
+    await dragRing(page, 15);
+    assert.match(await note.textContent(), /^Nothing was written: forearm_r is chosen without a parameter/);
+    await studio.locator('.ap-row[data-ctl="wave"] > label').click();
     await studio.locator('.ap-row[data-ctl="wave"] .ap-num').fill('1');
     await studio.locator('.ap-row[data-ctl="wave"] .ap-num').press('Enter');
-    await dragRing(page, 15);
-    assert.match(await note.textContent(), /^Bound forearm_r to wave and wrote forearm_r at wave = 1/);
+    assert.equal(await bound.count(), 1);
+    await bindParts(studio, 'forearm_r');
     assert.equal(await bound.count(), 2);
+    await dragRing(page, 15);
+    assert.match(await note.textContent(), /^Wrote forearm_r at wave = 1/);
     await undo.click();
-    assert.equal(await bound.count(), 1, 'binding and posing were one step');
+    assert.equal(await bound.count(), 2, 'the binding stays; the drag was one step');
     await studio.locator('[data-t="redo"]').click();
+    // The other direction: choose a part, press Bind to parameter…, tick the parameter in the picker (Esc cancels).
+    await studio.locator('.as-tree .as-row[data-part="torso"]').click();
+    const bindTo = studio.locator('.ab-bindto');
+    await bindTo.click();
+    assert.equal(await picker.isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await picker.isVisible(), false);
+    await bindTo.click();
+    await studio.locator('.ap-row[data-ctl="eye_open"] > label').click(); // the parameters on the left only choose the focus
+    assert.equal(await studio.locator('.ab-item', { hasText: 'torso' }).count(), 0, 'choosing eye_open bound nothing');
+    await studio.locator('.as-tree .as-row[data-part="torso"]').click();
+    await bindTo.click();
+    await studio.locator('.ab-picklist label:has(span:text-is("eye_open")) input').check();
+    await studio.locator('.ab-pickgo').click();
+    assert.match(await note.textContent(), /^Bound torso to eye_open/);
+    assert.equal(await active.textContent(), 'eye_open');
+    assert.equal(await picker.isVisible(), false, 'one go, then it closes');
+    assert.equal(await studio.locator('.ab-item', { hasText: 'torso' }).count(), 1);
+    await studio.locator('.ab-item', { hasText: 'torso' }).locator('.ab-unbind').click(); // back to what the Apply check below expects
+    assert.equal(await studio.locator('.ab-item', { hasText: 'torso' }).count(), 0);
     // Apply writes the keyforms.
     await studio.locator('[data-t="apply"]').click();
     for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100); // the rig.json tab is saved a moment after Apply
@@ -2195,13 +2812,16 @@ test('animation studio: the Warp tool shows the lattice of the chosen part, a po
     await studio.locator('[data-t="undo"]').click();
     await studio.locator('[data-t="undo"]').click();
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
-    // A part with no warp: Add warp gives it the default lattice and turns the tool on; a preset writes keys for a parameter.
-    await studio.locator('.as-tree .as-row[data-part="face"]').click();
+    // A part with no warp (legs; the face is in the head group warp): Add warp gives it the default lattice and turns the tool on; a preset writes keys for a parameter.
+    await studio.locator('.as-tree .as-row[data-part="legs"]').click();
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 0); // a part without a warp has no lattice
-    assert.equal(await studio.locator('.aw-addbtn').textContent(), 'Add warp to face');
+    assert.equal(await studio.locator('.aw-addbtn').textContent(), 'Add warp to legs');
     await studio.locator('.aw-addbtn').click();
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
     assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent(), '4×4');
+    // A parameter that does not move the part leaves it out of the focus: bind the warp with Bind parts… (the Warp tool binds warps) to key it.
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    await bindParts(studio, 'legs');
     await studio.locator('.aw-preset').selectOption('sway');
     await studio.locator('.aw-write').click();
     assert.deepEqual(await studio.locator('.aw-keys button').allTextContents(), ['0', '1'], 'rest at the default, the bend at the far end');
@@ -2223,7 +2843,206 @@ test('animation studio: the Warp tool shows the lattice of the chosen part, a po
   }
 });
 
-test('animation studio: the Mask tool outlines the chosen part\'s mask, a point drag is one undo step, the picker switches between a part\'s shape and a drawn one', async t => {
+test('animation studio: a group warp shows its lattice for each member, a target choice, its members, and Add group warp from a bone', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await withoutRoboFrameTracks(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: head_warp is a 3x3 group warp over face, eyes and mouth
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tree .as-row[data-part="face"]').waitFor();
+    const count = () => page.frames().find(f => f.url().includes('studio=')).evaluate(() => document.querySelectorAll('svg circle[stroke="#000"]').length);
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
+    await studio.locator('.as-tree .as-row[data-part="face"]').click();
+    await page.keyboard.press('d');
+    const sum = studio.locator('.as-sect[data-sect="warp"] .as-sect-sum');
+    assert.equal(await sum.textContent(), 'group 3×3');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 16);
+    assert.equal(await studio.locator('.aw-target').isVisible(), true, 'a member of a group warp gets the target choice');
+    assert.deepEqual(await studio.locator('.aw-targetpick option').allTextContents(), ['group head_warp (3 parts, 1 shape)']);
+    assert.equal(await studio.locator('.aw-addbtn').textContent(), 'Add warp to face', 'the face has no warp of its own yet');
+    assert.equal(await studio.locator('.aw-member:checked').count(), 4, 'three parts and the eyelids shape');
+    assert.equal(await studio.locator('.aw-remove').textContent(), 'Remove group warp');
+    // The eyes are in the same group: the same lattice. Own warp plus group: the choice lists both, the own warp first.
+    await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
+    assert.equal(await count(), 16);
+    await studio.locator('.aw-addbtn').click();
+    assert.deepEqual(await studio.locator('.aw-targetpick option').allTextContents(), ['own warp eyes_warp', 'group head_warp (3 parts, 1 shape)']);
+    assert.equal(await studio.locator('.aw-targetpick').inputValue(), 'eyes_warp');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
+    await studio.locator('.aw-targetpick').selectOption('head_warp');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 16);
+    // Members: untick the mouth, tick it again.
+    await studio.locator('.aw-member[value="mouth"]').uncheck();
+    assert.equal(await studio.locator('.aw-member:checked').count(), 3);
+    await studio.locator('.aw-member[value="mouth"]').check();
+    assert.equal(await studio.locator('.aw-member:checked').count(), 4, 'three parts and the eyelids shape');
+    // A bone: the group warp over every part on it takes the parts from head_warp, which has none left and goes.
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    assert.equal(await studio.locator('.aw-groupbtn').textContent(), 'Add group warp from head');
+    await studio.locator('.aw-groupbtn').click();
+    assert.equal(await studio.locator('.aw-targetpick').inputValue(), 'head_warp', 'the old group lost every member and went, so its id is free again');
+    assert.equal(await studio.locator('.aw-member:checked').count(), 5, 'antenna, face, eyes and mouth, and the eyelids shape on the head bone');
+    assert.equal(await sum.textContent(), 'group 4×4', 'a new group warp has the default lattice');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
+    await studio.locator('.aw-remove').click();
+    assert.equal(await studio.locator('.aw-target').isVisible(), false, 'the group warp is gone');
+    assert.equal(await sum.textContent(), '2 warps', 'the torso warp and the eyes warp are left');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: warp points are chosen by rectangle, Shift-click and rows; a drag moves the selection (soft or hard) in one undo step; a group warp point drags too', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await withoutRoboFrameTracks(context);
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: the torso has a 2x3 warp on `breathe` (12 points, 3 per row)
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tree .as-row[data-part="torso"]').waitFor();
+    const stage = () => page.frames().find(f => f.url().includes('studio='));
+    const dots = () => stage().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"], svg circle[stroke="#ff3b6b"]')].map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy')), c.getAttribute('fill') === '#ff3b6b' ? 1 : 0]));
+    const chosen = async () => (await page.waitForTimeout(250), await dots()).flatMap((d, i) => (d[2] ? [i] : []));
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
+    await studio.locator('.as-tree .as-row[data-part="torso"]').click();
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    const breathe = studio.locator('.ap-row[data-ctl="breathe"] .ap-num');
+    await breathe.fill('1');
+    await breathe.press('Enter');
+    await studio.locator('[data-gz="warp"]').click(); // not the D key: the slider's field has the focus
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 12);
+    const box = await studio.locator('.as-stage iframe').boundingBox(), before = await dots();
+    const at = i => [box.x + before[i][0], box.y + before[i][1]];
+    // A rectangle round the first two rows chooses those six points; a plain click on empty stage would have picked a part instead.
+    const [x0, y0] = at(0), [x1, y1] = at(5);
+    await page.mouse.move(x0 - 20, y0 - 20);
+    await page.mouse.down();
+    for (let i = 1; i <= 6; i++) await page.mouse.move(x0 - 20 + ((x1 - x0 + 40) * i) / 6, y0 - 20 + ((y1 - y0 + 25) * i) / 6);
+    await page.mouse.up();
+    assert.deepEqual(await chosen(), [0, 1, 2, 3, 4, 5]);
+    assert.match(await studio.locator('.aw-selhint').textContent(), /^6 points chosen/);
+    // Shift-click adds a point and, again, takes it away.
+    await page.keyboard.down('Shift');
+    await page.mouse.click(...at(7));
+    assert.deepEqual(await chosen(), [0, 1, 2, 3, 4, 5, 7]);
+    await page.mouse.click(...at(7));
+    await page.keyboard.up('Shift');
+    assert.deepEqual(await chosen(), [0, 1, 2, 3, 4, 5]);
+    // A drag of one chosen point moves all of them by the same amount, the rest stay: one undo step.
+    const [px, py] = at(4);
+    await page.mouse.move(px, py);
+    await page.mouse.down();
+    for (let i = 1; i <= 5; i++) await page.mouse.move(px + i * 6, py + i * 2);
+    await page.mouse.up();
+    const moved = await dots();
+    moved.forEach((d, i) => {
+      const dx = d[0] - before[i][0], dy = d[1] - before[i][1];
+      if (i < 6) assert.ok(Math.abs(dx - 30) < 0.8 && Math.abs(dy - 10) < 0.8, `chosen point ${i} followed (${dx}, ${dy})`);
+      else assert.ok(Math.abs(dx) < 0.8 && Math.abs(dy) < 0.8, `point ${i} stayed (${dx}, ${dy})`);
+    });
+    assert.match(await studio.locator('.aw-pthint').textContent(), /^6 points chosen/);
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal(await studio.locator('[data-t="undo"]').isDisabled(), true, 'the whole group drag was one step');
+    // Rows and columns from the lists; Soft pulls the neighbours of one chosen point along, less the farther away.
+    await studio.locator('.aw-rowpick').selectOption('1');
+    assert.deepEqual(await chosen(), [3, 4, 5]);
+    await studio.locator('.aw-colpick').selectOption('2');
+    assert.deepEqual(await chosen(), [2, 5, 8, 11]);
+    await studio.locator('.aw-pick').selectOption('4');
+    assert.deepEqual(await chosen(), [4]);
+    await studio.locator('.aw-soft').check();
+    await studio.locator('.aw-radius').fill('2');
+    await studio.locator('.aw-radius').dispatchEvent('change');
+    await page.mouse.move(px, py);
+    await page.mouse.down();
+    for (let i = 1; i <= 5; i++) await page.mouse.move(px + i * 6, py);
+    await page.mouse.up();
+    const soft = await dots(), shift = i => soft[i][0] - before[i][0];
+    assert.ok(Math.abs(shift(4) - 30) < 0.8, 'the chosen point went the whole way');
+    assert.ok(shift(5) > 3 && shift(5) < shift(4) - 3, `a neighbour followed part of the way (${shift(5)})`);
+    assert.ok(Math.abs(shift(11)) < 0.8, 'a point out of reach stayed');
+    await studio.locator('[data-t="undo"]').click();
+    // Mirror selection and Scale act on the chosen points.
+    await studio.locator('.aw-soft').uncheck();
+    await studio.locator('.aw-all').click();
+    assert.equal((await chosen()).length, 12);
+    await studio.locator('.aw-scale').fill('1.5');
+    await studio.locator('.aw-scale-go').click();
+    const grown = await dots();
+    assert.ok(grown[2][0] - grown[0][0] > (before[2][0] - before[0][0]) * 1.4, 'scaling about the selection widened the lattice');
+    await studio.locator('.aw-clear').click();
+    assert.deepEqual(await chosen(), []);
+    await studio.locator('[data-t="undo"]').click();
+    // A group warp: a new one from the head bone, keyed to a slider, drags a point like a part warp does.
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    await studio.locator('.aw-groupbtn').click();
+    await studio.locator('.ap-row[data-ctl="lean"] > label').click();
+    await bindParts(studio, 'head');
+    const lean = studio.locator('.ap-row[data-ctl="lean"] .ap-num');
+    await lean.fill('1');
+    await lean.press('Enter');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
+    // The lattice still settles to the lean=1 pose for a moment on a loaded page: read it until it holds still.
+    let g0 = await dots();
+    for (let i = 0; i < 30; i++) {
+      await page.waitForTimeout(100);
+      const again = await dots();
+      if (JSON.stringify(again) === JSON.stringify(g0)) break;
+      g0 = again;
+    }
+    const [gx, gy] = [box.x + g0[12][0], box.y + g0[12][1]];
+    await page.mouse.move(gx, gy);
+    await page.mouse.down();
+    for (let i = 1; i <= 5; i++) await page.mouse.move(gx + i * 6, gy + i * 2);
+    await page.mouse.up();
+    const g1 = await dots();
+    assert.ok(Math.abs(g1[12][0] - g0[12][0] - 30) < 1 && Math.abs(g1[12][1] - g0[12][1] - 10) < 1, `the group point followed the pointer (${g1[12]} from ${g0[12]})`);
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+/**
+ * robo's blink and talk animations (the sample's automatic ones) key the eyes' and mouth's frames, and a part with a frame
+ * track cannot be warped, so the group warp over the head bone refuses. The tests of that warp serve robo's rig.json
+ * without those two frame tracks.
+ */
+const withoutRoboFrameTracks = context => context.route('**/api/project', async route => {
+  const res = await route.fetch();
+  const proj = await res.json();
+  const rig = JSON.parse(proj.rigTexts.robo);
+  for (const name of ['blink', 'talk']) delete rig.animations[name].frames;
+  proj.rigTexts.robo = JSON.stringify(rig, null, 2);
+  await route.fulfill({ response: res, json: proj });
+});
+
+/** The mask shapes' tests share these: the stage page's frame, its dashed outlines and the point handles of the Mask tool. */
+const maskStage = page => {
+  const frame = () => page.frames().find(f => f.url().includes('studio='));
+  return {
+    outlines: () => frame().evaluate(() => document.querySelectorAll('svg polygon[stroke-dasharray]').length),
+    handles: () => frame().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"]')].map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))])),
+    /** The middle of the first edge of the first dashed outline, in the stage frame's pixels. */
+    edge: () => frame().evaluate(() => {
+      const pts = document.querySelector('svg polygon[stroke-dasharray]').getAttribute('points').trim().split(/\s+/).map(s => s.split(',').map(Number));
+      return [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+    }),
+  };
+};
+
+test('animation studio: a shape has its own row, the Mask tool outlines every shape and edits the chosen one, a shape is picked by its row or its outline', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -2231,24 +3050,31 @@ test('animation studio: the Mask tool outlines the chosen part\'s mask, a point 
   page.on('pageerror', e => errors.push(e.message));
   try {
     await page.goto(`${base}editor/`);
-    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: its eyes have a drawn mask (eyelids) on `eye_open`
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: its eyes are clipped to the shape part `eyelids`
     const studio = page.locator('#animStudio');
     await studio.locator('.as-tree .as-row[data-part="eyes"]').waitFor();
-    const outlines = () => page.frames().find(f => f.url().includes('studio=')).evaluate(() => document.querySelectorAll('svg polygon[stroke-dasharray]').length);
-    const handles = () => page.frames().find(f => f.url().includes('studio=')).evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"]')].map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]));
-    const sum = studio.locator('.as-sect[data-sect="mask"] .as-sect-sum');
+    const { outlines, handles, edge } = maskStage(page);
+    const sum = studio.locator('.as-sect[data-sect="mask"] .as-sect-sum'), row = studio.locator('.as-tree .as-row[data-part="eyelids"]');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
+    // The shape is a row of its own: a badge and the bone it sits on, no thumbnail, no eye and no keys.
+    assert.equal(await row.count(), 1, 'a row for the shape part');
+    assert.equal(await row.locator('.as-badge-shape').textContent(), 'shape');
+    assert.match(await row.textContent(), /on head, clips eyes/);
+    assert.equal(await studio.locator('.as-shaperow .as-eye, .as-shaperow img, .as-shaperow .as-keyed').count(), 0, 'nothing that applies to drawn parts');
     assert.equal(await studio.locator('[data-gz="mask"]').isVisible(), true, 'the Mask tool is in the tool row in Model mode');
-    assert.equal(await sum.textContent(), '1 mask', 'nothing chosen: how many parts have a mask');
-    assert.equal(await outlines(), 0, 'no outline until a part with a mask is chosen');
-    await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
-    assert.equal(await sum.textContent(), 'polygon, 4 points');
+    assert.equal(await sum.textContent(), '1 shape', 'nothing chosen: how many shapes there are');
+    assert.equal(await outlines(), 0, 'no outline until a shape is chosen');
+    // Choosing the shape row chooses the shape: its outline shows, its points are handles only with the Mask tool.
+    await row.click();
+    assert.equal(await row.getAttribute('aria-pressed'), 'true');
+    assert.equal(await sum.textContent(), 'shape, 4 points, clips 1');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 1);
-    assert.equal((await handles()).length, 0, 'the outline shows without the tool; its points are handles only with the Mask tool');
+    assert.equal((await handles()).length, 0);
     await page.keyboard.press('m'); // the tool's key
     assert.equal(await studio.locator('[data-gz="mask"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-head').getAttribute('aria-expanded'), 'true', 'choosing the tool opens its section');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 4);
+    assert.equal(await studio.locator('.am-name').inputValue(), 'eyelids');
     // Drag a point: it follows the pointer, and the whole drag is one undo step.
     const box = await studio.locator('.as-stage iframe').boundingBox(), before = await handles(), at = before[0];
     await page.mouse.move(box.x + at[0], box.y + at[1]);
@@ -2270,34 +3096,157 @@ test('animation studio: the Mask tool outlines the chosen part\'s mask, a point 
     await studio.locator('.am-x').dispatchEvent('change');
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false);
     await studio.locator('.am-add').click();
-    assert.equal(await sum.textContent(), 'polygon, 5 points');
+    assert.equal(await sum.textContent(), 'shape, 5 points, clips 1');
     assert.equal(await studio.locator('.am-pick').inputValue(), '3', 'the new point is chosen');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 5);
     await studio.locator('.am-del').click();
-    assert.equal(await sum.textContent(), 'polygon, 4 points');
+    assert.equal(await sum.textContent(), 'shape, 4 points, clips 1');
     for (let i = 0; i < 3; i++) await studio.locator('[data-t="undo"]').click();
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true, 'three edits, three undo steps');
-    // The picker: another part's shape (no handles, an outline of its silhouette), then a drawn one again, then none.
-    await studio.locator('.am-source').selectOption('from');
-    assert.match(await sum.textContent(), /^to \w+/);
-    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length >= 1);
-    assert.equal((await handles()).length, 0, 'a part\'s silhouette has no points to drag');
-    assert.equal(await studio.locator('.am-from').isVisible(), true);
-    await studio.locator('.am-source').selectOption('polygon');
-    assert.equal(await sum.textContent(), 'polygon, 4 points', 'a drawn shape starts as a rectangle inside the part\'s image');
-    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 4);
-    await studio.locator('.am-remove').click();
-    assert.equal(await sum.textContent(), 'none');
-    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 0); // no mask, no outline
-    await studio.locator('[data-t="undo"]').click();
-    await studio.locator('[data-t="undo"]').click();
-    await studio.locator('[data-t="undo"]').click();
-    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
-    // Animate mode has neither the tool nor the section.
+    // The part row edits the same shape (its clip target is a picker), a bone has none.
+    await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
+    assert.equal(await sum.textContent(), 'to eyelids');
+    assert.equal(await studio.locator('.am-target').inputValue(), 'eyelids');
+    assert.equal((await handles()).length, 4, 'a part row shows the points of its shape');
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    for (let i = 0; i < 40 && (await handles()).length !== 0; i++) await page.waitForTimeout(100); // the stage gets the new choice a message later; a loaded machine is slower
+    assert.equal((await handles()).length, 0, 'a bone has no shape of its own: no handles');
+    assert.equal(await outlines(), 1, 'but with the Mask tool every shape is outlined');
+    assert.match(await studio.locator('.am-none').textContent(), /head is a bone/);
+    // A click near an outline picks that shape.
+    const [ex, ey] = await edge();
+    await page.mouse.click(box.x + ex, box.y + ey);
+    await until(page, () => document.querySelector('#animStudio .as-tree .as-row[data-part="eyelids"]')?.getAttribute('aria-pressed') === 'true'); // the stage answers by message
+    assert.equal(await row.getAttribute('aria-pressed'), 'true', 'the click on the outline chose the shape');
+    assert.equal((await handles()).length, 4, 'and its points are handles now');
+    // Without the Mask tool the outlines are not there to click.
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    await studio.locator('[data-gz="move"]').click();
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 0);
+    await page.mouse.click(box.x + ex, box.y + ey);
+    await page.waitForTimeout(300); // long enough for the stage's answer, were there one
+    assert.notEqual(await row.getAttribute('aria-pressed'), 'true', 'no shape is picked while another tool is on');
+    // Animate mode has neither the tool, the section nor the row.
     await studio.locator('.as-modes [data-mode="animate"]').click();
     assert.equal(await studio.locator('[data-gz="mask"]').isVisible(), false);
     assert.equal(await studio.locator('.as-sect[data-sect="mask"]').isVisible(), false);
+    assert.equal(await row.count(), 0);
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 0);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: New shape, rename and delete; a shape shared by two parts is written once on Apply', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), note = studio.locator('.as-note'), apply = studio.locator('[data-t="apply"]'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`);
+    await row('mouth').waitFor();
+    const { handles } = maskStage(page);
+    await row('mouth').click();
+    await page.keyboard.press('m');
+    assert.equal(await studio.locator('.am-target').inputValue(), '', 'the mouth is drawn whole');
+    // New shape: on the part's bone, the part clipped to it, the tool on and the stage showing its points. (The stage reports the part's box a moment after the choice.)
+    for (let i = 0; i < 40 && !(await row('mouth_mask').count()); i++) { await studio.locator('.am-new').click(); await page.waitForTimeout(100); }
+    assert.equal(await row('mouth_mask').count(), 1, 'the new shape has a row');
+    assert.match(await row('mouth_mask').textContent(), /on head, clips mouth/);
+    assert.equal(await studio.locator('.am-target').inputValue(), 'mouth_mask');
+    assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-sum').textContent(), 'to mouth_mask');
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 4);
+    assert.equal((await handles()).length, 4);
+    // Rename from the shape's own row: the clip follows, the row stays chosen.
+    await row('mouth_mask').click();
+    await studio.locator('.am-name').fill('lip');
+    await studio.locator('.am-name').press('Enter');
+    assert.equal(await row('mouth_mask').count(), 0);
+    assert.equal(await row('lip').getAttribute('aria-pressed'), 'true');
+    await row('mouth').click();
+    assert.equal(await studio.locator('.am-target').inputValue(), 'lip', 'the clip followed the rename');
+    await row('lip').click();
+    await studio.locator('.am-name').fill('eyelids');
+    await studio.locator('.am-rename').click();
+    assert.match(await note.textContent(), /already the name of a part, a bone or a shape/);
+    assert.equal(await row('lip').count(), 1, 'a taken name changes nothing');
+    // Delete: the part is drawn whole again; the studio asks nothing, the note says what changed.
+    await studio.locator('.am-delete').click();
+    assert.equal(await row('lip').count(), 0);
+    assert.match(await note.textContent(), /Deleted shape lip: mouth is drawn whole again/);
+    assert.equal(await studio.locator('.as-tree .as-row[data-part=""]').getAttribute('aria-pressed'), 'true', 'nothing is chosen any more');
+    await row('mouth').click();
+    assert.equal(await studio.locator('.am-target').inputValue(), '');
+    assert.equal(await apply.isDisabled(), true, 'the shape was made and deleted again: nothing differs from the file');
+    const undo = studio.locator('[data-t="undo"]');
+    for (let i = 0; i < 6 && !(await undo.isDisabled()); i++) await undo.click();
+    assert.equal(await undo.isDisabled(), true, 'every step undone');
+    assert.equal(await apply.isDisabled(), true);
+    // Two parts clipped to one shape: one shape part in the file after Apply, both parts linked to it.
+    await studio.locator('.am-target').selectOption('eyelids');
+    assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-sum').textContent(), 'to eyelids');
+    assert.match(await row('eyelids').textContent(), /clips eyes, mouth/);
+    await apply.click();
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100); // the rig.json tab is saved a moment after Apply
+    assert.ok(saved.length, 'the rig.json tab was not saved');
+    const rig = JSON.parse(saved.at(-1));
+    assert.deepEqual(Object.entries(rig.parts).filter(([, v]) => v.polygon).map(([k]) => k), ['eyelids'], 'one shape part, not one per clipped part');
+    assert.deepEqual([rig.parts.eyes.clip, rig.parts.mouth.clip], ['eyelids', 'eyelids']);
+    assert.equal(rig.masks, undefined, 'the older list is not written');
+    assert.deepEqual(rig.parts.eyelids.keyforms.map(k => k.param), ['eye_open'], 'the shape\'s keyforms are untouched');
+    assert.equal(rig.deformers.find(d => d.id === 'head_warp').members.filter(m => m === 'eyelids').length, 1);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: shapes are group warp members, a group from a bone takes the shapes on it, and a clip whose shape is not in the group is flagged', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), members = () => studio.locator('.aw-memberlist input:checked').evaluateAll(els => els.map(e => e.value).sort());
+    await row('eyelids').waitFor();
+    // The Warp tool works on a shape row: the shape has no warp of its own, its group is the target and is marked as a shape.
+    await row('eyelids').click();
+    await page.keyboard.press('d');
+    assert.equal(await studio.locator('.aw-members').isVisible(), true);
+    assert.deepEqual(await members(), ['eyelids', 'eyes', 'face', 'mouth']);
+    assert.match(await studio.locator('.aw-memberrow', { hasText: 'eyelids' }).textContent(), /eyelids \(shape\)/);
+    assert.match(await studio.locator('.aw-targethint').textContent(), /eyelids is a mask shape/);
+    assert.equal(await studio.locator('.aw-addbtn').isVisible(), false, 'no own warp for a shape');
+    // Taking the shape out of the group while its part stays in: the part row says so and offers the fix.
+    await studio.locator('.aw-memberrow', { hasText: 'eyelids' }).locator('input').uncheck();
+    assert.equal(await studio.locator('.aw-members').isVisible(), false, 'a shape out of every group has no warp to show');
+    assert.match(await studio.locator('.aw-none').textContent(), /no warp of its own/);
+    await row('eyes').click();
+    assert.match(await studio.locator('.aw-clipissue').textContent(), /eyes is clipped to eyelids, which is not in this group/);
+    assert.equal(await studio.locator('.am-fixgroup').count(), 1, 'the Mask section says the same');
+    await studio.locator('.aw-fixclip').click();
+    assert.equal(await studio.locator('.aw-clipissue').count(), 0);
+    assert.deepEqual(await members(), ['eyelids', 'eyes', 'face', 'mouth']);
+    // A group warp from the head bone takes its parts and the shape on it; so does one from the ticked rows.
+    await row('head').click();
+    await studio.locator('.aw-groupbtn').click();
+    assert.ok((await members()).includes('eyelids'), 'the new group has the shape too');
+    await row('mouth').click();
+    await row('eyelids').click({ modifiers: ['Control'] });
+    assert.equal(await studio.locator('.aw-groupbtn').textContent(), 'Add group warp from 2 selected parts');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -2354,6 +3303,14 @@ const ROBO_VN = [
   '  "Robo squints." #rb02',
 ].join('\n');
 
+/** A roboHeads patch that takes the robo's own mask (the eyelids shape part and the `clip` on its eyes) out of its rig, then lays `patch` over it. */
+const noMasks = (patch = {}, clips = {}) => rig => {
+  const parts = {};
+  for (const [name, def] of Object.entries(rig.parts ?? {})) if (!def.polygon) { const { clip: _clip, ...rest } = def; parts[name] = rest; }
+  for (const [part, to] of Object.entries(clips)) parts[part] = { ...(parts[part] ?? {}), clip: to };
+  return { parts, ...patch };
+};
+
 /** The head of the sample robo as a screenshot, with `patch` laid over its rig.json (the sample on disk is not touched), at each of `lines` of ROBO_FROM_VN. */
 async function roboHeads(patch, lines, script = ROBO_FROM_VN, file = 'robofrom.vn') {
   const context = await browser.newContext({ viewport: { width: 1280, height: 760 } });
@@ -2361,7 +3318,7 @@ async function roboHeads(patch, lines, script = ROBO_FROM_VN, file = 'robofrom.v
     const res = await route.fetch();
     const proj = await res.json();
     proj.scripts = [...proj.scripts, { file, text: script }];
-    proj.rigs.robo.rig = { ...proj.rigs.robo.rig, ...patch };
+    proj.rigs.robo.rig = { ...proj.rigs.robo.rig, ...(typeof patch === 'function' ? patch(proj.rigs.robo.rig) : patch) };
     await route.fulfill({ response: res, json: proj });
   });
   const page = await context.newPage();
@@ -2397,11 +3354,30 @@ function differing(a, b, x, y, w, h) {
   return n / total;
 }
 
+/** A free mesh (a six-vertex quad strip) on robo's 30 x 40 collar, which has no deformer; its bottom row slides sideways as "flap" goes 0 to 1. */
+const collarMesh = flap => rig => ({
+  parameters: [...rig.parameters, { id: 'flap', min: 0, max: 1, default: flap }],
+  deformers: [...(rig.deformers ?? []), { id: 'collar_mesh', part: 'collar', mesh: { verts: [0, 0, 15, 0, 30, 0, 0, 40, 15, 40, 30, 40], tris: [0, 1, 3, 1, 4, 3, 1, 2, 4, 2, 5, 4] },
+    keyforms: [{ param: 'flap', keys: [{ at: 0 }, { at: 1, pts: { 3: [0.03, 0], 4: [0.03, 0], 5: [0.03, 0] } }] }] }],
+});
+
+test('free mesh: a part on a triangle mesh is drawn, and its vertices move with the parameter', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const lines = [/Robo rests/];
+  const [still] = await roboHeads(collarMesh(0), lines, ROBO_VN, 'robomesh.vn');
+  const [moved] = await roboHeads(collarMesh(1), lines, ROBO_VN, 'robomesh.vn');
+  const [plain] = await roboHeads({}, lines, ROBO_VN, 'robomesh.vn');
+  const { canvas } = still, k = canvas.width / 1920, [bx, by, bw, bh] = still.snap.bounds;
+  const area = shot => [Math.round(canvas.x + bx * k), Math.round(canvas.y + by * k), Math.round(bw * k), Math.round(bh * k)];
+  assert.ok(differing(still.img, plain.img, ...area(still)) < 0.0005, 'a mesh at rest draws the collar as the plain sprite does');
+  assert.ok(differing(moved.img, still.img, ...area(moved)) > 0.0005, 'the keyform moves the mesh vertices, so the collar is drawn elsewhere');
+});
+
 test('masks: the eyelid mask of the sample robo clips its eyes to a band as its parameter closes, and changes nothing at rest', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const lines = [/Robo rests/, /Robo squints/];
   const masked = await roboHeads({}, lines, ROBO_VN, 'robomask.vn');
-  const control = await roboHeads({ masks: [] }, lines, ROBO_VN, 'robomask.vn'); // the same rig without its mask
+  const control = await roboHeads(noMasks(), lines, ROBO_VN, 'robomask.vn'); // the same rig without its mask
   const [{ snap, canvas }] = masked, k = canvas.width / 1920, [bx, by, bw, bh] = snap.bounds;
   const light = shot => lightPixels(shot.img, Math.round(canvas.x + bx * k), Math.round(canvas.y + by * k), Math.round(bw * k), Math.round(bh * k * 0.35)); // the head is the top of the figure
   assert.deepEqual([masked[0].snap.masks, masked[1].snap.masks, control[0].snap.masks], [1, 1, 0], 'one stencil mask on stage, none in the control');
@@ -2416,8 +3392,8 @@ test('masks: a part clipped to another part\'s shape is drawn only where that pa
   if (skipReason) { t.skip(skipReason); return; }
   // The face is put above the eyes, so without a mask it covers them; clipped to the eyes' shape only two windows of it are left.
   const order = ['legs', 'torso', 'collar', 'hand_r', 'lower_r', 'upper_r', 'hand_l', 'lower_l', 'upper_l', 'eyes', 'antenna', 'mouth', 'face'];
-  const plain = await roboHeads({ order, masks: [] }, [/Robo rests/, /no eyes/]);
-  const clipped = await roboHeads({ order, masks: [{ id: 'windows', part: 'face', from: 'eyes' }] }, [/Robo rests/, /no eyes/]);
+  const plain = await roboHeads(noMasks({ order }), [/Robo rests/, /no eyes/]);
+  const clipped = await roboHeads(noMasks({ order }, { face: 'eyes' }), [/Robo rests/, /no eyes/]);
   const [{ snap, canvas }] = plain, k = canvas.width / 1920, [bx, by, bw, bh] = snap.bounds;
   const head = [Math.round(canvas.x + bx * k), Math.round(canvas.y + by * k), Math.round(bw * k), Math.round(bh * k * 0.35)];
   assert.equal(plain[0].snap.masks, 0);
@@ -3745,7 +4721,7 @@ play('timed menu: opening the pause menu holds the bar', async page => {
   await page.waitForTimeout(1500);
   assert.equal(await barScale(page), held);
   assert.equal(await page.locator('#menu[data-visible="true"]').count(), 1);
-}, withTimedStart(4));
+}, withTimedStart(60)); // the bar is held, never run out: a short clock ran out under load before the test pressed Escape
 
 play('timed menu: with Timed choices off there is no clock and the player can wait', async page => {
   await page.locator('#titleui [data-act="options"]').click();
@@ -3796,9 +4772,7 @@ test('voice dialog: add a take to a row, replace it after asking, flag and confi
     await page.goto(`${base}editor/`);
     await page.locator('.monaco-editor .view-line').first().waitFor(); // the sample's scripts are loaded
     const open = async () => {
-      await page.keyboard.press('Control+p');
-      await page.keyboard.type('>Voice: Recordings');
-      await page.keyboard.press('Enter');
+      await palette(page, '>Voice: Recordings');
       await page.locator('#voice .vo-row').first().waitFor();
     };
     const dialog = page.locator('#voice');
@@ -3888,9 +4862,7 @@ test('build dialog: errors block, warnings need a tick, go-to links, build with 
     const dialog = page.locator('#build');
     const go = dialog.locator('.bd-go');
     const open = async () => {
-      await page.keyboard.press('Control+p');
-      await page.keyboard.type('>Build: Checks');
-      await page.keyboard.press('Enter');
+      await palette(page, '>Build: Checks');
       await dialog.locator('.bd-summary').filter({ hasText: /error|passed/ }).waitFor();
     };
     await open();
@@ -3949,7 +4921,9 @@ test('build dialog: errors block, warnings need a tick, go-to links, build with 
     await dialog.locator('.bd-goto', { hasText: 'Translations' }).first().click();
     await page.locator('#translations').waitFor();
     assert.equal(await dialog.isHidden(), true);
+    await page.locator('#translations .tr-filter').click(); // Escape goes to the focused element, and the editor may be taking the focus back
     await page.keyboard.press('Escape');
+    await page.locator('#translations').waitFor({ state: 'hidden' });
 
     // Re-run checks sees a fixed project; Esc closes.
     await open();
@@ -4026,10 +5000,20 @@ function inEditor(name, fn, setup) {
     }
   });
 }
+// The palette closes when its input loses focus, and on a loaded page something else takes the focus now and then (the editor
+// finishing a file load, a tree row after a restore): typed key by key, the rest of the query went elsewhere and Enter ran the
+// wrong item or none. So the query is filled in one step, and if the palette closed meanwhile it is opened again.
 const palette = async (page, query) => {
-  await page.keyboard.press('Control+p');
-  await page.locator('[aria-controls="paletteList"]').waitFor();
-  await page.keyboard.type(query);
+  const input = page.locator('[aria-controls="paletteList"]');
+  for (let attempt = 0; ; attempt++) {
+    await page.keyboard.press('Control+p');
+    // The key can go nowhere (the focus is in no page element that takes it), and the palette can close under the fill: again.
+    const shown = await input.waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false);
+    const filled = shown && await input.fill(query, { timeout: 3000 }).then(() => true, () => false);
+    if (filled && await input.isVisible() && await input.evaluate(el => document.activeElement === el)) break;
+    if (attempt >= 4) throw new Error(`the command palette keeps losing focus (query ${query})`);
+  }
+  if (query.startsWith('>')) await until(page, q => document.querySelector('#paletteList li[aria-selected="true"]')?.textContent.includes(q), query.slice(1));
   await page.keyboard.press('Enter');
 };
 // Monaco draws spaces as no-break spaces: compare the rendered rows with those turned back.
@@ -4042,14 +5026,196 @@ async function cursorIn(page, file, needle, word) {
   const line = lines[n - 1].replace(/\r$/, '');
   await palette(page, file);
   await until(page, f => document.querySelector('#tabs .tab[data-selected="true"]')?.textContent?.includes(f), file);
-  await palette(page, `:${n}`);
-  await until(page, n => document.querySelector('.monaco-editor .active-line-number')?.textContent === String(n), n);
+  // The tab is selected before its text is in the editor: a jump made in between is undone by the load, so jump again until
+  // it holds, and let the editor have the focus back before the keys.
+  for (let attempt = 0; ; attempt++) {
+    await palette(page, `:${n}`);
+    const held = await page.waitForFunction(n => document.querySelector('.monaco-editor .active-line-number')?.textContent === String(n)
+      && !!document.activeElement?.closest('.monaco-editor'), n, { timeout: 4000 }).then(() => true, () => false);
+    if (held) break;
+    if (attempt >= 4) await until(page, n => document.querySelector('.monaco-editor .active-line-number')?.textContent === String(n), n);
+  }
   await page.keyboard.press('End');
   const inside = line.indexOf(word, line.indexOf(needle)) + 2; // two characters into the word
   for (let i = 0; i < line.length - inside; i++) await page.keyboard.press('ArrowLeft');
   return n;
 }
+/** `cursorIn`, then `act` (a key that works on the word under the cursor); until `ready` shows. On a loaded page the editor
+ *  can reload the file after the cursor is placed and the key finds no word, so the placing is done again. */
+async function actAtCursor(page, args, act, ready) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const n = await cursorIn(page, ...args);
+    await act();
+    if (await ready.waitFor({ timeout: 6000 }).then(() => true, () => false)) return n;
+    await page.keyboard.press('Escape');
+  }
+  await ready.waitFor();
+}
 const demoLocales = { 'locale/fi.json': `${JSON.stringify({ vbsv: 'Hauska tavata, [player].', bu9l: 'Nähdään, [player]. (Käyntejä: [demo_visits])' }, null, 2)}\n` };
+
+// UX round EA-1: Monaco pairs a quote only on a line that is cheap to tokenize, which the new line after Enter is not until the
+// next render. Typed straight after Enter, the opening quote then stood alone and the closing one, after punctuation, paired.
+inEditor('typing: a narration line typed straight after Enter keeps one pair of quotes, with or without closing punctuation', async page => {
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.press('Control+End');
+  for (const text of ['"The rain falls."', '"Wait!"', '"Hello"', 'hero: Hi {i}']) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(text, { delay: 0 });
+    const line = await page.evaluate(() => { const ed = monaco.editor.getEditors()[0]; return ed.getModel().getLineContent(ed.getPosition().lineNumber); });
+    assert.equal(line.trim(), text);
+    await page.keyboard.press('Escape'); // a suggestion list would take the next Enter
+    await page.keyboard.press('End');
+  }
+});
+
+// UX round EA-3: a typed `{` is closed by the editor, and a text tag from the list brings its own `}`: it takes the waiting one.
+inEditor('typing: a text tag taken from the list after { leaves no extra }', async page => {
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.press('Control+End');
+  const last = () => page.evaluate(() => { const m = monaco.editor.getEditors()[0].getModel(); return m.getLineContent(m.getLineCount()); });
+  for (const [typed, key, expected] of [['hero: Hi {', 'Enter', 'hero: Hi {i}{/i}'], ['hero: Hi {col', 'Tab', 'hero: Hi {color=#ff6fa5}{/color}']]) {
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(typed, { delay: 0 });
+    await page.locator('.suggest-widget.visible').waitFor();
+    await page.keyboard.press(key);
+    assert.equal((await last()).trim(), expected);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('End'); // not in the middle of the tag pair: Enter would split the line
+  }
+});
+
+// UX round EA-2: Shift+F8 is F8 the other way round (it went by errors before warnings, and F8 by position), and the message of
+// the problem it lands on shows under it.
+inEditor('keys: Shift+F8 goes to the previous problem as F8 goes to the next, and shows its message', async page => {
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.evaluate(() => monaco.editor.getEditors()[0].getModel().setValue('label start:\n  jump nowhere_a\n  jump nowhere_b\n  jump nowhere_c\n'));
+  await until(page, () => monaco.editor.getModelMarkers({ resource: monaco.editor.getEditors()[0].getModel().uri }).length >= 3);
+  const line = () => page.evaluate(() => monaco.editor.getEditors()[0].getPosition().lineNumber);
+  await page.evaluate(() => monaco.editor.getEditors()[0].setPosition({ lineNumber: 4, column: 1 }));
+  await page.keyboard.press('Shift+F8');
+  assert.equal(await line(), 3);
+  await page.keyboard.press('Shift+F8');
+  assert.equal(await line(), 2);
+  await page.keyboard.press('F8');
+  assert.equal(await line(), 3);
+  await page.keyboard.press('F8');
+  assert.equal(await line(), 4);
+  await until(page, () => /Unknown label "nowhere_c"/.test(document.querySelector('.monaco-hover:not(.hidden)')?.textContent ?? ''));
+});
+
+// UX round EA-10: Ctrl+S was bound inside the script editor only, so from the Files filter or the preview the browser's "Save page as"
+// opened. Autosave writes 400 ms after the last key: a write sooner than that is the key's.
+inEditor('keys: Ctrl+S saves the open file from the Files filter, and the browser does not get the key', async (page, puts) => {
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('# a note', { delay: 0 });
+  await page.locator('#sbFilter').focus();
+  // The editor's handler stops the event at the window's capture phase; a listener added there later still runs after it.
+  await page.evaluate(() => { window.ctrlS = new Promise(r => window.addEventListener('keydown', e => { if (e.key === 's') r(e.defaultPrevented); }, true)); });
+  await page.keyboard.press('Control+s');
+  assert.equal(await page.evaluate(() => window.ctrlS), true);
+  await page.waitForTimeout(250);
+  assert.equal(puts.length, 1, 'written by the key, before the autosave');
+  assert.match(puts[0].body, /# a note/);
+});
+
+// UX round EL-3 and EL-18: the project route serves a `disk` the test edits, and the event stream tells the page to look every 100 ms.
+const externalDisk = { scripts: null };
+inEditor('external changes: a script deleted outside closes its tab, an outside edit is not left on the undo stack', async (page, puts) => {
+  const tabs = () => page.evaluate(() => [...document.querySelectorAll('#tabs .tab [role=tab]')].map(t => t.textContent));
+  const shown = () => page.evaluate(() => monaco.editor.getEditors()[0].getModel().getValue());
+  assert.ok((await tabs()).includes('town.vn'), 'every script has a tab');
+
+  // Deleted (or renamed: the new name is another script) on disk: the tab goes, with a notice.
+  externalDisk.scripts = externalDisk.scripts.filter(s => s.file !== 'town.vn');
+  await until(page, () => ![...document.querySelectorAll('#tabs .tab [role=tab]')].some(t => t.textContent === 'town.vn'));
+  assert.match(await page.locator('#toast').innerText(), /town\.vn no longer exists on disk/);
+  assert.ok((await tabs()).includes('park.vn'), 'the other tabs stay');
+
+  // An edit made outside shows at once, and Ctrl+Z does not bring the old text back (nor write it to disk).
+  const name = (await page.locator('#tabs .tab[data-selected="true"] [role=tab]').innerText()).replace(/ •$/, '');
+  externalDisk.scripts = externalDisk.scripts.map(s => (s.file === name ? { ...s, text: `${s.text}\n# edited outside\n` } : s));
+  await until(page, () => monaco.editor.getEditors()[0].getModel().getValue().includes('# edited outside'));
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(800); // an undo would be saved after 400 ms
+  assert.match(await shown(), /# edited outside/);
+  assert.deepEqual(puts, [], 'nothing was written back');
+}, async context => {
+  externalDisk.scripts = null;
+  await context.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    externalDisk.scripts ??= proj.scripts;
+    await route.fulfill({ response: res, json: { ...proj, scripts: externalDisk.scripts } });
+  });
+  await context.route('**/__events', route => route.fulfill({ contentType: 'text/event-stream', body: 'retry: 100\ndata: {"type":"content"}\n\n' }));
+});
+
+// UX round EL-4: a save the server refuses says so (red, naming the file), is tried again by itself, and says when it went through.
+const saveRoute = { fail: true, attempts: 0 };
+inEditor('failed save: the editor says which file, retries by itself and reports the save that finally works', async (page, puts) => {
+  await page.locator('.monaco-editor .view-lines').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('# a note');
+  const toast = page.locator('#toast');
+  await toast.filter({ hasText: /Could not save .*vn: the dev server answered 500/ }).waitFor();
+  assert.equal(await toast.getAttribute('data-kind'), 'error');
+  assert.match(await page.locator('#status').innerText(), /^save failed: .*\.vn$/);
+  await until(page, () => document.querySelector('#tabs .tab[data-selected="true"] [role=tab]').textContent.endsWith('•'));
+  for (let i = 0; i < 80 && saveRoute.attempts < 3; i++) await page.waitForTimeout(100); // 1 s, then 2 s
+  assert.ok(saveRoute.attempts >= 3, `the save is tried again (${saveRoute.attempts} attempts)`);
+  assert.deepEqual(puts, []);
+  saveRoute.fail = false;
+  await toast.filter({ hasText: /saved .*\.vn \(the earlier save had failed\)/ }).waitFor({ timeout: 10_000 });
+  assert.equal(puts.length, 1);
+  assert.match(puts[0].body, /# a note/);
+  assert.equal(await toast.getAttribute('data-kind'), null);
+}, async context => {
+  saveRoute.fail = true;
+  saveRoute.attempts = 0;
+  await context.route(/\/api\/script(\?|$)/, route => {
+    if (route.request().method() !== 'PUT') return route.fallback();
+    saveRoute.attempts++;
+    return saveRoute.fail ? route.fulfill({ status: 500, body: 'boom' }) : route.fallback();
+  });
+});
+
+// UX round EP-3: `>trash` Enter Enter emptied the trash for good (Empty Trash ranked first, its question started on the red button).
+inEditor('trash: ">trash" Enter opens Restore, and the Empty Trash question starts on Cancel', async page => {
+  const empties = [];
+  await page.route('**/api/trash/empty', r => { empties.push(r.request().url()); return r.fulfill({ json: { removed: 3 } }); });
+  await page.route('**/api/trash', r => r.fulfill({ json: [] }));
+  await palette(page, '>Trash'); // as typed in lower case it ranks the same: the helper's wait compares the case
+  await until(page, () => document.querySelector('[aria-controls="paletteList"]').value.startsWith('#trash:'));
+  assert.equal(await page.locator('dialog.ask').count(), 0, 'the first hit is Restore, not Empty Trash');
+  await page.keyboard.press('Escape');
+  await palette(page, '>Empty Trash');
+  await page.locator('dialog.ask').waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Cancel');
+  await page.keyboard.press('Enter');
+  await page.locator('dialog.ask').waitFor({ state: 'detached' });
+  assert.deepEqual(empties, [], 'Enter declined');
+  await palette(page, '>Empty Trash');
+  await page.locator('dialog.ask').getByRole('button', { name: 'Empty Trash' }).click();
+  await until(page, () => /emptied the trash/.test(document.getElementById('status').textContent));
+  assert.equal(empties.length, 1);
+});
+
+// A dead dev server shows only as an event stream that keeps failing; the editor says so, and says when it is back.
+const serverRoute = { down: false };
+inEditor('dev server lost: a stream that keeps failing is reported, and so is its return', async page => {
+  const toast = page.locator('#toast');
+  serverRoute.down = true;
+  await toast.filter({ hasText: /The dev server stopped answering/ }).waitFor({ timeout: 10_000 });
+  assert.equal(await toast.getAttribute('data-kind'), 'error');
+  serverRoute.down = false;
+  await toast.filter({ hasText: /the dev server is back/ }).waitFor({ timeout: 10_000 });
+}, async context => {
+  serverRoute.down = false;
+  // A stream that ends and reopens is not "lost": only failures with no open between them are.
+  await context.route('**/__events', route => (serverRoute.down ? route.abort() : route.fulfill({ contentType: 'text/event-stream', body: 'retry: 100\n\n' })));
+});
 
 inEditor('task output: a task streams into the Output panel, file:line links open the line, Close hides it', async page => {
   await page.route('**/api/task?*', route => route.fulfill({
@@ -4121,6 +5287,7 @@ inEditor('translations dialog: progress, filter, edits saved as you type, change
 
   await palette(page, '>Translations: Edit');
   await dialog.waitFor();
+  await dialog.locator('.tr-filter').click(); // the jump to the line may still be moving focus to the editor, and Escape goes to the focused element
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden' });
 }, async context => {
@@ -4132,10 +5299,8 @@ inEditor('translations dialog: progress, filter, edits saved as you type, change
 });
 
 inEditor('variable rename: F2 on a variable rewrites the scripts and the translation tables that use it', async (page, puts) => {
-  const n = await cursorIn(page, 'demo.vn', 'Nice to meet you, [player]', 'player');
-  await page.keyboard.press('F2');
   const box = page.locator('.rename-box input, .rename-input').first();
-  await box.waitFor();
+  const n = await actAtCursor(page, ['demo.vn', 'Nice to meet you, [player]', 'player'], () => page.keyboard.press('F2'), box);
   assert.equal(await box.inputValue(), 'player');
   await box.fill('hero');
   await box.press('Enter');
@@ -4150,10 +5315,8 @@ inEditor('variable rename: F2 on a variable rewrites the scripts and the transla
 });
 
 inEditor('variable rename: a cancelled F2 leaves the translation tables alone', async (page, puts) => {
-  await cursorIn(page, 'demo.vn', 'Nice to meet you, [player]', 'player');
-  await page.keyboard.press('F2');
   const box = page.locator('.rename-box input, .rename-input').first();
-  await box.waitFor();
+  await actAtCursor(page, ['demo.vn', 'Nice to meet you, [player]', 'player'], () => page.keyboard.press('F2'), box);
   await box.fill('hero');
   await box.press('Escape');
   await page.waitForTimeout(1500);
@@ -4163,10 +5326,8 @@ inEditor('variable rename: a cancelled F2 leaves the translation tables alone', 
 });
 
 inEditor('find all uses: Shift+F12 on a variable lists every use in a peek view', async page => {
-  await cursorIn(page, 'demo.vn', 'Nice to meet you, [player]', 'player');
-  await page.keyboard.press('Shift+F12');
   const peek = page.locator('.peekview-widget');
-  await peek.waitFor();
+  await actAtCursor(page, ['demo.vn', 'Nice to meet you, [player]', 'player'], () => page.keyboard.press('Shift+F12'), peek);
   await until(page, () => /\(\d+\)/.test(document.querySelector('.peekview-widget .peekview-title')?.textContent ?? ''));
   const meta = await peek.locator('.peekview-title').innerText();
   assert.match(meta, /References \(3\)/, 'the input, the greeting and the goodbye (the comment that names it is no use)');
@@ -4206,6 +5367,7 @@ inEditor('screens sidebar: a built-in screen row opens it in the preview and sho
   const frame = page.frameLocator('#preview');
   await frame.locator('#title:not([hidden]), #box[data-visible="true"]').first().waitFor();
   const screenRow = title => page.locator('#sbList .row', { has: page.locator('.item span:first-child', { hasText: new RegExp(`^${title}$`) }) }).locator('.item');
+  await page.locator('#sbList h3 .fold', { hasText: 'Built-in screens' }).click(); // folded until asked for (UX round EP-5)
   await screenRow('Options').click();
   await frame.locator('#options').waitFor({ state: 'visible' });
   await shownLine(page, 'screen options');
@@ -4217,6 +5379,357 @@ inEditor('screens sidebar: a built-in screen row opens it in the preview and sho
   await frame.locator('#history:not([hidden])').waitFor();
   assert.equal(await frame.locator('#options').isHidden(), true);
   assert.equal(await screenRow('History').getAttribute('aria-current'), 'true');
+});
+
+inEditor('Phone preview: the preview pane takes a phone size and the game inside acts as on a touch screen, and Desktop undoes it', async page => {
+  const frame = page.frameLocator('#preview');
+  await frame.locator('#title:not([hidden]), #box[data-visible="true"]').first().waitFor();
+  const pane = () => page.locator('#preview').evaluate(el => ({ w: el.getBoundingClientRect().width, h: el.getBoundingClientRect().height }));
+  const touch = () => frame.locator('html').evaluate(el => el.hasAttribute('data-touch'));
+  assert.equal(await touch(), false);
+  const before = await pane();
+  await palette(page, '>Preview: Phone, landscape');
+  await until(page, () => document.getElementById('status').textContent.startsWith('preview: Phone'));
+  const phone = await pane();
+  assert.ok(phone.w <= 844.5 && phone.h <= 390.5 && phone.h < before.h, `the pane is phone-sized (${phone.w} x ${phone.h}, was ${before.w} x ${before.h})`);
+  await until(page, () => document.getElementById('preview').contentDocument.documentElement.hasAttribute('data-touch'));
+  await palette(page, '>Preview: Desktop');
+  await until(page, () => !document.getElementById('preview').contentDocument.documentElement.hasAttribute('data-touch'));
+  const after = await pane();
+  assert.ok(Math.abs(after.w - before.w) < 1 && Math.abs(after.h - before.h) < 1, 'the pane is back to filling its column');
+});
+
+test('animation studio: the Mesh row generates a free mesh at a chosen detail, the Warp tool draws it, regenerating one with keyforms asks first', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    // The collar already has a four-vertex mesh with a keyform of its own.
+    const collar = { id: 'collar_mesh', part: 'collar', mesh: { verts: [0, 0, 10, 0, 10, 10, 0, 10], tris: [0, 1, 2, 0, 2, 3], detail: 'low' }, keyforms: [{ param: 'breathe', keys: [{ at: 0 }, { at: 1, pts: { 2: [0.01, 0] } }] }] };
+    proj.rigs.robo.rig.deformers.push(collar);
+    const text = JSON.parse(proj.rigTexts.robo);
+    text.deformers.push(collar);
+    proj.rigTexts.robo = JSON.stringify(text);
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), dialog = page.locator('dialog.ask');
+    const sum = studio.locator('.as-sect[data-sect="warp"] .as-sect-sum'), count = studio.locator('.aw-vcount'), gen = studio.locator('.aw-genbtn');
+    const dots = () => page.frames().find(f => f.url().includes('studio=')).evaluate(() => document.querySelectorAll('svg circle[r="3"]').length);
+    const verts = async () => Number(/^(\d+) vertices/.exec(await count.textContent())?.[1]);
+    const ready = async () => { await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? '')); return verts(); };
+    await row('legs').waitFor();
+    await row('legs').click();
+    await studio.locator('[data-gz="warp"]').click();
+    // A part with no warp: the vertex count follows the detail choice, and Generate makes the mesh deformer.
+    assert.equal(await gen.textContent(), 'Generate mesh');
+    await studio.locator('.aw-detail').selectOption('low');
+    const low = await ready();
+    await studio.locator('.aw-detail').selectOption('veryhigh');
+    await until(page, n => Number(/^(\d+) vertices/.exec(document.querySelector('#animStudio .aw-vcount').textContent)?.[1]) > n, low);
+    const high = await verts();
+    assert.ok(low >= 4 && high > low && high <= 500, `the count rises with the detail: ${low} -> ${high}`);
+    await studio.locator('.aw-detail').selectOption('low');
+    await until(page, n => Number(/^(\d+) vertices/.exec(document.querySelector('#animStudio .aw-vcount').textContent)?.[1]) === n, low);
+    await gen.click();
+    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
+    assert.equal(await sum.textContent(), `mesh ${low}`);
+    assert.equal(await gen.textContent(), 'Regenerate mesh');
+    assert.equal(await dialog.count(), 0, 'a new mesh asks nothing');
+    // The stage draws a dot at every vertex (inert), and the lattice-only controls are gone.
+    for (let i = 0; i < 40 && (await dots()) !== low; i++) await page.waitForTimeout(100);
+    assert.equal(await dots(), low, 'a dot at each vertex');
+    assert.match(await studio.locator('.aw-meshsum').textContent(), new RegExp(`^${low} vertices, \\d+ triangles, detail low`));
+    for (const cls of ['.aw-dims', '.aw-rowpick', '.aw-colpick']) assert.equal(await studio.locator(cls).isVisible(), false, `${cls} is lattice-only`);
+    for (const cls of ['.aw-sel', '.aw-tools', '.aw-xf', '.aw-presets', '.aw-form']) assert.equal(await studio.locator(cls).isVisible(), true, `${cls} works on a mesh`);
+    assert.equal(await studio.locator('.aw-remove').isVisible(), true, 'Remove warp stays');
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false, 'the rig is dirty');
+    // Regenerating a mesh with no keyforms needs no confirmation and is one undo step.
+    await studio.locator('.aw-detail').selectOption('veryhigh');
+    await until(page, n => Number(/^(\d+) vertices/.exec(document.querySelector('#animStudio .aw-vcount').textContent)?.[1]) > n, low);
+    await gen.click();
+    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, high);
+    assert.equal(await dialog.count(), 0);
+    await studio.locator('[data-t="undo"]').click();
+    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, low);
+    await studio.locator('[data-t="redo"]').click();
+    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, high);
+    // Apply writes the mesh into rig.json.
+    await studio.locator('[data-t="apply"]').click();
+    await until(page, () => true);
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100);
+    const rig = JSON.parse(saved.at(-1)), legs = rig.deformers.find(d => d.part === 'legs');
+    assert.equal(legs.mesh.verts.length, high * 2);
+    assert.equal(legs.mesh.detail, 'veryhigh');
+    assert.deepEqual(legs.keyforms, []);
+    assert.equal(legs.grid, undefined);
+    // A part whose mesh has keyforms: Regenerate asks, Cancel keeps it, the confirmation drops the keyforms in one undo step.
+    await row('collar').click();
+    assert.equal(await sum.textContent(), 'mesh 4');
+    assert.equal(await gen.textContent(), 'Regenerate mesh');
+    await ready();
+    await gen.click();
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /per-vertex keyforms are dropped/);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await sum.textContent(), 'mesh 4', 'cancelled: nothing changed');
+    await gen.click();
+    await dialog.getByRole('button', { name: 'Regenerate' }).click();
+    await until(page, () => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent !== 'mesh 4');
+    await studio.locator('[data-t="undo"]').click();
+    await until(page, () => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === 'mesh 4');
+    // A part with a lattice: the mesh replaces it, after asking.
+    await row('torso').click();
+    assert.equal(await sum.textContent(), '2×3');
+    assert.equal(await gen.textContent(), 'Replace lattice with mesh');
+    await ready();
+    await gen.click();
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /replaces it/);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await sum.textContent(), '2×3');
+    assert.equal(await studio.locator('.aw-dims').isVisible(), true, 'a lattice keeps its grid-size controls');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: a mesh vertex is dragged into the active parameter keyform, selected, softened over edges, scaled, and given a preset', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), undo = studio.locator('[data-t="undo"]');
+    await studio.locator('.as-tree .as-row[data-part="legs"]').waitFor();
+    await studio.locator('.as-tree .as-row[data-part="legs"]').click();
+    await studio.locator('[data-gz="warp"]').click();
+    await studio.locator('.aw-detail').selectOption('low');
+    await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? ''));
+    await studio.locator('.aw-genbtn').click();
+    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
+    const n = Number(/^mesh (\d+)$/.exec(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent())[1]);
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    // A fresh mesh is not bound to breathe, so the parameter alone is in focus: Bind parts… (the Warp tool binds warps) and a click on the part pair them.
+    await bindParts(studio, 'legs');
+    const breathe = studio.locator('.ap-row[data-ctl="breathe"] .ap-num');
+    await breathe.fill('1');
+    await breathe.press('Enter');
+    const stage = () => page.frames().find(f => f.url().includes('studio='));
+    const dots = () => stage().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"], svg circle[stroke="#ff3b6b"]')].map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy')), c.getAttribute('fill') === '#ff3b6b' ? 1 : 0]));
+    const settle = async () => { await page.waitForTimeout(300); return dots(); };
+    const chosen = async () => (await settle()).flatMap((d, i) => (d[2] ? [i] : []));
+    for (let i = 0; i < 40 && (await dots()).length !== n; i++) await page.waitForTimeout(100);
+    const box = await studio.locator('.as-stage iframe').boundingBox(), before = await settle();
+    assert.equal(before.length, n, 'a handle per vertex');
+    const orig = before.map(d => [...d]);
+    // The vertex farthest from the others is easy to hit: press it, move, release.
+    const gap = i => Math.min(...before.map((d, j) => (j === i ? Infinity : Math.hypot(d[0] - before[i][0], d[1] - before[i][1]))));
+    const v = before.map((_, i) => i).sort((a, b) => gap(b) - gap(a))[0];
+    const at = i => [box.x + before[i][0], box.y + before[i][1]];
+    const dragTo = async (i, dx, dy) => { const [x, y] = at(i); await page.mouse.move(x, y); await page.mouse.down(); for (let k = 1; k <= 5; k++) await page.mouse.move(x + (dx * k) / 5, y + (dy * k) / 5); await page.mouse.up(); };
+    await dragTo(v, 30, 10);
+    let moved = await settle();
+    assert.ok(Math.abs(moved[v][0] - before[v][0] - 30) < 1 && Math.abs(moved[v][1] - before[v][1] - 10) < 1, `the vertex followed the pointer (${moved[v]} from ${before[v]})`);
+    moved.forEach((d, i) => { if (i !== v) assert.ok(Math.hypot(d[0] - before[i][0], d[1] - before[i][1]) < 1, `vertex ${i} stayed`); });
+    assert.match(await studio.locator('.aw-pthint').textContent(), new RegExp(`^Vertex vertex ${v}`));
+    assert.match(await studio.locator('.aw-keyhint').textContent(), /dragging a point makes the first|On the key|No key/);
+    await undo.click();
+    const back = await settle();
+    assert.ok(Math.hypot(back[v][0] - before[v][0], back[v][1] - before[v][1]) < 1, 'one undo took the drag back');
+    // The drag is written into the keyform of breathe at 1: sparse points indexed by vertex.
+    await dragTo(v, 30, 10);
+    await settle();
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100);
+    const legs = JSON.parse(saved.at(-1)).deformers.find(d => d.part === 'legs');
+    const keys = legs.keyforms.find(k => k.param === 'breathe').keys;
+    assert.deepEqual(keys.map(k => k.at), [0, 1]);
+    assert.deepEqual(Object.keys(keys[1].pts), [String(v)]);
+    assert.ok(keys[1].pts[v][0] > 0 && keys[1].pts[v][1] > 0, 'moved right and down');
+    // Selection: All, Invert, a vertex from the list; a rectangle round one vertex.
+    await studio.locator('.aw-all').click();
+    assert.equal((await chosen()).length, n);
+    assert.match(await studio.locator('.aw-selhint').textContent(), new RegExp(`^${n} points chosen`));
+    await studio.locator('.aw-invert').click();
+    assert.deepEqual(await chosen(), []);
+    await studio.locator('.aw-pick').selectOption(String(v));
+    assert.deepEqual(await chosen(), [v]);
+    await studio.locator('.aw-invert').click();
+    assert.equal((await chosen()).length, n - 1);
+    await studio.locator('.aw-clear').click();
+    // Soft reach fades over edge hops: the chosen vertex goes the whole way, a neighbour part of it, one far along the edges not at all.
+    await studio.locator('.aw-pick').selectOption(String(v));
+    await studio.locator('.aw-soft').check();
+    await studio.locator('.aw-radius').fill('2');
+    await studio.locator('.aw-radius').dispatchEvent('change');
+    const rest0 = await settle();
+    before.splice(0, before.length, ...rest0); // the vertex sits where the first drag left it: aim from there
+    await dragTo(v, 30, 0);
+    const soft = await settle(), shift = i => soft[i][0] - rest0[i][0];
+    assert.ok(Math.abs(shift(v) - 30) < 1, 'the chosen vertex went the whole way');
+    const others = rest0.map((_, i) => i).filter(i => i !== v);
+    assert.ok(others.some(i => shift(i) > 3 && shift(i) < 27), 'a neighbour followed part of the way');
+    assert.ok(others.some(i => Math.abs(shift(i)) < 1), 'a vertex out of reach stayed');
+    await undo.click();
+    await studio.locator('.aw-soft').uncheck();
+    // Scale acts on the chosen vertices about the selection; Reset takes them back to rest in this keyform.
+    await studio.locator('.aw-all').click();
+    const wide = a => Math.max(...a.map(d => d[0])) - Math.min(...a.map(d => d[0]));
+    const was = wide(await settle());
+    await studio.locator('.aw-scale').fill('1.5');
+    await studio.locator('.aw-scale-go').click();
+    assert.ok(wide(await settle()) > was * 1.4, 'scaling widened the mesh');
+    await studio.locator('.aw-reset').click();
+    const rested = await settle();
+    assert.ok(rested.every((d, i) => Math.hypot(d[0] - orig[i][0], d[1] - orig[i][1]) < 1.5), 'Reset took every chosen vertex back to rest');
+    // Mirror says what it could not match; a preset writes the keys per vertex.
+    await studio.locator('.aw-clear').click();
+    await studio.locator('.aw-preset').selectOption('sway');
+    await studio.locator('.aw-write').click();
+    assert.match(await page.locator('.as-note').textContent(), /Sway written as the keys of breathe/);
+    const swayed = await settle();
+    assert.ok(swayed.some((d, i) => Math.abs(d[0] - before[i][0]) > 3), 'the preset bent the mesh at breathe 1');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: Topology mode adds, moves and deletes mesh vertices; a mesh with keyforms asks first and undo brings them back', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/api/rig*', route => (route.request().method() !== 'PUT' ? route.continue() : route.fulfill({ status: 200, body: 'ok' })));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), undo = studio.locator('[data-t="undo"]'), dialog = page.locator('dialog.ask'), note = page.locator('.as-note');
+    await studio.locator('.as-tree .as-row[data-part="legs"]').waitFor();
+    await studio.locator('.as-tree .as-row[data-part="legs"]').click();
+    await studio.locator('[data-gz="warp"]').click();
+    await studio.locator('.aw-detail').selectOption('low');
+    await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? ''));
+    await studio.locator('.aw-genbtn').click();
+    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
+    const n0 = Number(/^mesh (\d+)$/.exec(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent())[1]);
+    const breathe = studio.locator('.ap-row[data-ctl="breathe"] .ap-num');
+    const stage = () => page.frames().find(f => f.url().includes('studio='));
+    const dots = () => stage().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"], svg circle[stroke="#ff3b6b"]')].filter(c => c.getAttribute('stroke-dasharray') === null).map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]));
+    const settle = async n => { for (let i = 0; i < 40 && (await dots()).length !== n; i++) await page.waitForTimeout(100); await page.waitForTimeout(250); return dots(); };
+    let pts = await settle(n0);
+    assert.equal(pts.length, n0);
+    const box = await studio.locator('.as-stage iframe').boundingBox();
+    // The vertex farthest from the rest (easy to hit) and the middle of its nearest neighbour's edge.
+    const gap = (a, i) => Math.min(...a.map((d, j) => (j === i ? Infinity : Math.hypot(d[0] - a[i][0], d[1] - a[i][1]))));
+    const loneliest = (a, skip = []) => a.map((_, i) => i).filter(i => !skip.includes(i)).sort((x, y) => gap(a, y) - gap(a, x))[0];
+    const midway = (a, i) => { const j = a.map((_, k) => k).filter(k => k !== i).sort((x, y) => Math.hypot(a[x][0] - a[i][0], a[x][1] - a[i][1]) - Math.hypot(a[y][0] - a[i][0], a[y][1] - a[i][1]))[0]; return [box.x + (a[i][0] + a[j][0]) / 2, box.y + (a[i][1] + a[j][1]) / 2]; };
+    const v = loneliest(pts), rest = pts.map(d => [...d]);
+    // Topology mode: no keyforms yet, so an Add asks nothing; the keyform controls give way to the tools.
+    await studio.locator('.aw-topoon').click();
+    await page.waitForTimeout(300);
+    assert.equal(await studio.locator('.aw-topoon').getAttribute('aria-pressed'), 'true');
+    assert.equal(await studio.locator('.aw-tt').count(), 6);
+    assert.equal(await studio.locator('.aw-sel').isVisible(), false, 'the keyform controls are away');
+    assert.equal(await studio.locator('.aw-tt[data-tool="add"]').getAttribute('aria-pressed'), 'true');
+    await page.mouse.move(...midway(pts, v));
+    await page.mouse.click(...midway(pts, v));
+    pts = await settle(n0 + 1);
+    assert.equal(pts.length, n0 + 1, 'a vertex was added');
+    assert.equal(await dialog.count(), 0, 'no keyforms: nothing to ask');
+    assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent(), `mesh ${n0 + 1}`);
+    // A refused edit says why and changes nothing: Move a vertex far across the mesh.
+    await studio.locator('.aw-tt[data-tool="move"]').click();
+    await page.waitForTimeout(300); // the stage gets the tool a moment later
+    const [mx, my] = [box.x + pts[v][0], box.y + pts[v][1]];
+    await page.mouse.move(mx, my);
+    await page.mouse.down();
+    for (let k = 1; k <= 5; k++) await page.mouse.move(mx + k * 80, my + k * 60);
+    await page.mouse.up();
+    assert.match(await note.textContent(), /flat|flipped|overlap/);
+    const same = await settle(n0 + 1);
+    assert.ok(same.every((d, i) => Math.hypot(d[0] - pts[i][0], d[1] - pts[i][1]) < 1), 'the refused drag left every vertex where it was');
+    // Moving a vertex a little works and is one undo step.
+    await page.mouse.move(mx, my);
+    await page.mouse.down();
+    for (let k = 1; k <= 5; k++) await page.mouse.move(mx + k * 2, my + k);
+    await page.mouse.up();
+    const slid = await settle(n0 + 1);
+    assert.ok(Math.abs(slid[v][0] - pts[v][0] - 10) < 1.5 && Math.abs(slid[v][1] - pts[v][1] - 5) < 1.5, `the vertex slid (${slid[v]} from ${pts[v]})`);
+    await undo.click();
+    assert.ok(Math.hypot((await settle(n0 + 1))[v][0] - pts[v][0], 0) < 1.5, 'one undo took the move back');
+    // Esc leaves the mode; keyform editing is back and a drag writes a keyform.
+    await stage().evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))); // the stage has the keys while the pointer works on it
+    await page.waitForTimeout(300);
+    assert.equal(await studio.locator('.aw-topoon').getAttribute('aria-pressed'), 'false');
+    assert.equal(await studio.locator('.aw-sel').isVisible(), true);
+    // A fresh mesh is not bound to breathe, so the parameter alone is in focus: Bind parts… (the Warp tool binds warps) and a click on the part pair them.
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    await bindParts(studio, 'legs');
+    await breathe.fill('1');
+    await breathe.press('Enter');
+    const before = await settle(n0 + 1);
+    await page.mouse.move(box.x + before[v][0], box.y + before[v][1]);
+    await page.mouse.down();
+    for (let k = 1; k <= 5; k++) await page.mouse.move(box.x + before[v][0] + k * 6, box.y + before[v][1] + k * 2);
+    await page.mouse.up();
+    const bent = await settle(n0 + 1);
+    assert.ok(bent[v][0] - before[v][0] > 25, 'the vertex was dragged into the keyform');
+    // Now there are keyforms: an Add asks, Cancel changes nothing, the confirmation drops them in one undo step.
+    await studio.locator('.aw-topoon').click();
+    await studio.locator('.aw-tt[data-tool="add"]').click();
+    await page.waitForTimeout(300); // the stage gets the tool a moment later
+    const u = loneliest(bent, [v]);
+    await page.mouse.move(...midway(bent, u));
+    await page.mouse.click(...midway(bent, u));
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /per-vertex keyforms of .* are dropped. Undo brings them back/);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal((await settle(n0 + 1)).length, n0 + 1, 'cancelled: nothing changed');
+    await page.mouse.click(...midway(bent, u));
+    await dialog.getByRole('button', { name: 'Edit mesh' }).click();
+    const after = await settle(n0 + 2);
+    assert.equal(after.length, n0 + 2);
+    assert.ok(Math.abs(after[v][0] - before[v][0]) < 1.5, `the keyforms went: the vertex is at rest again (${after[v]} vs ${before[v]})`);
+    await undo.click();
+    const back = await settle(n0 + 1);
+    assert.equal(back.length, n0 + 1, 'undo took the vertex away');
+    assert.ok(back[v][0] - before[v][0] > 25, 'and brought the keyform back');
+    // Delete vertex: the lone vertex goes (or the edit is refused with a reason).
+    await studio.locator('.aw-tt[data-tool="delete"]').click();
+    await page.waitForTimeout(300); // the stage gets the tool a moment later
+    await page.mouse.click(box.x + back[u][0], box.y + back[u][1]);
+    await dialog.waitFor();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal((await settle(n0 + 1)).length, n0 + 1);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
 });
 
 describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
@@ -4243,9 +5756,7 @@ test('theme panel: fields write the theme file, contrast warns, the gallery foll
   });
   try {
     await page.goto(`${base}editor/`);
-    await page.keyboard.press('Control+p');
-    await page.keyboard.type('>Theme: Panel');
-    await page.keyboard.press('Enter');
+    await palette(page, '>Theme: Panel');
     const panel = page.locator('#themePanel');
     await panel.locator('.td-field').first().waitFor();
     const field = (label) => panel.locator('.td-field', { has: page.locator(`label:text-is("${label}")`) });
@@ -4280,3 +5791,4 @@ test('theme panel: fields write the theme file, contrast warns, the gallery foll
     await context.close();
   }
 });
+

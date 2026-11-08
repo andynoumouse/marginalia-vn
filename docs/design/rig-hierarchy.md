@@ -46,13 +46,14 @@ concept, the **look**. Background and the survey of other formats: [rig-formats.
     "casual":  { "top": "casual", "bottom": "casual" },
     "naked":   { "top": "none", "bottom": "none" }
   },
-  "animations": {}, "autonomous": { "idle": "breathe", "speak": {}, "blink": { "slot": "eyes", "variant": "closed" } }
+  "animations": { "blink": { "dur": 0.12, "keys": [], "frames": [{ "slot": "eyes", "keys": [{ "t": 0, "frame": "closed" }] }], "auto": { "every": { "min": 3, "max": 6 } } } }
 }
 ```
 
 - **`bones`**: name to `{ parent?, pivot? }`. `parent` names another bone; a bone without one hangs from the
-  character (the whole-body transform that `show` and `animate` without a `part` already move). `pivot` is `[x, y]` in
-  PSD canvas pixels, like today's `pivots`. The `pivots` key goes away: every pivot belongs to a bone.
+  character (the whole-body transform that `show` and `animate` without a `part` already move, about the feet). `pivot`
+  is `[x, y]` in PSD canvas pixels, like `pivots`. The `pivots` key was meant to go away but stays as a per-part
+  override (see Part pivots).
 - **`parts`**: part name to `{ bone?, pivot? }` (`pivot` only for a part that must turn about a point other than its
   bone's; see Transform composition). A part without an entry (or without `bone`) sits directly on the character,
   so a character with no hierarchy keeps working with only `order`. Part names are slots and plain layers, as now.
@@ -136,7 +137,6 @@ behaviour minus the group special case.
   character, as now. The whole character is the root: keys without a `part` move everything.
 - A part that is in no bone entry behaves exactly like a top-level part today, so characters with no hierarchy lose
   nothing but `groups`.
-- The old rule "a part's own keys add to the group's" is the same rule with a tree. No separate rule remains.
 
 ## `show` syntax for looks
 
@@ -147,11 +147,11 @@ behaviour minus the group special case.
 - A look is applied by expansion: its slots are written into the sprite's overrides in order, so a later look wins per
   slot, and a slot named explicitly on the line wins over every look: `show mina casual mouth=open`.
 - Several looks on a line apply left to right: `show mina happy casual` (the last wins per slot). The first position
-  is the old pose position; a second bare word is new and replaces `outfit=casual`.
+  is the base look; a second bare word is another look.
 - **`outfit=none`** becomes what it is: an author writes a look with `none` for each slot (`"naked"`), or sets one
-  slot: `top=none`. A shared `outfit=` key no longer exists, since it was a group name. If authors want one word that
+  slot: `top=none`. If authors want one word that
   covers the dressing slots, they name a look.
-- **The base-pose reference inside a look** is `"look": "smile"` (was `"pose"`). It is expanded first, then the
+- **The base-pose reference inside a look** is `"look": "smile"`. It is expanded first, then the
   other keys. `checkRig` rejects cycles (`a` references `b` references `a`).
 - `SpriteState` keeps its `pose` field for the first look name and its `overrides`; the expansion is done by
   `expandShow` as now, with its second output becoming the merged overrides (no separate `pose` any more). Because the
@@ -170,7 +170,8 @@ Errors (the file is wrong):
 - `looks`: a value that is not a string.
 - `animations...`: a key `part` that names neither a part nor a bone (the message lists both).
 - `groups` present: "groups was replaced by bones; see rig-json.md" (a clear message, since the engine is alpha and
-  nothing converts it). Same for `poses` and `pivots`.
+  nothing converts it). `pivots` was kept after all as a flat per-part pivot, read before `parts.<name>.pivot`;
+  `checkRig` only checks that each key names a part and each value is `[x, y]`.
 
 Warnings (still loads):
 
@@ -214,7 +215,7 @@ Warnings (still loads):
 - `engine/test/engine.test.mjs` and `engine/test/assets.test.mjs`: the whole-state `deepEqual`s for sprites if the state
   shape changes; asset refs that used a pose name.
 - `engine/test/psd-plan.test.mjs`: `group` carried into `sprite.json`.
-- `engine/test/debug.test.mjs`, `engine/test/text-format.test.mjs`, `engine/test/idle.test.mjs`,
+- `engine/test/debug.test.mjs`, `engine/test/text-format.test.mjs`,
   `engine/test/asset-refs.test.mjs`, `engine/test/file-refs.test.mjs`, `engine/test/online.test.mjs`,
   `engine/test/anim-edit.test.mjs`: references to groups or poses in rig data; checked and updated one by one.
 - `engine/test/browser.test.mjs` (not run during the fast phases): the head tilt and outfit tests.
@@ -253,4 +254,5 @@ Open:
 
 - **Taking an outfit off** (`+name` / `-name` or `wear` / `unwear`) is deliberately left out; revisit once a game needs it.
 - **Mesh warp** (see the mesh-warp item in `TODO.md`) will want weights from bones to vertices; the format here leaves
-  room (a later `mesh` entry on a part), but no part of this design depends on it.
+  room (a later `mesh` entry on a part), but no part of this design depends on it. The weights are designed in
+  [skinning.md](skinning.md), as a `weights` entry inside a free mesh.
