@@ -8,7 +8,7 @@ const build = body => compile([{ file: 's.vn', text: `screen s:\n${body}${TAIL}`
 const view = (p, vars = {}) => resolveScreen(p.screens.s, vars, { items: {}, text: (_id, raw) => raw });
 
 test('on enter and loop parse on an element, with defaults and options', () => {
-  const p = build('  text at 10,10 "Hi" on enter slide left 0.5 delay 0.2 distance=120 loop glow 2 strength=2\n  image "a.png" at 0,0 on enter fade\n');
+  const p = build('  text at 10,10 "Hi" on enter slide left 0.5s delay 0.2s distance=120 loop glow 2s strength=2\n  image "a.png" at 0,0 on enter fade\n');
   assert.deepEqual(errors(p), []);
   assert.deepEqual(p.screens.s.body[0].anim, {
     enter: { fx: 'slide', dur: 0.5, delay: 0.2, stagger: 0, dir: 'left', dist: 120 },
@@ -18,7 +18,7 @@ test('on enter and loop parse on an element, with defaults and options', () => {
 });
 
 test('the clauses sit beside if, enabled, on click and a multi-line element', () => {
-  const p = build('  state on = true\n  button go at 10,10 "Go" on click start on enter pop 0.3 enabled on if on\n  text at 5,5 "X"\n    on enter zoom\n    loop pulse\n');
+  const p = build('  state on = true\n  button go at 10,10 "Go" on click start on enter pop 0.3s enabled on if on\n  text at 5,5 "X"\n    on enter zoom\n    loop pulse\n');
   assert.deepEqual(errors(p), []);
   const [b, t] = p.screens.s.body;
   assert.equal(b.on.click, 'start');
@@ -40,13 +40,13 @@ test('bad animation clauses are refused with a message', () => {
   assert.match(msg('  text at 1,1 "A" on enter swoosh\n'), /on enter needs an effect/);
   assert.match(msg('  text at 1,1 "A" on enter slide\n'), /slide needs a direction/);
   assert.match(msg('  text at 1,1 "A" on enter fade distance=5\n'), /distance= goes with slide/);
-  assert.match(msg('  text at 1,1 "A" on enter fade 0\n'), /above 0/);
+  assert.match(msg('  text at 1,1 "A" on enter fade 0s\n'), /above 0/);
   assert.match(msg('  text at 1,1 "A" on enter fade on enter pop\n'), /appears twice/);
-  assert.match(msg('  text at 1,1 "A" loop pulse 1 strength=0\n'), /above 0/);
-  assert.match(msg('  text at 1,1 "A" on exit fade stagger 0.1\n'), /stagger goes with on enter/);
+  assert.match(msg('  text at 1,1 "A" loop pulse 1s strength=0\n'), /above 0/);
+  assert.match(msg('  text at 1,1 "A" on exit fade stagger 0.1s\n'), /stagger goes with on enter/);
   assert.match(msg('  hotspot h at 1,1 size 5,5 "H" on exit zoom\n'), /on exit zoom/);
-  assert.match(msg('  text at 1,1 "A" on enter fade stagger 0.1\n'), /stagger belongs on an each line/);
-  assert.match(msg('  panel at 0,0 size 10,10 on enter fade stagger 0.1:\n    text at 1,1 "A"\n'), /stagger belongs on an each line/);
+  assert.match(msg('  text at 1,1 "A" on enter fade stagger 0.1s\n'), /stagger belongs on an each line/);
+  assert.match(msg('  panel at 0,0 size 10,10 on enter fade stagger 0.1s:\n    text at 1,1 "A"\n'), /stagger belongs on an each line/);
 });
 
 test('a hotspot can only fade or glow', () => {
@@ -57,7 +57,7 @@ test('a hotspot can only fade or glow', () => {
 });
 
 test('the view carries the effect of the element and of the containers around it', () => {
-  const p = build('  panel at 100,100 size 400,300 on enter fade 0.4:\n    text at 10,10 "In the panel"\n    text at 10,50 "Own" on enter pop\n  text at 0,0 "Plain"\n');
+  const p = build('  panel at 100,100 size 400,300 on enter fade 0.4s:\n    text at 10,10 "In the panel"\n    text at 10,50 "Own" on enter pop\n  text at 0,0 "Plain"\n');
   assert.deepEqual(errors(p), []);
   const [panel, inPanel, own, plain] = view(p).parts;
   assert.equal(panel.anim.enter.fx, 'fade');
@@ -69,7 +69,7 @@ test('the view carries the effect of the element and of the containers around it
 });
 
 test('each staggers its entries and keys them by entry, so a new entry does not replay the others', () => {
-  const p = build('  each items as it at 0,0 step 0,40 on enter slide right 0.2 delay 0.1 stagger 0.05:\n    text at 0,0 "[it]"\n');
+  const p = build('  each items as it at 0,0 step 0,40 on enter slide right 0.2s delay 0.1s stagger 0.05s:\n    text at 0,0 "[it]"\n');
   assert.deepEqual(errors(p), []);
   const a = view(p, { items: ['x', 'y', 'z'] }).parts;
   assert.deepEqual(a.map(x => x.anim.enter.delay.toFixed(2)), ['0.10', '0.15', '0.20']);
@@ -101,7 +101,7 @@ test('elements without a clause carry no anim field', () => {
 
 
 test('on exit parses, is inherited from a container and rides on the part', () => {
-  const p = build('  panel at 0,0 size 50,50 on exit slide left 0.4 delay 0.1:\n    text at 1,1 "A"\n    text at 2,2 "B" on exit fade\n');
+  const p = build('  panel at 0,0 size 50,50 on exit slide left 0.4s delay 0.1s:\n    text at 1,1 "A"\n    text at 2,2 "B" on exit fade\n');
   assert.deepEqual(errors(p), []);
   const parts = view(p).parts;
   assert.deepEqual(parts.find(x => x.kind === 'text' && x.text === 'A').anim.exit, { fx: 'slide', dur: 0.4, delay: 0.1, dir: 'left', dist: 80 });

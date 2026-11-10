@@ -52,3 +52,19 @@ test('boneSubtree: the bone, what is below it and the parts on them', () => {
   assert.deepEqual(boneSubtree(bones, parts, 'arm'), { bones: ['arm', 'hand'], parts: ['sleeve', 'glove'] });
   assert.deepEqual(boneSubtree(bones, parts, 'nope'), { bones: [], parts: [] });
 });
+
+import { pasteForm } from '../../dist/engine/src/index.js';
+test('pasteForm stores a copied pose at a key, mirrored on request, keeping the key\'s ease and the other keys', () => {
+  const kfs = [{ target: 'arm_r', param: 'look_x', keys: [{ at: -1 }, { at: 0 }, { at: 1, dy: 0.2, ease: 'in' }] }];
+  const copied = { dx: 0.1, dy: 0, sx: 0.5, sy: 0, rot: 30, opacity: 1, at: -1, ease: 'out' }; // a whole pose, as Copy form keeps it
+  const r = pasteForm(kfs, defs, 'arm_r', { param: 'look_x', value: 1 }, copied, true);
+  assert.deepEqual(r.keyforms[0].keys, [{ at: -1 }, { at: 0 }, { at: 1, dx: -0.1, sx: 0.5, rot: -30, ease: 'in' }], 'x move and rotation flip; scale stays; the key keeps its own ease');
+  assert.deepEqual(r.spot, { param: 'look_x', value: 1 });
+  const plain = pasteForm(kfs, defs, 'arm_r', { param: 'look_x', value: 0.5 }, copied);
+  assert.deepEqual(plain.keyforms[0].keys[2], { at: 0.5, dx: 0.1, sx: 0.5, rot: 30 }, 'between keys: a new key, unmirrored');
+  assert.deepEqual(kfs[0].keys.length, 3, 'the input is not changed');
+  const pad = [{ target: 'eyes', params: ['look_x', 'look_y'], grid: { x: [-1, 1], y: [-1, 1] }, forms: [{}, {}, {}, {}] }];
+  const p = pasteForm(pad, defs, 'eyes', { params: ['look_x', 'look_y'], at: [0.9, 1] }, { dx: 0.2 }, true);
+  assert.deepEqual(p.keyforms[0].forms, [{}, {}, {}, { dx: -0.2 }], 'a pad: the nearest corner');
+  assert.equal(pasteForm(kfs, defs, 'arm_r', { param: 'nope', value: 0 }, copied), null);
+});

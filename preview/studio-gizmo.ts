@@ -8,21 +8,29 @@
 // A mask shape (a shape part of rig.json) is drawn as an outline over the stage (dashed, in the colour of the stencil it makes); with the Mask tool
 // every shape is outlined (a click near an outline picks it) and the chosen shape's polygon points are handles: drag one, click an edge to add a point,
 // Alt-click a point to remove it. The editor owns the shape.
-// Messages in (see studio.ts): studioGizmo { tool, name, space }, studioExtra { extra }, studioView { fit }, studioWarp { id, points, radius, curve },
-// studioMask { shape, part, tool, point }.
-// Messages out: studioSelect { name, hits (every part under the pointer, front to back; one name for a bone or mask shape), at (the click in screen px), shift, ctrl }, studioGizmoDrag { phase, name, tool, delta }, studioKey { key, ctrl, shift },
+// Messages in (see studio.ts): studioGizmo { tool, name, space, stage (the tool row's tool, which names the stage mode) }, studioExtra { extra }, studioView { fit }, studioWarp { id, points, radius, curve },
+// studioMask { shape, part, tool, point }, studioWeights { id, bone, heat, children, tip, picked, brush, selected, mode }.
+// A press is one dispatch on the stage mode (docs/design/studio-stage-modes.md): the transform tools and Pivot pick parts and bone dots, the deform tools (Warp, Weights, Mask)
+// work on their own handles, choose a part on its art and keep their subject through a miss; a tool key during a stroke or drag waits for the release.
+// Messages out: studioSelect { name, hits (every part under the pointer, front to back; one name for a bone or mask shape), at (the click in screen px), shift, ctrl, alt }, studioGizmoDrag { phase, name, tool, delta }, studioKey { key, ctrl, shift } (escape: an Esc the stage did not use, which leaves a deform tool or closes the studio; ' ': Space pressed with no pan, play or pause),
 // studioWarpDrag { phase, id, point, delta }, studioWarpSelect { id, points, mode } (a click with Shift, a rectangle, Ctrl+A, Esc), studioWarpBox { id, w, h, pw?, ph? } (pw, ph: a free mesh's image size in pixels), studioMeshTopo { id, op, vertex | a, b | at } (topology mode: op add / delete / flip / removeEdge / addEdge / cancel; a Move is a studioWarpDrag), studioMaskDrag { phase, shape, point, delta },
-// studioMaskAdd { shape, index, at }, studioMaskRemove { shape, point }, studioMaskBox { part, x, y, w, h }.
+// studioMaskAdd { shape, index, at }, studioMaskRemove { shape, point }, studioMaskBox { part, x, y, w, h }, studioWeightsPick { id, vertex } (-1: a press on nothing clears the readout), studioWeightsSelect { id, points, mode } (the Weights tool's Select mode: a click, Shift-click, a rectangle, Ctrl+A, Esc; mode set / add / toggle), studioWeightsBrush { phase, id, hits } (a brush stroke: phase start / move / end, hits the vertices under the brush as [vertex, falloff]).
+// The Weights tool draws the free mesh of the chosen part with each vertex coloured by how much of it the active bone moves (blue: none, red: all), the
+// bone's body (its pivot to its children's pivots and its tip) over it, and a click on a vertex reports it; the editor shows its weights.
 
 import {
-  dragBone, fitBounds, gizmoFrame, gizmoHandles, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
-  softWeights, meshSoftWeights,
-  type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView, type WarpFalloff,
+  dragBone, fitBounds, gizmoFrame, gizmoHandles, GIZMO_RING, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
+  softWeights, meshSoftWeights, isPaintBrush, brushCursor, escapeAction, choiceCue,
+  type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView, type WarpFalloff, type StageMode, type WeightsBrush,
 } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
 
-export interface GizmoConfig { tool: GizmoTool | null; name: string | null; space: GizmoSpace }
+/**
+ * The gizmo: the transform tool drawn (null: none) on `name`, in local or world axes; and the stage `mode` the editor's tool row is in
+ * (null: no tool, nothing on the stage takes a click), which decides what a press does (docs/design/studio-stage-modes.md).
+ */
+export interface GizmoConfig { tool: GizmoTool | null; name: string | null; space: GizmoSpace; mode: StageMode | null }
 /**
  * The Warp tool: the deformer (by id) whose lattice is shown, the points the editor has selected and how far a soft selection reaches. With a
  * free mesh in topology mode `topo` is the tool (add, delete, move, flip, addEdge, removeEdge) and `anchor` the vertex an Add edge started from.
@@ -32,6 +40,12 @@ export interface WarpConfig { id: string; points: number[]; falloff: WarpFalloff
  * The mask outlines shown: the shape the editor works on (null: none), the part row chosen (its image box is reported, for a new shape to start from),
  * whether the Mask tool is on (every shape is outlined and picks on a click; the chosen shape's polygon points are live handles) and the point the editor has selected.
  */
+/**
+ * The Weights tool: the deformer (by id) whose mesh is shown, the active bone's weight at each vertex (`heat`, 0-1), the bone's `children` (its body runs to them)
+ * and its `tip` (canvas pixels, at rest), the vertex the editor shows the weights of, the brush `mode` (what a press does: read a vertex out, select, or paint) and
+ * the brush radius in screen pixels (0 outside the paint modes).
+ */
+export interface WeightsConfig { id: string; bone: string | null; heat: number[]; children: string[]; tip: [number, number] | null; picked: number | null; brush: number; selected: number[]; mode: WeightsBrush }
 export interface MaskConfig { shape: string | null; part: string | null; tool: boolean; point: number | null }
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -47,15 +61,25 @@ const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string,
 export class StageTools {
   view: StageView = { ...IDENTITY_STAGE_VIEW };
   private fitted = true;                 // the view still follows the window; a zoom or pan of the user's ends that
-  private cfg: GizmoConfig = { tool: null, name: null, space: 'local' };
+  /** The studio stacks its columns and scrolls them (a narrow window): a plain wheel scrolls that column, Ctrl+wheel (or a pinch) zooms. */
+  private scrollsPage = false;
+  private cfg: GizmoConfig = { tool: null, name: null, space: 'local', mode: null };
+  private busy = false;                        // a drag, stroke or rectangle is under way: tool keys wait for the release
+  private pointer: GizmoPoint | null = null;   // where the pointer is while it is over the page (the brush ring starts there)
   private base = new Map<string, Offset>();   // pending offsets from the editor (a drag not keyed yet)
   private drag: { name: string; delta: Offset } | null = null;
   private overlay: SVGSVGElement;
   private label: HTMLElement;
+  private tag: HTMLElement;                    // by the gizmo: whether the part or its bone is chosen (studio-choice-cue.md)
+  private chosen: string | null = null;       // the chosen row (a part or a bone), as the studio's focus says
   private frame: { origin: GizmoPoint; x: GizmoPoint; y: GizmoPoint } | null = null;
   private bones: { name: string; at: GizmoPoint }[] = [];
   private hover: GizmoHandle | null = null;
   private warp: WarpConfig | null = null;
+  private skin: WeightsConfig | null = null;
+  private reportedSkinBox = '';
+  private brushAt: GizmoPoint | null = null;   // where the pointer is, for the brush ring
+  private skinVerts: GizmoPoint[] = [];        // the weighted mesh's vertices on screen, as drawn last
   private lattice: GizmoPoint[] = [];       // the lattice points on screen, as drawn last
   private hoverPoint = -1;
   private meshEdgeList: [number, number][] = [];   // the free mesh's edges as vertex pairs, as drawn last
@@ -69,6 +93,7 @@ export class StageTools {
   private shapeLines: { name: string; outlines: GizmoPoint[][] }[] = []; // every shape's outlines on screen (only with the Mask tool), for picking one
   private reportedMask = '';
   private spaceDown = false;
+  private spacePanned = false;                 // a pan started while Space was held: its release is not a press for the studio
   private vw = window.innerWidth;
   private vh = window.innerHeight;
 
@@ -87,12 +112,24 @@ export class StageTools {
     this.overlay = svg('svg', { style: 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:40' }) as SVGSVGElement;
     this.label = document.createElement('div');
     this.label.style.cssText = 'position:fixed;left:8px;bottom:6px;z-index:41;font:12px system-ui,sans-serif;color:#cfd6e4;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;pointer-events:none';
-    document.body.append(this.overlay, this.label);
+    this.tag = document.createElement('div');
+    this.tag.className = 'studio-choice-tag';
+    this.tag.style.cssText = `position:fixed;z-index:41;font:12px system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.7);border:1px solid ${COLORS.sel};padding:2px 6px;border-radius:3px;pointer-events:none;white-space:nowrap`;
+    this.tag.hidden = true;
+    document.body.append(this.overlay, this.label, this.tag);
     window.addEventListener('pointerdown', e => this.onDown(e), true);
     window.addEventListener('pointermove', e => this.onHover(e));
+    // The brush ring shows from the moment the pointer enters the page, and goes when it leaves.
+    document.documentElement.addEventListener('pointerenter', e => { this.pointer = [e.clientX, e.clientY]; this.onHover(e); });
+    document.documentElement.addEventListener('pointerleave', () => { this.pointer = null; if (this.brushAt) { this.brushAt = null; document.body.style.cursor = ''; this.draw(); } });
     window.addEventListener('wheel', e => this.onWheel(e), { passive: false });
     window.addEventListener('keydown', e => this.onKey(e));
-    window.addEventListener('keyup', e => { if (e.key === ' ') this.spaceDown = false; });
+    // Space held is a pan with the pointer; Space pressed and let go with no pan is the studio's (play or pause).
+    window.addEventListener('keyup', e => {
+      if (e.key !== ' ') return;
+      if (this.spaceDown && !this.spacePanned) this.deps.send({ type: 'studioKey', key: ' ', ctrl: false, shift: false });
+      this.spaceDown = false;
+    });
     this.layout(window.innerWidth, window.innerHeight);
   }
 
@@ -113,7 +150,10 @@ export class StageTools {
   }
 
   configure(c: GizmoConfig) {
+    const was = this.cfg.mode;
     this.cfg = c;
+    // The Weights tool's cursor follows the brush mode as soon as the mode is on (the weights message may have come first); leaving it clears the cursor.
+    if (!this.busy && c.mode !== was && (c.mode === 'weights' || was === 'weights')) document.body.style.cursor = c.mode === 'weights' && this.skin ? (this.brushAt ? 'none' : brushCursor(this.skin.mode)) : '';
     this.draw();
   }
 
@@ -124,6 +164,17 @@ export class StageTools {
     this.hoverEdge = null;
     this.ghost = null;
     this.reportedBox = '';
+    this.draw();
+  }
+
+  /** Show the weights of the mesh `w.id` (null: no Weights tool). */
+  setWeights(w: WeightsConfig | null) {
+    this.skin = w;
+    // The brush mode the stage acts on, for tests: a press right after a mode change must wait until the stage has it.
+    document.documentElement.dataset.weightsMode = w?.mode ?? '';
+    // A paint brush shows its ring where the pointer is already; the other modes have a cursor instead.
+    this.brushAt = w && isPaintBrush(w.mode) && w.brush > 0 ? this.pointer : null;
+    if (!this.busy) document.body.style.cursor = w && this.cfg.mode === 'weights' ? (this.brushAt ? 'none' : brushCursor(w.mode)) : '';
     this.draw();
   }
 
@@ -154,7 +205,7 @@ export class StageTools {
     const v = this.view;
     stage.style.transform = `translate(${v.panX}px, ${v.panY}px) scale(${v.zoom})`;
     document.documentElement.dataset.fitted = '';
-    this.label.textContent = `${Math.round(v.zoom * 100)}%  (wheel zooms, middle-drag or Space+drag pans, F fits)`;
+    this.label.textContent = `${Math.round(v.zoom * 100)}%  (${this.scrollsPage ? 'Ctrl+wheel' : 'wheel'} zooms, middle-drag or Space+drag pans, F fits)`;
     // The pivot crosses and the skeleton lines are in the stage and scale with it: undo that so they keep their size.
     const k = handleSize(v, 1);
     stage.style.setProperty('--cross-scale', String(k));
@@ -173,18 +224,48 @@ export class StageTools {
     this.maskPoints = [];
     this.maskLine = [];
     this.shapeLines = [];
+    this.skinVerts = [];
     const { renderer, char } = this.deps, c = this.cfg;
     const space = renderer.studioSpace(char);
     if (this.mask && space) this.drawMask(this.mask); // an outline is only a drawing: it shows while a pivot is being picked too
     if (this.warp && space && !this.deps.suspended()) this.drawLattice(this.warp);
+    if (this.skin && space && !this.deps.suspended()) this.drawWeights(this.skin);
+    this.tag.hidden = true;
     if (!c.tool || !space || this.deps.suspended()) return;
     const screen = (p: GizmoPoint): GizmoPoint => worldToScreen(this.view, space.toStage(p));
+    // What is chosen, told apart from its bone (studio-choice-cue.md): the part's outline, or the bone's body and its parts' faint outlines.
+    // Only with Move, Rotate and Scale: the deform tools draw their own subject, and the Weights tool's gizmo is its test pose's.
+    const chosen = c.mode === 'transform' ? this.chosen : null;
+    const info = chosen ? renderer.studioBoneInfo(char, chosen) : null;
+    const cue = choiceCue({ chosen, target: c.name, bone: !!info, carries: info?.parts.length ?? 0 });
+    const outline = (part: string, strong: boolean) => {
+      for (const [a, b] of renderer.studioPartOutline(char, part) ?? []) {
+        const p = worldToScreen(this.view, a), q = worldToScreen(this.view, b);
+        if (strong) svg('line', { x1: p[0], y1: p[1], x2: q[0], y2: q[1], stroke: '#000', 'stroke-width': 3.5, 'stroke-opacity': 0.5 }, this.overlay);
+        svg('line', { x1: p[0], y1: p[1], x2: q[0], y2: q[1], stroke: strong ? COLORS.sel : '#fff', 'stroke-width': strong ? 1.75 : 1, 'stroke-opacity': strong ? 1 : 0.45, 'stroke-dasharray': strong ? '6 4' : '3 3', 'data-outline': part }, this.overlay);
+      }
+    };
+    if (cue.outline === 'part') outline(chosen!, true);
+    else if (info) for (const p of info.parts) outline(p, false);
     for (const b of renderer.studioSkeleton(char)) {
       const at = screen(b.at);
       this.bones.push({ name: b.name, at });
       if (b.from) { const f = screen(b.from); svg('line', { x1: f[0], y1: f[1], x2: at[0], y2: at[1], stroke: COLORS.bone, 'stroke-width': 2, 'stroke-opacity': 0.8 }, this.overlay); }
     }
-    for (const b of this.bones) svg('circle', { cx: b.at[0], cy: b.at[1], r: b.name === c.name ? 6 : 5, fill: b.name === c.name ? COLORS.sel : 'none', stroke: b.name === c.name ? '#fff' : COLORS.bone, 'stroke-width': 2 }, this.overlay);
+    const joint = info ? this.bones.find(b => b.name === chosen)?.at : undefined;
+    if (info && joint) {
+      const ends: GizmoPoint[] = info.children.flatMap(n => { const at = this.bones.find(b => b.name === n)?.at; return at ? [at] : []; });
+      if (info.tip) ends.push(worldToScreen(this.view, info.tip));
+      for (const [stroke, width] of [['#000', 8], [COLORS.sel, 4.5]] as const)
+        for (const e of ends) svg('line', { x1: joint[0], y1: joint[1], x2: e[0], y2: e[1], stroke, 'stroke-width': width, 'stroke-linecap': 'round', 'data-bone-body': chosen! }, this.overlay);
+    }
+    // A chosen bone's dot is a ring around the gizmo's centre square, so the square does not hide it; a part's bone keeps a plain dot.
+    for (const b of this.bones) {
+      if (info && b.name === chosen) {
+        svg('circle', { cx: b.at[0], cy: b.at[1], r: 11, fill: 'none', stroke: 'rgba(0,0,0,.5)', 'stroke-width': 5 }, this.overlay);
+        svg('circle', { cx: b.at[0], cy: b.at[1], r: 11, fill: 'none', stroke: COLORS.sel, 'stroke-width': 2.5, 'data-bone': b.name, 'data-chosen': 'true' }, this.overlay);
+      } else svg('circle', { cx: b.at[0], cy: b.at[1], r: 5, fill: 'none', stroke: COLORS.bone, 'stroke-width': 2, 'data-bone': b.name }, this.overlay);
+    }
     const t = c.name ? renderer.studioTarget(char, c.name) : null;
     if (!t) return;
     const f = gizmoFrame(t.parent, t.offset, t.pivot, t.unit, c.space);
@@ -192,6 +273,18 @@ export class StageTools {
     const dir = (v: GizmoPoint): GizmoPoint => { const p = screen([f.origin[0] + v[0], f.origin[1] + v[1]]); const l = Math.hypot(p[0] - o[0], p[1] - o[1]) || 1; return [(p[0] - o[0]) / l, (p[1] - o[1]) / l]; };
     this.frame = { origin: o, x: dir(f.x), y: dir(f.y) };
     for (const h of gizmoHandles(c.tool, this.frame)) this.drawHandle(h, h.axis === this.hover?.axis);
+    if (cue.tag) this.placeTag(cue.tag, o, this.frame.x, this.frame.y);
+  }
+
+  /** The choice tag by the gizmo: on the side away from both axis handles, past the rotate ring, kept inside the window. */
+  private placeTag(text: string, o: GizmoPoint, x: GizmoPoint, y: GizmoPoint) {
+    this.tag.textContent = text;
+    this.tag.hidden = false;
+    const d0: GizmoPoint = [-(x[0] + y[0]), -(x[1] + y[1])], l = Math.hypot(d0[0], d0[1]) || 1, d: GizmoPoint = [d0[0] / l, d0[1] / l];
+    const at: GizmoPoint = [o[0] + d[0] * (GIZMO_RING + 12), o[1] + d[1] * (GIZMO_RING + 12)], w = this.tag.offsetWidth, h = this.tag.offsetHeight;
+    const left = d[0] < 0 ? at[0] - w : at[0], top = d[1] < 0 ? at[1] - h : at[1];
+    this.tag.style.left = `${Math.round(Math.min(Math.max(4, left), this.vw - w - 4))}px`;
+    this.tag.style.top = `${Math.round(Math.min(Math.max(4, top), this.vh - h - 28))}px`; // above the zoom label
   }
 
   /** The warp lattice of the chosen deformer over the stage: thin lines and a round handle at each control point, all in screen pixels. */
@@ -239,6 +332,47 @@ export class StageTools {
     if (mq) svg('rect', { x: Math.min(mq.x0, mq.x1), y: Math.min(mq.y0, mq.y1), width: Math.abs(mq.x1 - mq.x0), height: Math.abs(mq.y1 - mq.y0), fill: 'rgba(255,59,107,.12)', stroke: COLORS.sel, 'stroke-width': 1, 'stroke-dasharray': '4 3' }, this.overlay);
   }
 
+  /**
+   * The mesh of the Weights tool: its edges, a dot at each vertex coloured by the active bone's weight there, and the bone's body: a line from its
+   * pivot to each child's pivot and to its tip (a ring at the pivot when it has neither).
+   */
+  private drawWeights(w: WeightsConfig) {
+    const { renderer, char } = this.deps, m = renderer.studioDeformerMesh(char, w.id), space = renderer.studioSpace(char);
+    if (!m || !space) return;
+    // The mesh's image size in pixels is what Mirror needs (as the Warp tool's box message gives Deform its).
+    const sig = `${w.id}|${m.box.w}|${m.box.h}|${m.size.w}|${m.size.h}`;
+    if (sig !== this.reportedSkinBox) { this.reportedSkinBox = sig; this.deps.send({ type: 'studioWarpBox', id: w.id, w: m.box.w, h: m.box.h, pw: m.size.w, ph: m.size.h }); }
+    const at = this.skinVerts = m.verts.map(p => worldToScreen(this.view, p));
+    for (const [stroke, width, opacity] of [['#000', 3, 0.35], ['#fff', 1, 0.55]] as const)
+      for (const [a, b] of m.edges) svg('line', { x1: at[a][0], y1: at[a][1], x2: at[b][0], y2: at[b][1], stroke, 'stroke-width': width, 'stroke-opacity': opacity }, this.overlay);
+    at.forEach((p, i) => {
+      const k = Math.min(1, Math.max(0, w.heat[i] ?? 0)), picked = i === w.picked;
+      svg('circle', { cx: p[0], cy: p[1], r: picked ? 7 : 4.5, fill: `hsl(${Math.round(240 * (1 - k))} 90% 55%)`, 'fill-opacity': 0.3 + 0.7 * k, stroke: picked ? '#fff' : '#000', 'stroke-width': picked ? 2.5 : 1 }, this.overlay);
+    });
+    for (const i of w.selected) {
+      const p = at[i];
+      if (p) svg('circle', { cx: p[0], cy: p[1], r: 8, fill: 'none', stroke: COLORS.sel, 'stroke-width': 2.5 }, this.overlay);
+    }
+    const mq = this.marquee;
+    if (mq) svg('rect', { x: Math.min(mq.x0, mq.x1), y: Math.min(mq.y0, mq.y1), width: Math.abs(mq.x1 - mq.x0), height: Math.abs(mq.y1 - mq.y0), fill: 'rgba(255,59,107,.12)', stroke: COLORS.sel, 'stroke-width': 1, 'stroke-dasharray': '4 3' }, this.overlay);
+    if (w.brush > 0 && this.brushAt) {
+      svg('circle', { cx: this.brushAt[0], cy: this.brushAt[1], r: w.brush, fill: 'rgba(255,255,255,.06)', stroke: '#000', 'stroke-width': 3, 'stroke-opacity': 0.5 }, this.overlay);
+      svg('circle', { cx: this.brushAt[0], cy: this.brushAt[1], r: w.brush, fill: 'none', stroke: '#fff', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }, this.overlay);
+    }
+    if (!w.bone) return;
+    const pos = new Map(renderer.studioSkeleton(char).map(b => [b.name, b.at])), from = pos.get(w.bone);
+    if (!from) return;
+    const screen = (p: GizmoPoint): GizmoPoint => worldToScreen(this.view, space.toStage(p)), a = screen(from);
+    const ends: GizmoPoint[] = [];
+    for (const c of w.children) { const p = pos.get(c); if (p) ends.push(screen(p)); }
+    const tip = w.tip ? renderer.studioBonePoint(char, w.bone, w.tip) : null, tipAt = tip ? worldToScreen(this.view, tip) : null;
+    if (tipAt) ends.push(tipAt);
+    for (const [stroke, width] of [['#000', 6], [COLORS.bone, 3.5]] as const)
+      for (const e of ends) svg('line', { x1: a[0], y1: a[1], x2: e[0], y2: e[1], stroke, 'stroke-width': width, 'stroke-linecap': 'round' }, this.overlay);
+    svg('circle', { cx: a[0], cy: a[1], r: 7, fill: ends.length ? COLORS.bone : 'none', stroke: '#000', 'stroke-width': 2 }, this.overlay);
+    if (tipAt) svg('circle', { cx: tipAt[0], cy: tipAt[1], r: 4, fill: '#000', stroke: COLORS.bone, 'stroke-width': 2 }, this.overlay);
+  }
+
   /** The outline of the chosen mask shape, with the Mask tool every other shape's too, and on the chosen polygon a handle at each point. */
   private drawMask(m: MaskConfig) {
     const { renderer, char } = this.deps;
@@ -281,25 +415,55 @@ export class StageTools {
 
   // ---- pointers ----
   private onKey(e: KeyboardEvent) {
-    if (e.key === ' ' && !e.repeat) { this.spaceDown = true; e.preventDefault(); return; }
+    if (e.key === ' ') { if (!e.repeat) { this.spaceDown = true; this.spacePanned = false; } e.preventDefault(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) {
+      if (e.key.toLowerCase() === 'a' && this.skin?.mode === 'select' && this.skinVerts.length) { e.preventDefault(); this.deps.send({ type: 'studioWeightsSelect', id: this.skin.id, points: this.skinVerts.map((_, i) => i), mode: 'set' }); return; }
       if (e.key.toLowerCase() === 'a' && this.lattice.length && !this.warp?.topo) { e.preventDefault(); this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: this.lattice.map((_, i) => i), mode: 'set' }); return; }
       if (['z', 'y', 's'].includes(e.key.toLowerCase())) { e.preventDefault(); this.deps.send({ type: 'studioKey', key: e.key.toLowerCase(), ctrl: true, shift: e.shiftKey }); }
       return;
     }
     const k = e.key.toLowerCase();
-    if (k === 'escape' && this.warp?.topo) { this.deps.send({ type: 'studioMeshTopo', id: this.warp.id, op: 'cancel' }); return; }
-    if (k === 'escape' && this.lattice.length) this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: [], mode: 'set' });
+    if (this.busy && (k === 'escape' || ('wersqdbm'.includes(k) && k.length === 1))) return; // a tool change waits for the release of a stroke or drag
+    if (k === 'escape') { e.preventDefault(); this.escape(); }
     else if (k === 'f') this.fit(e.shiftKey);
-    else if ('wersqdm'.includes(k) && k.length === 1) this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false });
+    else if ('wersqdbm'.includes(k) && k.length === 1) this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false });
     else if (k === 'x') this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false }); // local / world
+    else if (k.length === 1 && '[]{}'.includes(k)) { e.preventDefault(); this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: e.shiftKey }); } // the Weights brush's radius and strength
+  }
+
+  /**
+   * Esc, pressed on the stage or handed over by the studio (`studioEscape`): a topology edit is cancelled, a deform tool clears its selection;
+   * anything else goes to the studio, which leaves a deform tool for Move or else closes, as Esc does in its side columns.
+   */
+  escape() {
+    const mode = this.cfg.mode;
+    if (mode === 'warp' && this.warp?.topo) { this.deps.send({ type: 'studioMeshTopo', id: this.warp.id, op: 'cancel' }); return; }
+    const selected = mode === 'weights' ? this.skin?.selected.length ?? 0 : mode === 'warp' ? this.warp?.points.length ?? 0 : 0;
+    if (mode && escapeAction(mode, selected) === 'clear') {
+      if (mode === 'weights' && this.skin) this.deps.send({ type: 'studioWeightsSelect', id: this.skin.id, points: [], mode: 'set' });
+      else if (mode === 'warp' && this.warp) this.deps.send({ type: 'studioWarpSelect', id: this.warp.id, points: [], mode: 'set' });
+    } else this.deps.send({ type: 'studioKey', key: 'escape', ctrl: false, shift: false });
   }
 
   private onWheel(e: WheelEvent) {
     e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+    if (this.scrollsPage && !e.ctrlKey && !e.metaKey) { this.deps.send({ type: 'studioWheel', dy }); return; }
     this.fitted = false;
-    this.view = zoomViewAt(this.view, [e.clientX, e.clientY], wheelFactor(e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY));
+    this.view = zoomViewAt(this.view, [e.clientX, e.clientY], wheelFactor(dy));
     this.applyView();
+  }
+
+  /** The studio's chosen row (a part or a bone): the stage outlines it and says by the gizmo which of the two it is. */
+  setChosen(name: string | null) {
+    this.chosen = name;
+    this.draw();
+  }
+
+  /** Whether a plain wheel scrolls the studio's column (its narrow layout) instead of zooming. */
+  setScrollsPage(on: boolean) {
+    this.scrollsPage = on;
+    this.applyView(); // the hint names the zoom gesture
   }
 
   /** The mesh edge (vertex pair) nearest the pointer within `reach` screen pixels, with the nearest point on it. */
@@ -319,6 +483,18 @@ export class StageTools {
   }
 
   private onHover(e: PointerEvent) {
+    this.pointer = [e.clientX, e.clientY];
+    if (this.cfg.mode === 'weights' && this.skin && this.skinVerts.length) {
+      if (e.buttons) return;
+      // The test pose's gizmo (when on) keeps its handle cursors; otherwise the cursor says what the brush does, and a paint brush shows its ring in place of the pointer.
+      const h = this.frame && this.cfg.tool ? pickHandle(gizmoHandles(this.cfg.tool, this.frame), this.pointer) : null;
+      if (h?.axis !== this.hover?.axis || (h === null) !== (this.hover === null)) this.hover = h;
+      const paint = isPaintBrush(this.skin.mode) && this.skin.brush > 0;
+      if (paint) this.brushAt = this.pointer;
+      document.body.style.cursor = h ? (this.cfg.tool === 'rotate' ? 'grab' : this.cfg.tool === 'scale' ? 'nesw-resize' : 'move') : paint ? 'none' : brushCursor(this.skin.mode);
+      this.draw();
+      return;
+    }
     if (this.warp?.topo && this.lattice.length) {
       if (e.buttons) return;
       const tool = this.warp.topo, p: GizmoPoint = [e.clientX, e.clientY];
@@ -346,46 +522,145 @@ export class StageTools {
     document.body.style.cursor = h ? (this.cfg.tool === 'rotate' ? 'grab' : this.cfg.tool === 'scale' ? 'nesw-resize' : 'move') : '';
   }
 
+  /**
+   * A press on the stage: one dispatch on the stage mode (docs/design/studio-stage-modes.md). Every mode drags the gizmo it shows (the transform
+   * gizmo, or the Weights tool's test pose); then the mode says what a press on its own handles, on art and on nothing does. Only the Transform
+   * and Pivot modes fall through to the generic pick with the bone dots; the deform modes keep their subject through a miss.
+   */
   private onDown(e: PointerEvent) {
     window.focus();
-    if (e.button === 1 || (e.button === 0 && this.spaceDown)) { this.pan(e); return; }
-    if (e.button !== 0 || (!this.cfg.tool && !this.warp && !this.maskPoints.length && !this.shapeLines.length) || this.deps.suspended()) return;
+    if (e.button === 1 || (e.button === 0 && this.spaceDown)) { if (this.spaceDown) this.spacePanned = true; this.pan(e); return; }
+    const mode = this.cfg.mode;
+    if (e.button !== 0 || !mode || this.deps.suspended()) return;
     const p: GizmoPoint = [e.clientX, e.clientY];
-    if (this.warp?.topo && this.lattice.length) { this.topoDown(e, p, this.warp); return; }
-    const point = this.lattice.length ? pickPoint(this.lattice, p) : -1;
+    const h = this.frame && this.cfg.tool && this.cfg.name ? pickHandle(gizmoHandles(this.cfg.tool, this.frame), p) : null;
+    if (h) { this.stop(e); this.startDrag(e, h); return; }
+    if (mode === 'weights') this.weightsDown(e, p);
+    else if (mode === 'warp') this.warpDown(e, p);
+    else if (mode === 'mask') this.maskDown(e, p);
+    else this.transformDown(e, p);
+  }
+
+  /** The parts under the pointer, front to back (the stage's own hit test). */
+  private hitsAt(e: PointerEvent): string[] { const [sx, sy] = this.toStage(e); return this.deps.renderer.studioHitAll(this.deps.char, sx, sy); }
+
+  /** Report a choice to the editor, which applies the choose rule (the part; Alt: its bone; Ctrl: added to the chosen ones). */
+  private select(e: PointerEvent, p: GizmoPoint, name: string | null, hits: string[]) {
+    this.deps.send({ type: 'studioSelect', name, hits, at: [p[0], p[1]], shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey });
+  }
+
+  /** Transform (Move, Rotate, Scale) and Pivot: a bone's pivot dot chooses the bone, art the part under the pointer, nothing clears the row. */
+  private transformDown(e: PointerEvent, p: GizmoPoint) {
+    this.stop(e);
+    const bone = this.bones.find(b => Math.hypot(b.at[0] - p[0], b.at[1] - p[1]) <= 10);
+    if (bone) { this.select(e, p, bone.name, [bone.name]); return; }
+    const hits = this.hitsAt(e);
+    this.select(e, p, hits[0] ?? null, hits);
+  }
+
+  /**
+   * Weights: the brush mode says what a press does. A vertex under the pointer is read out, selected or painted; art of another part chooses it
+   * (a click, not a drag); nothing clears the readout, starts a rectangle or dabs on air. Bone dots take no click: a bone has nothing to weight.
+   */
+  private weightsDown(e: PointerEvent, p: GizmoPoint) {
+    this.stop(e);
+    const w = this.skin;
+    if (!w || !this.skinVerts.length) { const hits = this.hitsAt(e); if (hits.length) this.select(e, p, hits[0], hits); return; }
+    const id = w.id;
+    if (isPaintBrush(w.mode) && w.brush > 0) { this.startPaint(e); return; }
+    const v = pickPoint(this.skinVerts, p);
+    if (w.mode === 'select') {
+      if (v >= 0) { this.deps.send({ type: 'studioWeightsSelect', id, points: [v], mode: e.shiftKey ? 'toggle' : 'set' }); return; }
+      this.startMarquee(e, () => {
+        if (!e.shiftKey) this.deps.send({ type: 'studioWeightsSelect', id, points: [], mode: 'set' });
+        const hits = this.hitsAt(e);
+        if (hits.length) this.select(e, p, hits[0], hits);
+      });
+      return;
+    }
+    if (v >= 0) { this.deps.send({ type: 'studioWeightsPick', id, vertex: v }); return; }
+    const hits = this.hitsAt(e);
+    if (hits.length) this.select(e, p, hits[0], hits);
+    else this.deps.send({ type: 'studioWeightsPick', id, vertex: -1 });
+  }
+
+  /** Warp: a lattice point drags (Shift toggles it), topology mode edits, art of a part chooses it, nothing clears the point selection or draws a rectangle. */
+  private warpDown(e: PointerEvent, p: GizmoPoint) {
+    const w = this.warp;
+    if (w?.topo && this.lattice.length) { this.topoDown(e, p, w); return; }
+    this.stop(e);
+    if (!w || !this.lattice.length) { const hits = this.hitsAt(e); if (hits.length) this.select(e, p, hits[0], hits); return; }
+    const point = pickPoint(this.lattice, p);
     if (point >= 0) {
-      this.stop(e);
-      if (e.shiftKey) this.deps.send({ type: 'studioWarpSelect', id: this.warp!.id, points: [point], mode: 'toggle' });
+      if (e.shiftKey) this.deps.send({ type: 'studioWarpSelect', id: w.id, points: [point], mode: 'toggle' });
       else this.startWarpDrag(e, point);
       return;
     }
+    this.startMarquee(e, () => {
+      const hits = this.hitsAt(e);
+      if (hits.length) this.select(e, p, hits[0], hits);
+      else if (!e.shiftKey) this.deps.send({ type: 'studioWarpSelect', id: w.id, points: [], mode: 'set' });
+    });
+  }
+
+  /** Mask: the chosen polygon's points are handles (Alt-click removes one, an edge adds one); near an outline picks that shape, else the part under the pointer, else a shape the pointer is inside. */
+  private maskDown(e: PointerEvent, p: GizmoPoint) {
+    this.stop(e);
     if (this.maskPoints.length && this.mask?.shape) {
       const mp = pickPoint(this.maskPoints, p);
-      if (mp >= 0) { this.stop(e); if (e.altKey) this.deps.send({ type: 'studioMaskRemove', shape: this.mask.shape, point: mp }); else this.startMaskDrag(e, mp); return; }
+      if (mp >= 0) { if (e.altKey) this.deps.send({ type: 'studioMaskRemove', shape: this.mask.shape, point: mp }); else this.startMaskDrag(e, mp); return; }
       const edge = nearestEdge(this.maskLine, p);
       if (edge && edge.dist <= 8) {
-        this.stop(e);
         const at = this.deps.renderer.studioCanvasPoint(this.deps.char, this.toStage({ clientX: edge.at[0], clientY: edge.at[1] }));
         if (at) this.deps.send({ type: 'studioMaskAdd', shape: this.mask.shape, index: edge.index + 1, at });
         return;
       }
     }
-    const h = this.frame && this.cfg.tool ? pickHandle(gizmoHandles(this.cfg.tool, this.frame), p) : null;
-    if (h && this.cfg.name) { this.stop(e); this.startDrag(e, h); return; }
-    this.stop(e);
-    const pick = () => {
-      const bone = this.bones.find(b => Math.hypot(b.at[0] - p[0], b.at[1] - p[1]) <= 10);
-      const [sx, sy] = this.toStage(e);
-      // With the Mask tool: near a shape's outline picks that shape; else the part under the pointer as ever; else a shape the pointer is inside.
-      const outlines = this.shapeLines.map(s => ({ name: s.name, outlines: s.outlines as [number, number][][] }));
-      const near = bone ? null : shapeAtEdge(outlines, p, 8);
-      const hits = bone || near ? [] : this.deps.renderer.studioHitAll(this.deps.char, sx, sy);
-      const hit = hits[0] ?? null;
-      const inside = bone || near || hit ? null : shapeAtInside(outlines, p);
-      this.deps.send({ type: 'studioSelect', name: bone ? bone.name : near ?? hit ?? inside, hits: bone ? [bone.name] : near ? [near] : hits, at: [p[0], p[1]], shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+    const outlines = this.shapeLines.map(s => ({ name: s.name, outlines: s.outlines as [number, number][][] }));
+    const near = shapeAtEdge(outlines, p, 8);
+    const hits = near ? [] : this.hitsAt(e);
+    const hit = hits[0] ?? null;
+    const inside = near || hit ? null : shapeAtInside(outlines, p);
+    this.select(e, p, near ?? hit ?? inside, near ? [near] : hits);
+  }
+
+  /** The vertices of the weighted mesh under a brush of `radius` screen pixels at `at`, each with its falloff (1 in the middle, 0 at the rim, smoothed). */
+  private brushHits(at: GizmoPoint, radius: number): [number, number][] {
+    const out: [number, number][] = [];
+    this.skinVerts.forEach((p, i) => {
+      const t = 1 - Math.hypot(p[0] - at[0], p[1] - at[1]) / radius;
+      if (t > 0) out.push([i, t * t * (3 - 2 * t)]);
+    });
+    return out;
+  }
+
+  /**
+   * A press with the weight brush: report the vertices under it as it moves (the editor paints them), until the release. A click (no move) that
+   * touched no vertex is a press on whatever is under it: another part's art chooses that part; air is a dab on air.
+   */
+  private startPaint(e: PointerEvent) {
+    const w = this.skin!, id = w.id, radius = w.brush, p: GizmoPoint = [e.clientX, e.clientY];
+    let touched = false, moved = false;
+    const send = (phase: string, at: GizmoPoint | null) => {
+      const hits = at ? this.brushHits(at, radius) : [];
+      if (hits.length) touched = true;
+      this.deps.send({ type: 'studioWeightsBrush', phase, id, hits });
     };
-    if (this.lattice.length && this.warp) this.startMarquee(e, pick);
-    else pick();
+    this.busy = true;
+    this.brushAt = p;
+    send('start', this.brushAt);
+    const move = (m: PointerEvent) => { this.brushAt = [m.clientX, m.clientY]; if (Math.hypot(m.clientX - p[0], m.clientY - p[1]) >= 4) moved = true; send('move', this.brushAt); };
+    const up = (m: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      this.busy = false;
+      send('end', null);
+      if (m.type === 'pointerup' && !touched && !moved) { const hits = this.hitsAt(e); if (hits.length) this.select(e, p, hits[0], hits); }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   /** A press in topology mode: the tool acts on the vertex, edge or spot under it (the editor does the edit and may refuse); nothing else is picked. */
@@ -405,8 +680,9 @@ export class StageTools {
    * lattice points inside it (Shift adds them to the selection).
    */
   private startMarquee(e: PointerEvent, click: () => void) {
-    const id = this.warp!.id, add = e.shiftKey, x0 = e.clientX, y0 = e.clientY;
+    const skin = this.cfg.mode === 'weights' && this.skin?.mode === 'select' ? this.skin : null, id = skin ? skin.id : this.warp!.id, add = e.shiftKey, x0 = e.clientX, y0 = e.clientY;
     let dragged = false;
+    this.busy = true;
     const move = (m: PointerEvent) => {
       if (!dragged && Math.hypot(m.clientX - x0, m.clientY - y0) < 4) return;
       dragged = true;
@@ -417,12 +693,14 @@ export class StageTools {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      this.busy = false;
       this.marquee = null;
       if (m.type === 'pointerup' && Math.hypot(m.clientX - x0, m.clientY - y0) >= 4) dragged = true; // a press and a release far apart are a drag even if no move was seen
       if (!dragged || m.type === 'pointercancel') { this.draw(); if (m.type !== 'pointercancel') click(); return; }
       const [ax, bx] = [Math.min(x0, m.clientX), Math.max(x0, m.clientX)], [ay, by] = [Math.min(y0, m.clientY), Math.max(y0, m.clientY)];
-      const points = this.lattice.flatMap((q, i) => (q[0] >= ax && q[0] <= bx && q[1] >= ay && q[1] <= by ? [i] : []));
-      this.deps.send({ type: 'studioWarpSelect', id, points, mode: add ? 'add' : 'set' });
+      const pts = skin ? this.skinVerts : this.lattice;
+      const points = pts.flatMap((q, i) => (q[0] >= ax && q[0] <= bx && q[1] >= ay && q[1] <= by ? [i] : []));
+      this.deps.send({ type: skin ? 'studioWeightsSelect' : 'studioWarpSelect', id, points, mode: add ? 'add' : 'set' });
       this.draw();
     };
     window.addEventListener('pointermove', move);
@@ -435,9 +713,10 @@ export class StageTools {
   private pan(e: PointerEvent) {
     this.stop(e);
     this.fitted = false;
+    this.busy = true;
     let lx = e.clientX, ly = e.clientY;
     const move = (m: PointerEvent) => { this.view = panBy(this.view, m.clientX - lx, m.clientY - ly); lx = m.clientX; ly = m.clientY; this.applyView(); };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); this.busy = false; };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
@@ -446,6 +725,7 @@ export class StageTools {
   private startWarpDrag(e: PointerEvent, point: number) {
     const { renderer, char } = this.deps, id = this.warp!.id, from = this.toStage(e);
     const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioWarpDrag', phase, id, point, delta });
+    this.busy = true;
     send('start', [0, 0]);
     const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioDeformerDelta(char, id, from, this.toStage(ev)) ?? [0, 0]);
     const move = (m: PointerEvent) => step(m, 'move');
@@ -453,6 +733,7 @@ export class StageTools {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      this.busy = false;
       step(m, 'end');
     };
     window.addEventListener('pointermove', move);
@@ -464,6 +745,7 @@ export class StageTools {
   private startMaskDrag(e: PointerEvent, point: number) {
     const { renderer, char } = this.deps, shape = this.mask!.shape!, from = this.toStage(e);
     const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioMaskDrag', phase, shape, point, delta });
+    this.busy = true;
     send('start', [0, 0]);
     const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioMaskDelta(char, shape, from, this.toStage(ev)) ?? [0, 0]);
     const move = (m: PointerEvent) => step(m, 'move');
@@ -471,6 +753,7 @@ export class StageTools {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      this.busy = false;
       step(m, 'end');
     };
     window.addEventListener('pointermove', move);
@@ -485,6 +768,7 @@ export class StageTools {
     const local = (ev: PointerEvent): GizmoPoint => sp.fromStage(this.toStage(ev));
     const from = local(e);
     const send = (phase: string, delta: Offset) => this.deps.send({ type: 'studioGizmoDrag', phase, name, tool, delta });
+    this.busy = true;
     send('start', NO_OFFSET);
     let last = NO_OFFSET;
     const step = (ev: PointerEvent, phase: 'move' | 'end') => {
@@ -500,6 +784,7 @@ export class StageTools {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      this.busy = false;
       step(m, 'end'); // the editor answers with studioExtra, which ends the drag here
     };
     window.addEventListener('pointermove', move);

@@ -19,7 +19,8 @@
 #animStudio .as-main > .as-stage { flex: 1 1 0; min-height: 120px; aspect-ratio: auto; max-height: none; position: relative; margin: 0 12px 8px; width: auto; justify-self: stretch; }
 #animStudio .as-main > :is(.as-transport, .as-tlwrap, .as-gizmo) { flex: none; }
 #animStudio .as-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; color: var(--muted); pointer-events: none; }
-#animStudio .as-inspect { overflow-y: auto; border-left: 1px solid var(--line); }
+#animStudio .as-inspect { display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line); }
+#animStudio .as-inspect > .as-dock { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 #animStudio header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 #animStudio header .as-spacer { flex: 1; }
 #animStudio .as-modes { display: inline-flex; }
@@ -28,7 +29,7 @@
 #animStudio .as-modes button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
 #animStudio .as-modes button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); position: relative; }
 /* What each mode shows: Model has no animation picker, transport, timeline, keys or Key button (its gizmo drags write keyforms of parameters); Animate has no Pivot tool, no bone editing and no parameter editing. */
-#animStudio[data-mode="model"] :is(.as-picker, .as-name, .as-transport, .as-tlwrap, [data-t="scene"], [data-t="export"], .as-sel-anim, .as-gz-anim) { display: none; }
+#animStudio[data-mode="model"] :is(.as-picker, .as-automatic, .as-name, .as-transport, .as-tlwrap, [data-t="scene"], [data-t="export"], .as-sel-anim, .as-gz-anim) { display: none; }
 /* Animate has no Bind block (the bound parts under the controls belong to Model). */
 #animStudio[data-mode="animate"] .ab { display: none; }
 /* The left column: the Parameters block (up to --as-split of the height, then it scrolls) over the Parts tree (the rest, scrolling); two grips resize them. */
@@ -80,7 +81,8 @@
 #animStudio .ax-status { color: var(--bad) !important; min-height: 1.2em; }
 #animStudio .ax-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 #animStudio .ax-bar { width: 100%; height: 14px; }
-#animStudio .as-note { padding: 6px 12px; color: var(--muted); font-size: 12px; min-height: 28px; border-top: 1px solid var(--line); }
+/* The status line: one line whatever it says (the rest is in its tooltip), so it never moves the stage. */
+#animStudio .as-note { padding: 6px 12px; color: var(--muted); font-size: 12px; height: 28px; box-sizing: border-box; flex: none; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #animStudio .as-note:empty::before { content: attr(data-hint); }
 /* The animation picker and the look (left column). */
 #animStudio .as-picker { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
@@ -118,35 +120,42 @@
 #animStudio .as-chev { flex: none; width: 0; height: 0; border-left: 5px solid var(--muted); border-top: 4px solid transparent; border-bottom: 4px solid transparent; transition: transform .1s; }
 #animStudio .as-sect-head[aria-expanded="true"] .as-chev { transform: rotate(90deg); }
 #animStudio .as-sect-sum { margin-left: auto; min-width: 0; color: var(--muted); font-weight: 400; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#animStudio :is(.as-sel-name, .as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit, .aw-add, .aw-target, .aw-meshgen, .aw-topo, .aw-groupadd, .aw-members, .aw-grid, .aw-form, .aw-sel, .aw-pt, .aw-tools, .aw-xf, .aw-presets, .am-kind, .am-shape, .am-poly, .am-groupnote) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 12px 8px; }
-#animStudio .as-sect-body > :is(.as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit) , #animStudio .aw > :is(.aw-add, .aw-target, .aw-meshgen, .aw-topo, .aw-groupadd, .aw-members, .aw-grid, .aw-form, .aw-sel, .aw-pt, .aw-tools, .aw-xf, .aw-presets), #animStudio .am > :is(.am-kind, .am-shape, .am-poly, .am-groupnote) { border-top: 1px solid var(--line); }
+#animStudio :is(.as-sel-name, .as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit, .aw-bind, .aw-auto, .aw-read, .aw-meshgen, .aw-members, .aw-grid, .aw-form, .aw-pt, .am-kind, .am-shape, .am-poly) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 6px 12px 8px; }
+#animStudio .as-sect-body > :is(.as-gz-nums, .as-inspector, .as-pivot, .as-auto, .as-place, .af-bar, .af-edit, .ap-keyedit) , #animStudio .aww > :is(.aw-bind, .aw-auto, .aw-read), #animStudio .aw > :is(.aw-clipissues, .aw-meshgen, .aw-members, .aw-grid, .aw-form, .aw-pt), #animStudio .am > :is(.am-kind, .am-shape, .am-poly) { border-top: 1px solid var(--line); }
 #animStudio .as-sect-body > .as-sel-name { padding-top: 8px; padding-bottom: 2px; }
 #animStudio .as-sect-body label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 #animStudio .as-gz-name { color: var(--text); min-width: 6ch; }
 #animStudio .as-pivot-name { font-weight: 600; min-width: 90px; }
 #animStudio .as-pivot-hint { color: var(--muted); font-size: 12px; }
-#animStudio .aw [hidden] { display: none; }
-#animStudio .aw > p { margin: 0; padding: 8px 12px; }
+#animStudio .as-auto-hint { flex-basis: 100%; }
+#animStudio :is(.aw, .aww) [hidden] { display: none; }
+#animStudio :is(.aw, .aww) > p { margin: 0; padding: 8px 12px; }
+#animStudio .aww .aw-blend { width: 64px; }
+#animStudio .aww .aww-radius, #animStudio .aww .aww-strength { width: 64px; }
+#animStudio .aww .aw-bound { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+#animStudio .atb .aww-posebtn[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
+#animStudio .aww .aw-bindhint, #animStudio .aww .aw-autohint { flex-basis: 100%; }
+#animStudio .aww .aww-vfields { display: inline-flex; flex-wrap: wrap; gap: 4px 10px; }
+#animStudio .aww .aww-vw, #animStudio .aww .aww-value, #animStudio .aww .aww-smooth, #animStudio .aww .aww-prune { width: 64px; }
 #animStudio .aw .aw-cols, #animStudio .aw .aw-rows { width: 56px; }
 #animStudio .aw .aw-amount, #animStudio .aw .aw-dx, #animStudio .aw .aw-dy { width: 72px; }
 #animStudio .aw .aw-keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 #animStudio .aw .aw-key[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
-#animStudio .aw .aw-topohint, #animStudio .aw .aw-genhint, #animStudio .aw .aw-keyhint, #animStudio .aw .aw-pthint, #animStudio .aw .aw-presethint { flex-basis: 100%; }
+#animStudio .aw .aw-genhint, #animStudio .aw .aw-keyhint, #animStudio .aw .aw-pthint, #animStudio .aw .aw-presethint { flex-basis: 100%; }
 #animStudio .am [hidden] { display: none; }
 #animStudio .am > p { margin: 0; padding: 8px 12px; }
 #animStudio .am .am-x, #animStudio .am .am-y { width: 72px; }
 #animStudio .am .am-hint, #animStudio .am .am-pthint, #animStudio .am .am-clips { flex-basis: 100%; }
 #animStudio .am .am-name { width: 140px; }
-#animStudio .am .am-groupissue, #animStudio .aw .aw-clipissue { color: var(--warn); }
-#animStudio .aw .aw-clipissues { flex-basis: 100%; }
+#animStudio .aw .aw-clipissue { color: var(--warn); }
+#animStudio .aw .aw-clipissues { padding: 4px 12px 6px; }
+#animStudio .aw .aw-clipissue { margin: 2px 0; }
 #animStudio .am .am-problem { color: var(--warn); }
 #animStudio .as-rest-note { margin: 0; padding: 0 12px 8px; }
-#animStudio .as-share { display: flex; flex-wrap: wrap; gap: 6px 12px; }
 #animStudio .as-key { max-width: 100%; }
 #animStudio .as-add { display: flex; align-items: center; gap: 6px; }
 #animStudio .as-place input[type=number] { width: 80px; }
 #animStudio .as-place-line { font-family: var(--mono, monospace); max-width: 100%; }
-#animStudio .as-pick[aria-pressed="true"] { border-color: var(--bad); color: var(--bad); }
 /* The Parts tree (left column) and the chosen row's details (Selection section): one plain row per part and bone. */
 #animStudio .as-sect[data-sect="tree"] > .as-sect-body { padding: 0 10px 10px; }
 #animStudio .as-tree { display: flex; flex-direction: column; align-items: stretch; gap: 1px; }
@@ -156,9 +165,11 @@
 #animStudio .as-detail:empty { display: none; }
 #animStudio .as-detail > .as-tree-hint { margin: 0; }
 #animStudio .as-bone-label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+#animStudio .as-bone-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #animStudio .as-row { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; text-align: left; padding: 2px 6px; background: none; border: 1px solid transparent; }
 #animStudio .as-row:hover { border-color: var(--line); }
 #animStudio .as-row[aria-pressed="true"] { border-color: var(--accent); background: var(--ink); }
+#animStudio .as-row.as-extra { border-color: var(--accent); border-style: dashed; } /* a row added with Ctrl-click (a set) */
 #animStudio .as-row.as-hidden { opacity: .5; }
 #animStudio .as-row.as-stagehidden { opacity: .5; text-decoration: line-through; }
 #animStudio .as-eye { flex: none; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 10px; border-radius: 3px; background: none; }
@@ -176,7 +187,34 @@
 #animStudio .as-keyed { flex: none; font-size: 11px; color: var(--warn); }
 #animStudio .as-keyed::before { content: "◆ "; }
 #animStudio .as-muted { min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#animStudio .as-detail .as-bone-parts { white-space: normal; }
+#animStudio .as-detail .as-bone-parts, #animStudio .as-tf .as-bone-parts { white-space: normal; }
+/* The Properties sub-blocks (Model mode, editor/anim-props.ts): a head line (chevron, name, summary, a compact picker, icon verbs) and a body. */
+#animStudio .as-subs-empty { margin: 0; padding: 8px 12px; }
+#animStudio .as-sub[hidden], #animStudio .as-sub-body[hidden], #animStudio .as-sub-pick[hidden] { display: none; }
+#animStudio .as-sub + .as-sub { border-top: 1px solid var(--line); }
+#animStudio .as-sub-line { display: flex; align-items: center; gap: 4px; min-height: 30px; padding: 0 8px 0 0; }
+#animStudio .as-sub-head { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; padding: 5px 0 5px 12px; border: 0; border-radius: 0; background: none; text-align: left; color: var(--text); font-weight: 600; font-size: 12px; }
+#animStudio button.as-sub-head:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+#animStudio .as-sub-head[aria-expanded="true"] .as-chev { transform: rotate(90deg); }
+#animStudio .as-sub-fixed { padding-left: 12px; }
+#animStudio .as-sub-title { flex: none; }
+#animStudio .as-sub-sum { min-width: 0; margin-left: auto; color: var(--muted); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .as-sub-pick { flex: 0 1 auto; min-width: 0; }
+#animStudio .as-sub-pick label { display: flex; }
+#animStudio .as-sub-pick select { max-width: 120px; }
+#animStudio .as-sub[data-sub="deform"] .as-sub-pick select { max-width: 190px; } /* the Target ▾ names the warp in place of a summary */
+/* A problem the line flags (Clip: a clip-group issue, fixed in Deform): a ⚠ whose tooltip says it. */
+#animStudio .as-sub-warn { flex: none; color: var(--warn); cursor: help; }
+#animStudio .as-sub-warn[hidden] { display: none; }
+#animStudio .as-sub-verbs { display: inline-flex; flex: none; gap: 2px; }
+#animStudio .as-sub-verbs:empty { display: none; }
+#animStudio .as-sub-body > :is(.am, .aw, .aww) > :first-child:not([hidden]), #animStudio .as-sub-body > .as-pivot { border-top: 0; }
+#animStudio .as-tf, #animStudio .as-vars { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 2px 12px 8px; }
+#animStudio .as-tf:empty, #animStudio .as-vars:empty { display: none; }
+#animStudio .as-sub-body > .as-pivot { padding-top: 2px; }
+/* Transform is two rows at any width: Pivot x y, then On bone (or a bone's rows). */
+#animStudio .as-sub-body > .as-pivot.as-prow { grid-template-columns: max-content minmax(0, 1fr); }
+#animStudio .as-sub-body > .as-pivot.as-prow > .as-pivot-name { padding-top: 5px; }
 #animStudio .as-variants { display: flex; flex-wrap: wrap; gap: 4px; padding: 0; }
 #animStudio .as-variant { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; font-size: 12px; }
 #animStudio .as-variant[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
@@ -185,6 +223,7 @@
 #animStudio .as-bone-fold { padding: 0 6px; margin-right: 4px; }
 #animStudio .as-item.as-bone { display: flex; align-items: center; }
 #animStudio .as-bone-new { align-self: flex-start; margin-top: 6px; }
+#animStudio .as-bone-name { width: 120px; }
 /* The stage and its tool row, the transport and the timeline. */
 #animStudio .as-stage { aspect-ratio: 16 / 9; max-height: 52vh; justify-self: center; width: 100%; background: #0a0c10; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 #animStudio .as-stage iframe { width: 100%; height: 100%; border: 0; display: block; }
@@ -205,19 +244,88 @@
 #animStudio .as-gz-group { display: inline-flex; align-items: center; gap: 2px; }
 #animStudio .as-gz-group + .as-gz-group::before { content: ""; flex: none; width: 1px; height: 18px; margin-right: 4px; background: var(--line); }
 #animStudio[data-mode="animate"] .as-gz-deform { display: none; }
-#animStudio .as-transport { display: flex; align-items: center; gap: 12px; padding: 0 12px 8px; }
+/* Model has ten tools: on a phone-width window the row tightens (28 px buttons, smaller gaps) so it stays on one line at 320 px. */
+@media (max-width: 400px) {
+  #animStudio .as-gizmo { padding: 0 8px 8px; column-gap: 2px; }
+  #animStudio .as-gz-group { gap: 1px; }
+  #animStudio .as-gz-group + .as-gz-group::before { margin-right: 2px; }
+  #animStudio .as-gizmo .si-btn { width: 28px; }
+}
+/* The tool options bar under the tool row (docs/design/studio-inspector.md): the mode label, then the panel of the tool in use. A fixed
+   height and never empty, so a change of tool never moves the stage; its ▾ panels open over the stage. */
+#animStudio .as-main > .as-toolbar { flex: none; }
+#animStudio .as-toolbar { display: flex; align-items: center; gap: 4px 10px; height: 32px; padding: 0 12px 6px; box-sizing: content-box; color: var(--muted); font-size: 12px; position: relative; z-index: 3; min-width: 0; }
+#animStudio .as-toolbar .atb { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+#animStudio .as-toolbar .si-btn { width: 28px; height: 28px; }
+#animStudio .as-toolbar .atb[hidden], #animStudio .as-toolbar [hidden] { display: none; }
+#animStudio .atb-mode { flex: none; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
+#animStudio .atb-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .atb[data-bar="gizmo"] { flex-wrap: nowrap; }
+#animStudio .atb-grp { display: inline-flex; align-items: center; gap: 2px 6px; }
+#animStudio .atb-grp + .atb-grp::before { content: ""; flex: none; width: 1px; height: 18px; margin-right: 2px; background: var(--line); }
+#animStudio .atb label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+#animStudio .atb input[type="number"] { width: 48px; }
+#animStudio .atb select { max-width: 96px; }
+#animStudio .atb .atb-panel select { max-width: none; }
+#animStudio .atb .aw-rowpick, #animStudio .atb .aw-colpick { max-width: 76px; }
+#animStudio .atb .aw-selhint { white-space: nowrap; }
+#animStudio .aww-modes { display: inline-flex; gap: 1px; }
+#animStudio .aww-selhint { max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .atb-pop { position: relative; display: inline-flex; }
+#animStudio .atb-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: max-content; max-width: 320px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, .5); color: var(--text); }
+#animStudio .atb-panel .as-pivot-hint { flex-basis: 100%; }
+#animStudio .as-share.atb-panel { flex-direction: column; align-items: flex-start; max-height: 50vh; overflow-y: auto; }
+/* A bar narrower than its widest panel takes two lines at every tool (anim-studio.ts sets data-rows by its width). */
+#animStudio .as-toolbar[data-rows="2"] { height: 62px; align-items: flex-start; }
+#animStudio .as-toolbar[data-rows="2"] .atb { align-content: flex-start; }
+@media (pointer: coarse) { #animStudio .as-toolbar .si-btn { width: 38px; height: 38px; } #animStudio .as-toolbar, #animStudio .as-toolbar[data-rows="2"] { height: 84px; align-items: flex-start; } }
+/* Model mode's rig strip under the stage (Physics | Reactions): its height is set by anim-studio.ts showRig (studio-layout.ts rigStrip), its tab row alone when folded. */
+#animStudio .as-rig { flex: none; box-sizing: border-box; display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); }
+#animStudio .as-rig[hidden], #animStudio[data-mode="animate"] .as-rig, #animStudio .as-rig [hidden] { display: none; }
+#animStudio .as-rig-head { flex: 0 0 31px; display: flex; align-items: stretch; background: color-mix(in srgb, var(--text) 7%, var(--panel)); }
+#animStudio .as-rig[data-open="true"] .as-rig-head { border-bottom: 1px solid var(--line); flex-basis: 30px; }
+#animStudio .as-rig-tabs { display: flex; align-items: stretch; min-width: 0; }
+#animStudio .as-rig-tab { display: flex; align-items: center; gap: 8px; padding: 0 14px; border: 0; border-radius: 0; background: none; color: var(--muted); font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; }
+#animStudio .as-rig-tab:hover { background: color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); }
+#animStudio .as-rig[data-open="true"] .as-rig-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+#animStudio .as-rig-sum { color: var(--muted); font-weight: 400; font-size: 12px; }
+#animStudio .as-rig-fold { margin-left: auto; width: 32px; padding: 0; border: 0; border-radius: 0; background: none; display: flex; align-items: center; justify-content: center; }
+#animStudio .as-rig-fold:hover { background: color-mix(in srgb, var(--text) 7%, transparent); }
+#animStudio .as-rig-fold .as-chev { transform: rotate(-90deg); }
+#animStudio .as-rig-fold[aria-expanded="true"] .as-chev { transform: rotate(90deg); }
+#animStudio .as-rig-panel { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+/* Physics: a chain is three short tables across the strip (inputs, segments, outputs), then its wind; a row with a problem is marked and the problem sits under it. */
+#animStudio .ph-tables { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; margin-top: 4px; }
+#animStudio .ph-table { border-collapse: collapse; font-size: 12px; }
+#animStudio .ph-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; } #animStudio .ph-head h4 { margin: 0; } #animStudio .ph-head .ap-btns { margin: 0; }
+#animStudio .ph-table caption { text-align: left; font-weight: 600; color: var(--text); padding-bottom: 2px; } #animStudio .ph-table caption .ph-plus { margin-left: 8px; font-weight: 400; }
+#animStudio .ph-table th { font-weight: 400; color: var(--muted); text-align: left; padding: 0 4px 1px 0; }
+#animStudio .ph-table td { padding: 1px 4px 1px 0; }
+#animStudio :is(.ph-table, .ph-wind) input[type="number"] { width: 44px; padding-inline: 3px; appearance: textfield; -moz-appearance: textfield; } /* no spinners: the arrow keys still step */
+#animStudio :is(.ph-table, .ph-wind) input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+#animStudio .ph-table select { max-width: 90px; }
+#animStudio .ph-table .ph-n, #animStudio .ph-na { color: var(--muted); }
+#animStudio .ph-x { padding: 0 5px; }
+#animStudio .ph-plus { padding: 1px 6px; font-size: 12px; }
+#animStudio .ph-bad td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
+#animStudio .ph-problem-row .ph-problem { color: var(--warn); font-size: 11px; padding: 0 0 3px 6px; max-width: 360px; }
+#animStudio .ph-wind { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 6px; color: var(--muted); font-size: 12px; }
+#animStudio .as-transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 0 12px 8px; } /* wraps Length under the scrub bar in a narrow column (SA-7) */
 #animStudio .as-transport label { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
-#animStudio .as-slider { flex: 1; min-width: 80px; accent-color: var(--accent); }
-#animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 110px; text-align: right; }
+#animStudio .as-slider { flex: 1 1 120px; min-width: 80px; accent-color: var(--accent); }
+#animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 96px; text-align: right; white-space: nowrap; }
 #animStudio .as-tlwrap { max-height: 38vh; overflow-y: auto; background: var(--ink); border-top: 1px solid var(--line); }
+#animStudio .as-ruler { display: block; width: 100%; position: sticky; top: 0; z-index: 1; background: var(--ink); border-bottom: 1px solid var(--line); pointer-events: none; } /* the times stay in view while the lanes scroll */
+#animStudio .tl-fold { cursor: copy; } #animStudio .tl-label.tl-flabel { font-weight: 400; fill: var(--muted); pointer-events: none; } /* a channel with no key: a thin row */
 #animStudio .as-timeline { display: block; width: 100%; background: var(--ink); cursor: col-resize; touch-action: none; user-select: none; }
 #animStudio .tl-on { fill: var(--accent); stroke: var(--text); stroke-width: 2; }
 #animStudio .tl-empty { fill: var(--muted); font: 13px system-ui, sans-serif; pointer-events: none; }
 #animStudio .tl-key { cursor: grab; }
 #animStudio .tl-bg-a { fill: #12161d; } #animStudio .tl-bg-b { fill: #0e1117; }
-#animStudio .tl-zero, #animStudio .tl-grid { stroke: var(--line); stroke-width: 1; }
+#animStudio .tl-zero, #animStudio .tl-grid { stroke: var(--line); stroke-width: 1; pointer-events: none; } /* drawn after the keys: a key on a grid line stays clickable */
 #animStudio .tl-label { fill: var(--text); font: 600 12px system-ui, sans-serif; }
 #animStudio .tl-range, #animStudio .tl-tick { fill: var(--muted); font: 10px ui-monospace, Consolas, monospace; }
+#animStudio .tl-tick { pointer-events: none; }
 #animStudio .tl-curve { fill: none; stroke: var(--accent); stroke-width: 1.5; }
 #animStudio .tl-bg-p { fill: #14181f; stroke: var(--line); stroke-width: 1; }
 #animStudio .tl-pcurve { stroke: #6fc3a8; }
@@ -230,6 +338,7 @@
 #animStudio .tl-pkey { fill: #6fc3a8; }
 #animStudio .tl-pkey.tl-on { fill: var(--accent); }
 #animStudio .tl-key { fill: var(--warn); stroke: var(--ink); stroke-width: 1; }
+#animStudio .tl-rest { fill: var(--ink); stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 2 2; } /* the implicit rest at an end with no key; hover shows why */
 #animStudio .tl-play { stroke: var(--bad); stroke-width: 1.5; pointer-events: none; }
 /* Parameters: groups that fold, sliders and pads. Animate keys them on the timeline; Model keys the chosen part's keyforms (a mark on the track for each key; the active parameter is highlighted) and edits the controls. */
 #animStudio .as-sect-body > .ap { display: block; }
@@ -260,14 +369,14 @@
 #animStudio .ap-group.ap-drop { outline: 2px dashed var(--accent); outline-offset: -2px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
 #animStudio .ap-row { display: grid; grid-template-columns: 68px minmax(40px, 1fr) 52px auto auto auto auto; align-items: center; gap: 4px; padding: 2px 0; }
 /* One line to a control: in Model only the row that is active (or has focus) shows the reset and edit buttons, so the slider keeps its width. */
-#animStudio .ap-model :is(.ap-row, .ap-padrow):not(.ap-active, :focus-within):not(:has(.ap-edit-btn[aria-expanded="true"])) :is(.ap-reset, .ap-edit-btn, .ap-del-btn) { display: none; }
+#animStudio .ap-model :is(.ap-row, .ap-padrow):not(.ap-active, :focus-within) :is(.ap-reset, .ap-del-btn) { display: none; }
 /* The wrapper adds no box of its own, except on the active row in Model: there the three buttons drop to a line under the slider, so it keeps its width. */
 #animStudio .ap-tools { display: contents; }
 #animStudio .ap-model .ap-row.ap-active { grid-template-columns: 68px minmax(40px, 1fr) 52px auto; }
 #animStudio .ap-model .ap-row.ap-active .ap-tools { display: flex; gap: 4px; grid-column: 1 / -1; justify-self: end; }
 #animStudio .ap-filter { flex: 1 1 100%; min-width: 0; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
 #animStudio .ap-filter[hidden], #animStudio .ap-filtered { display: none; }
-#animStudio :is(.ap-key, .ap-reset, .ap-edit-btn, .ap-del-btn) { padding: 3px 7px; min-width: 0; }
+#animStudio :is(.ap-key, .ap-reset, .ap-del-btn) { padding: 3px 7px; min-width: 0; }
 #animStudio .ap-row.ap-active, #animStudio .ap-padrow.ap-active { box-shadow: -3px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 #animStudio .ap-row label, #animStudio .ap-padrow > label { cursor: pointer; }
 #animStudio .ap-track { position: relative; min-width: 0; padding-bottom: 7px; }
@@ -287,8 +396,6 @@
 #animStudio .ap-draft label :is(input, select) { width: 100%; min-width: 0; box-sizing: border-box; }
 #animStudio .ap-draft .ap-draft-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px; }
 #animStudio .ap-draft .ap-apply:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 600; }
-#animStudio .ap-edit-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
-#animStudio .ap-delete { margin-left: auto; color: var(--bad); }
 #animStudio .ap-del-btn { color: var(--bad); }
 #animStudio .ap-row label, #animStudio .ap-padrow label { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #animStudio .ap-row input[type="range"] { accent-color: var(--accent); min-width: 0; }
@@ -332,6 +439,7 @@
   #animStudio .as-tree { max-height: 30vh; overflow-y: auto; }
   #animStudio .as-main > .as-stage { flex: none; height: 36vh; }
   #animStudio .as-inspect { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  #animStudio .as-inspect > .as-dock { overflow: visible; }
   #animStudio header { flex-wrap: wrap; row-gap: 6px; }
 }
 
@@ -342,12 +450,52 @@
 #animStudio .ap-tick.ap-rest::before { background: var(--muted); }
 #animStudio .ap-tick.ap-rest:hover::before { background: var(--text); }
 #animStudio .ab > * { border-top: 1px solid var(--line); }
-#animStudio .ab > [hidden], #animStudio .ab-bound[hidden] { display: none; }
-#animStudio :is(.ab-head, .ab-bindrow, .ab-keys, .ab-form, .ab-copy, .ab-affect) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 12px; }
-#animStudio .ab-hint { margin: 0; padding: 6px 12px; }
-#animStudio .ab-name { color: var(--accent); }
-#animStudio .ab-bound { padding: 4px 12px 6px; }
-#animStudio .ab-h { margin: 2px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+#animStudio .ab > [hidden] { display: none; }
+#animStudio :is(.ab-keys, .ab-grid, .ab-form) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 12px; }
+#animStudio .ab-note { margin: 0; padding: 6px 12px; }
+#animStudio .ab-keys { gap: 4px 6px; }
+#animStudio .ab-keys > .as-pivot-name { min-width: 0; margin-right: 4px; }
+/* The pose in two rows of three, x y rot / sx sy opacity, then the ease and Reset pose. */
+#animStudio .ab-form.as-prow > .as-ctl { --cells: 3; }
+#animStudio .ab-form.as-prow > .as-ctl > label:not(.ab-easelabel) { grid-template-columns: max-content minmax(0, 1fr); gap: 4px; }
+#animStudio .ab-form.as-prow > .as-ctl > .ab-easelabel { flex-basis: auto; }
+/* A warp's values in place of the pose's: the Point row (point ▾, dx, dy) on one line, its hint the row's tooltip. */
+#animStudio .ab-points > .aw-pt { padding: 0 12px 6px; }
+#animStudio .ab-points > .aw-pt.as-prow > .as-ctl { --cells: 3; }
+#animStudio .ab-points > .aw-pt.as-prow > .as-ctl > label:not(.as-lone) { grid-template-columns: max-content minmax(0, 1fr); gap: 4px; }
+#animStudio .ab-points .aw-pthint { display: none; }
+/* The focus header (docs/design/studio-inspector.md): pinned over the right column's sections, a fixed height, so docking, reordering or
+   scrolling the sections never moves it. Line 1 the breadcrumb with a ▾ after each word, line 2 the action row; the inline picker and the
+   ▾ lists open over the sections. */
+#animStudio .as-focus { position: relative; flex: none; box-sizing: border-box; height: 64px; padding: 6px 12px; display: flex; flex-direction: column; justify-content: center; gap: 6px; border-bottom: 1px solid var(--line); }
+#animStudio[data-mode="animate"] .as-focus, #animStudio .as-focus[hidden], #animStudio .as-focus [hidden] { display: none; }
+#animStudio .ab-crumb { display: flex; align-items: center; gap: 2px; min-width: 0; height: 22px; font-size: 12px; white-space: nowrap; overflow: hidden; }
+#animStudio .ab-slot { display: inline-flex; align-items: center; gap: 1px; min-width: 0; flex: 0 1 auto; }
+#animStudio .ab-slot > :is(.ab-crumbbtn, .ab-crumbword) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#animStudio .ab-crumbpick { flex: none; padding: 0 4px; min-width: 0; line-height: 18px; }
+#animStudio .ab-crumbpick::after { content: "▾"; }
+#animStudio .ab-placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
+#animStudio :is(.ab-sep, .ab-value) { flex: none; white-space: pre; }
+#animStudio :is(.ab-crumbstatus, .ab-empty) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+#animStudio .ab-acts { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+#animStudio .ab-acts button { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#animStudio .ab-acts button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#animStudio .ab-acts .ab-more { flex: none; margin-left: auto; padding-inline: 6px; overflow: visible; }
+/* Keyforms' per-key operations: Copy form, Paste form, Paste mirrored, Reset. */
+#animStudio .ab-ops { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 6px; }
+#animStudio .ab-ops[hidden] { display: none; }
+/* The Parameter section: the parameter's properties (was the palette's ✎ fold-out). */
+#animStudio .apm { padding: 6px 12px 8px; }
+#animStudio .apm :is(.apm-slider, .apm-pad)[hidden], #animStudio .apm [hidden] { display: none; }
+#animStudio .apm-range { margin: 0 0 6px; font-size: 12px; }
+#animStudio .apm-axis { margin: 0 0 6px; }
+#animStudio .apm-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; }
+#animStudio .apm-fields > label { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; }
+#animStudio .apm-fields > label > :is(input, select) { width: auto; min-width: 0; }
+#animStudio .apm-fields > .apm-wide { grid-column: 1 / -1; }
+#animStudio .apm-btns { display: flex; gap: 6px; margin-top: 8px; }
+#animStudio .apm-delete { margin-left: auto; color: var(--bad); }
+#animStudio .ab-pop { position: absolute; top: 32px; left: 8px; right: 8px; z-index: 20; max-height: 50vh; overflow-y: auto; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, .5); }
 #animStudio .ab-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 #animStudio .ab-item { display: flex; align-items: center; gap: 4px; }
 #animStudio .ab-part { display: flex; align-items: center; flex: 1; min-width: 0; gap: 8px; text-align: left; padding: 2px 6px; background: none; border: 1px solid transparent; }
@@ -359,16 +507,16 @@
 #animStudio .ab-key { color: var(--muted); }
 #animStudio .ab-key.ab-posed { color: var(--text); }
 #animStudio .ab-key[aria-pressed="true"], #animStudio .ab-aff[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
-#animStudio .ab-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 4px; font-size: 12px; }
 #animStudio .ab-crumbbtn { padding: 1px 6px; }
 #animStudio .ab-crumbword { font-weight: 600; }
 #animStudio .ab-prev, #animStudio .ab-next { padding: 0 6px; }
 #animStudio .ab-formtext { flex: 1 1 200px; min-width: 0; font-size: 12px; }
 #animStudio .ab-form input[type="number"] { width: 76px; }
 #animStudio .as-bindrow { display: flex; align-items: center; gap: 4px; }
-#animStudio .as-bind { flex: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 12px; border: 1px solid var(--line); border-radius: 3px; color: var(--accent); }
-#animStudio .as-bind:not(:empty) { border-color: var(--accent); background: var(--ink); }
-#animStudio .ab-picker { margin: 4px 12px; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--ink); display: flex; flex-direction: column; gap: 6px; }
+/* A display, not a control: a bound row has a ✓ and an unbound one an empty space, with no box that would read as a checkbox (Bind parts… binds). */
+#animStudio .as-bind { flex: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 13px; color: var(--accent); }
+#animStudio .ab-picker { position: absolute; top: calc(100% + 2px); left: 8px; right: 8px; z-index: 20; padding: 8px; border: 1px solid var(--accent); border-radius: 6px; background: var(--ink); box-shadow: 0 8px 28px rgba(0, 0, 0, .5); display: flex; flex-direction: column; gap: 6px; }
+#animStudio .ab-pickhow { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 #animStudio .ab-picker[hidden] { display: none; }
 #animStudio .ab-pickhead { display: flex; justify-content: space-between; align-items: center; }
 #animStudio .ab-picklist { list-style: none; margin: 0; padding: 0; max-height: 14em; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
@@ -381,3 +529,36 @@
 #animStudio .ab-form :is(label, button)[hidden], #animStudio .ab-size[hidden] { display: none; }
 #animStudio .aw .aw-memberlist { display: inline-flex; flex-wrap: wrap; gap: 2px 10px; flex: 1 1 200px; }
 #animStudio .aw .aw-memberhint, #animStudio .aw .aw-targethint { flex-basis: 100%; }
+
+/* Property rows (anim-dom.ts layoutRows): the name, the controls, hints under them. The controls are cells of equal width (two, three in
+   a wide column), each a field with its name before it, so the fields line up from row to row whatever the column's width; buttons keep
+   their own width; a readout, a strip of chips or a show line takes a line. The name sits above the controls, as a heading, until the
+   column is wide enough (420px) for a column of its own. The width is the section body's, not the window's. */
+#animStudio .as-sect-body, #animStudio .as-side { container-type: inline-size; }
+#animStudio .as-prow { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 4px 12px; }
+#animStudio .as-prow > .as-pivot-name { min-width: 0; line-height: 1.25; }
+#animStudio .as-prow > :is(.as-ctl, .as-pivot-hint) { min-width: 0; }
+#animStudio .as-prow > .as-ctl:first-child, #animStudio .as-prow > .as-pivot-hint, #animStudio .as-prow > .as-pivot-name:only-child { grid-column: 1 / -1; }
+#animStudio .as-prow > .as-ctl { --cells: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+#animStudio .as-prow .as-ctl > .as-cells { display: contents; }
+#animStudio .as-prow .as-ctl > .as-cells[hidden] { display: none; }
+#animStudio .as-prow .as-ctl > label, #animStudio .as-prow .as-ctl > .as-cells > label { display: grid; grid-template-columns: minmax(3.5em, max-content) minmax(0, 1fr); align-items: center; gap: 6px; flex: 0 0 calc((100% - (var(--cells) - 1) * 10px) / var(--cells)); min-width: 0; }
+#animStudio .as-prow .as-ctl > label.as-lone { grid-template-columns: minmax(0, 1fr); } /* a field with no text before it */
+#animStudio .as-prow .as-ctl > label > :is(input:not([type=checkbox]), select), #animStudio .as-prow .as-ctl > .as-cells > label > :is(input:not([type=checkbox]), select) { width: auto; min-width: 0; }
+#animStudio .as-prow .as-ctl > label:has(> input[type=checkbox]) { grid-template-columns: auto minmax(0, 1fr); flex-basis: auto; }
+#animStudio .as-prow .as-ctl > label:is(:has(> input[type=text]), :has(> input ~ input)) { display: flex; flex-basis: 100%; }
+#animStudio .as-prow .as-ctl > label:has(> input ~ input) > input { flex: 1 1 3em; }
+#animStudio .as-prow .as-ctl > :is(span, strong, input, div) { flex: 1 1 100%; min-width: 0; }
+#animStudio .as-prow .as-ctl > button { flex: 0 0 auto; max-width: 100%; white-space: normal; }
+@container (min-width: 420px) {
+  #animStudio .as-prow { grid-template-columns: 96px minmax(0, 1fr); row-gap: 6px; }
+  #animStudio .as-prow > .as-pivot-name { padding-top: 5px; }
+}
+@container (min-width: 600px) { #animStudio .as-prow > .as-ctl { --cells: 3; } }
+/* The rules above give rows and fields a display, which would beat the hidden attribute the panels set. */
+#animStudio .as-prow[hidden], #animStudio .as-prow [hidden] { display: none !important; }
+/* A bound bone in the Skin sub-block: its name and its ✕, which unbinds it (the active bone is chosen in the tool options bar). */
+#animStudio .aww .aw-bonechip { display: inline-flex; align-items: center; }
+#animStudio .aww .aw-bonechip > .aw-boundbone { padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px 0 0 4px; }
+#animStudio .aww .aw-unbind { border-radius: 0 4px 4px 0; margin-left: -1px; padding: 4px 6px; color: var(--muted); }
+#animStudio .aww .aw-unbind:hover { color: var(--text); }

@@ -826,6 +826,15 @@
        "confirm_title": {
         "type": "string"
        },
+       "reset_progress": {
+        "type": "string"
+       },
+       "confirm_reset": {
+        "type": "string"
+       },
+       "toast_reset": {
+        "type": "string"
+       },
        "crash_title": {
         "type": "string"
        },
@@ -860,6 +869,9 @@
         "type": "string"
        },
        "toast_qsaved": {
+        "type": "string"
+       },
+       "toast_saved": {
         "type": "string"
        },
        "toast_no_qsave": {
@@ -1060,6 +1072,15 @@
           "type": "number"
          },
          "description": "Where it turns, [x, y] in pixels of the PSD canvas. Without one: its parent's."
+        },
+        "tip": {
+         "type": "array",
+         "minItems": 2,
+         "maxItems": 2,
+         "items": {
+          "type": "number"
+         },
+         "description": "Where the bone ends, [x, y] in pixels of the PSD canvas. Moves nothing: it shapes auto-weights for skinned meshes."
         }
        }
       }
@@ -1709,6 +1730,46 @@
        "properties": {
         "id": {
          "type": "string"
+        },
+        "mesh": {
+         "type": "object",
+         "description": "A free mesh in place of a lattice: verts, tris, and optionally bone weights.",
+         "properties": {
+          "verts": {
+           "type": "array",
+           "items": {
+            "type": "number"
+           }
+          },
+          "tris": {
+           "type": "array",
+           "items": {
+            "type": "number"
+           }
+          },
+          "detail": {
+           "type": "string"
+          },
+          "defaultBone": {
+           "type": "string",
+           "description": "The bone a vertex without weights binds to (a skinned mesh).",
+           "examples": [
+            "root",
+            "arm"
+           ]
+          },
+          "weights": {
+           "type": "object",
+           "description": "Skinning: vertex number to { bone: weight }, at most 4 bones, normalized when read. A vertex not listed binds to defaultBone. The part's own bone does not move a skinned mesh.",
+           "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+             "type": "number",
+             "exclusiveMinimum": 0
+            }
+           }
+          }
+         }
         }
        }
       }

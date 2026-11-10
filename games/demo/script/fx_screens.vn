@@ -36,8 +36,8 @@ screen fx_map_demo:
   cancel
 
 label fx_hotspot_map:
-  scene bg_library fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Hotspot map", "Places on a picture: a rectangle, an ellipse and a polygon. Each click is an answer the story reacts to.")
 
 label fx_hotspot_map_loop:
@@ -67,7 +67,7 @@ label fx_hotspot_map_loop:
     sound play page_flip1
     iris: The notice board. Somebody lost a green umbrella. #atzn
     jump fx_hotspot_map_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 # Scroll and grid: a grid of buttons built from a list, in a box that clips it and scrolls. Each button answers with its word.
@@ -93,7 +93,7 @@ screen fx_scroll_demo:
   cancel
 
 label fx_scroll_grid:
-  scene bg_library fade 0.4
+  scene bg_library fade 0.4s
   call fx_open("Scroll and grid", "A scroll box clips a long grid of buttons built from a list, and scrolls it: wheel, bar, arrows or touch.")
 
 label fx_scroll_grid_loop:
@@ -140,7 +140,7 @@ screen fx_prefs_demo(inout fx_lamp, inout fx_paper):
   cancel
 
 label fx_tabs_toggle_radio:
-  scene bg_library fade 0.4
+  scene bg_library fade 0.4s
   call fx_open("Tabs and radios", "Tabs, a checkbox and radios keep a screen's own state. Done writes it back; Backspace throws it away.")
 
 label fx_tabs_toggle_radio_loop:
@@ -168,8 +168,8 @@ label fx_purse:
   return
 
 label fx_hud:
-  scene bg_reading_room fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("HUD", "A HUD stays up beside the story. Its button runs a label while a line is showing, then the story goes on.")
   set fx_a_label = "The HUD"
   set fx_a1 = "Show it"
@@ -192,7 +192,7 @@ label fx_hud_loop:
     set fx_count = 0
     jump fx_hud_loop
   hud off fx_coins_hud
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 # Bar and panel: a framed box holds two bars that follow story variables. The buttons change a variable and show the screen
@@ -225,7 +225,7 @@ screen fx_bar_demo:
   cancel
 
 label fx_bar_panel:
-  scene bg_library fade 0.4
+  scene bg_library fade 0.4s
   call fx_open("Bars and panels", "A panel frames its children and a bar follows a variable. Press a button and watch the bars move.")
 
 label fx_bar_panel_loop:

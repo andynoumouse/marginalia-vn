@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRig, restStates, stepPhysics, addPhysicsParams, resolveAnim } from '../../dist/engine/src/index.js';
+import { checkRig, checkPhysics, restStates, stepPhysics, addPhysicsParams, resolveAnim, setChainRow, addChainRow, removeChainRow, setChainWind, problemRow, DEFAULT_SEGMENT } from '../../dist/engine/src/index.js';
 
 const chain = (over = {}) => ({
   inputs: [{ param: 'turn', weight: 1 }],
@@ -125,11 +125,56 @@ test("Mina's hair: the sample rig is valid, and the scene wind moves its strands
   const run = world => {
     let states = restStates(mina.physics), last;
     for (let i = 0; i < 300; i++) { last = stepPhysics(mina.physics, states, {}, new Map(), 1 / 60, false, world); states = last.states; }
-    return last.params;
+    return last.rot;
   };
   assert.ok(Object.values(run(null)).every(v => v === 0), 'a calm scene leaves the strands at rest');
+  // the strands are bone chains under a skinned mesh: each segment turns its bone, with no parameter in between
+  assert.equal(mina.parameters, undefined);
+  assert.ok(Object.keys(mina.deformers[0].mesh.weights).length > 0 && mina.deformers[0].mesh.verts.length / 2 <= 500);
   const wind = run({ strength: 0.6, gusts: 0.8 });
   const tips = [0, 1, 2, 3, 4].map(c => wind[`hair_${c}_2`]);
-  assert.ok(tips.every(v => v > 0), 'a wind to the right moves every strand right');
-  assert.ok(Math.max(...tips) - Math.min(...tips) > 0.2, 'the strands do not move in step');
+  assert.ok(tips.every(v => v < 0), 'a wind to the right turns every strand so its tip swings right (a negative turn)');
+  assert.ok(Math.max(...tips) - Math.min(...tips) > 2, 'the strands do not move in step');
+});
+
+test('setChainRow changes a row and drops the other kind of source or target', () => {
+  const c = chain();
+  const w = setChainRow(c, 'inputs', 0, { weight: 0.5, smoothing: 0.2 });
+  assert.deepEqual(w.inputs, [{ param: 'turn', weight: 0.5, smoothing: 0.2 }]);
+  assert.deepEqual(c.inputs, [{ param: 'turn', weight: 1 }], 'the input is left alone');
+  assert.deepEqual(setChainRow(w, 'inputs', 0, { smoothing: undefined }).inputs, [{ param: 'turn', weight: 0.5 }], 'undefined removes a field');
+  const b = setChainRow(c, 'inputs', 0, { bone: 'head' });
+  assert.deepEqual(b.inputs, [{ weight: 1, bone: 'head', channel: 'rot' }], 'a bone input gets a channel, and loses the param');
+  assert.deepEqual(setChainRow(b, 'inputs', 0, { param: 'turn' }).inputs, [{ weight: 1, param: 'turn' }], 'back to a param: the channel goes too');
+  assert.deepEqual(setChainRow(c, 'outputs', 0, { part: 'hair' }).outputs, [{ scale: 1, min: -30, max: 30, part: 'hair' }]);
+  assert.equal(setChainRow(c, 'segments', 3, { mass: 2 }), c, 'no such row: unchanged');
+});
+
+test('addChainRow and removeChainRow', () => {
+  const c = chain();
+  assert.deepEqual(addChainRow(c, 'inputs').inputs[1], { param: 'turn', weight: 1 }, 'a new input copies the last');
+  assert.deepEqual(addChainRow({ ...c, inputs: [] }, 'inputs', 'tilt').inputs, [{ param: 'tilt', weight: 1 }]);
+  assert.deepEqual(addChainRow({ ...c, outputs: [] }, 'outputs', 'sway').outputs, [{ param: 'sway', scale: 1 }]);
+  assert.deepEqual(addChainRow({ ...c, segments: [] }, 'segments').segments, [DEFAULT_SEGMENT]);
+  const three = { ...c, segments: [1, 2, 3].map(length => ({ ...DEFAULT_SEGMENT, length })), outputs: [{ param: 'a', scale: 1, segment: 0 }, { param: 'b', scale: 1, segment: 1 }, { param: 'c', scale: 1, segment: 2 }, { param: 'd', scale: 1 }] };
+  const r = removeChainRow(three, 'segments', 1);
+  assert.deepEqual(r.segments.map(s => s.length), [1, 3]);
+  assert.deepEqual(r.outputs, [{ param: 'a', scale: 1, segment: 0 }, { param: 'b', scale: 1 }, { param: 'c', scale: 1, segment: 1 }, { param: 'd', scale: 1 }], 'outputs follow their segment; the removed one reads the last');
+  assert.deepEqual(removeChainRow(c, 'inputs', 0).inputs, []);
+});
+
+test('setChainWind adds, merges and removes the chain\'s own wind', () => {
+  const w = setChainWind(chain(), {});
+  assert.deepEqual(w.wind, { strength: 6, noise: 0.8 });
+  assert.deepEqual(setChainWind(w, { strength: 2, frequency: 0.5 }).wind, { strength: 2, noise: 0.8, frequency: 0.5 });
+  assert.deepEqual(setChainWind(w, { noise: undefined }).wind, { strength: 6 });
+  assert.equal('wind' in setChainWind(w, null), false);
+});
+
+test('problemRow points a checkPhysics message at its row', () => {
+  const messages = [];
+  checkPhysics({ physics: { hair: chain({ inputs: [{ param: 'turn', weight: 1 }, { param: 'nope', weight: 1 }], segments: [{ ...DEFAULT_SEGMENT, mass: 0 }] }) }, parameters: [{ id: 'turn', min: -1, max: 1, default: 0 }, { id: 'sway', min: -1, max: 1, default: 0 }] }, new Set(), m => messages.push(m));
+  assert.deepEqual(messages.map(problemRow), [{ list: 'inputs', index: 1 }, { list: 'segments', index: 0 }]);
+  assert.equal(problemRow('physics: chains feed each other in a cycle (a > b > a)'), null);
+  assert.equal(problemRow('physics.hair.wind: needs a numeric strength'), null);
 });

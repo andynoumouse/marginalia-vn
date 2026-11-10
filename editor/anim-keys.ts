@@ -1,8 +1,8 @@
 // Editing the keys of the animation on show: the selected key, field and nudge edits, adding and removing keys, and
 // dragging a diamond on the timeline. The studio keeps the working copy and the undo stack; this works through `KeysHost`.
 
-import { addKey, CHANNEL_REST, deleteKey, KEY_CHANNELS, sampleChannel, setKey, type AnimDef, type KeyChannel, type KeyDef } from '../engine/src/index.js';
-import { LABEL, LANE, laneOf, localPoint, NUDGE, valueAt } from './anim-timeline.js';
+import { addKey, CHANNEL_REST, deleteKey, keysOf, progressOf, sampleChannel, setKey, type AnimDef, type KeyChannel, type KeyDef } from '../engine/src/index.js';
+import { channelAt, LABEL, localPoint, NUDGE, valueAt } from './anim-timeline.js';
 
 export interface KeysEntry { name: string; preset: boolean; def: AnimDef; dur: number }
 
@@ -57,7 +57,11 @@ export class KeyEditor {
     });
   }
   fieldChanged(name: 't' | KeyChannel, raw: string) {
-    if (name === 't') { const t = Number(raw); if (raw !== '' && Number.isFinite(t)) this.patchSelected({ t }); else this.host.refreshView(); return; }
+    if (name === 't') { // typed in seconds, kept as a fraction of the animation
+      const s = Number(raw);
+      if (raw !== '' && Number.isFinite(s)) this.patchSelected({ t: progressOf(s, this.host.current()?.dur ?? 1) }); else this.host.refreshView();
+      return;
+    }
     const v = Number(raw);
     this.patchSelected({ [name]: raw === '' || !Number.isFinite(v) ? undefined : v });
   }
@@ -101,7 +105,7 @@ export class KeyEditor {
       const end = host.beginDrag();
       move = m => {
         const p = localPoint(tl, m), c = host.current()!;
-        const r = setKey(c.def, this.sel!, { t: p.t, [ch]: valueAt(ch, p.y, this.frozen?.[ch] ?? host.ranges()[ch]) });
+        const r = setKey(c.def, this.sel!, { t: p.t, [ch]: valueAt(tl, ch, p.y, this.frozen?.[ch] ?? host.ranges()[ch]) });
         this.sel = r.index;
         host.dragStep(c.name, r.def);
       };
@@ -110,10 +114,12 @@ export class KeyEditor {
         tl.removeEventListener('pointerup', up);
         this.frozen = null;
         end();
+        this.focusSel(ch);
       };
       tl.addEventListener('pointermove', move);
       tl.addEventListener('pointerup', up);
       host.refreshView();
+      this.focusSel(ch);
       return;
     }
     const c = host.current();
@@ -126,14 +132,30 @@ export class KeyEditor {
     tl.addEventListener('pointerup', up);
   }
 
+  /** The selected key takes the focus after a click (the timeline redraws its keys), so Delete and the arrows work on it at once. */
+  private focusSel(ch: KeyChannel) {
+    if (this.sel !== null) this.host.tl.querySelector<SVGElement>(`[data-key="${this.sel}"][data-ch="${ch}"]`)?.focus({ preventScroll: true });
+  }
+
   private addAtPointer(e: MouseEvent) {
     const { host } = this;
     if (!host.editable() || (e.target as Element).closest('[data-key]')) return;
-    const p = localPoint(host.tl, e), ch = KEY_CHANNELS[laneOf(p.y)];
-    if (p.x < LABEL || p.y >= LANE * KEY_CHANNELS.length) return;
+    const rest = (e.target as Element).closest<SVGElement>('[data-rest]'), c = host.current();
+    if (rest && c) {
+      // A hollow rest at an end: a key there with the nearest key's value holds the pose instead of easing to rest.
+      const ch = rest.dataset.ch as KeyChannel, end = Number(rest.dataset.rest);
+      const vals = keysOf(c.def, host.part()).flatMap(k => (Number.isFinite(k.key[ch]) ? [k.key[ch]!] : []));
+      if (vals.length) this.addKeyAt(ch, end, end ? vals[vals.length - 1] : vals[0]);
+      return;
+    }
+    const p = localPoint(host.tl, e), lane = channelAt(host.tl, p.y);
+    if (p.x < LABEL || !lane) return;
+    const { ch } = lane, t = Math.round(p.t * 100) / 100;
+    // A folded lane (no key yet) has no height to read a value from: the first key is at rest, and the lane opens for dragging it.
+    if (lane.folded) { this.addKeyAt(ch, t, CHANNEL_REST[ch]); return; }
     // A click lands anywhere on the lane: round to the step a nudge uses so the value reads cleanly.
     const step = ch === 'rot' ? 0.1 : 0.001;
-    this.addKeyAt(ch, Math.round(p.t * 100) / 100, Math.round(valueAt(ch, p.y, this.frozen?.[ch] ?? host.ranges()[ch]) / step) * step);
+    this.addKeyAt(ch, t, Math.round(valueAt(host.tl, ch, p.y, this.frozen?.[ch] ?? host.ranges()[ch]) / step) * step);
   }
 
   private diamondKey(e: KeyboardEvent) {
@@ -141,7 +163,7 @@ export class KeyEditor {
     if (!key || !this.host.editable() || this.sel === null) return;
     const ch = key.dataset.ch as KeyChannel, big = e.shiftKey ? 5 : 1, k = this.selectedKey();
     let patch: Partial<KeyDef> | null = null;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') patch = { t: (k?.t ?? 0) + (e.key === 'ArrowRight' ? 1 : -1) * 0.01 * big };
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') patch = { t: (k?.t ?? 0) + (e.key === 'ArrowRight' ? 1 : -1) * 0.01 * big / (this.host.current()?.dur ?? 1) }; // 0.01 s a press
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') patch = { [ch]: Math.max(ch === 'opacity' ? 0 : -Infinity, (k?.[ch] ?? CHANNEL_REST[ch]) + (e.key === 'ArrowUp' ? 1 : -1) * NUDGE[ch] * big) };
     else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.removeSelected(); return; }
     if (!patch) return;

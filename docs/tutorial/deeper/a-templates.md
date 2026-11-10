@@ -44,10 +44,10 @@ is a placeholder.
 ```vn
 # template classic-adv: replace label warm_ending
 label warm_ending:
-  music stop fade 2
-  tint #402010 0.3 1.5
+  music stop fade 2s
+  tint #402010 0.3 1.5s
   show mina smile at center
-  flash #fff2c8 0.5
+  flash #fff2c8 0.5s
   mina: Thank you for coming.
   "She smiles, and the evening feels a little warmer."
   end
@@ -145,20 +145,20 @@ with `{pause=}` inside a line, and let the picture change under the text with `t
 ```vn
 # template kinetic-nvl: replace label start
 label start:
-  scene bg_title fade 0.5
+  scene bg_title fade 0.5s
   nvl on
-  sound loop rain fade 2
+  sound loop rain fade 2s
   "The rain had not stopped for three days.{nw}"
   "Even the crows had gone quiet.{nw}"
   sound play thunder duck
   "Then, somewhere below, a bell rang."
   sound play page_flip1
   nvl clear
-  tint #203060 0.4 2
-  "The bell rang again.{pause=1.0} Then again.{nw}"
+  tint #203060 0.4 2s
+  "The bell rang again.{pause=1.0s} Then again.{nw}"
   hero: Did you hear that?
   "Nobody answered. Edit script/start.vn to continue the story."
-  sound stop fade 2
+  sound stop fade 2s
   end
 ```
 
@@ -170,15 +170,15 @@ narrow.
 ```vn
 # template portrait: replace label start
 label start:
-  scene bg_title fade 0.5
+  scene bg_title fade 0.5s
   "The story begins."
-  show hero neutral at center scale=1.2 fade 0.3
+  show hero neutral at center scale=1.2 fade 0.3s
   hero: Hello! The phone is held upright, so the character stands tall and the text is large.
   menu "What now?":
     "Wave":
       hero: Hello again.
     "Walk away":
-      hide hero fade 0.3
+      hide hero fade 0.3s
   end
 ```
 

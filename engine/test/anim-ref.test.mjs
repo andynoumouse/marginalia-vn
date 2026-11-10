@@ -4,7 +4,7 @@ import { animateRef } from '../../dist/engine/src/index.js';
 
 test('animateRef reads the character and animation of an animate line', () => {
   assert.deepEqual(animateRef('animate mina wave'), { char: 'mina', name: 'wave' });
-  assert.deepEqual(animateRef('    animate mina head_tilt 1.5 loop strength=2'), { char: 'mina', name: 'head_tilt' });
+  assert.deepEqual(animateRef('    animate mina head_tilt 1.5s loop strength=2'), { char: 'mina', name: 'head_tilt' });
   assert.deepEqual(animateRef('animate mina wave # greet'), { char: 'mina', name: 'wave' });
 });
 

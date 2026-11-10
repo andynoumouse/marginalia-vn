@@ -3,7 +3,7 @@
 // while an animation plays. Messages from the editor:
 //   { type: 'studioShow', pose, overrides }               dress the character
 //   { type: 'studioAnims', anims }                        the working copy of the character's `animations`
-//   { type: 'studioAuto', reactions, poses, vars }        rig.json `reactions` and `poses` as edited, and the Test variables (studio-only): Model mode runs the automatic animations and reactions from them
+//   { type: 'studioAuto', reactions, poses, vars }        rig.json `reactions` and `poses` as edited, and the Test variables (studio-only): Model mode runs the reactions from them (automatic animations stay suspended)
 //   { type: 'studioSeek', name, t, part }                 stop and pose at progress t (0-1)
 //   { type: 'studioPlay', name, dur, loop, part }         play from the start; `studioPause` stops where it is
 //   { type: 'studioPivots', pivots, bones, parts, width, height }   the working copy of rig.json `pivots`, `bones`, `parts` and the PSD canvas size
@@ -19,11 +19,13 @@
 //   { type: 'studioMarks', on }                           rig inspection: the character at rest with a cross for every pivot, picking or not
 //   { type: 'studioPlace', on, x, y, scale, flip, anchor: [fx, fy] }        where the character stands; with `on` a drag on the stage moves it and
 //                                                         answers { type: 'studioPlaced', x, y } (stage fractions, as `show` takes them)
-//   { type: 'studioGizmo', tool, name, space }            the bone gizmo (tool move / rotate / scale, or null for none), on the chosen part or bone; see studio-gizmo.ts
+//   { type: 'studioGizmo', tool, name, space, stage }     the bone gizmo (tool move / rotate / scale, or null for none), on the chosen part or bone, and the tool row's tool (the stage mode); see studio-gizmo.ts
 //   { type: 'studioRig', parameters, keyforms }           the working copy of rig.json `parameters` and `keyforms` (Model mode writes keyforms): the pose is evaluated from them
 //   { type: 'studioExtra', extra }                        offsets by name laid over the pose (a drag that is not keyed yet); ends a drag
 //   { type: 'studioView', whole }                         fit the view to the character (or to the whole stage)
+//   { type: 'studioEscape' }                              Esc pressed in the studio's side columns with a deform tool on: the stage clears the tool's selection, or answers studioKey escape
 //   { type: 'studioDeformers', deformers }                the working copy of rig.json `deformers` (mesh warps); the character is shaped by it
+//   { type: 'studioWeights', id, bone, heat, children, tip, picked, brush, selected, mode }  the Weights tool (see studio-gizmo.ts; null id: no tool; mode: what a press does); a click on a vertex answers { type: 'studioWeightsPick', id, vertex }
 //   { type: 'studioWarp', id, points, radius, curve, topo, anchor }     the Warp tool (topo: the topology tool of a free mesh, else null; anchor: the vertex an Add edge started from): draw the lattice of the deformer with that id, a part's or a group's (null id: no tool), `points` the selected ones,
 //                                                         `radius` (cells, 0 for none) and `curve` the soft selection's fade;
 //                                                         answers { type: 'studioWarpBox', id, w, h } (the lattice's size in animation units) and, for a
@@ -45,7 +47,7 @@
 //   { type: 'studioExportFrame', id, n }                  pose frame n (in order, from 0), draw it and answer { type: 'studioExportData', id, n, bytes } (a PNG, transferred)
 //   { type: 'studioExportEnd', id }                       the export is over or cancelled: the stage returns to what it showed; answers { type: 'studioExportDone', id }
 
-import { exportBackground, type ReactionDef, type Value, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type ShapeDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
+import { exportBackground, stageMode, type ReactionDef, type Value, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type ShapeDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
 import type { PixiRenderer } from './pixi-renderer.js';
 import { H, stage, W } from './stage-ui.js';
 import { StageTools } from './studio-gizmo.js';
@@ -54,7 +56,7 @@ interface Drive { param?: string; bone?: string; channel: 'dx' | 'dy' | 'sx' | '
 interface Run { name: string; dur: number; loop: boolean; part: string | null; start: number }
 /** A movie export under way: the plan, the piece of the stage drawn, and the next frame the editor may ask for. */
 interface Export { id: number; name: string; plan: MoviePlan; width: number; height: number; frame: Box; background: string | null; next: number }
-type Msg = { type?: string; shapes?: unknown; clips?: unknown; shape?: unknown; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; points?: unknown; radius?: unknown; curve?: unknown; tool?: unknown; topo?: unknown; space?: unknown; whole?: unknown; anims?: unknown; reactions?: unknown; poses?: unknown; vars?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown };
+type Msg = { type?: string; shapes?: unknown; clips?: unknown; shape?: unknown; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; points?: unknown; radius?: unknown; curve?: unknown; tool?: unknown; topo?: unknown; space?: unknown; whole?: unknown; anims?: unknown; reactions?: unknown; poses?: unknown; vars?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown; heat?: unknown; brush?: unknown; children?: unknown; tip?: unknown; bone?: unknown; picked?: unknown; selected?: unknown; select?: unknown; mode?: unknown; stage?: unknown };
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const num = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
@@ -315,8 +317,11 @@ export class Studio {
       case 'studioRig': return this.onRig(m);
       case 'studioExtra': return this.onExtra(m);
       case 'studioView': return this.onView(m);
+      case 'studioScrolls': return this.tools.setScrollsPage(m.on === true);
+      case 'studioEscape': return this.tools.escape();
       case 'studioDeformers': return this.onDeformers(m);
       case 'studioWarp': return this.onWarp(m);
+      case 'studioWeights': return this.onWeights(m);
       case 'studioMasks': return this.onMasks(m);
       case 'studioMask': return this.onMask(m);
       case 'studioHidden': return this.onHidden(m);
@@ -430,7 +435,8 @@ export class Studio {
 
   private onGizmo(m: Msg) {
     const tool = m.tool === 'move' || m.tool === 'rotate' || m.tool === 'scale' ? m.tool : null;
-    this.tools.configure({ tool, name: str(m.name), space: m.space === 'world' ? 'world' : 'local' });
+    const stage = m.stage === 'move' || m.stage === 'rotate' || m.stage === 'scale' || m.stage === 'pivot' || m.stage === 'warp' || m.stage === 'weights' || m.stage === 'mask' ? m.stage : null;
+    this.tools.configure({ tool, name: str(m.name), space: m.space === 'world' ? 'world' : 'local', mode: stage ? stageMode(stage) : null });
   }
 
   private onRig(m: Msg) {
@@ -458,6 +464,14 @@ export class Studio {
     const radius = typeof m.radius === 'number' && m.radius > 0 ? m.radius : 0, curve = m.curve === 'linear' || m.curve === 'constant' ? m.curve : 'smooth';
     const topo = typeof m.topo === 'string' ? m.topo : null, anchor = typeof m.anchor === 'number' && Number.isInteger(m.anchor) ? m.anchor : null;
     this.tools.setWarp(id ? { id, points, falloff: { radius, curve }, topo, anchor } : null);
+  }
+
+  private onWeights(m: Msg) {
+    const id = str(m.id);
+    const heat = Array.isArray(m.heat) ? m.heat.map(x => (typeof x === 'number' ? x : 0)) : [];
+    const children = Array.isArray(m.children) ? m.children.filter((c): c is string => typeof c === 'string') : [];
+    const tip: [number, number] | null = Array.isArray(m.tip) && m.tip.length === 2 && m.tip.every(x => typeof x === 'number') ? [m.tip[0], m.tip[1]] : null;
+    this.tools.setWeights(id ? { id, bone: str(m.bone) || null, heat, children, tip, picked: typeof m.picked === 'number' && Number.isInteger(m.picked) ? m.picked : null, brush: typeof m.brush === 'number' && m.brush > 0 ? m.brush : 0, selected: Array.isArray(m.selected) ? m.selected.filter((v): v is number => Number.isInteger(v)) : [], mode: m.mode === 'select' || m.mode === 'add' || m.mode === 'subtract' || m.mode === 'replace' || m.mode === 'smooth' ? m.mode : 'pick' } : null);
   }
 
   private onMasks(m: Msg) {
@@ -488,6 +502,7 @@ export class Studio {
     this.focusPart = str(m.part);
     this.focusExtra = Array.isArray(m.extra) ? m.extra.filter((x): x is string => typeof x === 'string') : [];
     if (!this.exp) this.renderer.studioFocus(this.char, this.focusPart, this.focusExtra);
+    this.tools.setChosen(this.focusPart); // the stage outlines it and says whether it is the part or its bone
   }
 
   // ---- movie export ----

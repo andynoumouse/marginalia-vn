@@ -53,11 +53,37 @@ export class StudioQueries {
     const p = m.g.toLocal({ x: from[0], y: from[1] }), q = m.g.toLocal({ x: to[0], y: to[1] });
     return [q.x - p.x, q.y - p.y];
   }
+  /**
+   * A part's outline as drawn now, in stage pixels, as segments: a mesh's outer edges (the ones only one triangle uses), else the four
+   * corners of its image as posed. Null when the part is not drawn. The stage marks the chosen part with it (docs/design/studio-choice-cue.md).
+   */
+  studioPartOutline(char: string, part: string): [[number, number], [number, number]][] | null {
+    const a = this.actors.get(char), c = a?.parts.get(part);
+    if (!a || !c || c.alpha === 0) return null;
+    const w = a.warps.get(part);
+    if (w) {
+      const pos = w.mesh.geometry.getBuffer('aPosition').data as Float32Array, idx = w.mesh.geometry.indices, uses = new Map<number, number>(), n = pos.length / 2;
+      for (let i = 0; i + 2 < idx.length; i += 3) for (const [p, q] of [[idx[i], idx[i + 1]], [idx[i + 1], idx[i + 2]], [idx[i + 2], idx[i]]]) { const k = Math.min(p, q) * n + Math.max(p, q); uses.set(k, (uses.get(k) ?? 0) + 1); }
+      const at = (i: number): [number, number] => { const g = w.mesh.toGlobal({ x: pos[2 * i], y: pos[2 * i + 1] }); return [g.x, g.y]; };
+      return [...uses].filter(([, u]) => u === 1).map(([k]) => [at(Math.floor(k / n)), at(k % n)]);
+    }
+    const sp = c.children[0] as Sprite | undefined;
+    if (!sp || sp.texture === Texture.EMPTY) return null;
+    const b = sp.getLocalBounds(), corners = ([[b.minX, b.minY], [b.maxX, b.minY], [b.maxX, b.maxY], [b.minX, b.maxY]] as const).map(([x, y]): [number, number] => { const g = sp.toGlobal({ x, y }); return [g.x, g.y]; });
+    return corners.map((p, i) => [p, corners[(i + 1) % 4]]);
+  }
   /** A part's image box in canvas pixels (where a new drawn mask starts); null when the part is not drawn. */
   studioPartBox(char: string, part: string): { x: number; y: number; w: number; h: number } | null {
     const a = this.actors.get(char), rig = this.files().rigs[char], sp = a?.parts.get(part)?.children[0] as Sprite | MeshPlane | undefined;
     if (!a || !rig || !sp || sp.texture === Texture.EMPTY) return null;
     return { x: sp.x + (rig.width ?? 0) / 2, y: sp.y + (rig.height ?? 0), w: sp.texture.width, h: sp.texture.height };
+  }
+  /** A point in canvas pixels (the space bone pivots and tips are written in) as a stage pixel, at rest: no pose is applied. */
+  studioCanvasToStage(char: string, p: [number, number]): [number, number] | null {
+    const a = this.actors.get(char), rig = this.files().rigs[char];
+    if (!a || !rig) return null;
+    const g = a.body.toGlobal({ x: p[0] - (rig.width ?? 0) / 2, y: p[1] - (rig.height ?? 0) });
+    return [g.x, g.y];
   }
   /** A stage pixel in canvas pixels, the space a polygon's points are written in, as the character stands now. */
   studioCanvasPoint(char: string, p: [number, number]): [number, number] | null {

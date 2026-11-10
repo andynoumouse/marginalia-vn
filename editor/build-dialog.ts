@@ -11,6 +11,8 @@ export interface BuildHost {
   /** Open the Translations / Voice dialog (this one closes first). */
   openTranslations(): void;
   openVoice(): void;
+  /** Give every string line an id (the editor's Add Localization IDs to All Files); returns how many were added. The checks run again after it. */
+  addIds?(): number;
   /** Write the unsaved tabs to disk: the checks and the export read the project folder. */
   saveAll(): Promise<void>;
   /** Run the export through the dev server's task stream; `output` is everything it printed. */
@@ -123,6 +125,7 @@ export class BuildDialog {
     this.rows.addEventListener('click', e => {
       const go = (e.target as HTMLElement).closest<HTMLElement>('[data-go]');
       if (go) this.goTo(this.report!.findings[Number(go.dataset.go)]);
+      if ((e.target as HTMLElement).closest('[data-fix="ids"]')) { this.h.addIds?.(); void this.check(); }
     });
   }
 
@@ -220,7 +223,7 @@ export class BuildDialog {
     const lang = f.lang ? ` <span class="bd-lang">${esc(f.lang)}</span>` : '';
     return `<div class="bd-row" data-check="${f.check}"><span class="bd-badge" data-severity="${f.severity}">${f.severity}</span>
       <span class="bd-msg"><span class="bd-title">${esc(CHECK_TITLES[f.check as CheckId] ?? f.check)}${lang}</span> ${esc(f.message)}</span>
-      ${where ? `<button type="button" class="bd-goto" data-go="${i}">${esc(where)}</button>` : ''}</div>`;
+      ${where ? `<button type="button" class="bd-goto" data-go="${i}">${esc(where)}</button>` : ''}${f.check === 'ids' && this.h.addIds ? `<button type="button" class="bd-goto" data-fix="ids" title="Give every line without an id one, in every script, then run the checks again">Add Localization IDs</button>` : ''}</div>`;
   }
 
   /** The link text of a finding's go-to button: the line, the dialog that handles it, or nothing when there is nowhere to go. */

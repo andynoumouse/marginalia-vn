@@ -1,18 +1,22 @@
-// The animation studio's Warp section (Model mode): the mesh warp of the chosen part, or the group warp over several parts that
-// it is in (rig.json `deformers`). It adds, resizes
-// and removes the warp, picks the parameter whose keyform is edited (its slider is the one in Parameters), turns a lattice
-// point dragged on the stage into a key of that keyform, and offers reset, mirror, smooth and the shape presets. The maths is
-// in engine/src/warp-edit.ts; the stage draws the lattice and reports drags (preview/studio-gizmo.ts). The studio keeps the
-// working copy; this works through `WarpHost`.
+// The animation studio's Warp tool (Model mode): the mesh warp of the chosen part, or the group warp over several parts that it is in
+// (rig.json `deformers`). It fills the Deform sub-block of Properties (the Target ▾ in its line; the members, the Mesh row, the lattice
+// size; its line's verbs Add warp, Add group warp and Remove warp call `add`, `addGroup` and `removeTarget`), turns a lattice point
+// dragged on the stage into a key of the active parameter's keyform (its slider is the one in Parameters), and fills the Warp panel of
+// the tool options bar: Edit topology, the point selection, soft reach, mirror, smooth, scale, rotate and the shape presets
+// (studio-inspector.ts `warpBar`), and the Point row in Keyforms (the chosen points' move; Keyforms itself has the warp's key strip, copy
+// and paste, and Reset, editor/anim-bind.ts). The maths is in engine/src/warp-edit.ts; the stage draws the lattice and reports drags
+// (preview/studio-gizmo.ts). The studio keeps the working copy; this works through `WarpHost`.
 
 import {
-  addMeshEdge, addMeshVertex, deleteMeshVertex, flipMeshEdge, hasKeyforms, moveMeshVertex, removeMeshEdge, setMeshGeometry, mirrorMeshWarp, smoothMeshWarp, transformMeshPoints, addDeformer, addGroupDeformer, averageDisplacement, generateMesh, MESH_DETAIL_STEPS, MESH_MAX_VERTS, meshReplaces, meshUsable, setPartMesh, cleanSelection, combineSelection, deformerById, deformerGrid, deformerOf, deformerPoints, deformersOfPart, deleteWarpKey, DEFORMER_MAX_GRID, invertSelection, mirrorWarp,
-  moveWarpPoints, removeDeformerById, replaceDeformer, resizeWarp, setMembers, setWarpOwn, smoothWarp, softWeights, transformWarpPoints, warpAllPoints, warpColumn, warpKeyAt,
-  warpKeyValues, warpPreset, warpRow, WARP_CURVES, WARP_DEFAULT_FALLOFF, WARP_PRESETS,
-  type DeformerDef, type GeneratedMesh, type MeshEditResult, type MeshGeo, type MeshDetail, type ParamDef, type PartBox, type WarpCurve, type WarpFalloff, type WarpPreset,
+  isSkinned, groupBones, addMeshEdge, addMeshVertex, deleteMeshVertex, flipMeshEdge, hasKeyforms, moveMeshVertex, removeMeshEdge, setMeshGeometry, mirrorMeshWarp, smoothMeshWarp, transformMeshPoints, addDeformer, addGroupDeformer, averageDisplacement, generateMesh, MESH_DETAIL_STEPS, MESH_MAX_VERTS, meshReplaces, meshUsable, setPartMesh, cleanSelection, combineSelection, deformerById, deformerGrid, deformerOf, deformerPoints, deformersOfPart, DEFORMER_MAX_GRID, invertSelection, mirrorWarp,
+  moveWarpPoints, removeDeformerById, replaceDeformer, resizeWarp, setMembers, setWarpOwn, smoothWarp, softWeights, transformWarpPoints, warpAllPoints, warpColumn,
+  warpKeyValues, warpPreset, warpRow, warpBar, WARP_CURVES, WARP_DEFAULT_FALLOFF, WARP_PRESETS,
+  type DeformerDef, type DeformState, type GeneratedMesh, type MeshEditResult, type MeshGeo, type MeshDetail, type ParamDef, type PartBox, type WarpCurve, type WarpFalloff, type WarpPreset,
 } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, layoutRows } from './anim-dom.js';
 import { confirmAsk } from './ask.js';
+import { iconButton, type IconName } from './studio-icons.js';
+import { Popover } from './studio-popover.js';
 
 /** A drag in progress: `put` shows the deformers it makes, `end` makes it one undo step. */
 export interface WarpDrag { put(deformers: DeformerDef[]): void; end(): void }
@@ -26,18 +30,24 @@ export interface WarpHost {
   isPart(name: string): boolean;
   /** Is the name a bone? */
   isBone(name: string): boolean;
+  /** The bones that move this skinned mesh and are posed by the parameters now (none for a lattice or a mesh at rest): see posedInfluences. */
+  posedInfluences(def: DeformerDef): string[];
   /** Is the name a mask shape (an imageless part: it has no warp of its own, but a group warp may bend it)? */
   isShape(name: string): boolean;
   /** The mask shapes of the character. */
   shapes(): string[];
   /** The parts and shapes ticked in the tree (the chosen one and the extra ones), in tree order. */
   selectedParts(): string[];
+  /** A Ctrl-click set of parts (the chosen one first), null for none: Deform shows the group warp they all share, or adds one over them. */
+  setParts(): string[] | null;
   /** Clipped parts that a group warp bends while their shape is not bent with them (engine mask-edit.ts clipGroupIssues). */
   clipIssues(): { part: string; shape: string; group: string }[];
   /** Add a shape to the members of a group warp, as one undo step. */
   fixClip(issue: { part: string; shape: string; group: string }): void;
   /** The parts and shapes on a bone and the bones below it. */
   bonePartsOf(bone: string): string[];
+  /** The bone a part or a mask shape sits on. */
+  boneOf(part: string): string | undefined;
   /** Every part of the character. */
   parts(): string[];
   deformers(): DeformerDef[];
@@ -62,15 +72,16 @@ export interface WarpHost {
 
 /** The tools of the Topology mode of a free mesh. */
 export type TopoTool = 'add' | 'delete' | 'move' | 'flip' | 'addEdge' | 'removeEdge';
-const TOPO_TOOLS: { id: TopoTool; label: string; hint: string }[] = [
-  { id: 'add', label: 'Add vertex', hint: 'Click inside the mesh to add a vertex; near an edge it splits the edge.' },
-  { id: 'delete', label: 'Delete vertex', hint: 'Click a vertex to delete it; the hole it leaves is filled with new triangles.' },
-  { id: 'move', label: 'Move vertex', hint: 'Drag a vertex to move its rest position (where the art sits before any keyform bends it).' },
-  { id: 'flip', label: 'Flip edge', hint: 'Click an edge between two triangles to swap it for the other diagonal of their quad.' },
-  { id: 'addEdge', label: 'Add edge', hint: 'Click two vertices that share a neighbour: the edge between them closes a new triangle across the outline.' },
-  { id: 'removeEdge', label: 'Remove edge', hint: 'Click an edge on the outline to remove its triangle.' },
+const TOPO_TOOLS: { id: TopoTool; icon: IconName; label: string; hint: string }[] = [
+  { id: 'add', icon: 'vertex-add', label: 'Add vertex', hint: 'Click inside the mesh to add a vertex; near an edge it splits the edge.' },
+  { id: 'delete', icon: 'vertex-delete', label: 'Delete vertex', hint: 'Click a vertex to delete it; the hole it leaves is filled with new triangles.' },
+  { id: 'move', icon: 'vertex-move', label: 'Move vertex', hint: 'Drag a vertex to move its rest position (where the art sits before any keyform bends it).' },
+  { id: 'flip', icon: 'edge-flip', label: 'Flip edge', hint: 'Click an edge between two triangles to swap it for the other diagonal of their quad.' },
+  { id: 'addEdge', icon: 'edge-add', label: 'Add edge', hint: 'Click two vertices that share a neighbour: the edge between them closes a new triangle across the outline.' },
+  { id: 'removeEdge', icon: 'edge-remove', label: 'Remove edge', hint: 'Click an edge on the outline to remove its triangle.' },
 ];
 const meshGeo = (d: DeformerDef): MeshGeo => ({ verts: d.mesh!.verts, tris: d.mesh!.tris });
+const TOPO_OFF = 'Edit topology: add, delete and move vertices and edges (the tools take the bar\'s place while it is on). This changes what the keyforms mean, so it drops them (after asking)';
 
 const shown = (v: number) => String(Math.round(v * 100000) / 100000);
 
@@ -103,95 +114,99 @@ export class WarpPanel {
   private choice: string | null = null;
   private dragging: { base: DeformerDef; param: ParamDef; value: number; weights: Map<number, number>; drag: WarpDrag } | null = null;
   private q: <T extends Element>(s: string) => T;
+  /** The bar's ▾ panels: soft reach, mirror, scale and rotate values, presets. */
+  private pops: Popover[];
 
-  constructor(private root: HTMLElement, private host: WarpHost) {
+  /**
+   * `root` is the Deform sub-block's body (members, mesh, lattice), `pick` the place in its line where the Target ▾ stands, `bar` the
+   * Warp panel of the tool options bar (Edit topology, the selection, the operations, the presets; the topology tools while Edit
+   * topology is on), `points` the place in Keyforms for the Point row (the chosen points' move in the keyform at the slider's value;
+   * Keyforms has the key strip and the Reset that takes them back to rest).
+   */
+  constructor(private root: HTMLElement, pick: HTMLElement, private bar: HTMLElement, private points: HTMLElement, private host: WarpHost) {
+    pick.insertAdjacentHTML('beforeend', '<label class="as-lone aw-target"><select class="aw-targetpick" aria-label="Which warp to edit" title="Which warp Deform, the bar and the stage edit: the part\'s own, or the group warp it is in"></select></label>');
     this.root.innerHTML = `
       <p class="as-pivot-hint aw-none"></p>
-      <div class="aw-target"><span class="as-pivot-name">Target</span>
-        <label><select class="aw-targetpick" aria-label="Which warp to edit"></select></label>
-        <span class="as-pivot-hint aw-targethint"></span></div>
-      <div class="aw-add"><span class="as-pivot-name">Warp</span><button type="button" class="aw-addbtn"></button>
-        <span class="as-pivot-hint">A lattice over the part's image. Dragging its points in a parameter's keyform bends the part as the parameter moves.</span></div>
-      <div class="aw-groupadd"><span class="as-pivot-name">Group</span><button type="button" class="aw-groupbtn"></button>
-        <span class="as-pivot-hint">One lattice over several parts, like a parent deformer: it bends them together, after each one's own warp.</span></div>
+      <p class="as-pivot-hint aw-targethint"></p>
       <div class="aw-members"><span class="as-pivot-name">Members</span>
         <span class="aw-memberlist" role="group" aria-label="Parts of the group warp"></span>
+        <label class="as-lone"><select class="aw-addmember" aria-label="Add a part or shape to the group warp"></select></label>
         <button type="button" class="aw-usesel" title="Make the parts ticked in the tree the members">Use selected parts</button>
-        <span class="as-pivot-hint aw-memberhint"></span>
-        <span class="aw-clipissues"></span></div>
+        <span class="as-pivot-hint aw-memberhint" hidden></span></div>
+      <div class="aw-clipissues"></div>
       <div class="aw-meshgen"><span class="as-pivot-name">Mesh</span>
         <label>Detail <select class="aw-detail" aria-label="How finely the mesh follows the art"></select></label>
         <label>margin <input type="number" class="aw-margin" min="0" step="1" placeholder="auto" aria-label="How far the mesh reaches past the opaque pixels, in image pixels"></label>
         <span class="aw-vcount" role="status"></span>
         <button type="button" class="aw-genbtn"></button>
         <span class="as-pivot-hint aw-genhint"></span></div>
-      <div class="aw-topo"><span class="as-pivot-name">Topology</span>
-        <button type="button" class="aw-topoon" aria-pressed="false" title="Add, delete and move vertices and edges. These change what the keyforms mean, so they drop them (after asking)">Edit topology</button>
-        <span class="aw-topotools" role="group" aria-label="Topology tool"></span>
-        <span class="as-pivot-hint aw-topohint"></span></div>
       <div class="aw-grid"><span class="as-pivot-name aw-gridname">Lattice</span>
-        <span class="aw-dims"><label>columns <input type="number" class="aw-cols" min="1" max="${DEFORMER_MAX_GRID}" step="1"></label>
+        <span class="aw-dims as-cells"><label>columns <input type="number" class="aw-cols" min="1" max="${DEFORMER_MAX_GRID}" step="1"></label>
         <label>rows <input type="number" class="aw-rows" min="1" max="${DEFORMER_MAX_GRID}" step="1"></label></span>
-        <span class="aw-meshsum"></span>
-        <button type="button" class="aw-remove">Remove warp</button></div>
-      <div class="aw-form"><span class="as-pivot-name">Keyform</span>
-        <span class="aw-active"></span>
-        <button type="button" class="aw-delkey" title="Remove the key at this value">Delete key</button>
-        <span class="aw-keys" role="group" aria-label="Keys of this parameter"></span>
-        <span class="as-pivot-hint aw-keyhint"></span></div>
-      <div class="aw-sel"><span class="as-pivot-name">Select</span>
-        <button type="button" class="aw-all" title="Choose every point (Ctrl+A on the stage)">All</button>
-        <button type="button" class="aw-clear" title="Choose none (Esc on the stage)">None</button>
-        <button type="button" class="aw-invert" title="Choose the points that are not chosen">Invert</button>
-        <label><select class="aw-rowpick" aria-label="Choose a row of points"></select></label>
-        <label><select class="aw-colpick" aria-label="Choose a column of points"></select></label>
-        <label class="aw-softl" title="A drag of the selection also pulls the points near it, less the farther they are"><input type="checkbox" class="aw-soft"> Soft</label>
-        <label>reach <input type="number" class="aw-radius" min="0.5" max="${DEFORMER_MAX_GRID}" step="0.5" aria-label="How many lattice cells a soft selection reaches"></label>
-        <label><select class="aw-curve" aria-label="How a soft selection fades"></select></label>
-        <span class="as-pivot-hint aw-selhint">Drag a rectangle on the stage, Shift-click points, or choose rows and columns here.</span></div>
+        <span class="aw-meshsum"></span></div>
+`;
+    layoutRows(this.root);
+    this.points.innerHTML = `
       <div class="aw-pt"><span class="as-pivot-name">Point</span>
-        <label><select class="aw-pick" aria-label="Lattice point"></select></label>
+        <label class="as-lone"><select class="aw-pick" aria-label="Lattice point"></select></label>
         <label>dx <input type="number" class="aw-dx" step="0.005" aria-label="Sideways move of the point in this keyform"></label>
         <label>dy <input type="number" class="aw-dy" step="0.005" aria-label="Vertical move of the point in this keyform"></label>
-        <button type="button" class="aw-reset" title="Take the chosen point back to rest in this keyform">Reset point</button>
-        <span class="as-pivot-hint aw-pthint"></span></div>
-      <div class="aw-tools"><span class="as-pivot-name">Tools</span>
-        <button type="button" class="aw-mirror-lr" title="Copy the left half of this keyform to the right, mirrored">Mirror left to right</button>
-        <button type="button" class="aw-mirror-rl" title="Copy the right half of this keyform to the left, mirrored">Mirror right to left</button>
-        <button type="button" class="aw-mirror-sel" title="Copy the chosen points across the middle of the lattice onto their partners">Mirror selection</button>
-        <button type="button" class="aw-smooth" title="Even out the points of this keyform; press again for more">Smooth</button></div>
-      <div class="aw-xf"><span class="as-pivot-name">Transform</span>
-        <label>scale <input type="number" class="aw-scale" min="0.1" max="10" step="0.05" value="1.1" aria-label="Scale factor"></label>
-        <button type="button" class="aw-scale-go" title="Scale the chosen points by this factor">Scale</button>
-        <label>turn <input type="number" class="aw-rot" min="-360" max="360" step="5" value="10" aria-label="Rotation in degrees, clockwise"></label>
-        <button type="button" class="aw-rot-go" title="Rotate the chosen points by this many degrees, clockwise">Rotate</button>
-        <label><select class="aw-about" aria-label="Scale and rotate about"><option value="selection">about the selection</option><option value="lattice">about the lattice centre</option></select></label></div>
-      <div class="aw-presets"><span class="as-pivot-name">Preset</span>
-        <label>Shape <select class="aw-preset" aria-label="Shape"></select></label>
-        <label>amount <input type="number" class="aw-amount" min="0" step="0.01"></label>
-        <button type="button" class="aw-write" title="Write the shape as the keys of the chosen parameter, replacing the ones it has">Write keys</button>
-        <span class="as-pivot-hint aw-presethint"></span></div>`;
-    this.q = <T extends Element>(s: string) => this.root.querySelector<T>(s)!;
+        <span class="as-pivot-hint aw-pthint"></span></div>`;
+    layoutRows(this.points);
+    const btn = (ic: IconName, label: string, cls: string, title: string, pressed?: boolean) => iconButton({ icon: ic, label, className: cls, title, pressed });
+    this.bar.innerHTML = `
+      <span class="atb-grp aw-topogrp">${btn('topology', 'Edit topology', 'aw-topoon', TOPO_OFF, false)}</span>
+      <span class="atb-grp aw-sel" role="group" aria-label="Lattice points chosen">
+        ${btn('select-all', 'Choose all points', 'aw-all', 'All: choose every point (Ctrl+A on the stage)')}
+        ${btn('select-none', 'Choose none', 'aw-clear', 'None: choose no point (Esc on the stage)')}
+        ${btn('invert', 'Invert the choice', 'aw-invert', 'Invert: choose the points that are not chosen')}
+        <select class="aw-rowpick" aria-label="Choose a row of points" title="Choose a row of points"></select>
+        <select class="aw-colpick" aria-label="Choose a column of points" title="Choose a column of points"></select>
+        <span class="aw-selhint" role="status"></span>
+        ${btn('soft', 'Soft selection', 'aw-soft', 'Soft: a drag of the chosen points also pulls the points near them, less the farther they are', false)}
+        <span class="atb-pop">${btn('value', 'Soft reach…', 'aw-softopts', 'Reach and fall-off of the soft selection')}
+          <span class="atb-panel aw-softpanel" role="group" aria-label="Soft selection">
+            <label>reach <input type="number" class="aw-radius" min="0.5" max="${DEFORMER_MAX_GRID}" step="0.5" aria-label="How many lattice cells a soft selection reaches"></label>
+            <label>fall-off <select class="aw-curve" aria-label="How a soft selection fades"></select></label></span></span></span>
+      <span class="atb-grp aw-tools" role="group" aria-label="Operations on the keyform">
+        <span class="atb-pop">${btn('mirror', 'Mirror…', 'aw-mirrorbtn', 'Mirror…: copy one half of this keyform onto the other, or the chosen points onto their partners')}
+          <span class="atb-panel aw-mirrorpanel" role="group" aria-label="Mirror the keyform">
+            <button type="button" class="aw-mirror-lr" title="Copy the left half of this keyform to the right, mirrored">Left to right</button>
+            <button type="button" class="aw-mirror-rl" title="Copy the right half of this keyform to the left, mirrored">Right to left</button>
+            <button type="button" class="aw-mirror-sel" title="Copy the chosen points across the middle of the lattice onto their partners">Chosen points</button></span></span>
+        ${btn('smooth', 'Smooth', 'aw-smooth', 'Smooth: even out the points of this keyform (the chosen ones, if any); press again for more')}
+        ${btn('scale', 'Scale the chosen points', 'aw-scale-go', 'Scale the chosen points by the factor set under ▾')}
+        ${btn('rotate', 'Rotate the chosen points', 'aw-rot-go', 'Rotate the chosen points by the angle set under ▾')}
+        <span class="atb-pop">${btn('value', 'Scale and rotate values…', 'aw-xfbtn', 'The factor and the angle that Scale and Rotate apply, and what they turn about')}
+          <span class="atb-panel aw-xf" role="group" aria-label="Scale and rotate">
+            <label>scale <input type="number" class="aw-scale" min="0.1" max="10" step="0.05" value="1.1" aria-label="Scale factor"></label>
+            <label>turn <input type="number" class="aw-rot" min="-360" max="360" step="5" value="10" aria-label="Rotation in degrees, clockwise"></label>
+            <select class="aw-about" aria-label="Scale and rotate about"><option value="selection">about the selection</option><option value="lattice">about the lattice centre</option></select></span></span>
+        <span class="atb-pop">${btn('preset', 'Presets…', 'aw-presetbtn', 'Presets…: write a ready-made shape as the keys of the active parameter')}
+          <span class="atb-panel aw-presets" role="group" aria-label="Preset shapes">
+            <label>Shape <select class="aw-preset" aria-label="Shape"></select></label>
+            <label>amount <input type="number" class="aw-amount" min="0" step="0.01"></label>
+            <button type="button" class="aw-write" title="Write the shape as the keys of the chosen parameter, replacing the ones it has">Write keys</button>
+            <span class="as-pivot-hint aw-presethint"></span></span></span></span>
+      <span class="atb-grp aw-topotools" role="group" aria-label="Topology tool"></span>`;
+    this.pops = [['.aw-softopts', '.aw-softpanel'], ['.aw-mirrorbtn', '.aw-mirrorpanel'], ['.aw-xfbtn', '.aw-xf'], ['.aw-presetbtn', '.aw-presets']]
+      .map(([b, panel]) => new Popover(this.bar.querySelector<HTMLButtonElement>(b)!, this.bar.querySelector<HTMLElement>(panel)!));
+    this.q = <T extends Element>(s: string) => (this.root.querySelector<T>(s) ?? this.bar.querySelector<T>(s) ?? this.points.querySelector<T>(s) ?? pick.querySelector<T>(s))!;
     this.q<HTMLSelectElement>('.aw-preset').append(...WARP_PRESETS.map(p => el('option', { value: p.id, textContent: p.label })));
     this.setAmount();
     this.q<HTMLSelectElement>('.aw-preset').addEventListener('change', () => { this.setAmount(); this.show(); });
-    this.q('.aw-addbtn').addEventListener('click', () => this.add());
     this.q<HTMLSelectElement>('.aw-detail').append(...MESH_DETAIL_STEPS.map(d => el('option', { value: d.id, textContent: d.label })));
     this.q<HTMLSelectElement>('.aw-detail').value = this.detail;
     this.q<HTMLSelectElement>('.aw-detail').addEventListener('change', e => { this.detail = (e.target as HTMLSelectElement).value as MeshDetail; this.show(); });
     this.q<HTMLInputElement>('.aw-margin').addEventListener('change', () => this.show());
     this.q('.aw-genbtn').addEventListener('click', () => void this.generate());
-    this.q('.aw-topotools').append(...TOPO_TOOLS.map(t => {
-      const b = el('button', { type: 'button', className: 'aw-tt', textContent: t.label, title: t.hint });
-      b.dataset.tool = t.id;
-      b.addEventListener('click', () => { this.topoPick = t.id; this.anchor = null; this.show(); this.host.selected(); });
-      return b;
-    }));
+    const tools = this.q('.aw-topotools');
+    tools.innerHTML = TOPO_TOOLS.map(t => iconButton({ icon: t.icon, label: t.label, title: `${t.label}: ${t.hint}`, className: 'aw-tt', data: { tool: t.id }, pressed: false })).join('');
+    for (const b of tools.querySelectorAll<HTMLButtonElement>('.aw-tt')) b.addEventListener('click', () => { this.topoPick = b.dataset.tool as TopoTool; this.anchor = null; this.show(); this.host.selected(); });
     this.q('.aw-topoon').addEventListener('click', () => { this.topo = !this.topo; this.anchor = null; this.selection = []; this.show(); this.host.selected(); });
-    this.q('.aw-remove').addEventListener('click', () => { const d = this.def(); if (d) { this.selection = []; this.choice = null; this.host.set(removeDeformerById(this.host.deformers(), d.id)); } });
     this.q<HTMLSelectElement>('.aw-targetpick').addEventListener('change', e => { this.choice = (e.target as HTMLSelectElement).value; this.selection = []; this.show(); this.host.selected(); });
-    this.q('.aw-groupbtn').addEventListener('click', () => this.addGroup());
     this.q('.aw-usesel').addEventListener('click', () => this.setMembersTo(this.host.selectedParts()));
+    this.q<HTMLSelectElement>('.aw-addmember').addEventListener('change', e => { const s = e.target as HTMLSelectElement, v = s.value; s.value = ''; if (v) this.setMembersTo([...(this.def()?.members ?? []), v]); });
     this.q<HTMLSelectElement>('.aw-curve').append(...WARP_CURVES.map(c => el('option', { value: c, textContent: c })));
     this.q<HTMLSelectElement>('.aw-curve').value = this.falloff.curve;
     this.q<HTMLInputElement>('.aw-radius').value = String(this.falloff.radius);
@@ -200,16 +215,14 @@ export class WarpPanel {
     this.q('.aw-invert').addEventListener('click', () => { const d = this.def(); if (d) this.choose(invertSelection(d, this.selection), 'set'); });
     this.q<HTMLSelectElement>('.aw-rowpick').addEventListener('change', e => { const s = e.target as HTMLSelectElement, d = this.def(); if (d && s.value !== '') this.choose(warpRow(d, Number(s.value)), 'set'); s.value = ''; });
     this.q<HTMLSelectElement>('.aw-colpick').addEventListener('change', e => { const s = e.target as HTMLSelectElement, d = this.def(); if (d && s.value !== '') this.choose(warpColumn(d, Number(s.value)), 'set'); s.value = ''; });
-    this.q<HTMLInputElement>('.aw-soft').addEventListener('change', e => { this.soft = (e.target as HTMLInputElement).checked; this.show(); this.host.selected(); });
+    this.q('.aw-soft').addEventListener('click', () => { this.soft = !this.soft; this.show(); this.host.selected(); });
     this.q<HTMLInputElement>('.aw-radius').addEventListener('change', e => { const v = Number((e.target as HTMLInputElement).value); if (Number.isFinite(v) && v > 0) this.falloff.radius = v; this.show(); this.host.selected(); });
     this.q<HTMLSelectElement>('.aw-curve').addEventListener('change', e => { this.falloff.curve = (e.target as HTMLSelectElement).value as WarpCurve; this.host.selected(); });
     this.q('.aw-scale-go').addEventListener('click', () => this.transform('scale'));
     this.q('.aw-rot-go').addEventListener('click', () => this.transform('rotate'));
     for (const cls of ['.aw-cols', '.aw-rows']) this.q<HTMLInputElement>(cls).addEventListener('change', () => this.resize());
-    this.q('.aw-delkey').addEventListener('click', () => this.change(def => deleteWarpKey(def, this.active()!, this.value()), 'There is no key at this value.'));
     this.q<HTMLSelectElement>('.aw-pick').addEventListener('change', e => { const v = (e.target as HTMLSelectElement).value; this.selection = v === '' ? [] : [Number(v)]; for (const cls of ['.aw-dx', '.aw-dy']) this.q<HTMLInputElement>(cls).blur(); this.show(); this.host.selected(); });
     for (const cls of ['.aw-dx', '.aw-dy']) this.q<HTMLInputElement>(cls).addEventListener('change', () => this.typed());
-    this.q('.aw-reset').addEventListener('click', () => { if (this.selection.length) this.change(def => setWarpOwn(def, this.active()!, this.value(), this.selection.map(p => [p, [0, 0]] as const)), 'The chosen points are at rest in this keyform already.'); });
     this.q('.aw-mirror-lr').addEventListener('click', () => this.mirror('left'));
     this.q('.aw-mirror-rl').addEventListener('click', () => this.mirror('right'));
     this.q('.aw-mirror-sel').addEventListener('click', () => this.mirror('left', this.selection));
@@ -236,14 +249,16 @@ export class WarpPanel {
   }
 
   // ---- what is chosen ----
-  private part(): string | null { const p = this.host.part(); return p !== null && this.host.isPart(p) ? p : null; }
+  /** The chosen part, if it is one and not the first of a Ctrl-click set (a set edits only the group warp its parts share). */
+  private part(): string | null { const p = this.host.part(); return p !== null && this.host.isPart(p) && !this.host.setParts() ? p : null; }
   /** The chosen row, if it is a mask shape. */
   private shape(): string | null { const p = this.host.part(); return p !== null && this.host.isShape(p) ? p : null; }
   /** The chosen row's bone, if it is one. */
   private bone(): string | null { const p = this.host.part(); return p !== null && this.host.isBone(p) ? p : null; }
   /** The warps the chosen row can edit: a part's own and the group it is in; a bone's are the groups that cover every part on it. */
   private candidates(): DeformerDef[] {
-    const ds = this.host.deformers(), part = this.part(), bone = this.bone(), shape = this.shape();
+    const ds = this.host.deformers(), part = this.part(), bone = this.bone(), shape = this.shape(), set = this.host.setParts();
+    if (set) return ds.filter(d => Array.isArray(d.members) && set.every(p => d.members!.includes(p))); // the group they all share
     if (part) return deformersOfPart(ds, part);
     if (shape) return ds.filter(d => Array.isArray(d.members) && d.members.includes(shape)); // a shape has no warp of its own
     if (!bone) return [];
@@ -262,21 +277,60 @@ export class WarpPanel {
     if (pw && ph) this.pixels.set(id, [pw, ph]);
   }
 
-  /** One line for the section header: the chosen part's lattice, else how many parts have a warp. */
-  summary(): string {
-    const d = this.def(), all = this.host.deformers().length;
-    if (d?.mesh) return `mesh ${deformerPoints(d)}`;
-    if (d) { const [c, r] = deformerGrid(d); return `${Array.isArray(d.members) ? 'group ' : ''}${c}×${r}`; }
-    return all ? `${all} warp${all === 1 ? '' : 's'}` : 'none';
+  /** What Deform's line says (studio-inspector.ts `propBlocks`): the warp edited, what else the row could edit, and what it could add; undefined for no part, bone or shape. */
+  deformState(): DeformState | undefined {
+    const part = this.part(), bone = this.bone(), shape = this.shape();
+    if (!part && !bone && !shape && !this.host.setParts()) return undefined;
+    const def = this.def(), seed = this.groupSeed(), members = def?.members;
+    const kind = !def ? 'none' : Array.isArray(members) ? 'group' : def.mesh ? 'mesh' : 'lattice';
+    const shapes = (members ?? []).filter(m => this.host.isShape(m)).length;
+    return {
+      kind,
+      ...(def && !def.mesh ? { grid: deformerGrid(def) } : {}),
+      ...(def?.mesh ? { vertices: deformerPoints(def) } : {}),
+      ...(def && Array.isArray(members) ? { group: { id: def.id, parts: members.length - shapes, shapes } } : {}),
+      candidates: this.candidates().length,
+      own: !!part && !!deformerOf(this.host.deformers(), part),
+      seed: !seed ? null : bone ? { bone } : { parts: seed.members.length },
+      params: this.host.params().length > 0,
+    };
+  }
+  /** Deform's Remove warp (or Remove group warp): the warp edited goes, as one undo step. */
+  removeTarget() {
+    const d = this.def();
+    if (!d) return;
+    this.selection = [];
+    this.choice = null;
+    this.host.set(removeDeformerById(this.host.deformers(), d.id));
   }
 
-  /** The member checkboxes of a group warp: tick a part to add it (it leaves any other group), untick to take it out. */
+  /** The clip-group issues of the chosen row and of the group edited, each with its fix: shown once, here (Clip's line has a ⚠). */
+  private showIssues(def: DeformerDef | undefined) {
+    const chosen = this.host.part(), box = this.root.querySelector<HTMLElement>('.aw-clipissues')!;
+    const issues = this.host.clipIssues().filter(i => i.part === chosen || i.shape === chosen || i.group === def?.id);
+    box.replaceChildren(...issues.map(i => {
+      const b = el('button', { type: 'button', className: 'aw-fixclip', textContent: `Add ${i.shape} to ${i.group}`, title: `${i.part} is bent by ${i.group} but the shape that clips it is not: the art would move and its clip stay` });
+      b.addEventListener('click', () => this.host.fixClip(i));
+      return el('p', { className: 'as-pivot-hint aw-clipissue' }, `⚠ ${i.part} is clipped to ${i.shape}, which is not in ${i.group === def?.id ? 'this group' : `the group warp ${i.group}`}. `, b);
+    }));
+    box.hidden = !issues.length;
+  }
+
+  /**
+   * The members of a group warp, a ticked checkbox each (untick to take it out), then Add ▾ listing the rest (one chosen joins; it leaves any
+   * other group). Only the members are listed, so the row stays short on a character with many parts.
+   */
   private showMembers(def: DeformerDef) {
     const list = this.root.querySelector<HTMLElement>('.aw-memberlist')!, members = def.members ?? [], parts = this.host.parts(), shapes = this.host.shapes();
     const sig = `${def.id}|${members.join(',')}|${parts.join(',')}|${shapes.join(',')}`;
     if (list.dataset.sig !== sig) {
       list.dataset.sig = sig;
-      list.replaceChildren(...[...parts, ...shapes].map(p => {
+      const add = this.root.querySelector<HTMLSelectElement>('.aw-addmember')!, rest = (names: string[]) => names.filter(n => !members.includes(n));
+      const group = (label: string, names: string[]) => { const g = document.createElement('optgroup'); g.label = label; g.append(...names.map(n => el('option', { value: n, textContent: n }))); return g; };
+      add.replaceChildren(el('option', { value: '', textContent: 'Add…' }), ...(rest(parts).length ? [group('Parts', rest(parts))] : []), ...(rest(shapes).length ? [group('Shapes', rest(shapes))] : []));
+      add.disabled = !rest([...parts, ...shapes]).length;
+      add.title = add.disabled ? 'Every part and shape is a member already' : 'Add a part or a mask shape to this group (one in another group moves here)';
+      list.replaceChildren(...[...parts, ...shapes].filter(p => members.includes(p)).map(p => {
         const box = document.createElement('input');
         box.type = 'checkbox';
         box.className = 'aw-member';
@@ -291,13 +345,9 @@ export class WarpPanel {
     }
     const sel = this.host.selectedParts();
     this.root.querySelector<HTMLButtonElement>('.aw-usesel')!.disabled = !sel.length;
-    this.root.querySelector<HTMLElement>('.aw-memberhint')!.textContent = `${members.length} member${members.length === 1 ? '' : 's'}; the first (${members[0]}) is the one a drag is measured in. A part or shape is in one group at most: ticking one that is in another group moves it.`;
-    const issues = this.host.clipIssues().filter(i => i.group === def.id), box = this.root.querySelector<HTMLElement>('.aw-clipissues')!;
-    box.replaceChildren(...issues.map(i => {
-      const b = el('button', { type: 'button', className: 'aw-fixclip', textContent: `Add ${i.shape} to ${i.group}`, title: `${i.part} is bent by ${i.group} but the shape that clips it is not: the art would move and its clip stay` });
-      b.addEventListener('click', () => this.host.fixClip(i));
-      return el('span', { className: 'as-pivot-hint aw-clipissue' }, `${i.part} is clipped to ${i.shape}, which is not in this group. `, b);
-    }));
+    const hint = `${members.length} member${members.length === 1 ? '' : 's'}; the first (${members[0]}) is the one a drag is measured in. Untick one to take it out; Add… joins another (a part or shape is in one group at most, so one in another group moves here).`;
+    this.root.querySelector<HTMLElement>('.aw-memberhint')!.textContent = hint;
+    this.root.querySelector<HTMLElement>('.aw-members')!.title = hint; // the hint is the row's tooltip
   }
 
   // ---- the free mesh ----
@@ -350,7 +400,8 @@ export class WarpPanel {
   }
 
   // ---- changes ----
-  private add() {
+  /** Deform's Add warp: a lattice over the chosen part, and the Warp tool on to shape it. */
+  add() {
     const part = this.part();
     if (!part || deformerOf(this.host.deformers(), part)) return;
     const clash = this.host.framedIn(part);
@@ -368,7 +419,8 @@ export class WarpPanel {
     const sel = this.host.selectedParts();
     return sel.length > 1 ? { members: sel, name: sel[0] } : null;
   }
-  private addGroup() {
+  /** Deform's Add group warp: one lattice over the parts on the chosen bone, or over the parts ticked in the tree. */
+  addGroup() {
     const seed = this.groupSeed();
     if (!seed) return;
     const clash = seed.members.map(m => ({ m, a: this.host.framedIn(m) })).find(x => x.a);
@@ -378,6 +430,10 @@ export class WarpPanel {
     this.choice = next.at(-1)!.id;
     this.host.set(next);
     this.host.useTool();
+    // Say at once what the rig check would say later: members on bones that turn apart skew the group's lattice.
+    const bone = this.bone(), on = groupBones(seed.members, m => this.host.boneOf(m), m => { const d = deformerOf(next, m); return !!d?.mesh && isSkinned(d.mesh); });
+    const apart = on.length > 1 ? ` They sit on different bones (${on.map(b => b || 'none').join(', ')}): when one turns relative to another the warp skews, and the rig check warns about it.${bone ? ` Untick the parts below ${bone} in Members to keep the group on ${bone} alone.` : ''}` : '';
+    this.host.note(`Made group warp ${this.choice} over ${seed.members.length} members.${apart}`);
   }
   /** Replace the members of the chosen group warp (parts in another group move here). */
   private setMembersTo(members: string[]) {
@@ -440,6 +496,10 @@ export class WarpPanel {
     if (next === def) { this.host.note(same); return; }
     this.host.set(replaceDeformer(this.host.deformers(), next));
   }
+  /** Keyforms' Reset: the chosen points go back to rest in the keyform at the slider's value (one undo step). */
+  resetChosen() {
+    if (this.selection.length) this.change(def => setWarpOwn(def, this.active()!, this.value(), this.selection.map(p => [p, [0, 0]] as const)), 'The chosen points are at rest in this keyform already.');
+  }
   /** The point's displacement was typed: sets what this keyform moves it by. */
   private typed() {
     const dx = this.q<HTMLInputElement>('.aw-dx'), dy = this.q<HTMLInputElement>('.aw-dy'), x = Number(dx.value), y = Number(dy.value);
@@ -458,6 +518,9 @@ export class WarpPanel {
     const kind = this.q<HTMLSelectElement>('.aw-preset').value as WarpPreset, amount = Number(this.q<HTMLInputElement>('.aw-amount').value);
     this.host.set(replaceDeformer(this.host.deformers(), warpPreset(def, param, kind, box, { ...(Number.isFinite(amount) && amount >= 0 ? { amount } : {}), ...(this.pixels.get(def.id) ? { pixels: this.pixels.get(def.id) } : {}) })));
     this.host.note(`${WARP_PRESETS.find(p => p.id === kind)!.label} written as the keys of ${param.id} (${warpKeyValues(this.def() ?? def, param.id).join(', ')}).`);
+    // Done: the panel closes (it would cover Keyforms' key strip, where the new keys are), and the focus goes back to its ▾.
+    this.pops[3].close();
+    this.pops[3].button.focus({ preventScroll: true });
   }
   private setAmount() {
     const p = WARP_PRESETS.find(x => x.id === this.q<HTMLSelectElement>('.aw-preset').value);
@@ -476,6 +539,9 @@ export class WarpPanel {
       const def = deformerById(this.host.deformers(), id), param = this.active();
       if (!def) return;
       if (!param) { this.host.note('Pick a slider in the Parameters section first (click its name): the warp is keyed to the active parameter.'); this.show(); return; }
+      // A skinned mesh's keyform is a shape before the skin, and a drag is measured on screen: with an influencing bone posed they disagree, so it waits for the rest pose.
+      const posed = def.mesh && isSkinned(def.mesh) ? this.host.posedInfluences(def) : [];
+      if (posed.length) { this.host.note(`This mesh is skinned and ${posed.join(', ')} ${posed.length === 1 ? 'is' : 'are'} posed by a parameter: a keyform is shaped with its bones at rest. Put the sliders that move ${posed.length === 1 ? 'it' : 'them'} back to their defaults (the Parameters section shows what is off), then drag.`); this.show(); return; }
       this.dragging = { base: def, param, value: this.value(), weights: softWeights(def, this.selection, this.falloffNow()), drag: this.host.drag() };
       this.show();
       return;
@@ -580,26 +646,20 @@ export class WarpPanel {
     if (def) this.selection = cleanSelection(this.selection, deformerPoints(def));
     this.param = this.host.activeParam();
     const seed = this.groupSeed(), isGroup = !!def && Array.isArray(def.members), own = part ? deformerOf(ds, part) : undefined;
-    const shape = this.shape();
+    const shape = this.shape(), set = this.host.setParts();
     const none = !chosen ? 'Choose a part in the tree to give it a warp, or to edit the one it has.'
-      : shape && !def ? `${shape} is a mask shape: it has no warp of its own. A group warp bends it when it is one of its members (tick it there), or follow a part with the Mask section.`
+      : set && !def ? `The ${set.length} parts share no group warp: Add group warp makes one lattice over them (a part's own warp is edited with that part chosen alone).`
+      : set ? ''
+      : shape && !def ? `${shape} is a mask shape: it has no warp of its own. A group warp bends it when it is one of its members (tick it there), or make it follow a part (Properties, Clip: follows).`
       : shape ? ''
       : bone && !def && !seed ? `${bone} has no parts on it to warp.`
         : bone && !def ? `${bone} is a bone. A warp belongs to a part: choose one of the parts on it, or add a group warp over all of them.`
-          : !part && !bone ? '' : !params.length ? 'This rig has no parameters. A warp bends with a parameter: add "parameters" to its rig.json.' : '';
+          : !part && !bone ? '' : !params.length ? 'This rig has no parameters yet. A lattice warp bends only with one (+ in the Parameters section makes one); a mesh also bends with bones, weighted with the Weights tool (B), so Generate mesh works now.' : '';
     q<HTMLElement>('.aw-none').textContent = none;
     q<HTMLElement>('.aw-none').hidden = !none;
-    const add = q<HTMLElement>('.aw-add');
-    add.hidden = !part || !!own;
-    q<HTMLButtonElement>('.aw-addbtn').disabled = !params.length;
-    q<HTMLElement>('.aw-addbtn').textContent = part ? `Add warp to ${part}` : 'Add warp';
-    const gb = q<HTMLButtonElement>('.aw-groupbtn');
-    q<HTMLElement>('.aw-groupadd').hidden = !seed;
-    gb.disabled = !params.length;
-    gb.textContent = bone ? `Add group warp from ${bone}` : `Add group warp from ${seed?.members.length ?? 0} selected parts`;
-    // A row with a warp of its own and/or a group warp offers the choice between them.
+    // Add warp, Add group warp and Remove warp are Deform's line verbs (propBlocks); a lattice needs a parameter, a mesh (the Mesh row) does not.
+    // A row with a warp of its own and/or a group warp offers the choice between them: the Target ▾ in Deform's line (propBlocks says when).
     const cands = this.candidates(), targetPick = q<HTMLSelectElement>('.aw-targetpick');
-    q<HTMLElement>('.aw-target').hidden = !(cands.length > 1 || (cands.length === 1 && Array.isArray(cands[0].members)));
     const count = (d: DeformerDef) => { const shapes = (d.members ?? []).filter(m => this.host.isShape(m)).length, parts = (d.members ?? []).length - shapes; return `${parts} part${parts === 1 ? '' : 's'}${shapes ? `, ${shapes} shape${shapes === 1 ? '' : 's'}` : ''}`; };
     const labels = cands.map(d => (Array.isArray(d.members) ? `group ${d.id} (${count(d)})` : `own warp ${d.id}`));
     if (targetPick.dataset.opts !== labels.join('|') + '#' + cands.map(d => d.id).join('|')) {
@@ -607,11 +667,11 @@ export class WarpPanel {
       targetPick.replaceChildren(...cands.map((d, i) => el('option', { value: d.id, textContent: labels[i] })));
     }
     if (def) targetPick.value = def.id;
-    q<HTMLElement>('.aw-targethint').textContent = isGroup && part ? `${part} is bent by this group's lattice after its own warp.` : isGroup && shape ? `${shape} is a mask shape: this group's lattice bends it, as it bends the parts it clips.` : '';
+    q<HTMLElement>('.aw-targethint').textContent = isGroup && set ? `The ${set.length} parts are all members of this group.` : isGroup && part ? `${part} is bent by this group's lattice after its own warp.` : isGroup && shape ? `${shape} is a mask shape: this group's lattice bends it, as it bends the parts it clips.` : '';
     const mem = q<HTMLElement>('.aw-members');
     mem.hidden = !isGroup;
-    q<HTMLElement>('.aw-remove').textContent = isGroup ? 'Remove group warp' : 'Remove warp';
     if (isGroup) this.showMembers(def!);
+    this.showIssues(def);
     // The Mesh row: a part can be given a free mesh, or have its own lattice replaced or its mesh regenerated.
     const meshed = !!def?.mesh, gen = q<HTMLElement>('.aw-meshgen');
     gen.hidden = !part;
@@ -622,10 +682,10 @@ export class WarpPanel {
       q<HTMLElement>('.aw-vcount').textContent = n === null ? (this.noAlpha.has(part) ? 'image unreadable' : 'reading the image…') : `${n} vertices (at most ${MESH_MAX_VERTS})`;
       const btn = q<HTMLButtonElement>('.aw-genbtn'), replacing = !!own && !own.mesh;
       btn.textContent = own?.mesh ? 'Regenerate mesh' : replacing ? 'Replace lattice with mesh' : 'Generate mesh';
-      btn.disabled = !params.length || (mesh !== null && !meshUsable(mesh));
-      q<HTMLElement>('.aw-genhint').textContent = own?.mesh ? 'Regenerating changes the vertices, so the mesh\'s keyforms are dropped (after asking).' : replacing ? 'Replaces the lattice and drops its keyforms (after asking).' : 'A triangle mesh that follows the part\'s outline, for a shape a lattice cannot bend.';
+      btn.disabled = mesh !== null && !meshUsable(mesh);
+      q<HTMLElement>('.aw-genhint').textContent = own?.mesh ? 'Regenerating changes the vertices, so the mesh\'s keyforms are dropped (after asking).' : replacing ? 'Replaces the lattice and drops its keyforms (after asking).' : 'A triangle mesh that follows the part\'s outline, for a shape a lattice cannot bend, or to bend the part with bones (the Weights tool, B).';
     }
-    for (const cls of ['.aw-grid', '.aw-form', '.aw-sel', '.aw-tools', '.aw-xf', '.aw-presets']) q<HTMLElement>(cls).hidden = !def;
+    q<HTMLElement>('.aw-grid').hidden = !def;
     // A free mesh has no lattice to resize: its summary shows in place of the grid size; the rest edits its vertices as it edits lattice points.
     q<HTMLElement>('.aw-gridname').textContent = meshed ? 'Mesh' : 'Lattice';
     q<HTMLElement>('.aw-dims').hidden = meshed;
@@ -634,50 +694,48 @@ export class WarpPanel {
       const m = def!.mesh!;
       q<HTMLElement>('.aw-meshsum').textContent = `${deformerPoints(def!)} vertices, ${m.tris.length / 3} triangles, detail ${MESH_DETAIL_STEPS.find(d => d.id === m.detail)?.label.toLowerCase() ?? 'custom'}.`;
     }
-    for (const cls of ['.aw-rowpick', '.aw-colpick']) q<HTMLElement>(cls).parentElement!.hidden = meshed;
     // Topology mode (a free mesh only): its tools replace the keyform controls while it is on.
     if (!meshed) { this.topo = false; this.anchor = null; }
-    q<HTMLElement>('.aw-topo').hidden = !meshed;
-    q<HTMLButtonElement>('.aw-topoon').setAttribute('aria-pressed', String(this.topo));
-    q<HTMLElement>('.aw-topotools').hidden = !this.topo;
-    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.aw-tt')) b.setAttribute('aria-pressed', String(b.dataset.tool === this.topoPick));
-    q<HTMLElement>('.aw-topohint').textContent = this.topo ? TOPO_TOOLS.find(t => t.id === this.topoPick)!.hint + (def && hasKeyforms(def) ? ' Edits drop the keyforms (after asking; undo restores them). Esc cancels.' : ' Esc cancels.') : 'Edit the mesh\'s vertices and edges. This changes what the keyforms mean, so it drops them (after asking).';
-    if (this.topo) for (const cls of ['.aw-form', '.aw-sel', '.aw-pt', '.aw-tools', '.aw-xf', '.aw-presets']) q<HTMLElement>(cls).hidden = true;
+    // The bar (engine studio-inspector.ts warpBar): the selection, the operations, or the topology tools.
+    const view = warpBar({ hasWarp: !!def, mesh: meshed, topo: this.topo, keyed: !!this.active(), selected: this.selection.length, soft: this.soft });
+    q<HTMLElement>('.aw-sel').hidden = !view.selection;
+    q<HTMLElement>('.aw-tools').hidden = !view.operations;
+    for (const cls of ['.aw-rowpick', '.aw-colpick']) q<HTMLElement>(cls).hidden = !view.rows;
+    q<HTMLButtonElement>('.aw-softopts').disabled = !view.reach;
+    if (!view.selection || !view.reach) this.pops[0].close();
+    if (!view.operations) for (const pop of this.pops.slice(1)) pop.close();
+    // Edit topology, first in the bar for a free mesh: a mode of the tool, so its tooltip says what the topology tool chosen does.
+    const topoOn = q<HTMLButtonElement>('.aw-topoon');
+    q<HTMLElement>('.aw-topogrp').hidden = !view.topoToggle;
+    topoOn.setAttribute('aria-pressed', String(this.topo));
+    topoOn.title = this.topo ? `Edit topology is on: ${TOPO_TOOLS.find(t => t.id === this.topoPick)!.label}. ${TOPO_TOOLS.find(t => t.id === this.topoPick)!.hint}${def && hasKeyforms(def) ? ' Edits drop the keyforms (after asking; undo restores them).' : ''} Esc or a press here ends it.` : TOPO_OFF;
+    q<HTMLElement>('.aw-topotools').hidden = !view.topology;
+    for (const b of this.bar.querySelectorAll<HTMLButtonElement>('.aw-tt')) b.setAttribute('aria-pressed', String(b.dataset.tool === this.topoPick));
+    // The Point row in Keyforms: the chosen points' move in the keyform at the slider's value (not while the topology tools are on).
+    q<HTMLElement>('.aw-pt').hidden = !def || this.topo || !this.active();
     q<HTMLElement>('.aw-about option[value=lattice]').textContent = meshed ? 'about the part centre' : 'about the lattice centre';
     if (!def) return;
-    const note = q<HTMLElement>('.aw-active');
-
-    note.textContent = this.param ? `Keyed to ${this.param}, the active parameter: move its slider in Parameters.` : 'Pick a slider in Parameters (click its name): the warp is keyed to the active parameter.';
     const [cols, rows] = meshed ? [0, 0] : deformerGrid(def);
     if (!meshed) for (const [cls, v] of [['.aw-cols', cols], ['.aw-rows', rows]] as const) { const i = q<HTMLInputElement>(cls); if (document.activeElement !== i) i.value = String(v); }
-    const p = this.active(), sel = this.selection, many = sel.length > 1;
+    const p = this.active(), sel = this.selection;
     const fill = (cls: string, label: string, n: number, name: string) => {
       const s = q<HTMLSelectElement>(cls);
       if (s.options.length !== n + 1 || s.dataset.n !== String(n)) { s.dataset.n = String(n); s.replaceChildren(el('option', { value: '', textContent: label }), ...Array.from({ length: n }, (_, i) => el('option', { value: String(i), textContent: `${name} ${i}` }))); }
     };
     if (!meshed) { fill('.aw-rowpick', 'row…', rows + 1, 'row'); fill('.aw-colpick', 'column…', cols + 1, 'column'); }
-    q<HTMLInputElement>('.aw-soft').checked = this.soft;
-    q<HTMLInputElement>('.aw-radius').disabled = q<HTMLSelectElement>('.aw-curve').disabled = !this.soft;
+    q<HTMLElement>('.aw-soft').setAttribute('aria-pressed', String(this.soft));
     if (document.activeElement !== q('.aw-radius')) q<HTMLInputElement>('.aw-radius').value = String(this.falloff.radius);
-    q<HTMLElement>('.aw-selhint').textContent = sel.length ? `${sel.length} point${sel.length === 1 ? '' : 's'} chosen${this.soft ? `, soft over ${this.falloff.radius} ${meshed ? 'edges' : 'cells'}` : ''}. Drag one to move them all; Shift-click adds or removes a ${meshed ? 'vertex' : 'point'}.`
-      : meshed ? 'Drag a rectangle on the stage, Shift-click vertices, or use All and Invert here.' : 'Drag a rectangle on the stage, Shift-click points, or choose rows and columns here.';
-    q<HTMLButtonElement>('.aw-clear').disabled = !sel.length;
-    for (const cls of ['.aw-delkey', '.aw-mirror-lr', '.aw-mirror-rl', '.aw-smooth', '.aw-preset', '.aw-amount', '.aw-write']) q<HTMLInputElement>(cls).disabled = !p;
-    for (const cls of ['.aw-mirror-sel', '.aw-scale-go', '.aw-rot-go', '.aw-scale', '.aw-rot', '.aw-about']) q<HTMLInputElement>(cls).disabled = !p || !sel.length;
-    q<HTMLElement>('.aw-smooth').textContent = sel.length ? 'Smooth selection' : 'Smooth';
-    q<HTMLElement>('.aw-reset').textContent = many ? 'Reset points' : 'Reset point';
-    const keys = q<HTMLElement>('.aw-keys');
-    if (!p) { keys.replaceChildren(); q<HTMLElement>('.aw-keyhint').textContent = ''; q<HTMLElement>('.aw-pthint').textContent = ''; return; }
-    const v = this.value(), at = warpKeyAt(def, p, v);
-    keys.replaceChildren(...warpKeyValues(def, p.id).map(k => {
-      const b = el('button', { type: 'button', className: 'aw-key', textContent: shown(k), title: `Go to the key at ${shown(k)}` });
-      b.setAttribute('aria-pressed', String(k === at));
-      b.addEventListener('click', () => this.host.setValue(p.id, k));
-      return b;
-    }));
-    q<HTMLButtonElement>('.aw-delkey').disabled = at === null;
-    q<HTMLElement>('.aw-keyhint').textContent = at !== null ? `On the key at ${shown(at)}: a dragged point changes it.`
-      : warpKeyValues(def, p.id).length ? `No key at ${shown(v)}: dragging a point adds one there, keeping the curve as it is.` : `${p.id} has no keys on this warp yet: dragging a point makes the first, with rest at ${shown(p.default)}.`;
+    q<HTMLElement>('.aw-selhint').textContent = sel.length ? `${sel.length} chosen` : '';
+    q<HTMLElement>('.aw-selhint').title = sel.length ? `${sel.length} ${meshed ? 'vertices' : 'points'} chosen${this.soft ? `, soft over ${this.falloff.radius} ${meshed ? 'edges' : 'cells'}` : ''}. Drag one to move them all; Shift-click adds or removes one.` : '';
+    q<HTMLButtonElement>('.aw-clear').disabled = !view.none;
+    for (const cls of ['.aw-mirrorbtn', '.aw-mirror-lr', '.aw-mirror-rl', '.aw-smooth', '.aw-presetbtn', '.aw-preset', '.aw-amount', '.aw-write']) q<HTMLInputElement>(cls).disabled = !view.keyed;
+    for (const cls of ['.aw-mirror-sel', '.aw-scale-go', '.aw-rot-go']) q<HTMLInputElement>(cls).disabled = !view.onSelection;
+    if (!view.keyed) for (const pop of [this.pops[1], this.pops[3]]) pop.close();
+    q<HTMLElement>('.aw-smooth').title = sel.length ? 'Smooth: even out the chosen points of this keyform; press again for more' : 'Smooth: even out the points of this keyform (the chosen ones, if any); press again for more';
+    q<HTMLElement>('.aw-scale-go').title = `Scale the chosen points by ${q<HTMLInputElement>('.aw-scale').value} (the factor is under ▾)`;
+    q<HTMLElement>('.aw-rot-go').title = `Rotate the chosen points by ${q<HTMLInputElement>('.aw-rot').value} degrees (the angle is under ▾)`;
+    if (!p) { q<HTMLElement>('.aw-pthint').textContent = ''; return; }
+    const v = this.value();
     const n = sel.length === 1 ? sel[0] : null, avg = averageDisplacement(def, p, v, sel), pick = q<HTMLSelectElement>('.aw-pick');
     const where = (i: number) => (meshed ? `vertex ${i}` : `${i} (column ${i % (cols + 1)}, row ${Math.floor(i / (cols + 1))})`);
     if (pick.options.length !== deformerPoints(def) + 1 || pick.dataset.cols !== (meshed ? 'mesh' : String(cols))) {
@@ -690,10 +748,10 @@ export class WarpPanel {
       i.disabled = avg === null;
       if (document.activeElement !== i) i.value = avg === null ? '' : shown(avg[k]);
     }
-    q<HTMLButtonElement>('.aw-reset').disabled = !sel.length;
     q<HTMLElement>('.aw-pthint').textContent = !sel.length ? 'Click a point on the stage (Warp tool, D), or choose one here.'
       : n !== null ? `${meshed ? 'Vertex' : 'Point'} ${where(n)}: how far this keyform moves it, in stage units.`
         : `${sel.length} points chosen: the fields show their average; typing moves each of them by the difference.`;
+    q<HTMLElement>('.aw-pt').title = q<HTMLElement>('.aw-pthint').textContent ?? ''; // the hint is the row's tooltip (its span is hidden in Keyforms)
     q<HTMLElement>('.aw-presethint').textContent = WARP_PRESETS.find(x => x.id === q<HTMLSelectElement>('.aw-preset').value)?.hint ?? '';
   }
 }

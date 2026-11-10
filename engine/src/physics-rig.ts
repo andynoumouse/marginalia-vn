@@ -170,3 +170,74 @@ export function checkPhysics(
   };
   for (const id of ids) if (visit(id, [])) break;
 }
+
+// ---- editing (the studio's Physics tab) ----
+
+/** The three lists of a chain the studio edits as rows. */
+export type ChainList = 'inputs' | 'segments' | 'outputs';
+
+/** A segment that swings like a hair strand: the presets' usual numbers. */
+export const DEFAULT_SEGMENT: PhysicsSegment = { length: 1, mass: 1, damping: 3, stiffness: 90, limit: 25 };
+
+/**
+ * `chain` with row `index` of `list` changed by `patch`; a field set to undefined is removed. An input or output that
+ * switches between a parameter and a bone or part drops the other kind's fields (an input's channel goes with its bone).
+ */
+export function setChainRow(chain: RigPhysicsChain, list: ChainList, index: number, patch: Record<string, unknown>): RigPhysicsChain {
+  const rows = [...(chain[list] ?? [])] as unknown as Record<string, unknown>[];
+  if (!rows[index]) return chain;
+  const row: Record<string, unknown> = { ...rows[index], ...patch };
+  if (list === 'inputs') {
+    if (patch.param !== undefined) { delete row.bone; delete row.channel; }
+    if (patch.bone !== undefined) { delete row.param; row.channel ??= 'rot'; }
+  }
+  if (list === 'outputs') {
+    if (patch.param !== undefined) delete row.part;
+    if (patch.part !== undefined) delete row.param;
+  }
+  for (const [k, v] of Object.entries(row)) if (v === undefined) delete row[k];
+  rows[index] = row;
+  return { ...chain, [list]: rows };
+}
+
+/**
+ * `chain` with a row added to `list`: an input reading `param` (or copying the last input), a segment like the last one
+ * (or the default), an output writing `param` (or copying the last output).
+ */
+export function addChainRow(chain: RigPhysicsChain, list: ChainList, param?: string): RigPhysicsChain {
+  const rows = chain[list] ?? [], last = rows[rows.length - 1];
+  let row: unknown;
+  if (list === 'segments') row = { ...(last as PhysicsSegment ?? DEFAULT_SEGMENT) };
+  else if (list === 'inputs') row = last ? { ...(last as RigPhysicsInput) } : { param: param ?? '', weight: 1 };
+  else row = last ? { ...(last as RigPhysicsOutput) } : { param: param ?? '', scale: 1 };
+  return { ...chain, [list]: [...rows, row] };
+}
+
+/** `chain` without row `index` of `list`. Outputs keep reading the same segment; one that read the removed segment reads the last. */
+export function removeChainRow(chain: RigPhysicsChain, list: ChainList, index: number): RigPhysicsChain {
+  const rows = (chain[list] ?? []).filter((_, i) => i !== index) as RigPhysicsChain[ChainList];
+  const next = { ...chain, [list]: rows } as RigPhysicsChain;
+  if (list === 'segments') {
+    next.outputs = (chain.outputs ?? []).map(o => {
+      if (o.segment === undefined || o.segment < index) return o;
+      const { segment, ...rest } = o;
+      return segment > index ? { ...rest, segment: segment - 1 } : rest; // the removed one: read the last
+    });
+  }
+  return next;
+}
+
+/** `chain` with its own wind set, changed (merged) or removed (null). */
+export function setChainWind(chain: RigPhysicsChain, wind: Partial<PhysicsWind> | null): RigPhysicsChain {
+  const { wind: old, ...rest } = chain;
+  if (wind === null) return rest;
+  const next: Record<string, unknown> = { strength: 6, noise: 0.8, ...old, ...wind };
+  for (const [k, v] of Object.entries(next)) if (v === undefined) delete next[k];
+  return { ...rest, wind: next as unknown as PhysicsWind };
+}
+
+/** Where a `checkPhysics` message points inside its chain: a row of a list, or the chain as a whole (null). */
+export function problemRow(message: string): { list: ChainList; index: number } | null {
+  const m = /^physics\.[A-Za-z_]\w*\.(inputs|segments|outputs)\[(\d+)\]/.exec(message);
+  return m ? { list: m[1] as ChainList, index: Number(m[2]) } : null;
+}

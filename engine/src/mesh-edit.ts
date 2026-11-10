@@ -2,7 +2,8 @@
 // deformer, a lattice or a free mesh; generating a mesh creates it, or replaces what the part has, and drops the keyforms the old
 // topology owned (their `pts` index vertices or lattice points that no longer exist).
 
-import { MESH_MAX_VERTS, deformerPoints, type DeformerDef, type ParamDef } from './params.js';
+import { MESH_MAX_VERTS, deformerPoints, type DeformerDef, type DeformerMesh, type MeshWeights, type ParamDef } from './params.js';
+import { resampleWeights } from './skin-edit.js';
 import { cleanSelection, deformerOf, ownDisplacement, setWarpOwn, type WarpVec } from './warp-edit.js';
 import { locateInMesh, meshAdjacency } from './mesh.js';
 import type { GeneratedMesh, MeshDetail } from './mesh-gen.js';
@@ -39,8 +40,13 @@ export const meshUsable = (m: GeneratedMesh): boolean => m.tris.length >= 3 && m
  */
 export function setPartMesh(deformers: readonly DeformerDef[], part: string, mesh: GeneratedMesh, detail: MeshDetail): DeformerDef[] {
   if (!meshUsable(mesh)) return [...deformers];
-  const made = { verts: [...mesh.verts], tris: [...mesh.tris], detail };
+  const made: DeformerMesh = { verts: [...mesh.verts], tris: [...mesh.tris], detail };
   const own = deformerOf(deformers, part);
+  // Bone weights are painted work: they carry over to the new mesh, each new vertex sampling the old mesh at its position.
+  if (own?.mesh?.weights) {
+    made.weights = resampleWeights(own.mesh, own.mesh.verts, own.mesh.tris, made.verts);
+    if (own.mesh.defaultBone !== undefined) made.defaultBone = own.mesh.defaultBone;
+  }
   if (own) return deformers.map(d => (d === own ? { id: own.id, part, mesh: made, keyforms: [] } : d));
   const taken = new Set(deformers.map(d => d.id));
   let id = `${part}_mesh`;
@@ -360,7 +366,13 @@ export function addMeshEdge(mesh: MeshGeo, a: number, b: number): MeshEditResult
   return { error: last };
 }
 
-/** The deformer with its mesh's geometry replaced and its keyforms dropped (their per-vertex points index the old vertices). The `detail` hint stays. */
-export function setMeshGeometry(def: DeformerDef, geo: MeshGeo): DeformerDef {
-  return { ...def, mesh: { ...def.mesh, verts: [...geo.verts], tris: [...geo.tris] }, keyforms: [] };
+/**
+ * The deformer with its mesh's geometry replaced and its keyforms dropped (their per-vertex points index the old vertices). The `detail` hint stays.
+ * Bone weights are never dropped: they stay as they are (right for a moved vertex or a flipped edge), unless `weights` says what they
+ * become (skin-edit.ts: addVertexWeights, removeVertexWeights).
+ */
+export function setMeshGeometry(def: DeformerDef, geo: MeshGeo, weights?: MeshWeights): DeformerDef {
+  const mesh = { ...def.mesh, verts: [...geo.verts], tris: [...geo.tris] } as DeformerMesh;
+  if (weights) mesh.weights = weights;
+  return { ...def, mesh, keyforms: [] };
 }

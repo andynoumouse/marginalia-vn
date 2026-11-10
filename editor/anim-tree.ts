@@ -1,10 +1,11 @@
 // The character's parts, bones and looks in the animation studio. Three places on screen, one state: the Parts tree (the
 // left column: one plain row for each part and bone, the way to choose what you work on), the details of the chosen row
-// (a section of the right column: its bone, its variants; in Model mode also the bone's parent and Remove), and the Look
+// (Animate: a list in Properties, its bone and its variants; Model: the Properties sub-blocks Transform, with a part's bone or a
+// bone's name and parent, and Variants), and the Look
 // choice (the left column, under the animation picker). It draws from the studio's working copy (read through
 // `TreeHost.state`) and hands every change back through the host.
 
-import { addBone, animParts, boneRows, deleteBone, partsUnder, saveLook, setBoneParent, setPartBone, uniqueBoneName, type AnimDef, type Bones, type Looks, type PartBones, type RigOutline, type StudioMode } from '../engine/src/index.js';
+import { addBone, animParts, boneRows, partsUnder, saveLook, setBoneParent, setPartBone, uniqueBoneName, type AnimDef, type Bones, type Looks, type PartBones, type RigOutline, type SetView, type StudioMode } from '../engine/src/index.js';
 import { el } from './anim-dom.js';
 
 export interface TreeState {
@@ -26,6 +27,10 @@ export interface TreeState {
   bind: { bound: string[]; what: string; kind: string } | null;
   /** Parts and bones hidden on the stage (a studio aid, never saved). */
   hidden: string[];
+  /** Rows added to the chosen one with Ctrl-click (Model mode): marked in the tree. */
+  extras: string[];
+  /** A Ctrl-click set of parts: On bone ▾ shows the bone they share (blank when they differ) and re-hangs all of them. */
+  set: SetView | null;
 }
 
 export interface TreeHost {
@@ -34,6 +39,8 @@ export interface TreeHost {
   image(file: string): string | undefined;
   /** Replace some of the working copy as one undo step; `part` follows when given. */
   change(patch: { bones?: Bones; parts?: PartBones; looks?: Looks; part?: string | null }): void;
+  /** Rename a bone everywhere in the working copy (one undo step), or say why not. */
+  renameBone(from: string, to: string): void;
   /** `add` (Ctrl held, Model mode): add the part to the chosen ones, or take it off. `subtree` (Alt held): a bone's whole subtree, for a pick that binds. */
   choosePart(part: string | null, add?: boolean, subtree?: boolean): void;
   /** Set a slot's variant on the stage (the one set already goes back to what the look picks). */
@@ -48,8 +55,11 @@ export interface TreeHost {
   note(text: string): void;
 }
 
-/** Where the three views draw. */
-export interface TreeRoots { tree: HTMLElement; detail: HTMLElement; looks: HTMLElement }
+/**
+ * Where the views draw: the tree, the details (Animate: in Properties), the look, and in Model mode the Properties sub-blocks Transform
+ * (a part's bone; a bone's view: what it moves, its name, its parent) and Variants (a slot's chips).
+ */
+export interface TreeRoots { tree: HTMLElement; detail: HTMLElement; looks: HTMLElement; transform: HTMLElement; variants: HTMLElement }
 
 export class RigTree {
   private drawn = '';                       // what is shown now, so it is rebuilt only when that changes
@@ -57,13 +67,20 @@ export class RigTree {
   private scrolledTo: string | null | undefined; // the part the tree last scrolled to
 
   constructor(readonly roots: TreeRoots, private host: TreeHost) {
-    for (const r of [roots.tree, roots.detail]) {
+    for (const r of [roots.tree, roots.detail, roots.transform, roots.variants]) {
       r.addEventListener('click', e => this.click(e));
       r.addEventListener('keydown', e => this.key(e));
     }
   }
 
-  private all() { return [this.roots.tree, this.roots.detail, this.roots.looks]; }
+  private all() { return [this.roots.tree, this.roots.detail, this.roots.looks, this.roots.transform, this.roots.variants]; }
+  private outlined: RigOutline | undefined; // what the last drawing showed
+
+  /** The variant a slot shows on the stage now (null: nothing); undefined when `name` is no slot. */
+  slotShown(name: string): string | null | undefined {
+    const p = this.outlined?.parts.find(x => x.name === name);
+    return p?.kind === 'slot' ? p.shown : undefined;
+  }
   private own(e: Element) { return this.all().some(r => r.contains(e)); }
 
   /** Draw again whatever the state is (a new character or a reloaded stage). */
@@ -99,8 +116,9 @@ export class RigTree {
     const { char, bones, partBones } = s;
     const shapeNames = s.mode === 'model' ? Object.keys(s.shapes) : [];
     const o = host.outline(s.pose, s.overrides, s.looks);
+    this.outlined = o;
     const keyed = s.anim ? animParts(s.anim.def) : [];
-    const drawn = JSON.stringify([o, keyed, s.part, s.pose, s.overrides, s.anim?.name, bones, partBones, shapeNames.map(n => [n, s.shapes[n].bone]), s.clips, s.looks, s.mode, [...this.collapsed], s.bind, s.hidden]);
+    const drawn = JSON.stringify([o, keyed, s.part, s.extras, s.set, s.pose, s.overrides, s.anim?.name, bones, partBones, shapeNames.map(n => [n, s.shapes[n].bone]), s.clips, s.looks, s.mode, [...this.collapsed], s.bind, s.hidden]);
     if (drawn === this.drawn) return;
     this.drawn = drawn;
     const model = s.mode === 'model';
@@ -121,6 +139,7 @@ export class RigTree {
       const b = el('button', { type: 'button', className: 'as-row' }, ...kids);
       b.dataset.part = part ?? '';
       b.setAttribute('aria-pressed', String(s.part === part));
+      if (part !== null && s.extras.includes(part)) { b.classList.add('as-extra'); b.title = `${part} is chosen with ${s.part} (Ctrl-click takes it out)`; }
       return b;
     };
     // Model mode: a mark before a row says whether that part is bound to the active parameter. It is a display; "Bind parts…" is what binds, and the ✕ in the Bound parts list unbinds.
@@ -168,7 +187,7 @@ export class RigTree {
     }
     // A mask shape is a part with no image: a row of its own, with no thumbnail, no eye and no keys (nothing of it is drawn or animated).
     if (shapeNames.length) {
-      roots.tree.append(el('h4', { textContent: 'Shapes', title: 'Mask shapes: imageless parts that clip other parts (Mask section)' }));
+      roots.tree.append(el('h4', { textContent: 'Shapes', title: 'Mask shapes: imageless parts that clip other parts (Properties, Clip; the Mask tool, M, moves their points)' }));
       for (const name of shapeNames) {
         const bone = s.shapes[name].bone, clipped = Object.keys(s.clips).filter(p => s.clips[p] === name);
         const r = row(name, el('span', { className: 'as-thumb as-shape-icon', textContent: '◇', title: 'A mask shape' }), el('span', { className: 'as-pname', textContent: name }), badge('shape', 'A mask shape: an outline that clips other parts, with no image of its own'),
@@ -242,7 +261,8 @@ export class RigTree {
       roots.tree.append(add);
     }
 
-    // ---- the chosen row's details ----
+    // ---- the chosen row's details: Animate's are one list; Model's go in the Properties sub-blocks (Transform, Variants) ----
+    const detail = model ? roots.transform : roots.detail, varRoot = model ? roots.variants : roots.detail;
     // A choice of bone for a part or a bone's parent: `none` stands for the top (no bone), `skip` lists bones that may not be chosen.
     const boneSelect = (label: string, prefix: string, value: string | null, skip: string[], pick: (bone: string | null) => void, name: string): HTMLLabelElement => {
       const sel = document.createElement('select');
@@ -259,8 +279,32 @@ export class RigTree {
     if (chosen === null) {
       if (!model) roots.detail.append(el('p', { className: 'as-tree-hint', textContent: 'Keys here move the whole character. Choose a part or a bone in the tree, or click one on the stage, for its own lanes.' }));
     } else if (part) {
-      if (model) roots.detail.append(boneSelect('Bone of ' + part.name, 'On bone', partBones[part.name]?.bone ?? null, [], b => host.change({ parts: setPartBone(partBones, part.name, b) }), part.name));
-      if (part.kind === 'slot') {
+      if (model && s.set) {
+        // A set: the bone its parts share, blank when they differ; a bone chosen re-hangs all of them as one undo step.
+        const set = s.set, names = [part.name, ...s.extras], shared = set.bone.mixed ? null : set.bone.value;
+        const label = boneSelect(`Bone of the ${set.label}`, 'On bone', shared, [], b => host.change({ parts: names.reduce((pb, n) => setPartBone(pb, n, b), partBones) }), part.name);
+        const sel = label.querySelector('select')!;
+        if (set.bone.mixed) { sel.selectedIndex = -1; label.title = `The ${set.label} sit on different bones: a bone chosen here hangs all of them on it`; }
+        const row = el('div', { className: 'as-bone-row' }, label);
+        if (shared !== null && Object.hasOwn(bones, shared)) {
+          const go = el('button', { type: 'button', className: 'as-bone-go', textContent: `Choose ${shared}`, title: `Choose the bone ${shared} in the tree` });
+          go.dataset.bone = shared;
+          go.addEventListener('click', () => host.choosePart(shared));
+          row.append(go);
+        }
+        detail.append(row);
+      } else if (model) {
+        // On bone: the select re-hangs the part; the link chooses the bone itself (a click on the stage chooses the part: docs/design/studio-stage-modes.md).
+        const bone = partBones[part.name]?.bone, row = el('div', { className: 'as-bone-row' }, boneSelect('Bone of ' + part.name, 'On bone', bone ?? null, [], b => host.change({ parts: setPartBone(partBones, part.name, b) }), part.name));
+        if (bone !== undefined && Object.hasOwn(bones, bone)) {
+          const go = el('button', { type: 'button', className: 'as-bone-go', textContent: `Choose ${bone}`, title: `Choose the bone ${bone} in the tree (to rename it, set its parent or remove it). On the stage, Alt-click the part or click the bone's dot.` });
+          go.dataset.bone = bone;
+          go.addEventListener('click', () => host.choosePart(bone));
+          row.append(go);
+        }
+        detail.append(row);
+      }
+      if (part.kind === 'slot' && !(model && s.set)) {
         const chips = el('div', { className: 'as-variants', role: 'group' } as Partial<HTMLDivElement>);
         chips.setAttribute('aria-label', `Variants of ${part.name}`);
         for (const v of [...part.variants, { name: 'none', file: null, poses: [], isDefault: false }]) {
@@ -277,24 +321,30 @@ export class RigTree {
           if (set) c.classList.add('as-set');
           chips.append(c);
         }
-        roots.detail.append(el('h4', { textContent: 'Variants' }), chips, el('p', { className: 'as-tree-hint', textContent: 'Click a variant to dress the stage (only for looking, not saved; * marks the default).' }));
+        const hint = 'Click a variant to dress the stage (only for looking, not saved; * marks the default).';
+        if (model) { chips.title = hint; varRoot.append(chips); } // the sub-block's head names them
+        else varRoot.append(el('h4', { textContent: 'Variants' }), chips, el('p', { className: 'as-tree-hint', textContent: hint }));
       }
-    } else if (Object.hasOwn(s.shapes, chosen) && model) {
-      const bone = s.shapes[chosen].bone, clipped = Object.keys(s.clips).filter(p => s.clips[p] === chosen);
-      roots.detail.append(el('p', { className: 'as-muted as-bone-parts', textContent: `A mask shape${bone ? ` on ${bone}` : ''}${clipped.length ? `: it clips ${clipped.join(', ')}` : ', clipping nothing yet'}. Edit it in the Mask section (Mask tool, M).` }));
-    } else if (Object.hasOwn(bones, chosen)) {
+    } else if (Object.hasOwn(bones, chosen) && !Object.hasOwn(s.shapes, chosen)) {
+      // A bone: what it moves; in Model mode, Transform's bone view (with its pivot above), Remove bone being that line's verb.
       const kids = new Set<string>();
       for (const { name: b } of boneNames) { for (let c: string | undefined = bones[b]?.parent, i = 0; c !== undefined && i < 99; c = bones[c]?.parent, i++) if (c === chosen) kids.add(b); }
       const members = partsUnder(bones, onBone, chosen);
-      roots.detail.append(el('p', { className: 'as-muted as-bone-parts', textContent: members.length ? `Moves ${members.join(', ')}` : 'No parts on this bone.' }));
+      detail.append(el('p', { className: 'as-muted as-bone-parts', textContent: members.length ? `Moves ${members.join(', ')}` : 'No parts on this bone.' }));
       if (model) {
-        roots.detail.append(boneSelect(`Parent of ${chosen}`, 'Under', bones[chosen]?.parent ?? null, [chosen, ...kids], parent => reparent(chosen, parent), chosen));
-        const del = el('button', { type: 'button', className: 'as-bone-del', title: `Remove ${chosen}: what is on it goes to its parent` }, 'Remove bone');
-        del.addEventListener('click', () => {
-          const gone = deleteBone(bones, partBones, chosen);
-          host.change({ bones: gone.bones, parts: gone.parts, part: null });
-        });
-        roots.detail.append(del);
+        // Rename: the name follows into every parent, part, shape, keyform, animation key, physics chain and skinned mesh (engine/src/bone-edit.ts).
+        const name = document.createElement('input');
+        name.type = 'text';
+        name.className = 'as-bone-name';
+        name.value = chosen;
+        name.dataset.boneName = chosen;
+        name.setAttribute('aria-label', `Name of the bone ${chosen}`);
+        const rename = () => { if (name.value.trim() !== chosen) host.renameBone(chosen, name.value); };
+        name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rename(); } });
+        const renameBtn = el('button', { type: 'button', className: 'as-bone-rename', title: `Give ${chosen} this name: its children, the parts and shapes on it, keyforms, animation keys, physics chains and skinned meshes follow` }, 'Rename');
+        renameBtn.addEventListener('click', rename);
+        detail.append(el('div', { className: 'as-bone-label' }, el('label', { title: `Rename ${chosen}` }, 'Name ', name), renameBtn));
+        detail.append(boneSelect(`Parent of ${chosen}`, 'Under', bones[chosen]?.parent ?? null, [chosen, ...kids], parent => reparent(chosen, parent), chosen));
       }
     }
 

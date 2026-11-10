@@ -1,16 +1,17 @@
-// The animation studio's Mask section (Model mode): the mask shapes of the character (rig.json shape parts, see engine/src/masks.ts) and the
-// `clip` link of the chosen part. A shape is an imageless part with its own row in the tree; the section edits the chosen shape (its name,
-// the bone it sits on, the part it follows, the parts it clips, its polygon by point number; the stage drags the points: preview/studio-gizmo.ts,
-// the Mask tool) or, for a chosen part, what the part is clipped to, with a button that draws a new shape on its bone. A part's own shape
+// The animation studio's Clip sub-block of Properties (Model mode) and the Mask panel of the tool options bar: the mask shapes of the
+// character (rig.json shape parts, see engine/src/masks.ts) and the `clip` link of the chosen part. A shape is an imageless part with its own
+// row in the tree; the sub-block edits the chosen shape (its name, the bone it sits on, the part it follows, the parts it clips, its polygon
+// by point number; the stage drags the points: preview/studio-gizmo.ts, the Mask tool; the bar adds and removes them) or, for a chosen part,
+// what the part is clipped to. Its head line's verbs (New shape, Remove clip, Delete shape) call in here. The shape a part is clipped to
 // is the one edited when the part row is chosen. The maths is in engine/src/mask-edit.ts and masks.ts; the studio keeps the working copy and
 // this works through `MaskHost`. A shape's keyforms (hand-written in rig.json) are kept across edits of the polygon; the stage shows the shape they give.
 
 import {
-  addShape, addToGroup, checkMasks, clipGroupIssues, clipTargets, clippedBy, defaultPolygon, deleteShape, edgeMidpoint, insertPolygonPoint, MASK_MAX_POINTS, MASK_MIN_POINTS, moveShape, movePolygonPoint,
-  removePolygonPoint, renameShape, setClip, shapeSummary, writeShapes,
+  addShape, checkMasks, clipTargets, clippedBy, defaultPolygon, deleteShape, edgeMidpoint, insertPolygonPoint, MASK_MAX_POINTS, MASK_MIN_POINTS, moveShape, movePolygonPoint,
+  removePolygonPoint, renameShape, setClip, writeShapes,
   type CanvasBox, type DeformerDef, type ParamDef, type ShapeDef, type ShapeEdit, type ShapeSet,
 } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, layoutRows } from './anim-dom.js';
 
 /** A polygon point drag in progress: `put` shows the shapes it makes, `end` makes it one undo step. */
 export interface MaskDrag { put(shapes: Record<string, ShapeDef>): void; end(): void }
@@ -18,6 +19,8 @@ export interface MaskDrag { put(shapes: Record<string, ShapeDef>): void; end(): 
 export interface MaskHost {
   /** The chosen row of the tree. */
   part(): string | null;
+  /** A Ctrl-click set (the chosen part first), null for none: Clip to ▾ shows the clip they share and sets one on all of them. */
+  setParts(): string[] | null;
   /** Is the name a part with art (a bone has no image to clip, a shape no art to be clipped)? */
   isPart(name: string): boolean;
   isShape(name: string): boolean;
@@ -49,18 +52,23 @@ export class MaskPanel {
   private dragging: { name: string; base: ShapeDef; start: [number, number]; point: number; drag: MaskDrag } | null = null;
   private q: <T extends Element>(s: string) => T;
 
-  constructor(private root: HTMLElement, private host: MaskHost) {
+  private target: HTMLLabelElement;  // Clip to ▾: in the Clip row while the part is drawn whole, in the sub-block's head line once clipped
+  private targetHome: HTMLElement;
+  private addBtn: HTMLButtonElement;
+  private delBtn: HTMLButtonElement;
+
+  /**
+   * `root` is the Clip sub-block's body, `pick` the place in its head line where Clip to ▾ stands once the part is clipped, and `bar` the
+   * Mask panel of the tool options bar (Add point after, Remove point). New shape, Remove clip and Delete shape are the head line's verbs.
+   */
+  constructor(private root: HTMLElement, private pick: HTMLElement, bar: HTMLElement, private host: MaskHost) {
     this.root.innerHTML = `
-      <p class="as-pivot-hint am-none"></p>
       <div class="am-kind"><span class="as-pivot-name">Clip to</span>
-        <label><select class="am-target" aria-label="What the part is clipped to"></select></label>
-        <button type="button" class="am-new" title="Draw a new shape on this part's bone and clip the part to it">New shape</button>
-        <button type="button" class="am-remove" title="Draw the part whole again">Remove clip</button>
-        <span class="as-pivot-hint am-hint"></span></div>
+        <label class="as-lone"><select class="am-target" aria-label="What the part is clipped to"></select></label></div>
+      <p class="as-pivot-hint am-hint"></p>
       <div class="am-shape"><span class="as-pivot-name">Shape</span>
         <label>name <input type="text" class="am-name" spellcheck="false" aria-label="Name of the shape"></label>
         <button type="button" class="am-rename" title="Give the shape this name: every clip and group member that names it follows">Rename</button>
-        <button type="button" class="am-delete" title="Delete the shape: the parts it clips are drawn whole again">Delete shape</button>
         <label>on bone <select class="am-bone" aria-label="Bone the shape sits on"></select></label>
         <label>follows <select class="am-follow" aria-label="Part whose drawn mesh the shape follows"></select></label>
         <span class="as-pivot-hint am-clips"></span></div>
@@ -68,24 +76,23 @@ export class MaskPanel {
         <label>point <select class="am-pick" aria-label="Point of the shape"></select></label>
         <label>x <input type="number" class="am-x" step="1" aria-label="Point x, in pixels of the PSD canvas"></label>
         <label>y <input type="number" class="am-y" step="1" aria-label="Point y, in pixels of the PSD canvas"></label>
-        <button type="button" class="am-add" title="Add a point halfway to the next one">Add point after</button>
-        <button type="button" class="am-del" title="Remove the chosen point">Remove point</button>
         <span class="as-pivot-hint am-pthint"></span></div>
-      <div class="am-groupnote"></div>
       <p class="as-pivot-hint am-problem" role="status"></p>`;
+    layoutRows(this.root);
     this.q = <T extends Element>(s: string) => this.root.querySelector<T>(s)!;
+    this.target = this.q<HTMLSelectElement>('.am-target').closest('label')!;
+    this.targetHome = this.target.parentElement!;
+    this.addBtn = bar.querySelector('.am-add')!;
+    this.delBtn = bar.querySelector('.am-del')!;
     this.q('.am-target').addEventListener('change', e => this.clipTo((e.target as HTMLSelectElement).value));
-    this.q('.am-new').addEventListener('click', () => this.newShape());
-    this.q('.am-remove').addEventListener('click', () => this.clipTo(''));
     this.q('.am-rename').addEventListener('click', () => this.rename());
     this.q<HTMLInputElement>('.am-name').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.rename(); } });
-    this.q('.am-delete').addEventListener('click', () => this.remove());
     this.q('.am-bone').addEventListener('change', e => this.move({ bone: (e.target as HTMLSelectElement).value || null }));
     this.q('.am-follow').addEventListener('change', e => this.move({ follow: (e.target as HTMLSelectElement).value || null }));
     this.q<HTMLSelectElement>('.am-pick').addEventListener('change', e => { const v = (e.target as HTMLSelectElement).value; this.point = v === '' ? null : Number(v); this.show(); this.host.selected(); });
     for (const cls of ['.am-x', '.am-y']) this.q<HTMLInputElement>(cls).addEventListener('change', () => this.typed());
-    this.q('.am-add').addEventListener('click', () => this.addAfter());
-    this.q('.am-del').addEventListener('click', () => { if (this.point !== null) this.removePoint(this.point); });
+    this.addBtn.addEventListener('click', () => this.addAfter());
+    this.delBtn.addEventListener('click', () => { if (this.point !== null) this.removePoint(this.point); });
   }
 
   /** A new opening of the studio. */
@@ -102,7 +109,8 @@ export class MaskPanel {
   /** The shape the section edits and the stage shows handles on: the chosen shape row, else the shape the chosen part is clipped to. */
   edited(): string | null {
     const p = this.host.part();
-    if (p === null) return null;
+    if (p === null || this.host.setParts()) return null; // a set edits no shape: that is one part's
+
     if (this.host.isShape(p)) return p;
     const to = this.host.clips()[p];
     return to !== undefined && this.host.isShape(to) ? to : null;
@@ -112,9 +120,6 @@ export class MaskPanel {
 
   /** The stage knows where a part's image lies in canvas pixels once its art has loaded. */
   box(part: string, b: CanvasBox) { this.boxes.set(part, b); }
-
-  /** One line for the section header: the chosen row's shape or clip, else how many shapes there are. */
-  summary(): string { return shapeSummary({ shapes: this.host.shapes(), clips: this.host.clips() }, this.host.part()); }
 
   // ---- changes ----
   /** Apply an edit's answer: the working copy changes as one undo step and the note says what happened, or the refusal is the note. */
@@ -128,10 +133,27 @@ export class MaskPanel {
     const part = this.part();
     if (!part) return;
     this.point = null;
-    this.apply(setClip(this.set(), new Set(this.host.parts()), part, target || null));
+    const set = this.host.setParts();
+    if (set) this.clipAll(set, target || null);
+    else this.apply(setClip(this.set(), new Set(this.host.parts()), part, target || null));
     this.host.selected();
   }
-  private newShape() {
+  /** A set: clip every part to `target` (null: draw them whole) as one undo step, or refuse with the first part that cannot be. */
+  private clipAll(parts: string[], target: string | null) {
+    const names = new Set(this.host.parts());
+    let set = this.set();
+    for (const p of parts) {
+      const r = setClip(set, names, p, target);
+      if ('error' in r) { this.host.note(`${p}: ${r.error}`); this.show(); return; }
+      set = r.set;
+    }
+    this.apply({ set, note: target === null ? `The ${parts.length} parts are drawn whole again.` : `The ${parts.length} parts are clipped to ${target}.` });
+  }
+  /** The Clip line's verbs: Remove clip and Delete shape. */
+  removeClip() { this.clipTo(''); }
+  deleteShape() { this.remove(); }
+  /** New shape: a shape drawn on the part's bone, the part clipped to it, and the Mask tool on to shape it. */
+  newShape() {
     const part = this.part();
     if (!part) return;
     const box = this.boxes.get(part);
@@ -221,6 +243,7 @@ export class MaskPanel {
     this.point = index;
     this.host.set({ ...this.set(), shapes: { ...this.host.shapes(), [shape]: next } });
     this.host.selected();
+    this.host.note(`Added point ${index} to ${shape}${def.keyforms?.length ? '; at each key it sits on the edge it was put on' : ''}. Alt-click a point to remove it; Ctrl+Z undoes.`);
   }
   /** Alt-click on a point of the outline. */
   removed(shape: string, point: number) {
@@ -234,26 +257,37 @@ export class MaskPanel {
     const part = this.part(), shape = this.edited(), q = this.q, chosen = this.host.part();
     const shapes = this.host.shapes(), clips = this.host.clips(), def = shape ? shapes[shape] : undefined;
     if (shape !== this.lastShape) { this.lastShape = shape; this.point = null; }
-    const none = !chosen ? 'Choose a part in the tree to clip it to a shape, or a shape to edit it.'
-      : !part && !shape ? `${chosen} is a bone. A mask clips a part: choose one of the parts on it.` : '';
-    q<HTMLElement>('.am-none').textContent = none;
-    q<HTMLElement>('.am-none').hidden = !none;
-    q<HTMLElement>('.am-kind').hidden = !part;
+    // A set: the clip its parts share, or none shown (`mixed`) when they differ; Clip to ▾ is then in the line, blank.
+    const set = part ? this.host.setParts() : null, shared = set ? new Set(set.map(p => clips[p] ?? '')) : null;
+    const mixed = !!shared && shared.size > 1;
+    const to = mixed ? '' : set ? [...shared!][0] : part ? clips[part] ?? '' : '';
+    // Clip to ▾ stands in the head line once the part is clipped (the line then reads `Clipped to lid ▾`), in its own row before.
+    const home = to || mixed ? this.pick : this.targetHome;
+    if (this.target.parentElement !== home) home.append(this.target);
+    q<HTMLElement>('.am-kind').hidden = !part || !!to || mixed;
+    q<HTMLElement>('.am-hint').hidden = !part;
     q<HTMLElement>('.am-shape').hidden = !def;
     q<HTMLElement>('.am-poly').hidden = !def;
+    // The Mask bar's point buttons: Add point after (the last point when none is chosen) and Remove point, for the shape edited.
+    this.addBtn.disabled = !def || def.polygon.length >= MASK_MAX_POINTS;
+    this.delBtn.disabled = !def || this.point === null || def.polygon.length <= MASK_MIN_POINTS;
     // What a part is clipped to: nothing, a shape, or another part (its drawn silhouette).
     if (part) {
-      const sel = q<HTMLSelectElement>('.am-target'), to = clips[part] ?? '';
-      const sig = `${Object.keys(shapes).join(',')}|${this.host.parts().join(',')}|${part}`;
+      const sel = this.target.querySelector('select')!;
+      const sig = `${Object.keys(shapes).join(',')}|${this.host.parts().join(',')}|${(set ?? [part]).join(',')}`;
       if (sel.dataset.sig !== sig) {
         sel.dataset.sig = sig;
         const group = (label: string, names: string[]) => { const g = document.createElement('optgroup'); g.label = label; g.append(...names.map(n => el('option', { value: n, textContent: n }))); return g; };
-        sel.replaceChildren(el('option', { value: '', textContent: '(nothing: drawn whole)' }), ...(Object.keys(shapes).length ? [group('Shapes', Object.keys(shapes))] : []), group('Parts (their drawn silhouette)', clipTargets(this.host.parts(), part)));
+        const silhouettes = clipTargets(this.host.parts(), part).filter(p => !set?.includes(p)); // a part of the set cannot clip the set
+        sel.replaceChildren(el('option', { value: '', textContent: '(nothing: drawn whole)' }), ...(Object.keys(shapes).length ? [group('Shapes', Object.keys(shapes))] : []), group('Parts (their drawn silhouette)', silhouettes));
       }
       sel.value = to;
       if (sel.value !== to) sel.value = ''; // a clip that names nothing real (checkRig says so)
-      q<HTMLElement>('.am-remove').hidden = !to;
-      const text = !to ? 'A mask clips the part to a shape (an iris to the eye, a mouth interior to the mouth); the stage draws it as a dashed outline. New shape draws one on the part\'s bone.'
+      if (mixed) sel.selectedIndex = -1; // blank: they differ
+      sel.setAttribute('aria-label', set ? `What the ${set.length} parts are clipped to` : 'What the part is clipped to');
+      this.target.title = mixed ? `The ${set!.length} parts are clipped to different things (${set!.map(p => `${p}: ${clips[p] ?? 'none'}`).join(', ')}): a choice here is set on all of them` : set ? 'A choice here is set on all of them' : '';
+      const text = set ? (mixed ? `The ${set.length} parts are clipped to different things: Clip to ▾ sets one on all of them.` : to ? `The ${set.length} parts are drawn only inside ${to}.` : `None of the ${set.length} parts is clipped: Clip to ▾ clips all of them to a shape or a part.`)
+        : !to ? 'A mask clips the part to a shape (an iris to the eye, a mouth interior to the mouth); the stage draws it as a dashed outline. New shape draws one on the part\'s bone.'
         : def ? `${part} is drawn only inside ${to}${clippedBy({ clips }, to).length > 1 ? `, a shape that clips ${clippedBy({ clips }, to).join(', ')}` : ''}.`
           : `${part} is drawn only where ${to} has pixels, wherever ${to} moves or bends. A look that hides ${to} hides ${part} too.`;
       q<HTMLElement>('.am-hint').textContent = text;
@@ -266,14 +300,6 @@ export class MaskPanel {
     }
     problem.textContent = issues.join(' ');
     problem.hidden = !issues.length;
-    // A clipped part that a group warp bends while its shape is not bent with it.
-    const gn = q<HTMLElement>('.am-groupnote'), found = clipGroupIssues(this.set()).filter(i => i.part === part || i.shape === shape);
-    gn.replaceChildren(...found.map(i => {
-      const b = el('button', { type: 'button', className: 'am-fixgroup', textContent: `Add ${i.shape} to ${i.group}`, title: 'Make the shape a member of the group warp, so it bends with the part it clips' });
-      b.addEventListener('click', () => this.host.set({ ...this.set(), deformers: addToGroup(this.host.deformers(), i.group, i.shape) }));
-      return el('span', { className: 'as-pivot-hint am-groupissue' }, `${i.part} is bent by the group warp ${i.group}, but its shape ${i.shape} is not a member: the lid would stay while the part moves. `, b);
-    }));
-    gn.hidden = !found.length;
     if (!def || !shape) return;
     // The shape: name, bone, follow, what it clips.
     const name = q<HTMLInputElement>('.am-name');
@@ -296,7 +322,7 @@ export class MaskPanel {
       i.disabled = n === null;
       if (document.activeElement !== i) i.value = n === null ? '' : shown(poly[n][k]);
     }
-    q<HTMLButtonElement>('.am-del').disabled = n === null || poly.length <= MASK_MIN_POINTS;
+    this.delBtn.disabled = n === null || poly.length <= MASK_MIN_POINTS;
     const kfs = def.keyforms?.length ?? 0;
     q<HTMLElement>('.am-pthint').textContent = (n === null ? 'Choose the Mask tool (M): drag a point of the outline, click an edge to add one, Alt-click a point to remove it. Points are in pixels of the PSD canvas.' : `Point ${n} of ${poly.length}.`)
       + (kfs ? ` ${kfs === 1 ? '1 keyform reshapes' : `${kfs} keyforms reshape`} this shape with parameters (written in rig.json).` : '');

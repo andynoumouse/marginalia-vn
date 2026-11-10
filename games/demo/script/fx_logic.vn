@@ -5,8 +5,8 @@ set fx_roll = 0
 set fx_word = ""
 
 label fx_variables:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Variables", "set keeps a number or a word. The operators change it, and a variable in square brackets shows its value in any line.")
   set fx_a_label = "set fx_count"
   set fx_a1 = "+= 1"
@@ -35,12 +35,12 @@ label fx_variables_loop:
     set fx_fired = "set fx_count = 0"
     set fx_count = 0
     jump fx_variables_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_lists:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Lists", "A variable can hold a list: a bag, a party, the clues found. Add and remove entries, and ask what it holds.")
   set fx_a_label = "Do"
   set fx_a1 = "add coin"
@@ -82,7 +82,7 @@ label fx_lists_loop:
     set fx_fired = "set fx_bag = []"
     set fx_bag = []
     jump fx_lists_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_show_bag:
@@ -93,8 +93,8 @@ label fx_show_bag:
   return
 
 label fx_random:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Chance", "random, pick and chance use a seeded generator: a replayed save draws the same numbers.")
   set fx_a_label = "Draw"
   set fx_a1 = "random"
@@ -122,7 +122,7 @@ label fx_random_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_random_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 # A label with parameters: each call gives them values, and they are local to that call.
@@ -131,8 +131,8 @@ label fx_serve(thing, amount):
   return
 
 label fx_call_args:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Calling a label", "call runs a label like a subroutine and hands it values. The same few lines serve every dish and every number.")
   set fx_a_label = "Dish"
   set fx_a1 = "tea"
@@ -180,12 +180,12 @@ label fx_call_args_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_call_args_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_persistent:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Across playthroughs", "Some things outlive a game: a persistent counter, and an unlock flag that pops up an achievement the first time.")
   set fx_a_label = "Keep"
   set fx_a1 = "counter"
@@ -209,5 +209,5 @@ label fx_persistent_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_persistent_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return

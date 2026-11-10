@@ -20,12 +20,12 @@ test('sound and music commands parse', () => {
   assert.equal(op('sound play door').action, 'play');
   assert.equal(op('sound play door duck').duck, true);
   assert.equal(op('sound play door').duck, undefined);
-  const loop = op('sound loop rain fade 2');
+  const loop = op('sound loop rain fade 2s');
   assert.equal(loop.action, 'loop'); assert.equal(loop.name, 'rain'); assert.equal(loop.fade, 2);
   assert.deepEqual([op('sound stop').name, op('sound stop').fade], [null, 0]);
-  assert.deepEqual([op('sound stop rain fade 1.5').name, op('sound stop rain fade 1.5').fade], ['rain', 1.5]);
-  assert.deepEqual([op('sound stop fade 1').name, op('sound stop fade 1').fade], [null, 1]);
-  assert.equal(op('music pause fade 1').action, 'pause');
+  assert.deepEqual([op('sound stop rain fade 1.5s').name, op('sound stop rain fade 1.5s').fade], ['rain', 1.5]);
+  assert.deepEqual([op('sound stop fade 1s').name, op('sound stop fade 1s').fade], [null, 1]);
+  assert.equal(op('music pause fade 1s').action, 'pause');
   assert.equal(op('music resume').fade, 0);
   assert.equal(op('sound loop rain nowait').nowait, true);
   for (const bad of ['sound loop', 'sound play', 'sound loop rain fade', 'sound play a b', 'sound stop a b', 'sound play a fade 1', 'sound loop a duck', 'sound mute', 'music rewind']) {
@@ -36,8 +36,8 @@ test('sound and music commands parse', () => {
 test('ambience and music pause live in the display state', async () => {
   const { rt, seen } = await play([
     'label start:', '  scene a', '  music play theme loop',
-    '  sound loop rain', '  sound loop crowd fade 1', '  sound loop rain',
-    '  "both"', '  sound stop rain fade 2', '  music pause', '  "one, paused"',
+    '  sound loop rain', '  sound loop crowd fade 1s', '  sound loop rain',
+    '  "both"', '  sound stop rain fade 2s', '  music pause', '  "one, paused"',
     '  music resume', '  sound stop', '  "none"', '  music stop', '  end',
   ].join('\n'));
   assert.deepEqual(seen.both.ambience, ['rain', 'crowd']);

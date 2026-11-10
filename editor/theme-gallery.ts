@@ -116,8 +116,12 @@ export function inspectElement(el: Element): Inspect | null {
   for (let e: Element | null = el; e && e.id !== 'stage'; e = e.parentElement) {
     // Several components can match one element (a tab is also a button); the longest matching selector is the most specific.
     let best: (Inspect & { len: number }) | null = null;
+    // A `:not(...)` exclusion adds length but no specificity of its own, so it is left out of the comparison.
     const consider = (key: string, state: string, selectors: string[]) => {
-      for (const s of selectors) if (e!.matches(s) && (!best || s.length > best.len)) best = { key, state, len: s.length };
+      for (const s of selectors) {
+        const len = s.replace(/:not\([^)]*\)/g, '').length;
+        if (e!.matches(s) && (!best || len > best.len)) best = { key, state, len };
+      }
     };
     for (const [base, def] of Object.entries(UI_COMPONENTS)) {
       const parts = def.selector.split(',').map(s => s.trim());

@@ -17,6 +17,13 @@ export class AssetViewer {
   private at = 0;
   private returnFocus: (() => void) | null = null;
   private fontCount = 0;
+  /** The font file on show, added to the page for its sample; removed when another file shows or the viewer closes. */
+  private font: FontFace | null = null;
+
+  private dropFont() {
+    if (this.font) document.fonts.delete(this.font);
+    this.font = null;
+  }
 
   constructor(host: HTMLElement) {
     this.root = document.createElement('div');
@@ -63,6 +70,7 @@ export class AssetViewer {
     if (this.root.hidden) return;
     this.root.hidden = true;
     this.stage.replaceChildren(); // stops playing audio
+    this.dropFont();
     this.returnFocus?.();
   }
 
@@ -74,6 +82,7 @@ export class AssetViewer {
 
   private render() {
     const file = this.list[this.at];
+    this.dropFont();
     this.title.textContent = file;
     this.root.querySelector<HTMLAnchorElement>('.av-open')!.href = url(file);
     this.info.textContent = this.list.length > 1 ? `${this.at + 1} of ${this.list.length} in ${file.split('/')[0]}/` : '';
@@ -97,8 +106,10 @@ export class AssetViewer {
       sample.style.fontFamily = `"${family}", sans-serif`;
       sample.textContent = 'The quick brown fox jumps over the lazy dog. 0123456789\nAaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz';
       this.stage.replaceChildren(sample);
-      new FontFace(family, `url(${url(file)})`).load()
-        .then(f => { document.fonts.add(f); })
+      const face = new FontFace(family, `url(${url(file)})`);
+      this.font = face;
+      face.load()
+        .then(f => { if (this.font === f) document.fonts.add(f); }) // not if another file showed while it loaded
         .catch(() => { sample.textContent = `Could not load ${file}`; });
     }
   }

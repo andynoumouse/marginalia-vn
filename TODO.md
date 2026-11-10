@@ -127,8 +127,8 @@ Nothing open right now; pick from the topic sections below.
   - [~] Flat characters (rig.json without sprite.json). The standalone studio opens a folder of pose images with no rig.json and Save creates it
     (browser test). Left: the editor still cannot start a rig.json for a flat character that has none (its project data has no manifest for it
     until the file exists).
-  - [~] Script ↔ studio links. Left: a hover link; opening the studio from a `show` line starts from that placement (only
-    `animate` lines are read, with F12); no browser test of F12, Insert in script or Try in scene.
+  - [~] Script ↔ studio links. Left: a hover link; a `show` line opens the studio on its character (F12, the right-click menu) but
+    not at that placement; no browser test of F12, the right-click entry, Insert in script or Try in scene.
   - [~] Animation studio: **Model | Animate** modes in three columns (animation picker and Parts tree, stage and timeline,
     collapsible sections; [docs/design/studio-ux.md](docs/design/studio-ux.md), built). Model mode (parts, bones, pivots,
     parameter preview, physics, by itself) has a Model button in the Files panel and a draggable pivot. Left:
@@ -137,14 +137,16 @@ Nothing open right now; pick from the topic sections below.
       Alt+arrows, Reset layout; [docs/design/dock-binding.md](docs/design/dock-binding.md), `editor/dock-ui.ts`, bench
       `editor/dock-sandbox.html`, `npm run test:dock`); left of that: dragging into the centre, touch polish, a layout per mode.
     - Model mode could add a draw-order / group overview.
-    - UX round ([docs/design/ux-test-2026-11/es.md](docs/design/ux-test-2026-11/es.md)): the studio is hard to find (the Characters
-      list starts below the fold, an `animate` line's right-click menu has no "open in studio", plain `studio` in Ctrl+P offers only
-      "Create studio.vn": ES-2); at 900x700 the stage starts below the first screen and at 1000x600 it is 376x204 (ES-4); the
+    - UX round ([docs/design/ux-test-2026-11/es.md](docs/design/ux-test-2026-11/es.md)): the Characters list starts below the fold in a
+      short window (ES-2; the right-click menu and plain `studio` in Ctrl+P now reach the studio); at 900x700 the stage starts below the first screen and at 1000x600 it is 376x204 (ES-4); the
       Properties panel opens as about 20 blank disabled controls (ES-9); parameter rows are three lines tall at the default column
-      (ES-10); undo and redo change an animation that is not on screen without saying so (ES-5; one global stack); key times show
-      as bare fractions of Length, not seconds (ES-7); Model mode's Automatic block edits an animation you cannot see (ES-6); the
+      (ES-10); the
       layer and group naming rules for PSDs are undocumented, and a Photoshop "Group 1" becomes an empty slot whose layers are
-      dropped (ES-8); a key on a grid line cannot be clicked at its centre (ES-12); the "Not keyed yet" status stays after Key (ES-11).
+      dropped (ES-8).
+    - [ ] Second UX round, studio only (three testers, 2026-11-09, 62 findings; [docs/design/ux-test-2026-11-studio/summary.md](docs/design/ux-test-2026-11-studio/summary.md)),
+      in its Fix-first order (all six are done: keyboard focus, posing a bound part on a bone, a mesh without a parameter, the edits that damaged
+      the rig, the right column of [docs/design/studio-inspector.md](docs/design/studio-inspector.md), and Animate's SA-2, 5, 6, 7 and 8): the S3s
+      are left.
   - [ ] Automatic animations, what is left ([docs/design/auto-animations.md](docs/design/auto-animations.md)): studio buttons that make
     a blink or a talk animation from a slot's variants, spring transitions for reactions, a condition syntax for parameters beyond
     `param.<id>`, and the rig tab's check of condition names against the project's script variables (`checkRig` takes them;
@@ -164,11 +166,13 @@ Nothing open right now; pick from the topic sections below.
     - [~] Free meshes (a part on a triangle mesh of any shape, every vertex keyed; [docs/design/free-mesh.md](docs/design/free-mesh.md)).
       Built: data model, generator, renderer, studio Generate / vertex editing / topology tools. **Left:** the full browser set has not
       run on it (the gate said SKIP each time), and a mesh on a sample part for the tutorial.
-    - [ ] Bone-weighted skinning of a free mesh (one part bends along the skeleton: arms, ponytails, tails; per-vertex weights
+    - [~] Bone-weighted skinning of a free mesh (one part bends along the skeleton: arms, ponytails, tails; per-vertex weights
       in `mesh.weights` with an explicit `defaultBone`, a bone's `tip`, Spine's rule that the part's own bone does not move a
-      skinned mesh). Designed in [docs/design/skinning.md](docs/design/skinning.md) (agreed), seven steps of one session each and
-      an optional eighth; nothing built. Mina's hair as a bone-driven strand mesh comes before any studio work. Rest poses stay in
-      canvas pixels and a bone axis for stretching is left out (the design says why). Needs a sample part that spans two joints.
+      skinned mesh). Designed in [docs/design/skinning.md](docs/design/skinning.md); steps 1 to 7 are built (core, renderer, pure edits,
+      Mina's hair, the studio's Weights tool with brush, test pose, selection, numeric tools and Mirror, Remove bone carrying weights, the
+      rest-pose rule for keyforms, docs in rig-json.md "Skinning" and the tutorial). **Left:** the optional step 8, editing a skinned mesh's
+      keyforms under a pose (a drag converted through the inverse of the vertex's blended matrix), decided by whether correctives for bent
+      joints turn out to be wanted. Rest poses stay in canvas pixels and a bone axis for stretching is left out (the design says why).
   - [ ] Parameter-driven animation studio (more Live2D-like). Designed, with the main questions decided (only a
     low-end-phone check of stencil masks is open, see below): [docs/design/animation-studio-parameters.md](docs/design/animation-studio-parameters.md),
     which also has a suggested build order. The parameter model comes first; the mesh-warp item above then plugs into it
@@ -183,7 +187,7 @@ Nothing open right now; pick from the topic sections below.
       the block under the list shows the bound parts, the keys, the pose and which parameters move the chosen part, + column / + row grow a grid
       (`engine/src/keyform-edit.ts`, `engine/src/param-bind.ts`, `editor/anim-bind.ts`; docs/design/animation-studio-parameters.md) and Model
       **edits the parameters and pads** (new, rename through keyforms, poses, tracks, deformers, masks and physics, range, default,
-      category, ease, delete; categories are their own list: add, rename, delete, reorder, drag controls between them; `engine/src/param-edit.ts`); **Animate mode keys the values on the timeline**. Copy keys (the Copy row of the bound list, with Mirror) takes over another part's keys on the same parameter or pad, or any part's on another parameter of the same kind (`copyKeys` in `engine/src/key-copy.ts` maps min to min, default to default). Alt-click on a bone's tick in the Parts tree binds (or unbinds) the bone, the bones below it and their parts at once. Left: a curve editor per track ([plan](docs/design/param-curve-editor.md)), part keys becoming
+      category, ease, delete; categories are their own list: add, rename, delete, reorder, drag controls between them; `engine/src/param-edit.ts`); **Animate mode keys the values on the timeline**. Copy keys (the Copy row of the bound list, with Mirror) takes over another part's keys on the same parameter or pad, or any part's on another parameter of the same kind (`copyKeys` in `engine/src/key-copy.ts` maps min to min, default to default). Bind parts… has a checkbox that also binds what hangs on a ticked bone (the bones below it and their parts); the Parts tree's marks only show what is bound. Left: a curve editor per track ([plan](docs/design/param-curve-editor.md)), part keys becoming
       parameters (both kinds of key exist side by side now), easing between keyforms for pad grids, warps and masks (a slider's pose keys have a per-key `ease`, set in the Pose row), a handle for keyform opacity (a field only), a rename that also follows script lines (`animate robo look_x=...`).
     - [~] Masking: **built** (shape parts and `clip` links in rig.json `parts`; the first build's `masks` list is no longer read;
       [docs/rig-json.md](docs/rig-json.md#masks), design in
@@ -213,7 +217,7 @@ Nothing open right now; pick from the topic sections below.
       bone channels and writing parameters or, as the interim, a part's rotation; `checkRig` rules incl. cycles; the game shell
       steps them last and additive, paused with the pause menu, at rest after a sync, in skip and reduced motion, kept across
       scene changes; animation `physicsOff`; the studio's Physics tab with presets, JSON editing and Shake; sample: Mina's
-      `hair_back` (a warp lattice bent by five three-segment strand chains through 15 parameters); script `wind right|left` with per-chain `windScale`,
+      `hair_back` (a skinned mesh whose 15 strand bones, five chains of three, are turned by the strand chains' physics; no parameters); script `wind right|left` with per-chain `windScale`,
       also carrying weather and bursts, and `gravity` for weather and bursts, shown in animations.vn and demo.vn; see docs/rig-json.md). Left: a
       number-field editor instead of JSON, a `physicsOff` for poses and a script switch, wind in the studio's Shake preview (the strand
       amplitudes were set by estimate, not tuned by eye), no browser test of the Physics tab, `wind` or `gravity`, an opt-in gravity
@@ -250,15 +254,14 @@ Nothing open right now; pick from the topic sections below.
   clearing site data.
   A restore at a choice puts the line before it back in the box in one piece, so a line long enough to page (it types page by page on the first visit) is not paged there and is untested.
 - [ ] The end of the game: the words are now translatable labels (`end_title`, `end_hint`, `rotate_device`) over a dimmed stage. Left:
-  a short ending has no name of its own and the quick menu stays up (PC-4); the "Turn your device" cover blocks a tablet held
+  a short ending has no name of its own (PC-4; the quick menu now goes down at the end); the "Turn your device" cover blocks a tablet held
   the other way when the stage would fit, and has no icon (PI-11).
 - [~] The quick bar (the labels have 28 px text and a dark halo). Left: it still overlaps the text box edge, touch targets are
   under 44 px, a tap beside it advances the story (PI-2, PI-3), and the editor's preview pane shows it at about 8 px (EA-19). Belongs with the touch steps of [docs/design/mobile.md](docs/design/mobile.md).
-- [ ] The exported game's first load (UX round, [docs/design/ux-test-2026-11/px.md](docs/design/ux-test-2026-11/px.md)): a black page
-  with no loader until about 150 unbundled modules have arrived (6 s on fast 3G, 20 s on slow: PX-1); the first line after New
-  game takes 26.7 s on slow 3G behind a loading bar that reports 200% (PX-3; guessed cause: overlapping `ensure()` calls count a
-  key twice); a game title of about 50 characters runs over the title buttons (PX-4); the player has no way to reset progress or
-  clear data (PX-5).
+- [ ] The exported game's first load (UX round, [docs/design/ux-test-2026-11/px.md](docs/design/ux-test-2026-11/px.md)): the page says
+  "Loading…" now, but the modules are still about 150 unbundled requests (6 s on fast 3G, 20 s on slow: PX-1; a bundled export
+  would fix it); the first line after New game takes about 27 s on slow 3G (PX-3; the bar no longer reports 200 %, the wait is
+  the first scene's assets behind the title music).
 
 ## Accessibility
 
@@ -269,18 +272,17 @@ Nothing open right now; pick from the topic sections below.
   focus falls to the page and Narrator reads the page title; and with Narrator on, key and focus navigation break (arrows,
   Space, Enter, numbers). Left: find out why (try NVDA and a plain browser window first); NVL pages and history are not
   announced separately.
-- [ ] Focus and structure in the stock screens (UX round, [docs/design/ux-test-2026-11/pi.md](docs/design/ux-test-2026-11/pi.md)): focus
-  is dropped to the page after a Save/Load page tab or a save, and saving gives no confirmation (PI-7); menu focus rings are 1.84:1
-  (PI-9); Tab does nothing during narration (it is Skip) and no screen lists the keys (PI-8); no landmarks or headings, and the
-  Options tabs have no tablist or tabpanel (PI-6, PI-12); switches read "Reduce motion: Off" but are not `role=switch`; the
-  history's ♪ and the viewer's `<` `>` buttons are still unnamed.
+- [ ] Focus and structure in the stock screens (UX round, [docs/design/ux-test-2026-11/pi.md](docs/design/ux-test-2026-11/pi.md)): closing
+  a screen puts focus on the first button, not the one that opened it (PI-7); Tab does nothing during narration (it is Skip) and no screen lists the keys (PI-8); no landmarks or headings, and the
+  Options tabs have no tablist or tabpanel (PI-6, PI-12); switches read "Reduce motion: Off" but are not `role=switch`.
 - [-] **DEFERRED (much later)** A dyslexia-friendly font option and text-to-speech (self-voicing). (A high-contrast theme is
   built in; a game offers it by listing `high-contrast` in game.json `themes`.)
 
 ## Tooling
 
 - [~] Editor UX evaluation. A first round (nine testers, 2026-11-08, 186 findings) is ranked in
-  [docs/design/ux-test-2026-11/summary.md](docs/design/ux-test-2026-11/summary.md); each tester's report has steps to reproduce.
+  [docs/design/ux-test-2026-11/summary.md](docs/design/ux-test-2026-11/summary.md); each tester's report has steps to reproduce. A second
+  round on the animation studio alone (three testers, 2026-11-09) is in [docs/design/ux-test-2026-11-studio/summary.md](docs/design/ux-test-2026-11-studio/summary.md).
   (Problems in both the editor and the preview header is on purpose.) Left: fix the items below and run the testers again; the
   timed run of a fixed task list (new project to first choice, add a character from a PSD, translate, export) by a person on a
   fresh Studio install; and what the testers could not try (a real phone, a screen reader, a gamepad, audio, Firefox and Safari,
@@ -291,11 +293,11 @@ Nothing open right now; pick from the topic sections below.
     interpolation, rename and the editor's word patterns (`A-Za-z_` appears in 23 source files), so it needs a decision first.
   - [ ] An external edit (`git pull`, VS Code) to a script with unsaved edits in its tab is overwritten silently by the editor's
     text, and two editor tabs on one project are last-writer-wins (EL-18).
-  - [ ] The first build of a new project is blocked until its warnings are ticked; the missing-ids warning now names the editor's Add
-    Localization IDs command but does not offer it as a button (EP-7).
   - [ ] Decide: Follow preview (on by default) scrolls the editor to the preview's line after every autosave, even when typing far
     away (EA-4); the editor autosaves but the docs and the tutorial say to press Ctrl+S (EA-9).
-- [~] Files panel. Left: renamed images that are character poses are not followed (nor `show alice smile` when a pose
+- [~] Files panel. Left: an open asset folder draws a row for every file in it (fine at a few thousand; use `VirtualList` if
+  a project has one far bigger: step 2.2 of [docs/design/editor-asset-scaling.md](docs/design/editor-asset-scaling.md),
+  measure with `scripts/measure-big-project.mjs`); renamed images that are character poses are not followed (nor `show alice smile` when a pose
   file is renamed); no rename of characters (converted or flat); no drag-and-drop moves inside the tree; no Undo for Rename.
 - [~] Story outline. Left: back edges arc below the nodes and can cross labels in the same columns; a 300-label story lays out in
   one long row and Fit shows a thin strip (UX round EL-12; the layout itself is unit-tested for 400 labels).
@@ -332,11 +334,8 @@ Nothing open right now; pick from the topic sections below.
   node tests; the worker was checked by hand in Chromium only); try it in Firefox and Safari; Build/Export (web) in the
   browser, writing a playable zip.
 - [ ] First run of Marginalia Studio and the online demo (UX round, [docs/design/ux-test-2026-11/st.md](docs/design/ux-test-2026-11/st.md)):
-  New Project with a file path or an unreachable drive as Location fails silently (ST-1); the stage-size select keeps the last
-  template card's value, so Mystery after Portrait is refused and Blank after Portrait stays portrait (ST-2); recent projects
-  cannot be opened with the keyboard (ST-3); no Studio download is published, only a build from a clone (ST-4: the docs say so and
-  link the demo; a GitHub release with the zip would fix it); the first-run screen's only primary button is Open Folder (ST-5); the online editor has no Build and says so only
-  in a clipped status line (ST-7), and no "needs a larger screen" notice on a phone (ST-6); the online demo does not work offline
+  no Studio download is published, only a build from a clone (ST-4: the docs say so and
+  link the demo; a GitHub release with the zip would fix it); the first-run screen's only primary button is Open Folder (ST-5); the online demo does not work offline
   and the docs do not say so (ST-15).
 - [~] Desktop app (Electron, `vn export --desktop`).
   - [ ] Maybe let users drop modifier scripts in the folder that override some variables (needs a definition first).

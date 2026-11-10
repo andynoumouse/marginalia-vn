@@ -12,15 +12,15 @@ set name = "friend"
 
 # The guided tour. New game opens the feature index (index.vn); its "Take the guided tour" card jumps here.
 label tour_start:
-  scene bg_library fade 0.8
-  music play evening_theme loop fade 2
-  sound loop rain fade 2
-  weather rain 0.5 2
+  scene bg_library fade 0.8s
+  music play evening_theme loop fade 2s
+  sound loop rain fade 2s
+  weather rain 0.5 2s
 
   "Rain had been falling since morning, and the only open door on the street was the library's." #os8z
 
-  show iris neutral at center fade 0.4
-  iris: Oh. A visitor. {pause=0.4}We close in an hour, but the rain doesn't seem to mind. #hg4r
+  show iris neutral at center fade 0.4s
+  iris: Oh. A visitor. {pause=0.4s}We close in an hour, but the rain doesn't seem to mind. #hg4r
   you: I was hoping to wait it out. #kxd5
   show iris smile
   iris: Then you picked the right place. Would you like the tour? #h4yz
@@ -37,12 +37,12 @@ label tour_start:
 label tour:
   sound play page_flip1
   iris: Everything on this stage is a script command: backgrounds, characters, sound, weather. #qb4g
-  move iris to left 0.6 ease=out
-  iris: Characters slide, {pause=0.3}hop, #m6sb
-  hop iris 0.25
+  move iris to left 0.6s ease=out
+  iris: Characters slide, {pause=0.3s}hop, #m6sb
+  hop iris 0.25s
   iris: and shake when startled. #jhqi
-  shake iris 0.3 strength=6
-  move iris to center 0.5
+  shake iris 0.3s strength=6
+  move iris to center 0.5s
 
   iris: Pages, for example. Each choice you make can be remembered. #p8r8
   sound play page_flip2
@@ -56,21 +56,21 @@ label tour:
   jump hub
 
 label reading_room:
-  scene bg_reading_room dissolve 1.2
-  weather off 2
-  tint #402010 0.3 1.5
-  show iris smile at center fade 0.4
+  scene bg_reading_room dissolve 1.2s
+  weather off 2s
+  tint #402010 0.3 1.5s
+  show iris smile at center fade 0.4s
   iris: The lamp room. Scenes can be tinted, filtered, and cross-faded. #bpum
   if curious >= 1:
     iris: Since you asked for the tour, you get the good chair. #n74n
   else:
     iris: I'll bring you a blanket. #eelg
-  tint off 1
+  tint off 1s
   jump window_seat
 
 label window_seat:
-  scene cg_window_seat fade 0.8
-  weather rain 0.8 2
+  scene cg_window_seat fade 0.8s
+  weather rain 0.8 2s
   # Two endings. Each unlock is listed in game.json "achievements" with "ending": true, so it pops up a toast
   # and shows on the Achievements screen.
   if contains(bag, "novel"):
@@ -79,8 +79,8 @@ label window_seat:
   else:
     "The rain kept falling. For once, nobody was in a hurry." #nnh9
     unlock ending_rain
-  sound stop rain fade 3
-  music stop fade 3
+  sound stop rain fade 3s
+  music stop fade 3s
   hud off status
   set persistent.finished += 1
   if visits >= 3:

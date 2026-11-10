@@ -1,7 +1,7 @@
 // What the WebGL renderer keeps per character on stage (preview/pixi-renderer.ts), shared with the studio's queries.
 
 import type { Container, Graphics, Mesh } from 'pixi.js';
-import { fxUnit, type AutoState, type ReactionState, type ChainStates, type DeformerDef, type MaskDef, type Offset, type PhysicsOff, type SpriteState } from '../engine/src/index.js';
+import { fxUnit, type AutoState, type ReactionState, type ChainStates, type DeformerDef, type MeshSkin, type MaskDef, type Offset, type PhysicsOff, type SpriteState } from '../engine/src/index.js';
 import { H, W } from './stage-ui.js';
 
 /** The length animation offsets are fractions of (the stage's shorter side, see fxUnit). */
@@ -41,7 +41,14 @@ export interface Actor {
  * (in the part's own pixels), `origin` where the part's image box sits on the canvas, and `key` the parameter values it was last
  * shaped by (null: not yet). A part with a free mesh (`def.mesh`) has `tris` (its triangle indices, `rest` its stored vertices) and a `grid` of [0, 0].
  */
-export interface Warp { mesh: Mesh; def: DeformerDef | null; group: GroupWarp | null; grid: [number, number]; rest: Float32Array; tris: Uint32Array | null; origin: [number, number]; key: string | null }
+export interface Warp { mesh: Mesh; def: DeformerDef | null; group: GroupWarp | null; grid: [number, number]; rest: Float32Array; tris: Uint32Array | null; origin: [number, number]; key: string | null; skin: SkinState | null }
+
+/**
+ * A skinned free mesh (its `mesh.weights`, docs/design/skinning.md): applyWarps writes the parameter-shaped vertices to `shaped`
+ * (and bumps `version`), applySkins moves them by the bones into the mesh's buffer when `version`, the part's own key or the bones it
+ * reads changed (`key`; null: not yet).
+ */
+export interface SkinState { skin: MeshSkin; shaped: Float32Array; version: number; key: string | null }
 
 /** A group warp (rig.json `deformers` with `members`) as drawn: its lattice box on the canvas and its points' displacement as the parameters set it. */
 export interface GroupWarp { def: DeformerDef; box: [number, number, number, number]; disp: Float32Array; key: string | null; members: string[] }

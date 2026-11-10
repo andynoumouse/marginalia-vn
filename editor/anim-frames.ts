@@ -18,7 +18,6 @@ export interface FrameHost {
   slots(): Record<string, string[]>;
   /** The frame rows drawn, in order, and how many parameter lanes sit above them. */
   rows(): string[];
-  paramLanes(): number;
   setAnim(name: string, def: AnimDef): void;
   edit(fn: () => void): void;
   dragStep(name: string, def: AnimDef): void;
@@ -104,7 +103,7 @@ export class FrameEditor {
     this.sel = { slot, index };
     const c0 = host.current();
     const start = c0 ? this.keysOf(c0, slot)[index] : undefined;
-    if (!host.editable() || !c0 || !start) { host.refreshView(); return; }
+    if (!host.editable() || !c0 || !start) { host.refreshView(); this.focusSel(); return; }
     host.seek(start.t); // clicking a block shows its frame on the stage
     tl.setPointerCapture(e.pointerId);
     const end = host.beginDrag();
@@ -119,16 +118,21 @@ export class FrameEditor {
       this.sel = { slot, index: out.index };
       host.dragStep(c.name, withFrameTrack(c.def, slot, out.track));
     };
-    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); };
+    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); this.focusSel(); };
     tl.addEventListener('pointermove', move);
     tl.addEventListener('pointerup', up);
     host.refreshView();
+    this.focusSel();
+  }
+  /** The selected block takes the focus after a click (the timeline redraws its blocks), so Delete and the arrows work on it at once. */
+  private focusSel() {
+    if (this.sel) this.host.tl.querySelector<SVGElement>(`[data-fkey="${this.sel.index}"][data-fslot="${CSS.escape(this.sel.slot)}"]`)?.focus({ preventScroll: true });
   }
 
   private addAtPointer(e: MouseEvent) {
     const { host } = this;
     if (!host.editable() || (e.target as Element).closest('[data-fkey]')) return;
-    const p = localPoint(host.tl, e), rows = host.rows(), i = frameLaneAt(p.y, host.paramLanes(), rows.length), c = host.current();
+    const p = localPoint(host.tl, e), rows = host.rows(), i = frameLaneAt(host.tl, p.y), c = host.current();
     if (i < 0 || p.x < LABEL || !c) return;
     const slot = rows[i], keys = this.keysOf(c, slot);
     const before = [...keys].reverse().find(k => k.t <= p.t) ?? keys[0];
@@ -149,7 +153,7 @@ export class FrameEditor {
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); this.deleteSelected(); return; }
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const t = k.t + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.05 : 0.01);
+    const t = k.t + (e.key === 'ArrowRight' ? 1 : -1) * (e.shiftKey ? 0.05 : 0.01) / c.dur; // 0.01 s a press, 0.05 s with Shift
     this.host.edit(() => {
       const moved = retimeFrameAt(asKeys(trackOfSlot(c.def, slot)!, c.dur), index, t);
       this.host.setAnim(c.name, withFrameTrack(c.def, slot, moved.track));

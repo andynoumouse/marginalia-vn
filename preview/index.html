@@ -34,6 +34,11 @@
     background: #000; transform-origin: center; user-select: none; cursor: pointer; color: var(--vn-text); }
   /* Until fit() (preview.ts) has centred and scaled the stage, its corner sits at the viewport centre: keep it unseen. */
   html:not([data-fitted]) #stage { visibility: hidden; }
+  /* Until the modules have arrived (about 150 requests, unbundled) the page would be black: a word says it is loading (UX round PX-1). */
+  #boot { position: absolute; inset: 0; display: grid; place-items: center; color: #9aa3b2; font: 18px system-ui, sans-serif; letter-spacing: .08em; animation: boot-pulse 1.4s ease-in-out infinite alternate; }
+  html[data-fitted] #boot { display: none; }
+  @keyframes boot-pulse { from { opacity: .4; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #boot { animation: none; } }
   /* Theme tokens (docs/design/theming.md). Stage rules read these, never the page's own --accent and friends, so a game
      theme leaves the preview bar alone. `surface` and `line` are base colors that each rule mixes with transparency.
      Component properties (--vn-button-bg, ...) are not set here: a rule reads them with the token mix as fallback, so a
@@ -156,11 +161,14 @@
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-mask[data-masked="true"] { -webkit-mask: var(--mask) center / 100% 100% no-repeat; mask: var(--mask) center / 100% 100% no-repeat; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly { fill: transparent; stroke: transparent; stroke-width: var(--hot-border-width, 3px); pointer-events: all; cursor: pointer; outline: none; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot:focus-visible { background: var(--hot-fill, rgba(255,255,255,.18)); border-color: var(--hot-border, var(--vn-accent)); outline: none; }
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-hot:focus-visible { outline: 4px solid var(--vn-accent); outline-offset: 2px; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-poly:focus-visible { fill: var(--hot-fill, rgba(255,255,255,.18)); stroke: var(--hot-border, var(--vn-accent)); }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn { position: absolute; padding: 0 24px; font-size: 40px; background: color-mix(in srgb, var(--vn-surface) 92%, transparent); border: var(--vn-border-width, 2px) solid color-mix(in srgb, var(--vn-line) 25%, transparent);
     border-radius: var(--vn-radius, 8px); color: inherit; font-family: var(--vn-font); cursor: pointer; pointer-events: auto; }
   .sc-btn .sc-sub { display: block; font-size: .55em; line-height: 1.2; color: var(--vn-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn:hover, :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-active="true"], :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn:focus-visible { border-color: var(--vn-accent); outline: none; }
+  /* the keyboard's focus is a 4 px ring, the same as on choices and sliders; a hover or the pad's active element is the border colour alone (UX round PI-9) */
+  :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn:focus-visible { outline: 4px solid var(--vn-accent); outline-offset: 2px; }
   :is(#hudui, #quickui, #titleui, #pauseui, #optionsui, #savesui, #historyui, #galleryui, #musicui, #chaptersui, #achievementsui, #achtoastui, #viewerui) .sc-btn[data-on="false"] { opacity: .4; cursor: not-allowed; }
   /* tabs: rounded on top, open at the bottom; the selected one sits on the rule below the row */
   #optionsui .sc-btn[data-bind="tab"] { border-radius: var(--vn-radius, 8px) var(--vn-radius, 8px) 0 0; border-bottom-color: transparent; background: transparent; color: var(--vn-muted); }
@@ -181,11 +189,12 @@
   /* the quick bar reads as labels, not buttons: no box until hovered or focused; a dark halo keeps them legible over light scenes (UX round PI-4, PC-7) */
   #quickui .sc-btn { color: rgba(240,242,247,.92); background: transparent; border-color: transparent; padding: 6px 12px; text-shadow: 0 0 2px #000, 0 1px 3px rgba(0,0,0,.95), 0 0 8px rgba(0,0,0,.85), 0 0 16px rgba(0,0,0,.6); }
   #quickui .sc-btn:hover, #quickui .sc-btn[data-active="true"], #quickui .sc-btn:focus-visible { color: var(--vn-text); background: rgba(255,255,255,.08); border-color: transparent; }
+  #quickui .sc-btn:focus-visible { outline: 3px solid var(--vn-accent); outline-offset: 1px; }
   /* a full-stage picture left up while the next scene fades in (see ScreenLayer.unlinger) takes no clicks */
   #screenui[data-linger] * { pointer-events: none !important; }
   /* Auto and Skip are toggles (aria-pressed): a checkbox before the label, and the accent colour while on */
-  #quickui .sc-btn[aria-pressed]::before { content: "\2610"; margin-right: .35em; }
-  #quickui .sc-btn[aria-pressed="true"]::before { content: "\2611"; }
+  #quickui .sc-btn[aria-pressed]::before { content: "\2610" / ""; margin-right: .35em; } /* the box is decoration: the name stays "Auto", the state is aria-pressed */
+  #quickui .sc-btn[aria-pressed="true"]::before { content: "\2611" / ""; }
   #quickui .sc-btn[aria-pressed="true"] { color: var(--vn-accent); }
   /* the quick bar's hints are a quiet aside: small, and only after the pointer has rested on the button */
   #stage #quickui .sc-tip { font-size: 22px; padding: 4px 12px; }
@@ -382,6 +391,7 @@
   </div>
   <div id="rotate" role="alert" data-ui="rotate_device">Turn your device to play.</div>
   <div id="viewport">
+    <div id="boot" role="status">Loading…</div>
     <div id="stage">
       <div id="hud"></div>
       <div id="hudui" data-visible="false"></div>
@@ -396,7 +406,7 @@
       <div id="menuLive" class="sr-only" role="status"></div>
       <div id="lineLive" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
       <div id="caption" role="status" aria-live="polite"></div>
-      <div id="loading" role="progressbar" aria-label="Loading"><i></i></div>
+      <div id="loading" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100"><i></i></div>
       <div id="movie" data-show="false"></div>
       <div id="curtain" aria-hidden="true"></div>
       <div id="splash" hidden aria-label="Splash"><div id="splashImg"></div><p id="splashText"></p></div>
@@ -529,6 +539,7 @@
         <span data-ui="history">History</span>
         <span data-ui="rename">Rename save</span>
         <span data-ui="toast_qsaved">Quick saved</span>
+        <span data-ui="toast_saved">Saved</span>
         <span data-ui="toast_no_qsave">No quick save yet</span>
         <span data-ui="toast_skip_unread">Skip stops at unread text (see Options)</span>
         <span data-ui="toast_pad_on">Gamepad connected</span>
@@ -543,6 +554,9 @@
         <span data-ui="confirm_old_save">This save was made with an older version of the game and may not load correctly. Load it anyway?</span>
         <span data-ui="confirm_delete">Delete this save?</span>
         <span data-ui="confirm_title">Return to the main menu? Progress since your last save will be lost.</span>
+        <span data-ui="reset_progress">Reset progress</span>
+        <span data-ui="confirm_reset">Clear your progress? The gallery, music room, chapters, achievements and read text start over. Saves stay.</span>
+        <span data-ui="toast_reset">Progress cleared</span>
         <span data-ui="crash_copied">Copied</span>
       </div>
     </div>

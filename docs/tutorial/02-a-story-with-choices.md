@@ -12,10 +12,10 @@ At the end of `start`, after Mina introduces herself, add:
 
 ```vn
   input name "And you are?" default="Alex" max=16
-  mina: Nice to meet you, [name].{pause=0.4} Sit down. The rain isn't going anywhere.
+  mina: Nice to meet you, [name].{pause=0.4s} Sit down. The rain isn't going anywhere.
 ```
 
-`input` stores what the player typed in a variable, and `[name]` puts it into any line. `{pause=0.4}` waits a
+`input` stores what the player typed in a variable, and `[name]` puts it into any line. `{pause=0.4s}` waits a
 moment while the text types. (A list of every `{tag}` is in the [command reference](../commands.md#text-tags).)
 
 ## A choice
@@ -33,14 +33,14 @@ label bench:
       mina: Suit yourself. I don't bite.
   "Thunder rolls somewhere far away."
   sound play thunder duck
-  shake 0.4
+  shake 0.4s
 ```
 
 - `set warmth += 1` changes a variable. Create it first: above `label start:`, on a line of its own, add
   `set warmth = 0`. Lines at the top level of a file, outside any label, run once before the story starts.
 - When the chosen body ends, the story carries on with the line after the `menu`.
 - To go somewhere else, end the body with `jump <label>`. Labels are global across all scripts.
-- `sound play thunder duck` plays a sound and dips the music under it; page 3 adds the file. `shake 0.4` shakes the
+- `sound play thunder duck` plays a sound and dips the music under it; page 3 adds the file. `shake 0.4s` shakes the
   screen for 0.4 seconds.
 
 Add `jump bench` as the last line of `start`, so the story reaches the new label. The game now stops at the choice:
@@ -55,8 +55,8 @@ so the player who sat down with Mina gets the friendlier answer. A stranger arri
 
 ```vn
 label stranger:
-  move mina to left 0.5
-  show ren neutral at right fade 0.5
+  move mina to left 0.5s
+  show ren neutral at right fade 0.5s
   ren: Is this the platform for the night train?
   mina: The only one. Come stand under the roof.
   menu "Who is he?":
@@ -77,7 +77,7 @@ label stranger:
 
 ```vn
 label train:
-  sound stop rain fade 3
+  sound stop rain fade 3s
   "A light appears down the track. The train, at last."
   if warmth >= 3:
     jump stay_ending
@@ -94,7 +94,7 @@ Each ending is a label that finishes with `end`. Write them below `train`:
 ```vn
 label together_ending:
   unlock together_end
-  scene bg_platform fade 1
+  scene bg_platform fade 1s
   "All three of you board the same carriage, and nobody mentions how the evening began."
   end
 ```
@@ -176,19 +176,19 @@ define you "You" color=#7cc4ff blip=mid
 set warmth = 0
 
 label start:
-  scene bg_platform fade 0.8
-  music play evening_theme loop fade 2
-  sound loop rain fade 2
+  scene bg_platform fade 0.8s
+  music play evening_theme loop fade 2s
+  sound loop rain fade 2s
   "The last train of the night is twenty minutes late."
   "The platform is empty except for one girl with a red umbrella."
 
-  show mina neutral at center fade 0.4
+  show mina neutral at center fade 0.4s
   mina: You're waiting for the {i}last{/i} train too?
   you: Seems so.
   mina: Then we're stuck with each other. I'm Mina.
 
   input name "And you are?" default="Alex" max=16
-  mina: Nice to meet you, [name].{pause=0.4} Sit down. The rain isn't going anywhere.
+  mina: Nice to meet you, [name].{pause=0.4s} Sit down. The rain isn't going anywhere.
   jump bench
 
 label bench:
@@ -200,12 +200,12 @@ label bench:
       mina: Suit yourself. I don't bite.
   "Thunder rolls somewhere far away."
   sound play thunder duck
-  shake 0.4
+  shake 0.4s
   jump stranger
 
 label stranger:
-  move mina to left 0.5
-  show ren neutral at right fade 0.5
+  move mina to left 0.5s
+  show ren neutral at right fade 0.5s
   ren: Is this the platform for the night train?
   mina: The only one. Come stand under the roof.
   menu "Who is he?":
@@ -226,7 +226,7 @@ label chat(who, bonus):
   return
 
 label train:
-  sound stop rain fade 3
+  sound stop rain fade 3s
   "A light appears down the track. The train, at last."
   if warmth >= 3:
     jump stay_ending
@@ -237,13 +237,13 @@ label train:
 
 label together_ending:
   unlock together_end
-  scene bg_platform fade 1
+  scene bg_platform fade 1s
   "All three of you board the same carriage, and nobody mentions how the evening began."
   end
 
 label stay_ending:
   unlock stay_end
-  scene cg_mina_end dissolve 1.5
+  scene cg_mina_end dissolve 1.5s
   mina: Let it go. We'll take the next one.
   "You stay on the bench, and the last train leaves without you."
   end

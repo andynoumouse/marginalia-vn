@@ -12,7 +12,11 @@ async function opening(run) {
   showError('');
   document.body.classList.add('busy');
   try {
-    const r = await run();
+    let r;
+    try { r = await run(); } catch (err) {
+      // A call that threw in the main process (Electron prefixes its own words) is shown like any other error, not left in the console.
+      r = { error: String(err?.message ?? err).replace(/^Error invoking remote method '[^']*': (Error: )?/, '') };
+    }
     if (r?.error) showError(r.error);
     if (r?.warning) showError(r.warning);
     if (r?.error || r?.cancelled) await refresh();
@@ -42,9 +46,13 @@ function row(p) {
   const li = document.createElement('li');
   li.dataset.folder = p.folder;
   li.className = p.missing ? 'missing' : 'openable';
-  const title = document.createElement('div');
+  // The title is the row's "open" control, so the keyboard reaches it (Tab, Enter); a mouse click anywhere on the row opens too.
+  const title = document.createElement('button');
+  title.type = 'button';
   title.className = 'title';
+  title.dataset.action = 'open';
   title.textContent = p.title || p.folder;
+  title.title = p.missing ? 'The folder is not there any more' : `Open ${p.folder}`;
   const folder = document.createElement('div');
   folder.className = 'folder';
   folder.textContent = p.folder;
@@ -92,6 +100,7 @@ $('list').addEventListener('click', async e => {
   const action = e.target.closest('button')?.dataset.action;
   if (action === 'reveal') return api.reveal(folder);
   if (action === 'remove') return refresh(await api.remove(folder));
+  if (li.classList.contains('missing')) return showError(`${folder} is not there any more. Move it back, or Remove it from the list.`);
   if (li.classList.contains('openable')) await opening(() => api.open(folder));
 });
 
@@ -128,8 +137,9 @@ $('newBrowse').addEventListener('click', async () => {
 const chosenTemplate = () => $('newTemplate').querySelector('input:checked')?.value;
 const templateNote = () => {
   const t = defaults.templates.find(t => t.id === chosenTemplate());
-  const size = t?.stage && `${t.stage.width}x${t.stage.height}`;
-  if (size && [...$('newStage').options].some(o => o.value === size)) { $('newStage').value = size; $('newStage').dispatchEvent(new Event('change')); }
+  // A card with a stage of its own (Portrait) sets the select; any other card puts the default size back, so Portrait does not stick.
+  const size = t?.stage ? `${t.stage.width}x${t.stage.height}` : $('newStage').options[0].value;
+  if ([...$('newStage').options].some(o => o.value === size)) { $('newStage').value = size; $('newStage').dispatchEvent(new Event('change')); }
 };
 $('newTemplate').addEventListener('change', templateNote);
 $('newStage').addEventListener('change', () => {

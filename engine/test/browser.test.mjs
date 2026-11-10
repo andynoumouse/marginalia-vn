@@ -34,7 +34,12 @@ let server, browser, base, skipReason, snapshot, sampleCopy;
 // run is a race with a loaded page (focus taken by a late load, an assertion right after an async layout): retry it with
 // VN_BROWSER_JOBS=1, and see docs/design/flaky-tests.md before adding a fixed wait.
 const queued = [];
-const test = (...args) => { queued.push(args); };
+// The suite at the end of the file runs the queue where it stands: a test registered after it would silently never run.
+let queueRun = false;
+const test = (...args) => {
+  if (queueRun) throw new Error(`test "${args[0]}" is defined after the describe('browser') block, so it would never run: move it above`);
+  queued.push(args);
+};
 
 before(async () => {
   if (!chromium) { skipReason = 'playwright-core is not installed'; return; }
@@ -331,7 +336,7 @@ play('transforms: an automatic transform moves its picture while its condition h
     for (const s of proj.scripts) if (s.file === 'park.vn') {
       const NL = String.fromCharCode(10), block = (...l) => l.join(NL) + NL;
       s.text = s.text
-        .replace('set trust = 0' + NL, block('transform lean while trust == 0:', '  rot=-12 0.4', '  rot=12 0.8', '  rot=0 0.4', '', 'transform never while trust > 5:', '  rot=-30 0.4', '  rot=30 0.4', '', 'set trust = 0'))
+        .replace('set trust = 0' + NL, block('transform lean while trust == 0:', '  rot=-12 0.4s', '  rot=12 0.8s', '  rot=0 0.4s', '', 'transform never while trust > 5:', '  rot=-30 0.4s', '  rot=30 0.4s', '', 'set trust = 0'))
         .replace('  music play evening_theme loop' + NL, block('  music play evening_theme loop', '  image show lamp prop/lamp at 300,300 anchor=center scale=1.5 keep', '  image show lamp2 prop/lamp2 at 1500,300 anchor=center keep', '  animate lamp lean auto', '  animate lamp2 never auto'));
     }
     await route.fulfill({ response: res, json: proj });
@@ -370,8 +375,8 @@ play('camera shake, roll, tint, flash channels, choreography, burst and the glit
     for (const s of proj.scripts) if (s.file === 'park.vn') {
       const NL = String.fromCharCode(10), block = (...l) => l.join(NL) + NL;
       s.text = s.text
-        .replace('set trust = 0' + NL, block('transform stain:', '  tint=#40ff40 0.05', '  flash=#ff0000:0.5 0.05', '  wait 3', '  repeat', '', 'choreography entrance:', '  0 alice: x=0.02 0.3', '  0.3 camera: rot=1 0.3', '', 'set trust = 0'))
-        .replace('  show alice neutral at center fade 0.4' + NL, block('  show alice neutral at center', '  camera zoom 1.2 at center', '  camera roll 4', '  animate camera shake loop strength=2', '  move alice tint=#ff8040', '  burst sparkle at alice', '  filter glitch 0.4', '  perform entrance nowait', '  animate alice stain loop'));
+        .replace('set trust = 0' + NL, block('transform stain:', '  tint=#40ff40 0.05s', '  flash=#ff0000:0.5 0.05s', '  wait 3s', '  repeat', '', 'choreography entrance:', '  0s alice: x=0.02 0.3s', '  0.3s camera: rot=1 0.3s', '', 'set trust = 0'))
+        .replace('  show alice neutral at center fade 0.4s' + NL, block('  show alice neutral at center', '  camera zoom 1.2 at center', '  camera roll 4', '  animate camera shake loop strength=2', '  move alice tint=#ff8040', '  burst sparkle at alice', '  filter glitch 0.4', '  perform entrance nowait', '  animate alice stain loop'));
     }
     await route.fulfill({ response: res, json: proj });
   });
@@ -1636,7 +1641,7 @@ test('files panel: renaming an asset rewrites the scripts that name it and says 
     // Wait for every autosave, game.json too: one still in flight when the context closes would reach the real sample.
     for (let i = 0; i < 50 && !(saved['park.vn'] && saved['screens.vn'] && saved['demo.vn'] && saved['game.json']); i++) await page.waitForTimeout(100);
     assert.match(saved['game.json'] ?? '', /"image": "night_park"/, 'the gallery entry in game.json follows');
-    assert.match(saved['park.vn'] ?? '', /^ {2}scene night_park dissolve 1\.2$/m, 'a scene name follows');
+    assert.match(saved['park.vn'] ?? '', /^ {2}scene night_park dissolve 1\.2s$/m, 'a scene name follows');
     assert.doesNotMatch(saved['park.vn'], /bg_park_night/);
     assert.match(saved['park.vn'], /scene bg_park_evening fade/, 'the other background is left alone');
     assert.match(saved['screens.vn'] ?? '', /image "bg\/night_park\.png" size/, 'a quoted path follows');
@@ -1789,7 +1794,7 @@ test('animation studio: a section is dragged to the other column or moved with A
     assert.deepEqual(await column('left'), ['sel', 'poses', 'tree', 'params']);
     await studio.locator('.as-modes [data-mode="model"]').click();
     await columnBecomes('left', ['sel', 'poses', 'tree', 'params']);
-    await columnBecomes('right', ['keyforms', 'warp', 'mask', 'physics', 'reactions']); // Model has its own sections, in the order kept
+    await columnBecomes('right', ['keyforms']); // Model has its own sections, in the order kept (Physics and Reactions are in the strip under the stage)
     await studio.locator('.as-modes [data-mode="animate"]').click();
 
     // A narrow window shows the first layout and no grab buttons; the kept layout comes back when it widens.
@@ -1895,7 +1900,8 @@ test('animation studio: Model | Animate, Model hides the picker and timeline, An
     assert.equal(await studio.locator('.as-timeline').isVisible(), false);
     assert.equal(await studio.locator('.as-transport').isVisible(), false);
     assert.equal(await studio.locator('.as-picker').isVisible(), false, 'no animation picker in Model mode');
-    assert.deepEqual(await sections(), ['poses', 'params', 'tree', 'keyforms', 'sel', 'warp', 'mask', 'physics', 'reactions']);
+    assert.equal(await studio.locator('.as-automatic').isVisible(), false, 'the Automatic line edits the animation on show, so it stays with Animate mode');
+    assert.deepEqual(await sections(), ['poses', 'params', 'tree', 'keyforms', 'sel']);
     const leftOf = sel => studio.locator(sel).evaluate(e => e.closest('.as-side') !== null);
     assert.equal(await leftOf('.ap'), true, 'the sliders are in the left column');
     assert.equal(await leftOf('.ab'), false, 'and the Keyforms block is not');
@@ -1906,7 +1912,8 @@ test('animation studio: Model | Animate, Model hides the picker and timeline, An
     assert.equal(Math.round((await side.boundingBox()).width), Math.round(w0 + 16), 'an arrow key widens the column by 16 px');
     assert.match(await page.evaluate(() => localStorage.getItem('vn.editor.studioLayout')), /"left":316/);
     assert.equal(await studio.locator('.as-sect[data-sect="sel"] .as-sect-head').getAttribute('aria-expanded'), 'true');
-    assert.equal(await studio.locator('.as-sect[data-sect="physics"] .as-sect-head').getAttribute('aria-expanded'), 'false', 'rig setup sections start closed');
+    assert.equal(await studio.locator('.as-rig').isVisible(), true, 'rig setup is in the strip under the stage');
+    assert.equal(await studio.locator('.as-rig-panel:visible').count(), 0, 'which starts folded');
     await page.keyboard.press('Space'); // the animation does not play in Model mode
     assert.match(await studio.locator('.as-play').textContent(), /Play/);
     await studio.locator('.as-modes [data-mode="animate"]').click();
@@ -1944,8 +1951,20 @@ test('animation studio: Model | Animate, Model hides the picker and timeline, An
     // A click on the stage lands on what is drawn there: with the part under it hidden, the click goes to what lies behind it.
     await studio.locator('.as-showall').click();
     const sum = () => studio.locator('.as-sect[data-sect="sel"] .as-sect-sum').textContent();
-    const stage = await studio.locator('.as-stage').boundingBox();
-    const clickMid = async () => { await studio.locator('.as-tree .as-row').first().click(); await page.mouse.click(stage.x + stage.width / 2, stage.y + stage.height * 0.6); await page.waitForTimeout(300); return sum(); };
+    // Each click first chooses the whole character (the first row), which puts its gizmo up: the spot clicked is near the middle of the
+    // stage but clear of the gizmo's handles, or the press grabs the gizmo instead of choosing a part.
+    const frameBox = await studio.locator('.as-stage iframe').boundingBox(), stageFrame = page.frames().find(fr => fr.url().includes('studio='));
+    await studio.locator('.as-tree .as-row').first().click();
+    let handles = [];
+    for (let i = 0; i < 20 && !handles.length; i++) {
+      await page.waitForTimeout(100);
+      handles = await stageFrame.evaluate(() => [...document.querySelectorAll('svg polygon, svg rect, svg circle[r="64"], svg line[stroke="#ff5d5d"], svg line[stroke="#59d96a"]')]
+        .map(e => { const r = e.getBoundingClientRect(); return [r.left - 14, r.top - 14, r.right + 14, r.bottom + 14]; }));
+    }
+    const spot = [0.6, 0.5, 0.7, 0.45, 0.75].flatMap(fy => [0.5, 0.42, 0.58].map(fx => [frameBox.width * fx, frameBox.height * fy]))
+      .find(([x, y]) => handles.every(([l, t, r, b]) => x < l || x > r || y < t || y > b));
+    assert.ok(spot, `a spot near the middle clear of the gizmo (handles ${JSON.stringify(handles.map(h => h.map(Math.round)))})`);
+    const clickMid = async () => { await studio.locator('.as-tree .as-row').first().click(); await page.mouse.click(frameBox.x + spot[0], frameBox.y + spot[1]); await page.waitForTimeout(300); return sum(); };
     const top = await clickMid();
     assert.notEqual(top, 'the whole character', 'the middle of the stage is on the character');
     await studio.locator(`.as-tree .as-eye[data-eye="${top}"]`).click();
@@ -1998,7 +2017,7 @@ test('animation studio: the Model button opens Model mode, and dragging on the s
   }
 });
 
-test('animation studio: bones are edited in the Properties section of Model mode (new bone, parent, part on a bone, pivot, remove) and written by Apply', async t => {
+test('animation studio: bones are edited in the Properties section of Model mode (new bone, parent, part on a bone, pivot, rename, remove) and written by Apply', async t => {
   if (skipReason) { t.skip(skipReason); return; }
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
@@ -2019,7 +2038,7 @@ test('animation studio: bones are edited in the Properties section of Model mode
     assert.equal(await studio.locator('.as-bone-new').count(), 0);
     await studio.locator('.as-modes [data-mode="model"]').click();
     const choose = name => studio.locator(`.as-tree .as-row[data-part="${name}"]`).click();
-    const select = name => studio.locator(`.as-detail select[data-bone-for="${name}"]`);
+    const select = name => studio.locator(`.as-sub[data-sub="transform"] select[data-bone-for="${name}"]`);
     await choose('face');
     assert.equal(await select('face').inputValue(), 'head', 'face sits on the head bone');
     // a new bone under the head, then the bangs move onto it and it turns about a pivot of its own
@@ -2045,15 +2064,24 @@ test('animation studio: bones are edited in the Properties section of Model mode
     assert.deepEqual(rig.bones.head.pivot, [300, 380]);
     assert.equal(rig.parts.bangs.bone, 'bone');
     assert.equal(rig.parts.face.bone, 'head', 'the rest of parts stays');
-    // removing it puts the bangs back on the head
+    // renaming it carries the bangs along
     await choose('bone');
-    await studio.locator('.as-detail .as-bone-del').click();
+    await studio.locator('.as-sub[data-sub="transform"] .as-bone-name').fill('fringe');
+    await studio.locator('.as-sub[data-sub="transform"] .as-bone-rename').click();
+    await studio.locator('.as-tree .as-row[data-part="fringe"]').waitFor();
+    assert.equal(await studio.locator('.as-sub[data-sub="transform"] .as-bone-name').inputValue(), 'fringe', 'the renamed bone stays chosen');
+    await choose('bangs');
+    assert.equal(await select('bangs').inputValue(), 'fringe', 'the part follows the renamed bone');
+    // removing it puts the bangs back on the head
+    await choose('fringe');
+    await studio.locator('.as-sub[data-sub="transform"] .as-bone-del').click();
     await choose('bangs');
     assert.equal(await select('bangs').inputValue(), 'head');
     await studio.locator('[data-t="apply"]').click();
     for (let i = 0; JSON.parse(saved.at(-1)).bones.bone && i < 50; i++) await page.waitForTimeout(100);
     rig = JSON.parse(saved.at(-1));
     assert.equal(rig.bones.bone, undefined);
+    assert.equal(rig.bones.fringe, undefined);
     assert.equal(rig.parts.bangs.bone, 'head');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
@@ -2081,6 +2109,7 @@ test('animation studio: the Automatic line of an animation is written to rig.jso
     await studio.locator('.as-anim').selectOption('blink');
     assert.equal(await studio.locator('.as-every-min').inputValue(), '3', 'the blink animation of the sample starts every 3 to 6 seconds');
     assert.equal(await studio.locator('.as-every-max').inputValue(), '6');
+    assert.match(await studio.locator('.as-auto-hint').textContent(), /^Starts by itself every 3 to 6 s/, 'the line says in words what the fields mean');
     const field = async (sel, v) => { await studio.locator(sel).fill(v); await studio.locator(sel).press('Tab'); };
     await field('.as-every-min', '2');
     await field('.as-every-max', '1'); // a range that runs backwards is not kept
@@ -2166,7 +2195,7 @@ test('animation studio: Model mode previews the parameters and keys them as keyf
     assert.equal(await studio.locator('.ap-row .ap-key').first().isVisible(), true, 'the key button is there in Model mode: it keys a keyform of the chosen part');
     assert.equal(await studio.locator('.ap-row .ap-key').first().isDisabled(), true, 'but with no part chosen there is nothing to key');
     assert.equal(await studio.locator('.ap-target, .ap-kf').count(), 0, 'no part-first keyed target or Keyform row: the Bind block under the controls is the one place');
-    assert.equal(await studio.locator('.ab-name').textContent(), 'none', 'no parameter is active until the author picks one');
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), '', 'no parameter is active until the author picks one');
     assert.equal(await studio.locator('.ap-key-all').isVisible(), false, 'Key changed writes timeline keys: Animate only');
     assert.equal(await studio.locator('.ap-keyedit').isVisible(), false);
     assert.equal(await studio.locator('.ap-pose-save').isVisible(), true, 'poses stay: they are rig data');
@@ -2174,6 +2203,8 @@ test('animation studio: Model mode previews the parameters and keys them as keyf
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width * 0.9, pad.y + pad.height * 0.5);
     assert.match(await padReadout(studio), /head_x 0\.[0-9]+/);
+    // The note is Properties': the pad alone in focus shows the Parameter section instead, a part shows Properties.
+    await studio.locator('.as-tree .as-row[data-part="torso"]').click();
     assert.equal(await studio.locator('.as-rest-note').isVisible(), true, 'a parameter is off its default: the stage shows that pose');
     await studio.locator('.ap-reset-all').click();
     assert.equal(await studio.locator('.as-rest-note').isVisible(), false);
@@ -2212,14 +2243,16 @@ test('animation studio: the tool row is icon buttons with names, key letters and
     const btn = name => row.getByRole('button', { name, exact: true });
     const shown = () => row.locator('.si-btn').evaluateAll(els => els.filter(e => e.getClientRects().length).map(e => [e.getAttribute('aria-label'), e.textContent.trim(), !!e.querySelector('svg.si[aria-hidden="true"]')]));
     // Icons carry no text; the accessible name is the label. Animate has no Pivot, Warp or Mask.
-    assert.deepEqual(await shown(), [['Move', '', true], ['Rotate', '', true], ['Scale', '', true], ['World axes', '', true], ['Fit', '', true], ['Auto-key', '', true], ['Key', '', true]]);
-    for (const [gz, name, key] of [['pivot', 'Pivot', 'Q'], ['move', 'Move', 'W'], ['rotate', 'Rotate', 'E'], ['scale', 'Scale', 'R'], ['warp', 'Warp', 'D'], ['mask', 'Mask', 'M']]) {
+    assert.deepEqual(await shown(), [['Move', '', true], ['Rotate', '', true], ['Scale', '', true], ['Fit', '', true], ['Auto-key', '', true], ['Key', '', true]]);
+    // World axes is an option of Move, Rotate and Scale: it sits in the tool options bar under the row.
+    const bar = studio.locator('.as-toolbar'), world = bar.getByRole('button', { name: 'World axes', exact: true });
+    for (const [gz, name, key] of [['pivot', 'Pivot', 'Q'], ['move', 'Move', 'W'], ['rotate', 'Rotate', 'E'], ['scale', 'Scale', 'R'], ['warp', 'Warp', 'D'], ['weights', 'Weights', 'B'], ['mask', 'Mask', 'M']]) {
       const b = row.locator(`[data-gz="${gz}"]`);
       assert.equal(await b.getAttribute('aria-label'), name);
       assert.ok((await b.getAttribute('title')).startsWith(`${name} (${key})`), `the tooltip names the tool and its key: ${await b.getAttribute('title')}`);
       assert.equal(await b.getAttribute('aria-keyshortcuts'), key);
     }
-    assert.match(await btn('World axes').getAttribute('title'), /^World axes \(X\)/);
+    assert.match(await world.getAttribute('title'), /^World axes \(X\)/);
     assert.match(await btn('Fit').getAttribute('title'), /^Fit \(F\)/);
     assert.deepEqual(await row.getByRole('group').evaluateAll(els => els.map(e => e.getAttribute('aria-label'))), ['Transform tools', 'View', 'Keying'], 'the Deform group is Model\'s');
     // The chosen tool is the pressed one, by click and by key.
@@ -2231,21 +2264,23 @@ test('animation studio: the tool row is icon buttons with names, key letters and
     await page.keyboard.press('q');
     assert.match(await studio.locator('.as-note').textContent(), /Pivot tool is for Model mode/, 'a key for a tool the mode does not have still says so');
     // Toggles: World axes (X) and Auto-key. Key is a command and waits for a drag.
-    assert.equal(await btn('World axes').getAttribute('aria-pressed'), 'false');
-    await btn('World axes').click();
-    assert.equal(await btn('World axes').getAttribute('aria-pressed'), 'true');
+    assert.equal(await world.getAttribute('aria-pressed'), 'false');
+    await world.click();
+    assert.equal(await world.getAttribute('aria-pressed'), 'true');
     await page.keyboard.press('x');
-    assert.equal(await btn('World axes').getAttribute('aria-pressed'), 'false', 'X toggles it too');
+    assert.equal(await world.getAttribute('aria-pressed'), 'false', 'X toggles it too');
     assert.equal(await btn('Auto-key').getAttribute('aria-pressed'), 'true');
     assert.equal(await btn('Key').getAttribute('aria-pressed'), null);
     assert.equal(await btn('Key').isDisabled(), true, 'nothing previewed yet');
     // Auto-key on keys a drag at once; off, the drag previews and Key writes it.
     await studio.locator('.as-more').click();
     await page.locator('.ctxmenu button', { hasText: 'New animation' }).click();
-    await studio.locator('.as-name input').fill('icon tools');
+    await studio.locator('.as-name input').fill('icon_tools');
     await studio.locator('.as-name button[type="submit"]').click();
     await studio.locator('.as-tree .as-row[data-part="face"]').click();
     await btn('Rotate').click();
+    const shownAnim = await studio.locator('.as-anim').inputValue();
+    assert.equal(await bar.locator('.atb-line').textContent(), `poses face · a drag keys ${shownAnim} at the playhead`, 'the bar says where a drag keys');
     const keys = () => studio.locator('.tl-key').count();
     const k0 = await keys();
     await dragRing(page, 30);
@@ -2253,21 +2288,92 @@ test('animation studio: the tool row is icon buttons with names, key letters and
     assert.ok(k1 > k0, 'Auto-key wrote a key at the playhead');
     await btn('Auto-key').click();
     assert.equal(await btn('Auto-key').getAttribute('aria-pressed'), 'false');
+    assert.match(await bar.locator('.atb-line').textContent(), /a drag previews, Key writes it into /);
+    const rotField = studio.locator('.as-gz-nums [data-g="rot"]');
+    const rot0 = await rotField.inputValue();
+    assert.notEqual(Number(rot0), 0, 'the playhead fields show the new key');
     await studio.locator('.as-slider').fill('500');
+    assert.notEqual(await rotField.inputValue(), rot0, 'the playhead fields follow the scrub (SA-2)');
     await dragRing(page, 30);
     assert.equal(await keys(), k1, 'with Auto-key off a drag only previews');
     assert.equal(await btn('Key').isDisabled(), false);
     await btn('Key').click();
     assert.ok(await keys() > k1, 'Key wrote the previewed drag');
     assert.equal(await btn('Key').isDisabled(), true);
+    // SA-5: rot keys at 0 and 0.5 ease back to rest by 1, and a hollow diamond there says so; a double-click holds the pose.
+    const restEnd = studio.locator('.tl-rest[data-ch="rot"]');
+    assert.deepEqual(await restEnd.evaluateAll(els => els.map(e => e.getAttribute('data-rest'))), ['1']);
+    const k2 = await keys();
+    await restEnd.dblclick();
+    assert.equal(await keys(), k2 + 1, 'the double-click added a key at the end');
+    assert.equal(await restEnd.count(), 0, 'the pose now holds: no rest left on the rot lane');
+    // SA-8: the unkeyed channels fold to thin rows, and the times sit in a ruler over the lanes; a double-click on a fold opens it.
+    const folds = studio.locator('.tl-fold');
+    assert.deepEqual(await folds.evaluateAll(els => els.map(e => e.getAttribute('data-fold'))), ['x', 'y', 'scale', 'opacity']);
+    assert.equal(await studio.locator('.as-ruler .tl-tick').count(), 5, 'the ruler holds the times');
+    assert.equal(await studio.locator('.as-timeline .tl-tick').count(), 0);
+    await folds.first().dblclick();
+    assert.equal(await keys(), k2 + 2, 'the fold took a key');
+    assert.deepEqual(await folds.evaluateAll(els => els.map(e => e.getAttribute('data-fold'))), ['y', 'scale', 'opacity'], 'x opened');
+    // Key times are shown and typed in seconds (time-units.md part 2); a new Length asks whether the keys stretch or keep their times.
+    const rotKeys = () => studio.locator('.tl-key[data-ch="rot"]').evaluateAll(els => els.map(e => e.getAttribute('aria-label').replace(/, value.*/, '')));
+    const durField = studio.locator('.as-dur'), tField = studio.locator('[data-f="t"]'), dialog = page.locator('dialog.ask');
+    const d0 = Number(await durField.inputValue());
+    assert.deepEqual(await rotKeys(), ['rot key at 0 s', `rot key at ${+(d0 / 2).toFixed(2)} s`, `rot key at ${+d0.toFixed(2)} s`], 'the timeline names key times in seconds');
+    if (d0 !== 1) { // a 1 s animation from here: stretched, the keys sit at 0, 0.5 and 1 s
+      await durField.fill('1');
+      await durField.press('Enter');
+      await dialog.waitFor();
+      await dialog.getByRole('button', { name: 'Stretch keys' }).click();
+    }
+    assert.deepEqual(await rotKeys(), ['rot key at 0 s', 'rot key at 0.5 s', 'rot key at 1 s']);
+    await durField.fill('2');
+    await durField.press('Enter');
+    await dialog.waitFor();
+    assert.match(await dialog.locator('p').textContent(), /goes from 1 s to 2 s/);
+    await dialog.getByRole('button', { name: 'Keep key times' }).click();
+    assert.deepEqual(await rotKeys(), ['rot key at 0 s', 'rot key at 0.5 s', 'rot key at 1 s'], 'the keys kept their seconds in a 2 s animation');
+    assert.equal(await studio.locator('.tl-rest[data-ch="rot"]').getAttribute('data-rest'), '1', 'nothing at the new end: the rot lane rests there again');
+    await studio.locator('.tl-key[data-ch="rot"]').nth(1).click();
+    assert.equal(await tField.inputValue(), '0.5', 'the key field is in seconds');
+    assert.match(await studio.locator('.as-key option:checked').textContent(), /^0\.5 s · rot /);
+    await tField.fill('1.5');
+    await tField.press('Enter');
+    assert.deepEqual(await rotKeys(), ['rot key at 0 s', 'rot key at 1 s', 'rot key at 1.5 s'], 'typed seconds place the key');
+    await durField.fill('4');
+    await durField.press('Enter');
+    await dialog.waitFor();
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'detached' });
+    assert.equal(await durField.inputValue(), '2', 'Cancel puts the old Length back');
+    await durField.fill('1');
+    await durField.press('Enter');
+    await dialog.waitFor();
+    assert.match(await dialog.locator('p').textContent(), /removes 1 key after 1 s/, 'shortening says what keeping the times would remove');
+    await dialog.getByRole('button', { name: 'Stretch keys' }).click();
+    assert.deepEqual(await rotKeys(), ['rot key at 0 s', 'rot key at 0.5 s', 'rot key at 0.75 s'], 'stretched: each key at the same point of the animation');
     // Model mode: the deform group and Pivot come in, keying goes.
     await studio.locator('.as-modes button', { hasText: 'Model' }).click();
-    assert.deepEqual((await shown()).map(s => s[0]), ['Pivot', 'Move', 'Rotate', 'Scale', 'Warp', 'Mask', 'World axes', 'Fit']);
+    assert.deepEqual((await shown()).map(s => s[0]), ['Pivot', 'Move', 'Rotate', 'Scale', 'Warp', 'Weights', 'Mask', 'Fit']);
     assert.deepEqual(await row.getByRole('group').evaluateAll(els => els.map(e => e.getAttribute('aria-label'))), ['Transform tools', 'Deform tools', 'View']);
     assert.equal(await btn('Pivot').getAttribute('aria-pressed'), 'false', 'Model keeps the tool in hand (Move at the start); Pivot is one click away');
     await btn('Warp').click();
     assert.equal(await btn('Warp').getAttribute('aria-pressed'), 'true');
     assert.equal(await btn('Pivot').getAttribute('aria-pressed'), 'false');
+    // SA-7: the transport row (Play, Loop, scrub, time, Length) fits its column at 1024 px and on a phone; it wraps instead.
+    await studio.locator('.as-modes button', { hasText: 'Animate' }).click();
+    for (const width of [1024, 375, 320]) {
+      await page.setViewportSize({ width, height: 700 });
+      const tr = await studio.locator('.as-transport').evaluate(el => {
+        el.querySelector('.as-dur').scrollIntoView({ block: 'center' }); // the narrow layouts scroll one column
+        const box = el.getBoundingClientRect(), kids = [...el.children].map(c => c.getBoundingClientRect());
+        const dur = el.querySelector('.as-dur').getBoundingClientRect(), hit = document.elementFromPoint(dur.right - 3, dur.top + dur.height / 2);
+        return { over: el.scrollWidth - el.clientWidth, out: kids.filter(k => k.left < box.left - 0.5 || k.right > box.right + 0.5).length, durHit: !!hit?.closest('.as-transport') };
+      });
+      assert.equal(tr.over, 0, `the transport does not overflow at ${width} px`);
+      assert.equal(tr.out, 0, `every transport control is inside its row at ${width} px`);
+      assert.ok(tr.durHit, `the Length field is not covered at ${width} px`);
+    }
     // A phone: every button on one line inside the window, with no sideways scroll.
     for (const width of [375, 320]) {
       await page.setViewportSize({ width, height: 700 });
@@ -2284,6 +2390,412 @@ test('animation studio: the tool row is icon buttons with names, key letters and
       }
     }
     assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: undo and redo go to what they change, and say it (ES-5, SA-9)', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Animate' }).nth(1).click(); // robo
+    const studio = page.locator('#animStudio'), undo = studio.locator('[data-t="undo"]'), redo = studio.locator('[data-t="redo"]');
+    const anim = studio.locator('.as-anim'), dur = studio.locator('.as-dur'), note = studio.locator('.as-note');
+    await anim.waitFor();
+    assert.equal(await undo.getAttribute('title'), 'Undo (Ctrl+Z)');
+    // A Length set in wave, then nod shown: undo goes back to wave and says what it undid.
+    await anim.selectOption('wave');
+    const was = await dur.inputValue();
+    await dur.fill('3');
+    await dur.press('Enter');
+    await page.locator('dialog.ask').getByRole('button', { name: 'Stretch keys' }).click();
+    assert.equal(await undo.getAttribute('title'), `Undo: wave: Length ${was} s → 3 s (Ctrl+Z)`, 'the button names its step');
+    await anim.selectOption('nod');
+    await undo.click();
+    assert.equal(await anim.inputValue(), 'wave', 'undo shows the animation it changed');
+    assert.equal(await dur.inputValue(), was);
+    assert.equal(await note.textContent(), `Undid: wave: Length ${was} s → 3 s`);
+    assert.equal(await redo.getAttribute('title'), `Redo: wave: Length ${was} s → 3 s (Ctrl+Y)`);
+    await anim.selectOption('nod');
+    await redo.click();
+    assert.equal(await anim.inputValue(), 'wave', 'redo too');
+    assert.equal(await dur.inputValue(), '3');
+    assert.equal(await note.textContent(), `Redid: wave: Length ${was} s → 3 s`);
+    // A key typed in Animate, then Model: Ctrl+Z goes back to Animate to take the key away.
+    await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
+    const rot = studio.locator('.as-gz-nums [data-g="rot"]');
+    await rot.fill('20');
+    await rot.press('Enter');
+    assert.match(await undo.getAttribute('title'), /^Undo: wave: key (added|on arm_r changed)/);
+    await studio.locator('.as-modes [data-mode="model"]').click();
+    await studio.locator('.as-tree').click({ position: { x: 4, y: 4 } }); // the focus away from any field, so Ctrl+Z is the studio's
+    await page.keyboard.press('Control+z');
+    assert.equal(await studio.getAttribute('data-mode'), 'animate', 'undo switches to the mode its change is in');
+    assert.match(await note.textContent(), /^Undid: wave: key (added|on arm_r changed)/);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: in the narrow layout the wheel over the stage scrolls the column and Ctrl+wheel zooms (SA-6)', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Animate' }).nth(1).click(); // robo (a phone-wide editor keeps the Characters list behind a button)
+    const studio = page.locator('#animStudio'), iframe = studio.locator('.as-stage iframe');
+    await iframe.waitFor();
+    await page.setViewportSize({ width: 390, height: 780 }); // the studio is open: its layout goes narrow and tells the stage
+    const stageFrame = () => page.frames().find(fr => fr.url().includes('studio='));
+    for (let i = 0; i < 50 && !(await stageFrame()?.getByText(/Ctrl\+wheel zooms/).count()); i++) await page.waitForTimeout(100);
+    const label = stageFrame().getByText(/zooms, middle-drag/);
+    assert.match(await label.textContent(), /Ctrl\+wheel zooms/, 'the hint names the zoom gesture of the narrow layout');
+    await iframe.scrollIntoViewIfNeeded();
+    const box = await iframe.boundingBox(), zoom = async () => (await label.textContent()).match(/^\d+%/)[0];
+    const z0 = await zoom(), top0 = box.y;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 3; i++) { await page.mouse.wheel(0, 120); await page.waitForTimeout(80); }
+    let top1 = top0;
+    for (let i = 0; i < 20 && top1 === top0; i++) { await page.waitForTimeout(50); top1 = (await iframe.boundingBox()).y; }
+    assert.ok(top1 < top0, `the column scrolled (stage top ${top0} → ${top1})`);
+    assert.equal(await zoom(), z0, 'a plain wheel does not zoom');
+    const b2 = await iframe.boundingBox();
+    await page.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -200);
+    await page.keyboard.up('Control');
+    for (let i = 0; i < 20 && (await zoom()) === z0; i++) await page.waitForTimeout(50);
+    assert.notEqual(await zoom(), z0, 'Ctrl+wheel zooms');
+    // A wide window: the wheel zooms again, and the hint says so.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (let i = 0; i < 20 && /Ctrl\+wheel/.test(await label.textContent()); i++) await page.waitForTimeout(50);
+    assert.match(await label.textContent(), /\(wheel zooms/);
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the focus header stays pinned over the right column, its ▾ lists and verbs follow the focus, and Esc closes them with the focus back', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button[title*="studio for robo in Model mode"]').click();
+    const studio = page.locator('#animStudio'), focus = studio.locator('.as-focus'), dock = studio.locator('.as-dock[data-zone="right"]');
+    await studio.locator('.ap-pad').waitFor();
+    const verbs = () => focus.locator('.ab-acts button[data-verb]:visible').evaluateAll(bs => bs.map(b => `${b.textContent}${b.disabled ? ' (off)' : ''}`));
+    const focused = () => page.evaluate(() => document.activeElement?.className ?? '');
+    const partPick = focus.locator('.ab-partslot .ab-crumbpick'), paramPick = focus.locator('.ab-paramslot .ab-crumbpick');
+    // Nothing in focus: a line that says so, no verbs, no pickers.
+    assert.equal(await focus.getAttribute('data-kind'), 'none');
+    assert.match(await focus.locator('.ab-crumb').textContent(), /^Nothing in focus/);
+    assert.deepEqual(await verbs(), []);
+    // A parameter: Bind parts…, and the part word's ▾ lists the parts bound to it; Esc closes the list and gives the focus back to its ▾.
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    assert.equal(await focus.getAttribute('data-kind'), 'param');
+    assert.equal(await focus.locator('.ab-crumb').textContent(), 'no part › breathe');
+    assert.deepEqual(await verbs(), ['Bind parts…']);
+    assert.equal(await paramPick.isVisible(), false, 'no part: nothing to list what moves it');
+    await partPick.click();
+    assert.equal(await focus.locator('.ab-partpop').isVisible(), true);
+    assert.deepEqual(await focus.locator('.ab-pname').allTextContents(), ['torso'], 'the parts bound to breathe');
+    assert.equal(await focused(), 'ab-part', 'the list takes the focus');
+    await page.keyboard.press('Escape');
+    assert.equal(await focus.locator('.ab-partpop').isVisible(), false);
+    assert.equal(await studio.isVisible(), true, 'Esc closed the list only');
+    assert.equal(await focused(), 'ab-crumbpick', 'and the focus is back on its ▾');
+    // Choosing from the list chooses the part: a keyform, three verbs (short names, full names for a screen reader).
+    await partPick.click();
+    await focus.locator('.ab-part', { hasText: 'torso' }).click();
+    assert.equal(await focus.locator('.ab-partpop').isVisible(), false, 'a choice closes the list');
+    assert.equal(await focus.getAttribute('data-kind'), 'keyform');
+    assert.match(await focus.locator('.ab-crumb').textContent(), /^torso › breathe @ 0/);
+    // torso is bound to breathe by its warp, so the choice took the Warp tool, which copies no keys: the verb stays, disabled, and says why.
+    assert.equal(await studio.locator('[data-gz="warp"]').getAttribute('aria-pressed'), 'true');
+    assert.deepEqual(await verbs(), ['Bind parts…', 'Bind to…', 'Copy keys… (off)']);
+    assert.match(await focus.locator('.ab-copykeys').getAttribute('title'), /^Only pose keys are copied/);
+    assert.equal(await focus.locator('.ab-more').isVisible(), true, "a keyform's copy and paste are under the row's ⋯");
+    // Pinned: in a short window the column scrolls (at 1440 x 900 this state fits since step 4c); the header does not move with it, and keeps its height.
+    await page.setViewportSize({ width: 1440, height: 520 });
+    await until(page, () => { const d = document.querySelector('#animStudio .as-dock[data-zone="right"]'); return d.scrollHeight > d.clientHeight; });
+    const top = await focus.evaluate(e => Math.round(e.getBoundingClientRect().top));
+    assert.equal(await focus.evaluate(e => Math.round(e.getBoundingClientRect().height)), 64);
+    assert.ok(await dock.evaluate(e => e.scrollHeight > e.clientHeight), 'the sections overflow the column');
+    await dock.evaluate(e => { e.scrollTop = e.scrollHeight; });
+    assert.ok(await dock.evaluate(e => e.scrollTop) > 0);
+    assert.equal(await focus.evaluate(e => Math.round(e.getBoundingClientRect().top)), top, 'the header stayed where it was');
+    assert.ok(await focus.evaluate(e => e.getBoundingClientRect().bottom) <= await dock.evaluate(e => e.getBoundingClientRect().top) + 1, 'the sections scroll under it, not over it');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await studio.locator('[data-gz="move"]').click();
+    assert.deepEqual(await verbs(), ['Bind parts…', 'Bind to…', 'Copy keys…']);
+    assert.equal(await focus.locator('.ab-copykeys').getAttribute('aria-label'), 'Copy keys from…');
+    const row = await focus.locator('.ab-acts').evaluate(e => ({ lines: new Set([...e.querySelectorAll('button')].filter(b => !b.hidden).map(b => Math.round(b.getBoundingClientRect().top))).size, cut: [...e.querySelectorAll('button')].some(b => !b.hidden && b.scrollWidth > b.clientWidth + 1) }));
+    assert.deepEqual(row, { lines: 1, cut: false }, 'the three verbs fit one line, none cut off');
+    // The parameter word's ▾ lists what moves torso; Esc closes it the same way.
+    await paramPick.click();
+    assert.deepEqual(await focus.locator('.ab-aff').allTextContents(), ['breathewarp'], 'breathe, by its warp (the badge)');
+    await page.keyboard.press('Escape');
+    assert.equal(await focus.locator('.ab-parampop').isVisible(), false);
+    assert.equal(await focused(), 'ab-crumbpick');
+    // Copy keys… opens the inline picker in single-choice mode with its two options; Esc closes it and the focus goes back to the verb.
+    await focus.locator('.ab-copykeys').click();
+    const picker = focus.locator('.ab-picker');
+    assert.equal(await picker.isVisible(), true);
+    assert.equal(await picker.locator('.ab-picktitle').textContent(), 'Copy keys onto torso from');
+    assert.equal(await picker.locator('.ab-mirror').isVisible(), true);
+    assert.equal(await picker.locator('.ab-reverse').isVisible(), true);
+    assert.equal(await picker.locator('.ab-picksub').isVisible(), false, 'no subtree option: one source');
+    assert.ok(await picker.locator('.ab-picklist input[type="radio"]').count() > 0, 'one source: radio buttons');
+    assert.equal(await picker.locator('.ab-pickgo').isDisabled(), true, 'nothing picked yet');
+    await page.keyboard.press('Escape');
+    assert.equal(await picker.isVisible(), false);
+    assert.equal(await studio.isVisible(), true);
+    assert.equal(await focused(), 'ab-copykeys');
+    // Choose one and copy: the studio's copyKeys runs, as one undo step.
+    await focus.locator('.ab-copykeys').click();
+    await picker.locator('.ab-picklist input[type="radio"]').first().check();
+    await picker.locator('.ab-mirror').check();
+    await picker.locator('.ab-pickgo').click();
+    assert.match(await studio.locator('.as-note').textContent(), /^torso took the keys of .*poses mirrored \(Ctrl\+Z undoes it\)\.$/);
+    await studio.locator('[data-t="undo"]').click();
+    // A part alone: Bind to parameter… and Copy keys from… by their full names; copying waits for a parameter.
+    await focus.locator('.ab-partslot .ab-crumbbtn').click(); // up to torso alone
+    assert.equal(await focus.getAttribute('data-kind'), 'part');
+    assert.equal(await focus.locator('.ab-crumb').textContent(), 'torso › no parameter');
+    assert.deepEqual(await verbs(), ['Bind to parameter…', 'Copy keys from… (off)']);
+    assert.match(await focus.locator('.ab-copykeys').getAttribute('title'), /choose one first/);
+    // Animate mode has no header.
+    await studio.locator('.as-modes [data-mode="animate"]').click();
+    assert.equal(await focus.isVisible(), false);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: Physics and Reactions are tabs in a strip under the stage, folded by default; a tab opens it, the open tab folds it, and it is kept', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  // A dock layout stored while the two were sections of the right column (one of them moved to the left): they are dropped, the rest kept.
+  await context.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) { localStorage.setItem('vn.editor.studioDock', JSON.stringify({ left: ['poses', 'params', 'tree', 'reactions'], left2: [], right: ['keyforms', 'param', 'sel', 'frames', 'physics', 'place'] })); sessionStorage.setItem('seeded', '1'); }
+  });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    const openModel = async () => {
+      await page.goto(`${base}editor/`);
+      await page.locator('button.anim', { hasText: 'Model' }).nth(0).click(); // mina: six physics chains, no poses
+      const studio = page.locator('#animStudio');
+      await studio.locator('.as-tree .as-row[data-part="hair_back"]').waitFor();
+      return studio;
+    };
+    let studio = await openModel();
+    const strip = studio.locator('.as-rig'), tab = id => strip.locator(`.as-rig-tab[data-rig="${id}"]`), panel = id => strip.locator(`.as-rig-panel[data-rig="${id}"]`);
+    const px = (loc, side = 'height') => loc.evaluate((e, side) => Math.round(e.getBoundingClientRect()[side]), side);
+    const stageH = () => px(studio.locator('.as-stage'));
+    assert.equal(await studio.locator('.as-sect[data-sect="physics"], .as-sect[data-sect="reactions"]').evaluateAll(els => els.filter(e => !e.hidden).length), 0, 'no Physics or Reactions section in any column');
+    assert.deepEqual(await studio.locator('.as-dock[data-zone="left"] > .as-sect:not([hidden])').evaluateAll(els => els.map(e => e.dataset.sect)), ['poses', 'params', 'tree']);
+    assert.equal(await studio.locator('[data-t="resetdock"]').isVisible(), false, 'the stored layout less the two is the default one');
+    // Folded: the tab row alone, under the stage, the whole width of the middle column.
+    assert.equal(await strip.isVisible(), true);
+    assert.equal(await px(strip), 32);
+    assert.deepEqual(await strip.locator('[role="tab"]').evaluateAll(els => els.map(e => [e.dataset.rig, e.getAttribute('aria-selected')])), [['physics', 'true'], ['reactions', 'false']]);
+    assert.match(await tab('physics').textContent(), /^Physics6 chains$/);
+    assert.equal(await panel('physics').isVisible(), false);
+    assert.equal(await strip.evaluate(e => e.getBoundingClientRect().top >= document.querySelector('#animStudio .as-stage').getBoundingClientRect().bottom), true, 'under the stage');
+    const s0 = await stageH(), w0 = await px(studio.locator('.as-stage'), 'width');
+    // Folded, the stage keeps its size whatever the tool.
+    for (const gz of ['warp', 'weights', 'move']) { await studio.locator(`.as-gizmo [data-gz="${gz}"]`).click(); assert.equal(await stageH(), s0, `the stage keeps its height with ${gz}`); }
+    // A tab click opens the strip on that tab at a fixed height; the stage gives up the difference and keeps its width.
+    await tab('physics').click();
+    assert.equal(await px(strip), 240);
+    assert.equal(await stageH(), s0 - 208);
+    assert.equal(await px(studio.locator('.as-stage'), 'width'), w0);
+    assert.equal(await panel('physics').isVisible(), true);
+    assert.equal(await panel('physics').locator('.ph-chain').count(), 6);
+    assert.equal(await panel('physics').evaluate(e => e.scrollHeight > e.clientHeight), true, 'the six chains scroll inside the strip');
+    // Each chain is fields, not JSON: three tables (inputs, segments, outputs) with a ▾ for what a row reads or writes.
+    const ph = panel('physics'), field = k => ph.locator(`[data-phk="${k}"]`), rowsOf = (list, n = 0) => ph.locator('.ph-chain').nth(n).locator(`.ph-${list} tbody tr:not(.ph-problem-row)`);
+    assert.equal(await ph.locator('textarea').count(), 0);
+    assert.equal(await ph.locator('.ph-table').count(), 18);
+    assert.equal(await field('hair.inputs.0.src').inputValue(), 'b:head');
+    assert.equal(await field('hair.inputs.0.channel').inputValue(), 'c:rot');
+    // A number typed and Tab: the chain changes (one undo step), and the focus goes on to the next field across the rebuild.
+    await field('hair.inputs.0.weight').fill('1.2');
+    await page.keyboard.press('Tab');
+    assert.equal(await field('hair.inputs.0.weight').inputValue(), '1.2');
+    assert.equal(await studio.locator('.as-note').textContent(), 'Chain "hair": input 1 weight 1.2.');
+    assert.equal(await page.evaluate(() => document.activeElement?.dataset.phk), 'hair.inputs.0.smoothing', 'the focus moved on to smoothing');
+    assert.equal(await studio.locator('[data-t="undo"]').isDisabled(), false);
+    // + adds a row like the last; ✕ removes it; a chain's only row keeps its ✕ off.
+    assert.equal(await ph.locator('.ph-chain').first().locator('.ph-inputs .ph-x').first().isDisabled(), true, 'the only input cannot go');
+    await field('hair.inputs.add').click();
+    assert.equal(await rowsOf('inputs').count(), 2);
+    await ph.locator('.ph-chain').first().getByRole('button', { name: 'Remove input 2' }).click();
+    assert.equal(await rowsOf('inputs').count(), 1);
+    // A problem shows at its row: a segment's mass of 0.
+    await field('hair.segments.0.mass').fill('0');
+    await page.keyboard.press('Enter');
+    assert.equal(await ph.locator('.ph-chain').first().locator('.ph-segments .ph-bad').count(), 1);
+    assert.match(await ph.locator('.ph-chain').first().locator('.ph-segments .ph-problem').textContent(), /segments\[0\]\.mass: must be more than 0/);
+    // The chain's own wind: on, its numbers, off.
+    const wind = ph.locator('.ph-chain').first().locator('.ph-wind input[type="checkbox"]');
+    const hadWind = await wind.isChecked();
+    await wind.click();
+    assert.equal(await field('hair.wind.strength').count(), hadWind ? 0 : 1);
+    for (let i = 0; i < 5; i++) await studio.locator('[data-t="undo"]').click(); // weight, add, remove, mass, wind
+    assert.equal(await field('hair.inputs.0.weight').inputValue(), '1.6', 'undo walks the edits back');
+    assert.equal(await ph.locator('.ph-bad').count(), 0);
+    // Shake still runs, and stops when its tab goes.
+    const shake = panel('physics').locator('.ph-shake').first();
+    await shake.click();
+    assert.equal(await panel('physics').locator('.ph-shake').first().getAttribute('aria-pressed'), 'true');
+    await tab('reactions').click();
+    assert.equal(await px(strip), 240, 'another tab: the same height');
+    assert.equal(await panel('reactions').isVisible(), true);
+    assert.equal(await panel('physics').isVisible(), false);
+    assert.equal(await panel('physics').locator('.ph-shake[aria-pressed="true"]').count(), 0, 'the shake stopped with its tab');
+    // Reactions: Add reaction needs a pose; Test variables work.
+    await panel('reactions').locator('.ar-add').click();
+    assert.match(await studio.locator('.as-note').textContent(), /Save a pose first/);
+    await panel('reactions').locator('.ar-addvar').click();
+    assert.equal(await panel('reactions').locator('.ar-vars input[aria-label="Variable name"]').inputValue(), 'var1');
+    // The tabs are a tablist: arrows go along them (open, they switch the tab), the selected one takes Tab.
+    await tab('reactions').focus();
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.rig), 'physics');
+    assert.equal(await tab('physics').getAttribute('aria-selected'), 'true');
+    assert.equal(await panel('physics').isVisible(), true);
+    await page.keyboard.press('End');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.rig), 'reactions');
+    assert.deepEqual(await strip.locator('[role="tab"]').evaluateAll(els => els.map(e => e.tabIndex)), [-1, 0]);
+    // The open tab folds the strip; the stage gets its height back.
+    await tab('reactions').click();
+    assert.equal(await px(strip), 32);
+    assert.equal(await stageH(), s0);
+    assert.equal(await strip.locator('.as-rig-fold').getAttribute('aria-expanded'), 'false');
+    assert.deepEqual(JSON.parse(await page.evaluate(() => localStorage.getItem('vn.editor.studioLayout'))).rig, { tab: 'reactions', open: false }, 'kept with the layout');
+    // Folded, the arrows only move the focus; the chevron opens it on the kept tab.
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await px(strip), 32);
+    await strip.locator('.as-rig-fold').click();
+    assert.equal(await panel('reactions').isVisible(), true);
+    // Kept over a reload; Animate has no strip.
+    studio = await openModel();
+    assert.equal(await px(strip), 240);
+    assert.equal(await panel('reactions').isVisible(), true);
+    await studio.locator('.as-modes [data-mode="animate"]').click();
+    assert.equal(await strip.isVisible(), false);
+    assert.equal(await studio.locator('.as-timeline').isVisible(), true);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the tool options bar shows the tool\'s options, keeps one height, and Esc from it steps back in order with the focus kept', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(0).click(); // mina: bones, and a skinned hair_back
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`);
+    const bar = studio.locator('.as-toolbar'), label = bar.locator('.atb-mode'), tool = gz => studio.locator(`.as-gizmo [data-gz="${gz}"]`);
+    const focused = () => page.evaluate(() => { const a = document.activeElement; return a?.dataset.gz ?? a?.getAttribute('aria-label') ?? a?.className; });
+    const height = () => bar.evaluate(e => Math.round(e.getBoundingClientRect().height));
+    const stageH = () => studio.locator('.as-stage').evaluate(e => Math.round(e.getBoundingClientRect().height));
+    await row('hair_back').waitFor();
+    await row('hair_back').click();
+    // One panel per tool, never empty, and the same height at every tool: the stage does not move on a tool change.
+    const h0 = await height(), s0 = await stageH();
+    for (const [gz, shows] of [['move', /^poses hair_back · this character has no parameters: \+ in Parameters adds one$/], ['pivot', /^Pivot · hair_back$/], ['warp', /^Warp · hair_back$/], ['mask', /^Mask · hair_back$/], ['weights', /^Weights · Add on /], ['rotate', /^poses hair_back/]]) {
+      await tool(gz).click();
+      const text = gz === 'move' || gz === 'rotate' ? await bar.locator('.atb-line').textContent() : await label.textContent();
+      assert.match(text, shows, `${gz}: ${text}`);
+      assert.equal(await bar.locator('.atb:not([hidden])').count(), 1, `one panel with ${gz}`);
+      assert.equal(await height(), h0, `the bar keeps its height with ${gz}`);
+      assert.equal(await stageH(), s0, `the stage keeps its height with ${gz}`);
+    }
+    await tool('weights').click();
+    await bar.locator('.aww-modebtn[data-brush="select"]').click();
+    assert.equal(await height(), h0, 'Select mode, with the most controls, fits the same bar');
+    assert.equal(await bar.locator('.atb[data-bar="weights"]').evaluate(e => e.scrollHeight <= e.parentElement.clientHeight + 1), true, 'and its panel fits inside it');
+    // The status line is one line whatever it says.
+    assert.equal(await studio.locator('.as-note').evaluate(e => getComputedStyle(e).whiteSpace), 'nowrap');
+    // [ and ] change the brush radius, Shift the strength.
+    await bar.locator('.aww-modebtn[data-brush="add"]').click();
+    const radius = bar.locator('.aww-radius'), strength = bar.locator('.aww-strength');
+    await tool('weights').focus();
+    await page.keyboard.press(']');
+    assert.equal(await radius.inputValue(), '36');
+    await page.keyboard.press('[');
+    assert.equal(await radius.inputValue(), '30');
+    await page.keyboard.press('Shift+BracketRight');
+    assert.equal(await strength.inputValue(), '0.3');
+    // Esc: an open ▾ panel first (the focus back on its button), then the selection, then Move (the focus on the pressed tool button), then close.
+    await bar.locator('.aww-modebtn[data-brush="select"]').click();
+    await bar.locator('.aww-all').click();
+    const setValue = bar.locator('.aww-setvalue');
+    await setValue.click();
+    await bar.locator('.aww-value').focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await bar.locator('.aww-num').isVisible(), false, 'Esc closes the panel');
+    assert.equal(await focused(), 'Set value…', 'and gives the focus back to its button');
+    assert.equal(await tool('weights').getAttribute('aria-pressed'), 'true', 'the tool stays');
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio .aww-selhint').textContent === '');
+    assert.equal(await tool('weights').getAttribute('aria-pressed'), 'true', 'the second Esc clears the selection');
+    assert.ok(await bar.evaluate(e => e.contains(document.activeElement)), `Set value went with the selection: the focus stays in the bar (${await focused()})`);
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio .as-gizmo [data-gz="move"]').getAttribute('aria-pressed') === 'true');
+    assert.equal(await focused(), 'move', 'back on Move, the focus is on the Move button, not the page');
+    // Pivot: Same pivot for… takes its own Esc; then Pivot goes back to Move.
+    await tool('pivot').click();
+    const share = bar.getByRole('button', { name: 'Same pivot for…' });
+    await share.click();
+    assert.equal(await bar.locator('.as-share').isVisible(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await bar.locator('.as-share').isVisible(), false);
+    assert.equal(await tool('pivot').getAttribute('aria-pressed'), 'true');
+    await page.keyboard.press('Escape');
+    assert.equal(await tool('move').getAttribute('aria-pressed'), 'true');
+    assert.equal(await focused(), 'move');
+    // Warp: its first button is All; with nothing chosen, Esc there goes back to Move.
+    await tool('warp').click();
+    const all = bar.getByRole('button', { name: 'Choose all points' });
+    assert.equal(await all.isVisible(), true, 'the Warp bar has the selection of hair_back\'s mesh');
+    assert.equal(await bar.locator('.atb[data-bar="warp"]').evaluate(e => e.scrollHeight <= e.parentElement.clientHeight + 1), true, 'and fits the bar');
+    await all.focus();
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio .as-gizmo [data-gz="move"]').getAttribute('aria-pressed') === 'true');
+    assert.equal(await focused(), 'move');
+    // Rotate: World axes is its first button; Esc there goes back to Move, the next one closes the studio.
+    await tool('rotate').click();
+    await bar.getByRole('button', { name: 'World axes' }).focus();
+    await page.keyboard.press('Escape');
+    assert.equal(await tool('move').getAttribute('aria-pressed'), 'true');
+    assert.equal(await studio.isVisible(), true);
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio').hidden);
+    assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }
@@ -2313,7 +2825,7 @@ test('animation studio: in Model mode a gizmo drag writes the chosen part\'s key
     const row = studio.locator('.ap-row[data-ctl="arm_r_lift"]'), num = row.locator('.ap-num'), ticks = row.locator('.ap-tick');
     const rot = studio.locator('[data-bf="rot"]'), undo = studio.locator('[data-t="undo"]');
     await row.locator('label').click(); // the author picks the parameter: nothing is guessed from the chosen part
-    assert.equal(await studio.locator('.ab-name').textContent(), 'arm_r_lift');
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), 'arm_r_lift');
     assert.match(await studio.locator('.ab-formtext').textContent(), /^arm_r at arm_r_lift = 0 \(a key\)/, 'the pose stored at the slider\'s value');
     assert.deepEqual(await ticks.evaluateAll(els => els.map(e => e.title)), ['At rest at 0: click to set arm_r_lift to 0', 'Posed at 1: click to set arm_r_lift to 1'], 'marks on the track at the keyed values');
     await num.fill('0.5');
@@ -2356,7 +2868,7 @@ test('animation studio: in Model mode a gizmo drag writes the chosen part\'s key
     // Animate mode is what it was: no Bind block, no editing, its key button keys the animation.
     await studio.locator('.as-modes [data-mode="animate"]').click();
     assert.equal(await studio.locator('.ab').isVisible(), false);
-    assert.equal(await studio.locator('.ap-edit-btn').first().isVisible(), false);
+    assert.equal(await studio.locator('[data-sect="param"]').isVisible(), false, 'no Parameter section in Animate');
     assert.equal(await studio.locator('.ap-add').isVisible(), false, 'the + for new controls is Model mode only');
     assert.equal(await studio.locator('.ap-tick').count(), 0, 'no marks: Animate shows the timeline\'s keys instead');
     await openSection(studio, 'poses');
@@ -2386,10 +2898,10 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     await studio.locator('.ap-pad').waitFor();
     const undo = studio.locator('[data-t="undo"]'), note = studio.locator('.as-note');
     await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
-    assert.equal(await studio.locator('.ab-name').textContent(), 'none', 'eyes has no keyform: no parameter is active until the author picks one');
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), '', 'eyes has no keyform: no parameter is active until the author picks one');
     const pad = await studio.locator('.ap-pad').boundingBox();
     await page.mouse.click(pad.x + pad.width - 2, pad.y + pad.height * 0.5); // the pad is picked by using it; this is the right-hand corner of the middle row
-    assert.equal(await studio.locator('.ab-name').textContent(), 'head_turn');
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), 'head_turn');
     assert.equal(await studio.locator('.as-row[data-part="eyes"]').getAttribute('aria-pressed'), 'false', 'eyes is not moved by the pad: the pad replaces it in focus');
     assert.equal(await studio.locator('.ap-corner').count(), 0, 'no grid yet');
     await studio.locator('[data-gz="move"]').click();
@@ -2423,16 +2935,18 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     const before = await rows();
     await addControl(studio, 'param');
     assert.equal(await rows(), before + 1);
-    const editor = studio.locator('.ap-editor:visible');
-    assert.equal(await editor.count(), 1, 'a new parameter opens its editor');
-    await editor.locator('input[type="text"]').first().fill('smile');
-    await editor.locator('input[type="text"]').first().press('Enter');
+    const editor = studio.locator('[data-sect="param"] .apm-slider');
+    assert.equal(await editor.isVisible(), true, 'a new parameter shows in the Parameter section');
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('apm-name')), true, 'its name ready to type');
+    await editor.locator('.apm-name').fill('smile');
+    await editor.locator('.apm-name').press('Enter');
     assert.equal(await studio.locator('.ap-row[data-ctl="smile"]').count(), 1, 'renamed');
-    await studio.locator('.ap-editor:visible input[type="number"]').nth(1).fill('3');
-    await studio.locator('.ap-editor:visible input[type="number"]').nth(1).press('Enter');
+    await editor.locator('.apm-max').fill('3');
+    await editor.locator('.apm-max').press('Enter');
     assert.deepEqual(await studio.locator('.ap-row[data-ctl="smile"] input[type="range"]').evaluate(e => [e.min, e.max]), ['-1', '3'], 'the range follows');
-    await studio.locator('.ap-editor:visible input[type="text"]').first().fill('arm_r_lift');
-    await studio.locator('.ap-editor:visible input[type="text"]').first().press('Enter');
+    assert.equal(await editor.locator('.apm-range').textContent(), '-1 to 3, default 0', 'and the range line');
+    await editor.locator('.apm-name').fill('arm_r_lift');
+    await editor.locator('.apm-name').press('Enter');
     assert.match(await note.textContent(), /There is a parameter named "arm_r_lift" already/, 'a name that is taken is refused');
     // The + menu also adds a pad; the ✕ on the active row deletes a control in one step.
     const n0 = await rows();
@@ -2453,8 +2967,7 @@ test('animation studio: a pad writes the grid corner nearest its dot, a grid gro
     assert.equal(await studio.locator('.ap-row[data-ctl="my_pad_x"]').count(), 1, 'over a new parameter');
     await studio.locator('.ap-padrow.ap-active .ap-del-btn').click();
     assert.equal(await studio.locator('.ap-padrow').count(), pads0, 'the ✕ on a pad deletes the pad');
-await studio.locator('.ap-row[data-ctl="smile"] label').click();
-    await studio.locator('.ap-row[data-ctl="smile"] .ap-edit-btn').click();
+    await studio.locator('.ap-row[data-ctl="smile"] label').click(); // smile alone in focus: its Parameter section
     await studio.locator('[data-t="apply"]').click();
     for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100); // the rig.json tab is saved a moment after Apply
     const rig = JSON.parse(saved.at(-1));
@@ -2462,7 +2975,7 @@ await studio.locator('.ap-row[data-ctl="smile"] label').click();
     const grid = rig.keyforms.find(k => k.target === 'eyes');
     assert.deepEqual(grid.params, ['head_x', 'head_y']);
     assert.deepEqual(grid.grid.x, [-1, 0, 0.5, 1]);
-    await studio.locator('.ap-editor:visible .ap-delete').click();
+    await studio.locator('[data-sect="param"] .apm-slider .apm-delete').click();
     assert.equal(await studio.locator('.ap-row[data-ctl="smile"]').count(), 0, 'deleted');
     await undo.click();
     assert.equal(await studio.locator('.ap-row[data-ctl="smile"]').count(), 1, 'undo brings it back');
@@ -2489,7 +3002,17 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo
     const studio = page.locator('#animStudio');
     await studio.locator('.ap-pad').waitFor();
-    const note = studio.locator('.as-note'), active = studio.locator('.ab-name'), bound = studio.locator('.ab-part'), undo = studio.locator('[data-t="undo"]');
+    // The focus header names the active parameter; its part word's ▾ lists the bound parts, its parameter word's ▾ what moves the part.
+    const focus = studio.locator('.as-focus'), active = () => focus.getAttribute('data-param');
+    const note = studio.locator('.as-note'), bound = studio.locator('.ab-part'), undo = studio.locator('[data-t="undo"]');
+    const partPick = focus.locator('.ab-partslot .ab-crumbpick'), paramPick = focus.locator('.ab-paramslot .ab-crumbpick');
+    const closePop = async (pick, pop) => { if (await focus.locator(pop).isVisible()) await pick.click(); };
+    const movedBy = async name => { await paramPick.click(); await studio.locator('.ab-aff', name ? { hasText: name } : {}).click(); };
+    const unbind = async name => {
+      await partPick.click();
+      await (name ? studio.locator('.ab-item', { hasText: name }) : studio.locator('.ab-item').first()).locator('.ab-unbind').click();
+      await closePop(partPick, '.ab-partpop');
+    };
     assert.equal(await studio.locator('.as-modes [data-mode="model"]').getAttribute('aria-pressed'), 'true');
     assert.equal(await studio.locator('.as-modes [data-mode="keyform"]').count(), 0, 'Model and Animate are the only modes');
     assert.equal(await studio.locator('.as-sect[data-sect="params"] .as-sect-head').getAttribute('aria-expanded'), 'true');
@@ -2498,50 +3021,56 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.equal(await studio.locator('[data-gz="pivot"]').isVisible(), true, 'the Pivot tool is still in Model');
     assert.equal(await studio.locator('[data-gz="move"]').getAttribute('aria-pressed'), 'true', 'Model starts on Move, so a click on the stage picks parts');
     assert.equal(await studio.locator('.as-sect[data-sect="sel"]').isVisible(), true);
-    assert.equal(await active.textContent(), 'none', 'no parameter is active until the author picks one');
+    assert.equal(await active(), '', 'no parameter is active until the author picks one');
     assert.equal(await studio.locator('.ap-row.ap-active, .ap-padrow.ap-active').count(), 0);
     // With no active parameter a click on a part of the stage only selects it: nothing is bound.
     const stage = await studio.locator('.as-stage iframe').boundingBox();
-    const spineRow = studio.locator('.as-row[data-part="spine"]');
-    for (let i = 0; i < 20 && (await spineRow.getAttribute('aria-pressed')) !== 'true'; i++) { // the art may still be loading: a click on nothing picks nothing
-      await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.5); // the middle of the robo: the spine
+    const spineRow = studio.locator('.as-row[data-part="spine"]'), torsoRow = studio.locator('.as-row[data-part="torso"]');
+    for (let i = 0; i < 20 && (await torsoRow.getAttribute('aria-pressed')) !== 'true'; i++) { // the art may still be loading: a click on nothing picks nothing
+      await page.mouse.click(stage.x + stage.width * 0.5, stage.y + stage.height * 0.5); // the middle of the robo: the torso, which sits on the spine
       await page.waitForTimeout(400);
     }
-    assert.equal(await spineRow.getAttribute('aria-pressed'), 'true', 'the click chose the spine');
+    assert.equal(await torsoRow.getAttribute('aria-pressed'), 'true', 'the click chose the torso: the part, not its bone (docs/design/studio-stage-modes.md)');
+    assert.equal(await spineRow.getAttribute('aria-pressed'), 'false');
     assert.equal(await bound.count(), 0);
     assert.equal(await studio.locator('.as-bind').count(), 0, 'and there are no ticks in the tree while no parameter is active');
     // Nothing is guessed: choosing a part that one parameter moves does not make that parameter active; its button jumps there.
     await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
-    assert.equal(await active.textContent(), 'none');
+    assert.equal(await active(), '');
     assert.deepEqual(await studio.locator('.ab-aff').allTextContents(), ['arm_r_lift'], 'the parameters that move the chosen part');
-    await studio.locator('.ab-aff').click();
-    assert.equal(await active.textContent(), 'arm_r_lift');
+    await movedBy();
+    assert.equal(await active(), 'arm_r_lift');
     assert.equal(await studio.locator('.ap-row[data-ctl="arm_r_lift"]').evaluate(e => e.classList.contains('ap-active')), true, 'the active row is highlighted');
-    // One line to a control: only the active row shows reset and edit, the others keep their width for the slider.
-    assert.equal(await studio.locator('.ap-row[data-ctl="arm_r_lift"] .ap-edit-btn').isVisible(), true, 'the active row shows reset and edit');
-    assert.equal(await studio.locator('.ap-row[data-ctl="eye_open"] .ap-edit-btn').isVisible(), false, 'another row shows only its key button');
+    // One line to a control: only the active row shows reset and delete, the others keep their width for the slider; no row has an edit button (its properties are the Parameter section).
+    assert.equal(await studio.locator('.ap-row[data-ctl="arm_r_lift"] .ap-reset').isVisible(), true, 'the active row shows reset and delete');
+    assert.equal(await studio.locator('.ap-row[data-ctl="eye_open"] .ap-reset').isVisible(), false, 'another row shows only its key button');
+    assert.equal(await studio.locator('.ap-edit-btn').count(), 0);
     assert.equal(await studio.locator('.ap-row[data-ctl="eye_open"] .ap-key').isVisible(), true);
     assert.equal(await bound.count(), 1, 'arm_r is bound to arm_r_lift already (the sample rig)');
     assert.match(await bound.first().textContent(), /^arm_rpose2 keys · 1 posed$/);
     // A new parameter becomes the active one. A click on a part of the stage binds it: keys at min, default and max, all at rest.
     await addControl(studio, 'param');
-    const editor = studio.locator('.ap-editor:visible input[type="text"]').first();
+    const editor = studio.locator('[data-sect="param"] .apm-slider .apm-name');
     await editor.fill('wave');
     await editor.press('Enter');
-    assert.equal(await active.textContent(), 'wave');
+    assert.equal(await active(), 'wave');
     assert.equal(await bound.count(), 0);
-    assert.match(await studio.locator('.ab-hint').textContent(), /No parts are bound to wave yet. Press Bind parts…/);
+    assert.match(await note.getAttribute('data-hint'), /^No parts are bound to wave yet. Press Bind parts…/, 'what to do next is the status line\'s hint');
     // A click only chooses, and the focus is one thing: a part that wave does not move replaces wave as the parameter in focus.
     // (Each try is a few pixels from the last, so it is a new click on a new spot, not the next part of a cycle.)
-    const clickSpine = async i => { await page.mouse.click(stage.x + stage.width * 0.5 + (i % 2) * 9, stage.y + stage.height * 0.5); await page.waitForTimeout(400); };
-    await studio.locator('.as-row[data-part="torso"]').click();
-    assert.equal(await active.textContent(), 'none', 'torso is not moved by wave: choosing it replaces the parameter');
-    for (let i = 0; i < 20 && (await spineRow.getAttribute('aria-pressed')) !== 'true'; i++) await clickSpine(i);
-    assert.equal(await spineRow.getAttribute('aria-pressed'), 'true', 'the click chose the spine');
+    const clickTorso = async i => { await page.mouse.click(stage.x + stage.width * 0.5 + (i % 2) * 9, stage.y + stage.height * 0.5); await page.waitForTimeout(400); };
+    await torsoRow.click();
+    assert.equal(await active(), '', 'torso is not moved by wave: choosing it replaces the parameter');
+    await studio.locator('.ap-row[data-ctl="wave"] > label').click();
+    assert.equal(await active(), 'wave');
+    assert.equal(await torsoRow.getAttribute('aria-pressed'), 'false');
+    for (let i = 0; i < 20 && (await torsoRow.getAttribute('aria-pressed')) !== 'true'; i++) await clickTorso(i);
+    assert.equal(await torsoRow.getAttribute('aria-pressed'), 'true', 'the click on the stage chose the torso');
+    assert.equal(await active(), '', 'a click only chooses, and torso is not moved by wave');
     assert.doesNotMatch(await note.textContent(), /^Bound/);
     await studio.locator('.ap-row[data-ctl="wave"] > label').click(); // and a parameter replaces a part it does not move
-    assert.equal(await active.textContent(), 'wave');
-    assert.equal(await spineRow.getAttribute('aria-pressed'), 'false');
+    assert.equal(await active(), 'wave');
+    assert.equal(await torsoRow.getAttribute('aria-pressed'), 'false');
     assert.equal(await bound.count(), 0, 'nothing was bound by any of it');
     // Bind parts… opens a picker in the right column; the stage and the left lists never answer it.
     const bindBtn = studio.locator('.ab-bind'), picker = studio.locator('.ab-picker');
@@ -2574,10 +3103,10 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await page.keyboard.press('Escape');
     await bindParts(studio, 'forearm_r');
     assert.equal(await bound.count(), 2);
-    await studio.locator('.ab-item', { hasText: 'forearm_r' }).locator('.ab-unbind').click(); // the ✕ unbinds
+    await unbind('forearm_r'); // the ✕ in the part word's ▾ unbinds
     assert.equal(await bound.count(), 1);
     await studio.locator('.as-row[data-part="torso"]').click();
-    assert.equal(await active.textContent(), 'none', 'a click on a row only chooses (and replaces the parameter)');
+    assert.equal(await active(), '', 'a click on a row only chooses (and replaces the parameter)');
     await studio.locator('.ap-row[data-ctl="wave"] > label').click();
     assert.equal(await bound.count(), 1, 'nothing was bound by it');
     // Click a key, pose there with the gizmo: one undo step, the key is posed, the others stay at rest.
@@ -2599,14 +3128,14 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.equal(await crumb.textContent(), 'spine › wave @ 0.5 · no key here: a drag adds one');
     await studio.locator('.ab-key', { hasText: /^1$/ }).click();
     await studio.locator('.ab-crumbbtn', { hasText: 'wave' }).click(); // up to the parameter alone
-    assert.equal(await crumb.textContent(), 'wave');
+    assert.equal(await crumb.textContent(), 'no part › wave', 'the missing half of the focus is named, with its ▾');
     assert.equal(await spineRow.getAttribute('aria-pressed'), 'false');
     await studio.locator('.as-row[data-part="spine"]').click(); // and a part wave moves pairs with it again
     assert.equal(await crumb.textContent(), 'spine › wave @ 1 · key');
     await studio.locator('.ab-crumbbtn', { hasText: 'spine' }).click(); // up to the part alone
-    assert.equal(await crumb.textContent(), 'spine');
-    assert.equal(await active.textContent(), 'none');
-    await studio.locator('.ab-aff', { hasText: 'wave' }).click(); // a parameter that moves it pairs with it
+    assert.equal(await crumb.textContent(), 'spine › no parameter');
+    assert.equal(await active(), '');
+    await movedBy('wave'); // a parameter that moves it (the ▾ after its word) pairs with it
     assert.equal(await crumb.textContent(), 'spine › wave @ 1 · key');
     await studio.locator('[data-gz="rotate"]').click();
     await dragRing(page, 25);
@@ -2623,9 +3152,11 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await studio.locator('.as-row[data-part="torso"]').click({ modifiers: ['Control'] });
     assert.equal(await studio.locator('.as-row[data-part="spine"]').getAttribute('aria-pressed'), 'true', 'the spine stays the chosen part');
     assert.equal(await bound.count(), 1, 'adding does not bind by itself');
+    assert.match(await note.textContent(), /^Added torso to the chosen parts \(2\).* torso is not bound to wave: a drag leaves it out/, 'adding says the part is not bound');
     await dragRing(page, 15);
-    assert.match(await note.textContent(), /^Nothing was written: torso is not bound to wave yet. Use Bind parts…/, 'a drag does not bind the part it poses');
+    assert.match(await note.textContent(), /^Wrote spine at wave = 1 as a keyform\. Ctrl\+Z undoes the whole drag\. torso is not bound to wave, so it did not move/, 'a drag writes the bound part and does not bind the other');
     assert.equal(await bound.count(), 1);
+    await undo.click();
     await bindParts(studio, 'torso'); // the picker binds it; the chosen set (spine) stays
     await studio.locator('.as-row[data-part="spine"]').click();
     await studio.locator('.as-row[data-part="torso"]').click({ modifiers: ['Control'] });
@@ -2639,7 +3170,7 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await dragRing(page, 5);
     assert.match(await note.textContent(), /^Wrote spine at wave = 1 as a keyform/);
     await undo.click();
-    await studio.locator('.ab-item', { hasText: 'torso' }).locator('.ab-unbind').click(); // unbind it again so the rest of the test sees one bound part
+    await unbind('torso'); // unbind it again so the rest of the test sees one bound part
     assert.equal(await bound.count(), 1);
     // The default key cannot be removed; another one can.
     await studio.locator('.ab-key', { hasText: /^0$/ }).click();
@@ -2652,7 +3183,7 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.deepEqual(await studio.locator('.ab-key').allTextContents(), ['-1', '0', '1'], 'and removed again');
     // A pad: a part picked from the tree gets a grid; a corner of it is a key; a click near a corner puts the dot on it.
     await studio.locator('.ap-padrow[data-ctl="pad:head_turn"] > label').click();
-    assert.equal(await active.textContent(), 'head_turn');
+    assert.equal(await active(), 'head_turn');
     assert.equal(await bound.count(), 0, 'no part has a grid on this pad yet');
     await bindParts(studio, 'eyes');
     assert.match(await note.textContent(), /^Bound eyes to head_turn: a 3 × 3 grid of corners, all at rest/);
@@ -2668,19 +3199,19 @@ test('animation studio: Model mode is parameter first: the author picks the para
     // What moves a part, from the other side: choose head, its parameters are buttons, one makes that parameter active.
     await studio.locator('.as-tree .as-row[data-part="head"]').click();
     assert.deepEqual(await studio.locator('.ab-aff').allTextContents(), ['head_x', 'head_y']);
-    await studio.locator('.ab-aff', { hasText: 'head_y' }).click();
-    assert.equal(await active.textContent(), 'head_y');
+    await movedBy('head_y');
+    assert.equal(await active(), 'head_y');
     assert.equal(await studio.locator('.ap-padrow').evaluate(e => e.classList.contains('ap-active')), true, 'one axis of a pad highlights the pad');
     // Unbind with the ✕: the keys it made go.
     await studio.locator('.ap-row[data-ctl="wave"] > label').click();
-    await studio.locator('.ab-unbind').first().click();
+    await unbind();
     assert.equal(await bound.count(), 0);
     assert.match(await note.textContent(), /^Unbound spine from wave/);
     await undo.click();
     assert.equal(await bound.count(), 1, 'undo binds it again, posed key included');
     // A gizmo drag needs a part and a parameter in focus together: with a part alone it writes nothing and says what to do; once the part is bound it writes.
     await studio.locator('.as-tree .as-row[data-part="forearm_r"]').click();
-    assert.equal(await active.textContent(), 'none', 'forearm_r is not moved by wave');
+    assert.equal(await active(), '', 'forearm_r is not moved by wave');
     await dragRing(page, 15);
     assert.match(await note.textContent(), /^Nothing was written: forearm_r is chosen without a parameter/);
     await studio.locator('.ap-row[data-ctl="wave"] > label').click();
@@ -2709,10 +3240,10 @@ test('animation studio: Model mode is parameter first: the author picks the para
     await studio.locator('.ab-picklist label:has(span:text-is("eye_open")) input').check();
     await studio.locator('.ab-pickgo').click();
     assert.match(await note.textContent(), /^Bound torso to eye_open/);
-    assert.equal(await active.textContent(), 'eye_open');
+    assert.equal(await active(), 'eye_open');
     assert.equal(await picker.isVisible(), false, 'one go, then it closes');
     assert.equal(await studio.locator('.ab-item', { hasText: 'torso' }).count(), 1);
-    await studio.locator('.ab-item', { hasText: 'torso' }).locator('.ab-unbind').click(); // back to what the Apply check below expects
+    await unbind('torso'); // back to what the Apply check below expects
     assert.equal(await studio.locator('.ab-item', { hasText: 'torso' }).count(), 0);
     // Apply writes the keyforms.
     await studio.locator('[data-t="apply"]').click();
@@ -2723,12 +3254,13 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.deepEqual(spine[0].keys.map(k => k.at), [-1, 0, 1]);
     assert.deepEqual(spine[0].keys.map(k => Object.keys(k).length > 1), [false, false, true], 'only the posed key holds a pose');
     assert.ok(rig.keyforms.some(k => k.target === 'forearm_r' && k.param === 'wave'));
-    // The Warp section is keyed to the active parameter and has no slider or parameter choice of its own.
+    // The warp is keyed to the active parameter (the header names it; Keyforms has its keys) and has no slider or parameter choice of its own.
     await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
     assert.deepEqual(await bound.allTextContents(), ['torsowarp2 keys · 1 posed']);
     await studio.locator('.as-tree .as-row[data-part="torso"]').click();
     await studio.locator('[data-gz="warp"]').click();
-    assert.match(await studio.locator('.aw-active').textContent(), /^Keyed to breathe, the active parameter/);
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), 'breathe');
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^the warp of torso at /);
     assert.equal(await studio.locator('.aw-param').isVisible(), false);
     assert.equal(await studio.locator('.aw-range').isVisible(), false, 'every slider is in the Parameters section');
     // Animate mode has no Bind block and no ticks in the tree, and no Pivot tool.
@@ -2736,6 +3268,166 @@ test('animation studio: Model mode is parameter first: the author picks the para
     assert.equal(await studio.locator('.ab').isVisible(), false);
     assert.equal(await studio.locator('[data-gz="pivot"]').isVisible(), false);
     assert.equal(await studio.locator('.as-bind').count(), 0, 'no ticks in the tree');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the keyboard reaches the studio from the stage, Esc steps back before it closes, focus survives redraws', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const active = () => page.evaluate(() => { const a = document.activeElement; return a === document.body ? 'BODY' : [...a.classList].join(' ') || a.tagName; });
+  const isOpen = () => page.evaluate(() => !document.querySelector('#animStudio').hidden);
+  try {
+    await page.goto(`${base}editor/`);
+    // Animate: the stage gives back Space, Tab and Esc (they were the game's skip, advance and menu keys there).
+    await page.locator('button.anim', { hasText: 'Animate' }).nth(1).click(); // robo
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tree .as-row').first().waitFor();
+    await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
+    await studio.locator('.as-anim').selectOption('wave');
+    const stage = await studio.locator('.as-stage iframe').boundingBox();
+    const clickStage = () => page.mouse.click(stage.x + 20, stage.y + 20);
+    await clickStage();
+    await page.keyboard.press('Space');
+    await until(page, () => document.querySelector('#animStudio .as-play')?.textContent === 'Pause');
+    await page.keyboard.press('Space');
+    await until(page, () => document.querySelector('#animStudio .as-play')?.textContent === 'Play');
+    await page.keyboard.press('Tab');
+    assert.equal(await active(), 'as-play', 'Tab moves on from the stage to Play');
+    // A click on a key gives it the focus, so Delete removes it (the click on empty stage chose the whole character: back to the arm wave keys).
+    await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
+    const keys = studio.locator('.as-timeline [data-key]');
+    const n = await keys.count();
+    await keys.first().click({ force: true });
+    assert.match(await active(), /tl-key/, 'the clicked key has the focus');
+    await page.keyboard.press('Delete');
+    await until(page, n => document.querySelectorAll('#animStudio .as-timeline [data-key]').length === n - 1, n);
+    // Esc in a field puts back the typing; Ctrl+Z after a commit is the studio's undo, and the field keeps the focus.
+    const dur = studio.locator('.as-dur'), was = await dur.inputValue();
+    await dur.fill('2.5');
+    await dur.press('Escape');
+    assert.equal(await isOpen(), true, 'Esc in a field with a typed edit does not close the studio');
+    assert.equal(await dur.inputValue(), was);
+    await dur.fill('3');
+    await dur.press('Enter');
+    // The animation has keys: the studio asks whether they stretch or keep their times; Enter takes the default (stretch).
+    await page.locator('dialog.ask').waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('dialog.ask').waitFor({ state: 'detached' });
+    assert.equal(await dur.inputValue(), '3');
+    await dur.focus();
+    await page.keyboard.press('Control+z');
+    assert.equal(await dur.inputValue(), was, 'Ctrl+Z from the field undid the committed length');
+    assert.equal(await active(), 'as-dur');
+    await page.keyboard.press('Control+y'); // the key delete and the length are undone and redone; leave the length changed
+    // Model, Warp tool with points selected: Esc clears them, then goes back to Move, and only then closes (with the guard: there are edits).
+    await page.locator('#animStudio .as-modes button[data-mode="model"]').click();
+    await studio.locator('.as-tree .as-row[data-part="torso"]').click();
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    await studio.locator('[data-gz="warp"]').click();
+    await studio.locator('.aw-all').click();
+    const tool = () => page.evaluate(() => document.querySelector('#animStudio [data-gz][aria-pressed="true"]')?.dataset.gz);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    assert.equal(await isOpen(), true, 'the first Esc clears the selection');
+    assert.equal(await tool(), 'warp');
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio [data-gz="move"]')?.getAttribute('aria-pressed') === 'true');
+    assert.notEqual(await active(), 'BODY', 'the Warp bar that went hands the focus on');
+    // A click on a key of the Keys row keeps the studio's keys working (the row is redrawn under the pointer).
+    await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
+    await studio.locator('.ap-row[data-ctl="arm_r_lift"] > label').click();
+    await studio.locator('.ab-key').last().click();
+    assert.match(await active(), /ab-key/);
+    await page.keyboard.press('e');
+    assert.equal(await tool(), 'rotate');
+    // The Parameter section: Tab after a changed field goes on to the next field, though the palette is rebuilt.
+    await studio.locator('.as-focus .ab-paramslot .ab-crumbbtn').click(); // up from the keyform to arm_r_lift alone
+    const editor = studio.locator('[data-sect="param"] .apm-slider');
+    const min = editor.locator('.apm-min');
+    await min.fill('-0.5');
+    await min.press('Tab');
+    assert.equal(await page.evaluate(() => document.activeElement.closest('label')?.firstChild?.textContent?.trim()), 'max');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: a parameter alone shows its Parameter section; a keyform copies and pastes its pose, mirrored, one undo step each', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tree .as-row[data-part="head"]').waitFor();
+    const shown = id => studio.locator(`.as-sect[data-sect="${id}"]`).isVisible();
+    const section = studio.locator('[data-sect="param"]');
+    // Nothing in focus: Keyforms and Properties, no Parameter section; the palette's rows have no edit button.
+    assert.deepEqual([await shown('keyforms'), await shown('sel'), await shown('param')], [true, true, false]);
+    assert.equal(await studio.locator('.ap-edit-btn').count(), 0, 'the palette is a control surface');
+    // breathe alone: the Parameter section in place of Keyforms and Properties, with its range line and fields.
+    await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
+    assert.deepEqual([await shown('keyforms'), await shown('sel'), await shown('param')], [false, false, true]);
+    const slider = section.locator('.apm-slider');
+    assert.equal(await slider.locator('.apm-range').textContent(), '0 to 1, default 0');
+    assert.equal(await slider.locator('.apm-name').inputValue(), 'breathe');
+    assert.equal(await slider.locator('.apm-ease').inputValue(), 'inout');
+    assert.equal(await slider.locator('.apm-cat').inputValue(), 'Body');
+    await slider.locator('.apm-default').fill('0.5');
+    await slider.locator('.apm-default').press('Enter');
+    assert.equal(await slider.locator('.apm-range').textContent(), '0 to 1, default 0.5');
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal(await slider.locator('.apm-range').textContent(), '0 to 1, default 0', 'one undo step');
+    // A pad: its own name and category, and its two parameters, each a way to that axis's fields.
+    await studio.locator('.ap-padrow[data-ctl="pad:head_turn"] > label').click();
+    assert.equal(await section.locator('.apm-pad').isVisible(), true);
+    assert.equal(await section.locator('.apm-slider').isVisible(), false);
+    assert.equal(await section.locator('.apm-pad .apm-name').inputValue(), 'head_turn');
+    assert.deepEqual(await section.locator('.apm-axisbtn').allTextContents(), ['head_x', 'head_y']);
+    await section.locator('.apm-axisbtn').first().click();
+    assert.equal(await section.locator('.apm-slider .apm-name').inputValue(), 'head_x');
+    assert.match(await section.locator('.apm-axis').textContent(), /An axis of the pad head_turn/);
+    assert.equal(await section.locator('.apm-slider .apm-cat').isDisabled(), true, "an axis stays in its pad's category");
+    // A part that head_x moves: the keyform, so Keyforms and Properties again.
+    await studio.locator('.as-tree .as-row[data-part="head"]').click();
+    assert.deepEqual([await shown('keyforms'), await shown('sel'), await shown('param')], [true, true, false]);
+    // Copy form at key 1 through the action row's ⋯; Paste needs something copied first.
+    const key = at => studio.locator('.ab-key', { hasText: new RegExp(`^${at}$`) }).click();
+    const rot = () => studio.locator('[data-bf="rot"]').inputValue();
+    await key(-1);
+    assert.equal(await rot(), '-8');
+    assert.equal(await studio.locator('.ab-pasteform').isDisabled(), true);
+    assert.match(await studio.locator('.ab-pasteform').getAttribute('title'), /^Nothing copied yet/);
+    await key(1);
+    await studio.locator('.as-focus .ab-more').click();
+    assert.deepEqual(await page.locator('.ctxmenu:not([hidden]) button').allTextContents(), ['Copy form', 'Paste form', 'Paste mirrored']);
+    await page.locator('.ctxmenu:not([hidden]) button', { hasText: 'Copy form' }).click();
+    assert.match(await studio.locator('.as-note').textContent(), /^Copied the pose of head at head_x = 1:/);
+    // Paste at -1, then Paste mirrored there: each is one undo step.
+    await key(-1);
+    await studio.locator('.ab-pasteform').click();
+    assert.equal(await rot(), '8', 'pasted as copied');
+    assert.equal(await studio.locator('[data-bf="dx"]').inputValue(), '0.012');
+    await studio.locator('.ab-pastemirror').click();
+    assert.equal(await rot(), '-8', 'mirrored: rotation and x move change sign');
+    assert.equal(await studio.locator('[data-bf="dx"]').inputValue(), '-0.012');
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal(await rot(), '8', 'one undo takes the mirrored paste back');
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal(await rot(), '-8', 'and one more the first paste');
+    // Reset puts the key back to rest; a key between keys has nothing to reset.
+    await studio.locator('.ab-reset').click();
+    assert.equal(await rot(), '0');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -2764,17 +3456,24 @@ test('animation studio: the Warp tool shows the lattice of the chosen part, a po
     assert.equal((await handles()).length, 0, 'no lattice before the Warp tool is chosen');
     await page.keyboard.press('d'); // the tool's key
     assert.equal(await studio.locator('[data-gz="warp"]').getAttribute('aria-pressed'), 'true');
-    assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-head').getAttribute('aria-expanded'), 'true', 'choosing the tool opens its section');
-    assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent(), '2×3');
+    const deform = studio.locator('.as-sub[data-sub="deform"]');
+    assert.equal(await deform.getAttribute('data-open'), 'false', 'a warp to edit: Deform stays folded (the bar and the stage have the tool)');
+    assert.equal(await deform.locator('.as-sub-sum').textContent(), 'Lattice 2×3');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 12);
-    assert.match(await studio.locator('.aw-active').textContent(), /^Keyed to breathe, the active parameter/);
-    assert.equal(await studio.locator('.aw-param').count(), 0, 'the Warp section has no parameter choice or slider of its own');
-    assert.equal(await studio.locator('.aw-keys button').count(), 2);
+    assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), 'breathe', 'the header names the parameter the warp is keyed to');
+    assert.equal(await studio.locator('.aw-param').count(), 0, 'Deform has no parameter choice or slider of its own');
+    // The warp's keyform is in Keyforms: its key strip and the Point row; Properties has neither.
+    const keyBtns = studio.locator('.ab .ab-keybtns button');
+    assert.equal(await keyBtns.count(), 2);
+    assert.equal(await studio.locator('.ab .ab-points .aw-pt').isVisible(), true, 'the Point row stands in place of the pose fields');
+    assert.equal(await studio.locator('.ab .ab-form label').first().isVisible(), false, 'no pose fields for a warp');
+    for (const cls of ['.aw-pt', '.aw-form', '.aw-keys', '.aw-delkey', '.aw-reset', '.aw-active']) assert.equal(await studio.locator(`.as-sect[data-sect="sel"] ${cls}`).count(), 0, `${cls} is not in Properties`);
     assert.equal(await studio.locator('.ap-row[data-ctl="breathe"] .ap-tick').count(), 2, 'the slider track has a mark at each key of the warp');
     assert.equal(await studio.locator('.ap-row[data-ctl="lean"] .ap-tick').count(), 0, 'a parameter the warp is not keyed to has none');
     // The slider value selects the keyform: on the key at 1, a drag changes that key, and the point follows the pointer.
     await setBreathe(1);
-    assert.match(await studio.locator('.aw-keyhint').textContent(), /On the key at 1/);
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^the warp of torso at 1 \(a key\): a drag changes it$/);
+    assert.equal(await studio.locator('.ab .ab-keyhere').textContent(), 'Remove this key');
     const box = await studio.locator('.as-stage iframe').boundingBox(), before = await handles(), at = before[4];
     await page.mouse.move(box.x + at[0], box.y + at[1]);
     await page.mouse.down();
@@ -2800,42 +3499,77 @@ test('animation studio: the Warp tool shows the lattice of the chosen part, a po
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
     // Between the keys a drag adds a key at the slider's value.
     await setBreathe(0.5);
-    assert.match(await studio.locator('.aw-keyhint').textContent(), /No key at 0\.5/);
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^the warp of torso at 0\.5: between keys/);
     const half = (await handles())[4];
     await page.mouse.move(box.x + half[0], box.y + half[1]);
     await page.mouse.down();
     await page.mouse.move(box.x + half[0] + 12, box.y + half[1]);
     await page.mouse.up();
-    assert.deepEqual(await studio.locator('.aw-keys button').allTextContents(), ['0', '0.5', '1']);
-    await studio.locator('.aw-delkey').click();
-    assert.deepEqual(await studio.locator('.aw-keys button').allTextContents(), ['0', '1'], 'Delete key removes the key at the value');
+    assert.deepEqual(await keyBtns.allTextContents(), ['0', '0.5', '1']);
+    assert.equal(await studio.locator('.ab .ab-keybtns button[aria-pressed="true"]').textContent(), '0.5', 'the key the slider is on');
+    await studio.locator('.ab .ab-keyhere').click(); // Remove this key
+    assert.deepEqual(await keyBtns.allTextContents(), ['0', '1'], 'Remove this key removes the warp key at the value');
+    await studio.locator('[data-t="undo"]').click();
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
+    // Add key here holds the shape on show; ‹ goes to the key before.
+    assert.equal(await studio.locator('.ab .ab-keyhere').textContent(), 'Add key here');
+    await studio.locator('.ab .ab-keyhere').click();
+    assert.deepEqual(await keyBtns.allTextContents(), ['0', '0.5', '1']);
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /at 0\.5 \(a key\)/);
+    await studio.locator('[data-t="undo"]').click();
+    await studio.locator('.ab .ab-prev').click();
+    assert.equal(await breathe.inputValue(), '0');
+    // Copy the shape at 1, paste it at 0.5 (a new key with the same moves), then Reset the chosen point there.
+    await setBreathe(1);
+    await studio.locator('.aw-pick').selectOption('3'); // the sample's breathe key at 1 moves point 3 in
+    const dx1 = await studio.locator('.aw-dx').inputValue();
+    assert.equal(dx1, '-0.006');
+    assert.equal(await studio.locator('.ab .ab-pasteform').isDisabled(), true, 'nothing copied yet');
+    await studio.locator('.ab .ab-copyform').click();
+    await setBreathe(0.5);
+    assert.equal(await studio.locator('.ab .ab-pastemirror').isDisabled(), false, 'a lattice pastes mirrored too');
+    await studio.locator('.ab .ab-pasteform').click();
+    assert.deepEqual(await keyBtns.allTextContents(), ['0', '0.5', '1']);
+    assert.equal(await studio.locator('.aw-dx').inputValue(), dx1, 'point 3 moves at 0.5 as it does at 1');
+    assert.equal(await studio.locator('.ab .ab-reset').isDisabled(), false, 'a point is chosen');
+    await studio.locator('.ab .ab-reset').click();
+    assert.equal(await studio.locator('.aw-dx').inputValue(), '0', 'Reset took the chosen point back to rest in this keyform');
     await studio.locator('[data-t="undo"]').click();
     await studio.locator('[data-t="undo"]').click();
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
     // A part with no warp (legs; the face is in the head group warp): Add warp gives it the default lattice and turns the tool on; a preset writes keys for a parameter.
     await studio.locator('.as-tree .as-row[data-part="legs"]').click();
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 0); // a part without a warp has no lattice
-    assert.equal(await studio.locator('.aw-addbtn').textContent(), 'Add warp to legs');
+    assert.equal(await deform.getAttribute('data-open'), 'true', 'no warp: Deform opens by itself');
+    assert.equal(await deform.locator('.as-sub-sum').textContent(), 'No warp');
+    assert.equal(await studio.locator('.aw-addbtn').getAttribute('aria-label'), 'Add warp to legs', "Add warp is the line's verb");
     await studio.locator('.aw-addbtn').click();
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
-    assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent(), '4×4');
+    assert.equal(await deform.locator('.as-sub-sum').textContent(), 'Lattice 4×4');
+    assert.equal(await studio.locator('.aw-remove').getAttribute('aria-label'), 'Remove warp', 'the new warp can be removed from the line');
     // A parameter that does not move the part leaves it out of the focus: bind the warp with Bind parts… (the Warp tool binds warps) to key it.
     await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
     await bindParts(studio, 'legs');
+    await studio.locator('.aw-presetbtn').click(); // Presets ▾ in the tool options bar
     await studio.locator('.aw-preset').selectOption('sway');
     await studio.locator('.aw-write').click();
-    assert.deepEqual(await studio.locator('.aw-keys button').allTextContents(), ['0', '1'], 'rest at the default, the bend at the far end');
+    assert.equal(await studio.locator('.aw-presets').isVisible(), false, 'Write keys closes the panel, which would cover the key strip');
+    assert.deepEqual(await studio.locator('.ab .ab-keybtns button').allTextContents(), ['0', '1'], 'rest at the default, the bend at the far end');
     assert.match(await page.locator('.as-note').textContent(), /Sway written as the keys of breathe/);
     // Moving the slider to a key shows the shape: the lattice moves with it.
     const rest = await handles();
-    await studio.locator('.aw-keys button', { hasText: '1' }).last().click();
+    await studio.locator('.ab .ab-keybtns button', { hasText: '1' }).last().click();
     let bent = rest;
     for (let i = 0; i < 40 && !(bent[24][0] > rest[24][0] + 1.5); i++) { await page.waitForTimeout(100); bent = await handles(); } // the stage answers a moment after the slider
     assert.ok(bent[24][0] > rest[24][0] + 1.5 && Math.abs(bent[24][1] - rest[24][1]) < 0.5 && Math.abs(bent[0][0] - rest[0][0]) < 0.5, `the bottom row bends sideways, the top row stays (${rest[24]} ${bent[24]} / ${rest[0]} ${bent[0]})`);
-    // Animate mode has neither the tool nor the section.
+    // Leaving the tool folds Deform again, as the tool opened it.
+    await studio.locator('[data-gz="move"]').click();
+    assert.equal(await deform.getAttribute('data-open'), 'false', 'folded when the tool is left');
+    // Animate mode has neither the tool nor Deform.
     await studio.locator('.as-modes [data-mode="animate"]').click();
     assert.equal(await studio.locator('[data-gz="warp"]').isVisible(), false);
-    assert.equal(await studio.locator('.as-sect[data-sect="warp"]').isVisible(), false);
+    assert.equal(await deform.isVisible(), false);
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 0); // the lattice is gone
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
@@ -2859,14 +3593,17 @@ test('animation studio: a group warp shows its lattice for each member, a target
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
     await studio.locator('.as-tree .as-row[data-part="face"]').click();
     await page.keyboard.press('d');
-    const sum = studio.locator('.as-sect[data-sect="warp"] .as-sect-sum');
-    assert.equal(await sum.textContent(), 'group 3×3');
+    const sum = studio.locator('.as-sub[data-sub="deform"] .as-sub-sum'), grid = async () => [await studio.locator('.aw-cols').inputValue(), await studio.locator('.aw-rows').inputValue()];
+    const target = () => studio.locator('.aw-targetpick').evaluate(s => s.selectedOptions[0]?.textContent ?? '');
+    assert.equal(await sum.textContent(), '', "the Target ▾ in Deform's line names the group");
+    assert.equal(await target(), 'group head_warp (3 parts, 1 shape)');
+    assert.deepEqual(await grid(), ['3', '3']);
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 16);
-    assert.equal(await studio.locator('.aw-target').isVisible(), true, 'a member of a group warp gets the target choice');
+    assert.equal(await studio.locator('.as-sub[data-sub="deform"] .as-sub-pick .aw-target').isVisible(), true, "a member of a group warp gets the target choice, in Deform's line");
     assert.deepEqual(await studio.locator('.aw-targetpick option').allTextContents(), ['group head_warp (3 parts, 1 shape)']);
-    assert.equal(await studio.locator('.aw-addbtn').textContent(), 'Add warp to face', 'the face has no warp of its own yet');
+    assert.equal(await studio.locator('.aw-addbtn').getAttribute('aria-label'), 'Add warp to face', 'the face has no warp of its own yet');
     assert.equal(await studio.locator('.aw-member:checked').count(), 4, 'three parts and the eyelids shape');
-    assert.equal(await studio.locator('.aw-remove').textContent(), 'Remove group warp');
+    assert.equal(await studio.locator('.aw-remove').getAttribute('aria-label'), 'Remove group warp');
     // The eyes are in the same group: the same lattice. Own warp plus group: the choice lists both, the own warp first.
     await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
     assert.equal(await count(), 16);
@@ -2876,22 +3613,29 @@ test('animation studio: a group warp shows its lattice for each member, a target
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
     await studio.locator('.aw-targetpick').selectOption('head_warp');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 16);
-    // Members: untick the mouth, tick it again.
-    await studio.locator('.aw-member[value="mouth"]').uncheck();
+    // Members (in Deform's body: the author opens it, as the tool has a warp to edit): only the members are listed; untick the mouth, add it again with Add….
+    await studio.locator('.as-sub[data-sub="deform"] .as-sub-head').click();
+    assert.equal(await studio.locator('.aw-member').count(), 4, 'the members only, not a checkbox for every part');
+    await studio.locator('.aw-member[value="mouth"]').click(); // unticked, it leaves the list (uncheck() cannot see it unchecked)
     assert.equal(await studio.locator('.aw-member:checked').count(), 3);
-    await studio.locator('.aw-member[value="mouth"]').check();
+    assert.equal(await studio.locator('.aw-member[value="mouth"]').count(), 0);
+    assert.ok((await studio.locator('.aw-addmember option').allTextContents()).includes('mouth'), 'Add… lists it now');
+    await studio.locator('.aw-addmember').selectOption('mouth');
     assert.equal(await studio.locator('.aw-member:checked').count(), 4, 'three parts and the eyelids shape');
     // A bone: the group warp over every part on it takes the parts from head_warp, which has none left and goes.
     await studio.locator('.as-tree .as-row[data-part="head"]').click();
-    assert.equal(await studio.locator('.aw-groupbtn').textContent(), 'Add group warp from head');
+    assert.equal(await studio.locator('.aw-groupbtn').getAttribute('aria-label'), 'Add group warp from head');
     await studio.locator('.aw-groupbtn').click();
     assert.equal(await studio.locator('.aw-targetpick').inputValue(), 'head_warp', 'the old group lost every member and went, so its id is free again');
     assert.equal(await studio.locator('.aw-member:checked').count(), 5, 'antenna, face, eyes and mouth, and the eyelids shape on the head bone');
-    assert.equal(await sum.textContent(), 'group 4×4', 'a new group warp has the default lattice');
+    assert.equal(await target(), 'group head_warp (4 parts, 1 shape)');
+    assert.deepEqual(await grid(), ['4', '4'], 'a new group warp has the default lattice');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 25);
     await studio.locator('.aw-remove').click();
     assert.equal(await studio.locator('.aw-target').isVisible(), false, 'the group warp is gone');
-    assert.equal(await sum.textContent(), '2 warps', 'the torso warp and the eyes warp are left');
+    assert.equal(await sum.textContent(), 'No group warp');
+    await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
+    assert.equal(await sum.textContent(), 'Lattice 4×4', 'the eyes warp is left');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -2930,7 +3674,7 @@ test('animation studio: warp points are chosen by rectangle, Shift-click and row
     for (let i = 1; i <= 6; i++) await page.mouse.move(x0 - 20 + ((x1 - x0 + 40) * i) / 6, y0 - 20 + ((y1 - y0 + 25) * i) / 6);
     await page.mouse.up();
     assert.deepEqual(await chosen(), [0, 1, 2, 3, 4, 5]);
-    assert.match(await studio.locator('.aw-selhint').textContent(), /^6 points chosen/);
+    assert.equal(await studio.locator('.aw-selhint').textContent(), '6 chosen');
     // Shift-click adds a point and, again, takes it away.
     await page.keyboard.down('Shift');
     await page.mouse.click(...at(7));
@@ -2960,7 +3704,9 @@ test('animation studio: warp points are chosen by rectangle, Shift-click and row
     assert.deepEqual(await chosen(), [2, 5, 8, 11]);
     await studio.locator('.aw-pick').selectOption('4');
     assert.deepEqual(await chosen(), [4]);
-    await studio.locator('.aw-soft').check();
+    await studio.locator('.aw-soft').click();
+    assert.equal(await studio.locator('.aw-soft').getAttribute('aria-pressed'), 'true');
+    await studio.locator('.aw-softopts').click(); // its reach is under ▾
     await studio.locator('.aw-radius').fill('2');
     await studio.locator('.aw-radius').dispatchEvent('change');
     await page.mouse.move(px, py);
@@ -2973,12 +3719,15 @@ test('animation studio: warp points are chosen by rectangle, Shift-click and row
     assert.ok(Math.abs(shift(11)) < 0.8, 'a point out of reach stayed');
     await studio.locator('[data-t="undo"]').click();
     // Mirror selection and Scale act on the chosen points.
-    await studio.locator('.aw-soft').uncheck();
+    await studio.locator('.aw-soft').click();
     await studio.locator('.aw-all').click();
     assert.equal((await chosen()).length, 12);
+    await studio.locator('.aw-xfbtn').click(); // the factor is under ▾; the Scale icon applies it
     await studio.locator('.aw-scale').fill('1.5');
     await studio.locator('.aw-scale-go').click();
-    const grown = await dots();
+    const widened = d => d[2][0] - d[0][0] > (before[2][0] - before[0][0]) * 1.4;
+    let grown = await dots();
+    for (let i = 0; i < 40 && !widened(grown); i++) { await page.waitForTimeout(50); grown = await dots(); } // the stage redraws a moment later
     assert.ok(grown[2][0] - grown[0][0] > (before[2][0] - before[0][0]) * 1.4, 'scaling about the selection widened the lattice');
     await studio.locator('.aw-clear').click();
     assert.deepEqual(await chosen(), []);
@@ -3054,7 +3803,8 @@ test('animation studio: a shape has its own row, the Mask tool outlines every sh
     const studio = page.locator('#animStudio');
     await studio.locator('.as-tree .as-row[data-part="eyes"]').waitFor();
     const { outlines, handles, edge } = maskStage(page);
-    const sum = studio.locator('.as-sect[data-sect="mask"] .as-sect-sum'), row = studio.locator('.as-tree .as-row[data-part="eyelids"]');
+    const clip = studio.locator('.as-sub[data-sub="clip"]'), sum = clip.locator('.as-sub-sum'), row = studio.locator('.as-tree .as-row[data-part="eyelids"]');
+    const clipOpen = () => clip.locator('.as-sub-head').getAttribute('aria-expanded'), bar = studio.locator('.atb[data-bar="mask"]');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg'));
     // The shape is a row of its own: a badge and the bone it sits on, no thumbnail, no eye and no keys.
     assert.equal(await row.count(), 1, 'a row for the shape part');
@@ -3062,17 +3812,19 @@ test('animation studio: a shape has its own row, the Mask tool outlines every sh
     assert.match(await row.textContent(), /on head, clips eyes/);
     assert.equal(await studio.locator('.as-shaperow .as-eye, .as-shaperow img, .as-shaperow .as-keyed').count(), 0, 'nothing that applies to drawn parts');
     assert.equal(await studio.locator('[data-gz="mask"]').isVisible(), true, 'the Mask tool is in the tool row in Model mode');
-    assert.equal(await sum.textContent(), '1 shape', 'nothing chosen: how many shapes there are');
+    assert.equal(await clip.isVisible(), false, 'nothing chosen: no Clip sub-block');
     assert.equal(await outlines(), 0, 'no outline until a shape is chosen');
     // Choosing the shape row chooses the shape: its outline shows, its points are handles only with the Mask tool.
     await row.click();
     assert.equal(await row.getAttribute('aria-pressed'), 'true');
-    assert.equal(await sum.textContent(), 'shape, 4 points, clips 1');
+    assert.equal(await sum.textContent(), 'Shape on head, 4 points, clips 1');
+    assert.equal(await clipOpen(), 'false', 'with Move, Clip is its folded line');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 1);
     assert.equal((await handles()).length, 0);
     await page.keyboard.press('m'); // the tool's key
     assert.equal(await studio.locator('[data-gz="mask"]').getAttribute('aria-pressed'), 'true');
-    assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-head').getAttribute('aria-expanded'), 'true', 'choosing the tool opens its section');
+    assert.equal(await clipOpen(), 'true', 'the Mask tool opens Clip by itself: the shape has points to edit');
+    assert.deepEqual(await bar.locator('button').evaluateAll(bs => bs.map(b => [b.className.split(' ').pop(), b.getAttribute('aria-label'), b.disabled, b.textContent.trim()])), [['am-add', 'Add point after', false, ''], ['am-del', 'Remove point', true, '']], 'the Mask bar holds the point buttons, icons, Remove point waiting for a point');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 4);
     assert.equal(await studio.locator('.am-name').inputValue(), 'eyelids');
     // Drag a point: it follows the pointer, and the whole drag is one undo step.
@@ -3096,23 +3848,25 @@ test('animation studio: a shape has its own row, the Mask tool outlines every sh
     await studio.locator('.am-x').dispatchEvent('change');
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false);
     await studio.locator('.am-add').click();
-    assert.equal(await sum.textContent(), 'shape, 5 points, clips 1');
+    assert.equal(await sum.textContent(), 'Shape on head, 5 points, clips 1');
     assert.equal(await studio.locator('.am-pick').inputValue(), '3', 'the new point is chosen');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 5);
     await studio.locator('.am-del').click();
-    assert.equal(await sum.textContent(), 'shape, 4 points, clips 1');
+    assert.equal(await sum.textContent(), 'Shape on head, 4 points, clips 1');
     for (let i = 0; i < 3; i++) await studio.locator('[data-t="undo"]').click();
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true, 'three edits, three undo steps');
     // The part row edits the same shape (its clip target is a picker), a bone has none.
     await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
-    assert.equal(await sum.textContent(), 'to eyelids');
+    assert.equal(await sum.textContent(), 'Clipped to');
+    assert.equal(await clip.locator('.as-sub-line .am-target').count(), 1, 'once clipped, Clip to ▾ stands in the head line');
     assert.equal(await studio.locator('.am-target').inputValue(), 'eyelids');
     assert.equal((await handles()).length, 4, 'a part row shows the points of its shape');
     await studio.locator('.as-tree .as-row[data-part="head"]').click();
     for (let i = 0; i < 40 && (await handles()).length !== 0; i++) await page.waitForTimeout(100); // the stage gets the new choice a message later; a loaded machine is slower
     assert.equal((await handles()).length, 0, 'a bone has no shape of its own: no handles');
     assert.equal(await outlines(), 1, 'but with the Mask tool every shape is outlined');
-    assert.match(await studio.locator('.am-none').textContent(), /head is a bone/);
+    assert.equal(await clip.isVisible(), false, 'a bone has no Clip');
+    assert.equal(await bar.locator('.am-add').isDisabled(), true, 'nor a shape to add points to');
     // A click near an outline picks that shape.
     const [ex, ey] = await edge();
     await page.mouse.click(box.x + ex, box.y + ey);
@@ -3126,10 +3880,36 @@ test('animation studio: a shape has its own row, the Mask tool outlines every sh
     await page.mouse.click(box.x + ex, box.y + ey);
     await page.waitForTimeout(300); // long enough for the stage's answer, were there one
     assert.notEqual(await row.getAttribute('aria-pressed'), 'true', 'no shape is picked while another tool is on');
-    // Animate mode has neither the tool, the section nor the row.
+    // Clip folds again when the Mask tool is left, unless the author folded or opened it meanwhile; then it stays as they left it.
+    await studio.locator('.as-tree .as-row[data-part="eyes"]').click();
+    assert.equal(await clipOpen(), 'false');
+    await studio.locator('[data-gz="mask"]').click();
+    assert.equal(await clipOpen(), 'true', 'the tool opens it by itself on a part clipped to a shape');
+    await studio.locator('[data-gz="move"]').click();
+    assert.equal(await clipOpen(), 'false', 'leaving the tool folds it again');
+    await studio.locator('[data-gz="mask"]').click();
+    await clip.locator('.as-sub-head').click();
+    assert.equal(await clipOpen(), 'false', 'the author folds it');
+    await studio.locator('.as-tree .as-row[data-part="eyelids"]').click();
+    assert.equal(await clipOpen(), 'false', 'and it does not open by itself again while the tool is on');
+    await clip.locator('.as-sub-head').click();
+    await studio.locator('[data-gz="move"]').click();
+    assert.equal(await clipOpen(), 'true', 'opened by the author, it stays open when the tool is left');
+    await clip.locator('.as-sub-head').click();
+    // A shape keyed in rig.json (eyelids on eye_open): with the Mask tool Keyforms lists its keys to go to, and says where they are written.
+    await studio.locator('[data-gz="mask"]').click();
+    await studio.locator('.ab-paramslot .ab-crumbpick').click();
+    await studio.locator('.ab-aff', { hasText: 'eye_open' }).click();
+    assert.deepEqual(await studio.locator('.ab .ab-keybtns button').allTextContents(), ['0', '1']);
+    assert.equal(await studio.locator('.ab .ab-keyhere').isVisible(), false, 'a mask key is not added or removed here');
+    assert.equal(await studio.locator('.ab .ab-form .as-pivot-name').textContent(), 'Shape');
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^The keys of eyelids on eye_open reshape it; they are written in rig\.json/);
+    assert.equal(await studio.locator('.ab .ab-ops').isVisible(), false, 'nothing to copy or paste');
+    await studio.locator('[data-gz="move"]').click();
+    // Animate mode has neither the tool, the sub-block nor the row.
     await studio.locator('.as-modes [data-mode="animate"]').click();
     assert.equal(await studio.locator('[data-gz="mask"]').isVisible(), false);
-    assert.equal(await studio.locator('.as-sect[data-sect="mask"]').isVisible(), false);
+    assert.equal(await clip.isVisible(), false);
     assert.equal(await row.count(), 0);
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg polygon[stroke-dasharray]').length === 0);
     assert.deepEqual(errors, [], 'the page threw errors');
@@ -3164,7 +3944,7 @@ test('animation studio: New shape, rename and delete; a shape shared by two part
     assert.equal(await row('mouth_mask').count(), 1, 'the new shape has a row');
     assert.match(await row('mouth_mask').textContent(), /on head, clips mouth/);
     assert.equal(await studio.locator('.am-target').inputValue(), 'mouth_mask');
-    assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-sum').textContent(), 'to mouth_mask');
+    assert.equal(await studio.locator('.as-sub[data-sub="clip"] .as-sub-sum').textContent(), 'Clipped to');
     await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 4);
     assert.equal((await handles()).length, 4);
     // Rename from the shape's own row: the clip follows, the row stays chosen.
@@ -3194,7 +3974,7 @@ test('animation studio: New shape, rename and delete; a shape shared by two part
     assert.equal(await apply.isDisabled(), true);
     // Two parts clipped to one shape: one shape part in the file after Apply, both parts linked to it.
     await studio.locator('.am-target').selectOption('eyelids');
-    assert.equal(await studio.locator('.as-sect[data-sect="mask"] .as-sect-sum').textContent(), 'to eyelids');
+    assert.equal(await studio.locator('.as-sub[data-sub="clip"] .as-sub-sum').textContent(), 'Clipped to');
     assert.match(await row('eyelids').textContent(), /clips eyes, mouth/);
     await apply.click();
     for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100); // the rig.json tab is saved a moment after Apply
@@ -3205,6 +3985,76 @@ test('animation studio: New shape, rename and delete; a shape shared by two part
     assert.equal(rig.masks, undefined, 'the older list is not written');
     assert.deepEqual(rig.parts.eyelids.keyforms.map(k => k.param), ['eye_open'], 'the shape\'s keyforms are untouched');
     assert.equal(rig.deformers.find(d => d.id === 'head_warp').members.filter(m => m === 'eyelids').length, 1);
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: a Ctrl-click set shows what its parts share, blank when they differ, and sets a pivot, bone or clip on all as one undo step', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), sub = id => studio.locator(`.as-sub[data-sub="${id}"]`);
+    const undo = studio.locator('[data-t="undo"]'), redo = studio.locator('[data-t="redo"]');
+    const px = studio.locator('.as-pivot [data-p="x"]'), py = studio.locator('.as-pivot [data-p="y"]');
+    const bone = sub('transform').locator('.as-bone-sel'), clipTo = studio.locator('.am-target');
+    const blank = sel => sel.evaluate(s => s.selectedIndex);
+    await row('face').waitFor();
+    // face (no pivot, not clipped), eyes (no pivot, clipped to eyelids) and antenna (a pivot of its own): all on head.
+    await row('face').click();
+    await row('eyes').click({ modifiers: ['Control'] });
+    await row('antenna').click({ modifiers: ['Control'] });
+    const slot = studio.locator('.ab-partslot');
+    assert.equal(await slot.getAttribute('data-set'), '3 parts', 'the focus header counts the set');
+    assert.match(await slot.textContent(), /3 parts/);
+    assert.equal(await studio.locator('.as-sect[data-sect="sel"] .as-sect-sum').textContent(), '3 parts', "and so does Properties' summary");
+    assert.equal(await row('face').getAttribute('aria-pressed'), 'true');
+    assert.equal(await row('eyes').evaluate(e => e.classList.contains('as-extra')), true, 'the rows added are marked in the tree');
+    assert.deepEqual(await studio.locator('.as-sub:not([hidden])').evaluateAll(es => es.map(e => e.dataset.sub)), ['transform', 'deform', 'clip'], 'Skin and Variants are per part');
+    assert.deepEqual([await px.inputValue(), await py.inputValue()], ['', ''], 'the pivots differ: blank');
+    assert.equal(await bone.inputValue(), 'head', 'the bone they share');
+    assert.equal(await clipTo.evaluate(s => !!s.closest('.as-sub-pick')), true, "mixed clips: Clip to ▾ is in Clip's line");
+    assert.equal(await blank(clipTo), -1, 'and blank');
+    assert.equal(await sub('clip').locator('.as-sub-sum').textContent(), 'Clip to');
+    assert.equal(await sub('deform').locator('.as-sub-sum').textContent(), 'No group warp', 'antenna is not in head_warp: no group shared');
+    assert.equal(await studio.locator('.aw-groupbtn').getAttribute('aria-label'), 'Add group warp from 3 selected parts');
+    // A pivot typed is set on all three, as one undo step.
+    await px.fill('100');
+    await py.fill('200');
+    await py.press('Enter');
+    await until(page, () => document.querySelector('#animStudio .as-pivot [data-p="x"]')?.value === '100');
+    assert.deepEqual([await px.inputValue(), await py.inputValue()], ['100', '200'], 'shared now');
+    await undo.click();
+    assert.deepEqual([await px.inputValue(), await py.inputValue()], ['', ''], 'one undo step takes all three back');
+    await redo.click();
+    assert.equal(await px.inputValue(), '100');
+    // On bone ▾ re-hangs all three, as one undo step.
+    await bone.selectOption('neck');
+    assert.equal(await bone.inputValue(), 'neck');
+    await undo.click();
+    assert.equal(await bone.inputValue(), 'head');
+    // Clip to ▾ clips all three, as one undo step; mixed again after the undo.
+    await clipTo.selectOption('eyelids');
+    assert.equal(await clipTo.inputValue(), 'eyelids');
+    assert.equal(await sub('clip').locator('.as-sub-sum').textContent(), 'Clipped to');
+    await undo.click();
+    assert.equal(await blank(clipTo), -1);
+    // Two parts in head_warp share it: Deform shows the group.
+    await row('antenna').click({ modifiers: ['Control'] });
+    assert.equal(await slot.getAttribute('data-set'), '2 parts');
+    assert.equal(await studio.locator('.aw-targetpick').evaluate(s => s.selectedOptions[0]?.textContent), 'group head_warp (3 parts, 1 shape)');
+    // A plain click is one part again; the pivot typed is each part's own.
+    await row('antenna').click();
+    assert.equal(await slot.getAttribute('data-set'), '');
+    assert.deepEqual([await px.inputValue(), await py.inputValue()], ['100', '200']);
+    await row('face').click();
+    assert.equal(await px.inputValue(), '100', 'face got it too');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -3225,6 +4075,10 @@ test('animation studio: shapes are group warp members, a group from a bone takes
     // The Warp tool works on a shape row: the shape has no warp of its own, its group is the target and is marked as a shape.
     await row('eyelids').click();
     await page.keyboard.press('d');
+    const deformLine = studio.locator('.as-sub[data-sub="deform"]');
+    assert.equal(await deformLine.getAttribute('data-open'), 'false', 'a group to edit: Deform stays folded');
+    assert.equal(await deformLine.locator('.aw-targetpick').evaluate(s => s.selectedOptions[0]?.textContent), 'group head_warp (3 parts, 1 shape)', 'its line names the group that bends the shape');
+    await deformLine.locator('.as-sub-head').click(); // its members are in the body
     assert.equal(await studio.locator('.aw-members').isVisible(), true);
     assert.deepEqual(await members(), ['eyelids', 'eyes', 'face', 'mouth']);
     assert.match(await studio.locator('.aw-memberrow', { hasText: 'eyelids' }).textContent(), /eyelids \(shape\)/);
@@ -3233,12 +4087,17 @@ test('animation studio: shapes are group warp members, a group from a bone takes
     // Taking the shape out of the group while its part stays in: the part row says so and offers the fix.
     await studio.locator('.aw-memberrow', { hasText: 'eyelids' }).locator('input').uncheck();
     assert.equal(await studio.locator('.aw-members').isVisible(), false, 'a shape out of every group has no warp to show');
+    assert.equal(await studio.locator('.as-sub[data-sub="deform"] .as-sub-sum').textContent(), 'In no group warp');
     assert.match(await studio.locator('.aw-none').textContent(), /no warp of its own/);
     await row('eyes').click();
     assert.match(await studio.locator('.aw-clipissue').textContent(), /eyes is clipped to eyelids, which is not in this group/);
-    assert.equal(await studio.locator('.am-fixgroup').count(), 1, 'the Mask section says the same');
+    const warn = studio.locator('.as-sub[data-sub="clip"] .as-sub-warn');
+    assert.equal(await warn.isVisible(), true, "Clip's line flags it");
+    assert.match(await warn.getAttribute('title'), /^eyes is bent by the group warp head_warp, but its shape eyelids is not a member.*Properties › Deform has the fix/);
+    assert.equal(await studio.locator('.aw-clipissue').count(), 1, 'the issue shows once, in Deform');
     await studio.locator('.aw-fixclip').click();
     assert.equal(await studio.locator('.aw-clipissue').count(), 0);
+    assert.equal(await warn.isVisible(), false);
     assert.deepEqual(await members(), ['eyelids', 'eyes', 'face', 'mouth']);
     // A group warp from the head bone takes its parts and the shape on it; so does one from the ticked rows.
     await row('head').click();
@@ -3246,7 +4105,7 @@ test('animation studio: shapes are group warp members, a group from a bone takes
     assert.ok((await members()).includes('eyelids'), 'the new group has the shape too');
     await row('mouth').click();
     await row('eyelids').click({ modifiers: ['Control'] });
-    assert.equal(await studio.locator('.aw-groupbtn').textContent(), 'Add group warp from 2 selected parts');
+    assert.equal(await studio.locator('.aw-groupbtn').getAttribute('aria-label'), 'Add group warp from 2 selected parts');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
     await context.close();
@@ -3335,7 +4194,7 @@ async function roboHeads(patch, lines, script = ROBO_FROM_VN, file = 'robofrom.v
       await until(page, () => window.vnStage().some(a => a.char === 'robo'));
       await page.waitForTimeout(500);
       const snap = (await stageNow(page)).find(a => a.char === 'robo');
-      shots.push({ snap, img: decodePng(await page.screenshot()), canvas: await page.locator('canvas#canvas').boundingBox() });
+      shots.push({ snap, parts: await page.evaluate(() => window.vnParts('robo')), img: decodePng(await page.screenshot()), canvas: await page.locator('canvas#canvas').boundingBox() });
     }
     assert.deepEqual(errors, [], 'the page threw errors');
     return shots;
@@ -4683,7 +5542,7 @@ const withTimedStart = seconds => async context => {
   await context.route('**/api/project', async route => {
     const res = await route.fetch();
     const proj = await res.json();
-    const menu = `label start:\n  "Ready."\n  menu "Quick!" timeout ${seconds}:\n    "Stay":\n      "Stayed put."\n    on timeout:\n      "Time ran out."\n`;
+    const menu = `label start:\n  "Ready."\n  menu "Quick!" timeout ${seconds}s:\n    "Stay":\n      "Stayed put."\n    on timeout:\n      "Time ran out."\n`;
     for (const s of proj.scripts) if (s.file === 'park.vn') s.text = s.text.replace('label start:\n', menu);
     await route.fulfill({ response: res, json: proj });
   });
@@ -4885,6 +5744,10 @@ test('build dialog: errors block, warnings need a tick, go-to links, build with 
     await open();
     assert.equal(await go.isDisabled(), true, 'warnings wait for the tick');
     assert.equal(await dialog.locator('.bd-group[data-severity=info]').evaluate(el => el.open), false);
+    // The missing-ids warning offers the fix itself (EP-7): it adds the ids (the sample has them all) and runs the checks again.
+    await dialog.locator('[data-fix=ids]').click();
+    await dialog.locator('.bd-summary').filter({ hasText: /warning/ }).waitFor();
+    assert.equal(await page.locator('#status').innerText().catch(() => ''), 'every line already has an id');
     await dialog.locator('.bd-ack-box').check();
     assert.equal(await go.isDisabled(), false);
 
@@ -5426,7 +6289,7 @@ test('animation studio: the Mesh row generates a free mesh at a chosen detail, t
     await page.goto(`${base}editor/`);
     await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
     const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), dialog = page.locator('dialog.ask');
-    const sum = studio.locator('.as-sect[data-sect="warp"] .as-sect-sum'), count = studio.locator('.aw-vcount'), gen = studio.locator('.aw-genbtn');
+    const sum = studio.locator('.as-sub[data-sub="deform"] .as-sub-sum'), count = studio.locator('.aw-vcount'), gen = studio.locator('.aw-genbtn');
     const dots = () => page.frames().find(f => f.url().includes('studio=')).evaluate(() => document.querySelectorAll('svg circle[r="3"]').length);
     const verts = async () => Number(/^(\d+) vertices/.exec(await count.textContent())?.[1]);
     const ready = async () => { await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? '')); return verts(); };
@@ -5444,8 +6307,8 @@ test('animation studio: the Mesh row generates a free mesh at a chosen detail, t
     await studio.locator('.aw-detail').selectOption('low');
     await until(page, n => Number(/^(\d+) vertices/.exec(document.querySelector('#animStudio .aw-vcount').textContent)?.[1]) === n, low);
     await gen.click();
-    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
-    assert.equal(await sum.textContent(), `mesh ${low}`);
+    await until(page, () => /^Mesh \d+ vertices$/.test(document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent));
+    assert.equal(await sum.textContent(), `Mesh ${low} vertices`);
     assert.equal(await gen.textContent(), 'Regenerate mesh');
     assert.equal(await dialog.count(), 0, 'a new mesh asks nothing');
     // The stage draws a dot at every vertex (inert), and the lattice-only controls are gone.
@@ -5453,19 +6316,19 @@ test('animation studio: the Mesh row generates a free mesh at a chosen detail, t
     assert.equal(await dots(), low, 'a dot at each vertex');
     assert.match(await studio.locator('.aw-meshsum').textContent(), new RegExp(`^${low} vertices, \\d+ triangles, detail low`));
     for (const cls of ['.aw-dims', '.aw-rowpick', '.aw-colpick']) assert.equal(await studio.locator(cls).isVisible(), false, `${cls} is lattice-only`);
-    for (const cls of ['.aw-sel', '.aw-tools', '.aw-xf', '.aw-presets', '.aw-form']) assert.equal(await studio.locator(cls).isVisible(), true, `${cls} works on a mesh`);
+    for (const cls of ['.aw-sel', '.aw-tools', '.aw-xfbtn', '.aw-presetbtn']) assert.equal(await studio.locator(cls).isVisible(), true, `${cls} works on a mesh`);
     assert.equal(await studio.locator('.aw-remove').isVisible(), true, 'Remove warp stays');
     assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false, 'the rig is dirty');
     // Regenerating a mesh with no keyforms needs no confirmation and is one undo step.
     await studio.locator('.aw-detail').selectOption('veryhigh');
     await until(page, n => Number(/^(\d+) vertices/.exec(document.querySelector('#animStudio .aw-vcount').textContent)?.[1]) > n, low);
     await gen.click();
-    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, high);
+    await until(page, n => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent === `Mesh ${n} vertices`, high);
     assert.equal(await dialog.count(), 0);
     await studio.locator('[data-t="undo"]').click();
-    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, low);
+    await until(page, n => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent === `Mesh ${n} vertices`, low);
     await studio.locator('[data-t="redo"]').click();
-    await until(page, n => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === `mesh ${n}`, high);
+    await until(page, n => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent === `Mesh ${n} vertices`, high);
     // Apply writes the mesh into rig.json.
     await studio.locator('[data-t="apply"]').click();
     await until(page, () => true);
@@ -5477,29 +6340,29 @@ test('animation studio: the Mesh row generates a free mesh at a chosen detail, t
     assert.equal(legs.grid, undefined);
     // A part whose mesh has keyforms: Regenerate asks, Cancel keeps it, the confirmation drops the keyforms in one undo step.
     await row('collar').click();
-    assert.equal(await sum.textContent(), 'mesh 4');
+    assert.equal(await sum.textContent(), 'Mesh 4 vertices');
     assert.equal(await gen.textContent(), 'Regenerate mesh');
     await ready();
     await gen.click();
     await dialog.waitFor();
     assert.match(await dialog.textContent(), /per-vertex keyforms are dropped/);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
-    assert.equal(await sum.textContent(), 'mesh 4', 'cancelled: nothing changed');
+    assert.equal(await sum.textContent(), 'Mesh 4 vertices', 'cancelled: nothing changed');
     await gen.click();
     await dialog.getByRole('button', { name: 'Regenerate' }).click();
-    await until(page, () => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent !== 'mesh 4');
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent !== 'Mesh 4 vertices');
     await studio.locator('[data-t="undo"]').click();
-    await until(page, () => document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent === 'mesh 4');
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent === 'Mesh 4 vertices');
     // A part with a lattice: the mesh replaces it, after asking.
     await row('torso').click();
-    assert.equal(await sum.textContent(), '2×3');
+    assert.equal(await sum.textContent(), 'Lattice 2×3');
     assert.equal(await gen.textContent(), 'Replace lattice with mesh');
     await ready();
     await gen.click();
     await dialog.waitFor();
     assert.match(await dialog.textContent(), /replaces it/);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
-    assert.equal(await sum.textContent(), '2×3');
+    assert.equal(await sum.textContent(), 'Lattice 2×3');
     assert.equal(await studio.locator('.aw-dims').isVisible(), true, 'a lattice keeps its grid-size controls');
     assert.deepEqual(errors, [], 'the page threw errors');
   } finally {
@@ -5529,8 +6392,8 @@ test('animation studio: a mesh vertex is dragged into the active parameter keyfo
     await studio.locator('.aw-detail').selectOption('low');
     await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? ''));
     await studio.locator('.aw-genbtn').click();
-    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
-    const n = Number(/^mesh (\d+)$/.exec(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent())[1]);
+    await until(page, () => /^Mesh \d+ vertices$/.test(document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent));
+    const n = Number(/^Mesh (\d+) vertices$/.exec(await studio.locator('.as-sub[data-sub="deform"] .as-sub-sum').textContent())[1]);
     await studio.locator('.ap-row[data-ctl="breathe"] > label').click();
     // A fresh mesh is not bound to breathe, so the parameter alone is in focus: Bind parts… (the Warp tool binds warps) and a click on the part pair them.
     await bindParts(studio, 'legs');
@@ -5555,7 +6418,14 @@ test('animation studio: a mesh vertex is dragged into the active parameter keyfo
     assert.ok(Math.abs(moved[v][0] - before[v][0] - 30) < 1 && Math.abs(moved[v][1] - before[v][1] - 10) < 1, `the vertex followed the pointer (${moved[v]} from ${before[v]})`);
     moved.forEach((d, i) => { if (i !== v) assert.ok(Math.hypot(d[0] - before[i][0], d[1] - before[i][1]) < 1, `vertex ${i} stayed`); });
     assert.match(await studio.locator('.aw-pthint').textContent(), new RegExp(`^Vertex vertex ${v}`));
-    assert.match(await studio.locator('.aw-keyhint').textContent(), /dragging a point makes the first|On the key|No key/);
+    // Keyforms serves the mesh as a lattice: the key strip, the Point row (vertices), copy; a mesh does not paste mirrored.
+    assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^the warp of legs at 1 \(a key\)/);
+    assert.deepEqual(await studio.locator('.ab .ab-keybtns button').allTextContents(), ['0', '1']);
+    assert.equal(await studio.locator('.ab .ab-points .aw-pt').isVisible(), true);
+    await studio.locator('.ab .ab-copyform').click();
+    assert.equal(await studio.locator('.ab .ab-pasteform').isDisabled(), false);
+    assert.equal(await studio.locator('.ab .ab-pastemirror').isDisabled(), true);
+    assert.match(await studio.locator('.ab .ab-pastemirror').getAttribute('title'), /^A mesh's vertices have no fixed partners/);
     await undo.click();
     const back = await settle();
     assert.ok(Math.hypot(back[v][0] - before[v][0], back[v][1] - before[v][1]) < 1, 'one undo took the drag back');
@@ -5572,7 +6442,7 @@ test('animation studio: a mesh vertex is dragged into the active parameter keyfo
     // Selection: All, Invert, a vertex from the list; a rectangle round one vertex.
     await studio.locator('.aw-all').click();
     assert.equal((await chosen()).length, n);
-    assert.match(await studio.locator('.aw-selhint').textContent(), new RegExp(`^${n} points chosen`));
+    assert.equal(await studio.locator('.aw-selhint').textContent(), `${n} chosen`);
     await studio.locator('.aw-invert').click();
     assert.deepEqual(await chosen(), []);
     await studio.locator('.aw-pick').selectOption(String(v));
@@ -5582,7 +6452,9 @@ test('animation studio: a mesh vertex is dragged into the active parameter keyfo
     await studio.locator('.aw-clear').click();
     // Soft reach fades over edge hops: the chosen vertex goes the whole way, a neighbour part of it, one far along the edges not at all.
     await studio.locator('.aw-pick').selectOption(String(v));
-    await studio.locator('.aw-soft').check();
+    await studio.locator('.aw-soft').click();
+    assert.equal(await studio.locator('.aw-soft').getAttribute('aria-pressed'), 'true');
+    await studio.locator('.aw-softopts').click(); // its reach is under ▾
     await studio.locator('.aw-radius').fill('2');
     await studio.locator('.aw-radius').dispatchEvent('change');
     const rest0 = await settle();
@@ -5594,19 +6466,21 @@ test('animation studio: a mesh vertex is dragged into the active parameter keyfo
     assert.ok(others.some(i => shift(i) > 3 && shift(i) < 27), 'a neighbour followed part of the way');
     assert.ok(others.some(i => Math.abs(shift(i)) < 1), 'a vertex out of reach stayed');
     await undo.click();
-    await studio.locator('.aw-soft').uncheck();
+    await studio.locator('.aw-soft').click();
     // Scale acts on the chosen vertices about the selection; Reset takes them back to rest in this keyform.
     await studio.locator('.aw-all').click();
     const wide = a => Math.max(...a.map(d => d[0])) - Math.min(...a.map(d => d[0]));
     const was = wide(await settle());
+    await studio.locator('.aw-xfbtn').click(); // the factor is under ▾; the Scale icon applies it
     await studio.locator('.aw-scale').fill('1.5');
     await studio.locator('.aw-scale-go').click();
     assert.ok(wide(await settle()) > was * 1.4, 'scaling widened the mesh');
-    await studio.locator('.aw-reset').click();
+    await studio.locator('.ab .ab-reset').click(); // Keyforms' Reset: the chosen vertices
     const rested = await settle();
     assert.ok(rested.every((d, i) => Math.hypot(d[0] - orig[i][0], d[1] - orig[i][1]) < 1.5), 'Reset took every chosen vertex back to rest');
     // Mirror says what it could not match; a preset writes the keys per vertex.
     await studio.locator('.aw-clear').click();
+    await studio.locator('.aw-presetbtn').click(); // Presets ▾ in the tool options bar
     await studio.locator('.aw-preset').selectOption('sway');
     await studio.locator('.aw-write').click();
     assert.match(await page.locator('.as-note').textContent(), /Sway written as the keys of breathe/);
@@ -5635,8 +6509,8 @@ test('animation studio: Topology mode adds, moves and deletes mesh vertices; a m
     await studio.locator('.aw-detail').selectOption('low');
     await until(page, () => /^\d+ vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? ''));
     await studio.locator('.aw-genbtn').click();
-    await until(page, () => /^mesh \d+$/.test(document.querySelector('#animStudio .as-sect[data-sect="warp"] .as-sect-sum').textContent));
-    const n0 = Number(/^mesh (\d+)$/.exec(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent())[1]);
+    await until(page, () => /^Mesh \d+ vertices$/.test(document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent));
+    const n0 = Number(/^Mesh (\d+) vertices$/.exec(await studio.locator('.as-sub[data-sub="deform"] .as-sub-sum').textContent())[1]);
     const breathe = studio.locator('.ap-row[data-ctl="breathe"] .ap-num');
     const stage = () => page.frames().find(f => f.url().includes('studio='));
     const dots = () => stage().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"], svg circle[stroke="#ff3b6b"]')].filter(c => c.getAttribute('stroke-dasharray') === null).map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]));
@@ -5654,14 +6528,23 @@ test('animation studio: Topology mode adds, moves and deletes mesh vertices; a m
     await page.waitForTimeout(300);
     assert.equal(await studio.locator('.aw-topoon').getAttribute('aria-pressed'), 'true');
     assert.equal(await studio.locator('.aw-tt').count(), 6);
-    assert.equal(await studio.locator('.aw-sel').isVisible(), false, 'the keyform controls are away');
+    assert.deepEqual(await studio.locator('.aw-tt').evaluateAll(els => els.map(e => [e.getAttribute('aria-label'), e.textContent.trim(), !!e.querySelector('svg.si')])),
+      ['Add vertex', 'Delete vertex', 'Move vertex', 'Flip edge', 'Add edge', 'Remove edge'].map(n => [n, '', true]), 'the topology tools are icon buttons with names');
+    // They are on screen: each button inside the bar, its icon drawn at full size with strokes that show.
+    const seen = await studio.locator('.aw-tt').evaluateAll(els => els.map(e => {
+      const b = e.getBoundingClientRect(), bar = e.closest('.as-toolbar').getBoundingClientRect(), s = e.querySelector('svg.si'), sb = s.getBoundingClientRect(), cs = getComputedStyle(s);
+      const top = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+      return { name: e.getAttribute('aria-label'), w: Math.round(b.width), icon: Math.round(sb.width), inBar: b.left >= bar.left && b.right <= bar.right && b.top >= bar.top && b.bottom <= bar.bottom,
+        stroke: cs.stroke !== 'none' && cs.stroke !== 'rgba(0, 0, 0, 0)' && Number(cs.strokeWidth.replace('px', '')) > 0, shown: cs.visibility === 'visible' && Number(cs.opacity) > 0, onTop: e.contains(top) };
+    }));
+    for (const s of seen) assert.ok(s.w >= 28 && s.icon >= 16 && s.inBar && s.stroke && s.shown && s.onTop, `${s.name} is visible: ${JSON.stringify(s)}`);    assert.equal(await studio.locator('.aw-sel').isVisible(), false, 'the keyform controls are away');
     assert.equal(await studio.locator('.aw-tt[data-tool="add"]').getAttribute('aria-pressed'), 'true');
     await page.mouse.move(...midway(pts, v));
     await page.mouse.click(...midway(pts, v));
     pts = await settle(n0 + 1);
     assert.equal(pts.length, n0 + 1, 'a vertex was added');
     assert.equal(await dialog.count(), 0, 'no keyforms: nothing to ask');
-    assert.equal(await studio.locator('.as-sect[data-sect="warp"] .as-sect-sum').textContent(), `mesh ${n0 + 1}`);
+    assert.equal(await studio.locator('.as-sub[data-sub="deform"] .as-sub-sum').textContent(), `Mesh ${n0 + 1} vertices`);
     // A refused edit says why and changes nothing: Move a vertex far across the mesh.
     await studio.locator('.aw-tt[data-tool="move"]').click();
     await page.waitForTimeout(300); // the stage gets the tool a moment later
@@ -5732,8 +6615,433 @@ test('animation studio: Topology mode adds, moves and deletes mesh vertices; a m
   }
 });
 
-describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
-  for (const args of queued) nodeTest(...args);
+test('animation studio: a rig with no parameters gets a mesh in Deform and can be weighted to bones', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(0).click(); // mina: bones and no parameters
+    const studio = page.locator('#animStudio');
+    await studio.locator('.as-tree .as-row[data-part="bangs"]').waitFor();
+    assert.equal(await studio.locator('.ap-row').count(), 0, 'mina has no parameters');
+    await studio.locator('.as-tree .as-row[data-part="bangs"]').click();
+    await page.keyboard.press('d');
+    await until(page, () => /vertices/.test(document.querySelector('#animStudio .aw-vcount')?.textContent ?? ''));
+    assert.equal(await studio.locator('.aw-addbtn').isDisabled(), true, 'a lattice needs a parameter');
+    assert.match(await studio.locator('.aw-addbtn').getAttribute('title'), /make one with \+ in the Parameters section/);
+    assert.match(await studio.locator('.aw-none').textContent(), /Generate mesh works now/);
+    await studio.locator('.aw-genbtn').click(); // a mesh does not: it can be weighted to bones
+    await until(page, () => /^Mesh \d+ vertices/.test(document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum')?.textContent ?? ''));
+    await page.keyboard.press('b');
+    assert.equal(await studio.locator('.as-sub[data-sub="skin"]').getAttribute('data-open'), 'true', 'a mesh with no bone bound: Skin opens by itself');
+    await studio.locator('.as-sub[data-sub="skin"] .aw-bindpick').selectOption({ index: 1 }); // Bind ▾ in its line: the first bone
+    await studio.locator('.aw-autobtn').click();
+    await until(page, () => /^Weighted bangs/.test(document.querySelector('#animStudio .as-note')?.textContent ?? ''));
+    assert.equal(await studio.locator('.aw-unskin').isVisible(), true, 'the part is skinned');
+    assert.deepEqual(errors, [], 'the page threw errors');
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: the Weights tool binds bones to a mesh and Auto-weights skins it, as one undo step that Apply writes', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    // The left upper arm (87 x 157 pixels at 315, 455) gets a mesh with a row of vertices every 40 pixels, no weights yet.
+    const verts = [], tris = [];
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) verts.push(c * 43.5, r * 39.25);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) { const a = r * 3 + c; tris.push(a, a + 1, a + 3, a + 1, a + 4, a + 3); }
+    const arm = { id: 'upper_l_mesh', part: 'upper_l', mesh: { verts, tris, detail: 'low' }, keyforms: [] };
+    proj.rigs.robo.rig.deformers.push(arm);
+    proj.rigs.robo.rig.bones.forearm_l.tip = [380, 680]; // the forearm reaches down to the wrist: auto-weights measures a body from it
+    const text = JSON.parse(proj.rigTexts.robo);
+    text.deformers.push(arm);
+    text.bones.forearm_l.tip = [380, 680];
+    proj.rigTexts.robo = JSON.stringify(text);
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`);
+    const sum = studio.locator('.as-sub[data-sub="skin"] .as-sub-sum'), none = studio.locator('.aww .aww-none');
+    // The brush, the active bone, the test pose and the selection are in the tool options bar; the bones bound and Auto-weights in the section.
+    const bar = studio.locator('.as-toolbar .atb[data-bar="weights"]'), label = studio.locator('.as-toolbar .atb-mode');
+    const brush = m => bar.locator(`.aww-modebtn[data-brush="${m}"]`), active = bar.locator('.aww-bone'), setValue = bar.locator('.aww-setvalue');
+    // A brush mode, and a wait until the stage acts on it: a press sent before the stage has the mode would paint instead.
+    const setBrush = async m => {
+      await brush(m).click();
+      const frame = page.frames().find(fr => fr.url().includes('studio='));
+      for (let i = 0; i < 50 && (await frame.evaluate(() => document.documentElement.dataset.weightsMode)) !== m; i++) await page.waitForTimeout(50);
+    };
+    await row('upper_l').waitFor();
+    // A part with no mesh, and a bone, say what to do instead of showing controls.
+    await row('torso').click();
+    await studio.locator('[data-gz="weights"]').click();
+    assert.match(await none.textContent(), /torso has no mesh yet/);
+    assert.equal(await sum.textContent(), 'No mesh: Generate mesh in Deform', 'the Weights tool shows Skin on any part, to say where the mesh comes from');
+    assert.equal(await studio.locator('.as-sub[data-sub="deform"]').getAttribute('data-open'), 'true', 'Deform opens by itself: Generate mesh');
+    assert.equal(await studio.locator('.as-sub[data-sub="skin"]').getAttribute('data-open'), 'false');
+    assert.equal(await studio.locator('.aww .aw-bind').isVisible(), false);
+    // A part with a mesh: nothing is bound yet, and Auto-weights waits for a bone.
+    await row('upper_l').click();
+    assert.equal(await none.isVisible(), false);
+    assert.equal(await sum.textContent(), 'Not skinned');
+    assert.equal(await studio.locator('.as-sub[data-sub="skin"]').getAttribute('data-open'), 'true', 'a mesh with no bone bound: Skin opens by itself (Bind ▾)');
+    assert.equal(await bar.locator('.aww-brush').isVisible(), true, 'the brush shows in the bar before a bind');
+    assert.equal(await brush('add').isDisabled(), true, 'disabled until a bone is bound');
+    assert.equal(await label.textContent(), 'Weights · Read weights', 'until then a press reads a vertex out');
+    assert.equal(await studio.locator('.aww .aw-autobtn').isDisabled(), true);
+    assert.equal(await studio.locator('.aw-unskin').isVisible(), false, 'no Remove skin before a skin');
+    for (const bone of ['arm_l', 'forearm_l']) await studio.locator('.as-sub[data-sub="skin"] .as-sub-pick .aw-bindpick').selectOption(bone); // Bind ▾ binds the bone chosen
+    assert.deepEqual(await studio.locator('.aww .aw-boundbone').allTextContents(), ['arm_l', 'forearm_l']);
+    assert.equal(await active.inputValue(), 'forearm_l', 'the bone bound last is the active one');
+    assert.equal(await label.textContent(), 'Weights · Add on forearm_l', 'the mode label names the brush and the active bone');
+    // A click beside the mesh, on nothing, with the Weights tool on is a dab on air: the bound bones, the active one and the chosen row stay (docs/design/studio-stage-modes.md).
+    const frame0 = await studio.locator('.as-stage iframe').boundingBox();
+    await page.mouse.click(frame0.x + 30, frame0.y + 30);
+    await page.waitForTimeout(300);
+    assert.deepEqual(await studio.locator('.aww .aw-boundbone').allTextContents(), ['arm_l', 'forearm_l'], 'a miss on the stage keeps the bound bones');
+    assert.equal(await active.inputValue(), 'forearm_l', 'and the active one');
+    assert.equal(await row('upper_l').getAttribute('aria-pressed'), 'true', 'and the chosen row');
+    assert.equal(await brush('add').getAttribute('aria-pressed'), 'true', 'the brush starts on Add once a bone is bound');
+    await studio.locator('.aww .aw-blend').fill('60');
+    await studio.locator('.aww .aw-autobtn').click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '2 bones');
+    assert.equal(await studio.locator('.as-sub[data-sub="skin"] .aw-unskin').isVisible(), true, "Remove skin is the line's verb");
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false, 'the rig is dirty');
+    // The stage colours each vertex by the active bone's weight (blue none, red all) and a click on a vertex reads its weights out.
+    const stageFrame = page.frames().find(fr => fr.url().includes('studio='));
+    const dots = stageFrame.locator('svg circle[fill^="hsl("]');
+    await until(page, () => document.querySelector('#animStudio .aww-readout')?.textContent?.startsWith('Click a vertex'));
+    for (let i = 0; i < 40 && (await dots.count()) !== 15; i++) await page.waitForTimeout(100);
+    assert.equal(await dots.count(), 15, 'a dot at each of the mesh\'s vertices');
+    const hues = await dots.evaluateAll(els => els.map(e => Number(/^hsl\((\d+)/.exec(e.getAttribute('fill'))[1])));
+    assert.equal(hues[0], 240, 'the top row is on the default bone: no weight of the forearm');
+    assert.ok(Math.min(...hues) < 200, 'a vertex near the forearm has some of its weight: not blue');
+    await setBrush('pick'); // Read weights: a click reads a vertex out instead of painting it
+    await dots.nth(13).click({ force: true });
+    await until(page, () => /^vertex 13: .*forearm_l/.test(document.querySelector('#animStudio .aww-readout').textContent));
+    await active.selectOption('arm_l');
+    const armHues = await dots.evaluateAll(els => els.map(e => Number(/^hsl\((\d+)/.exec(e.getAttribute('fill'))[1])));
+    assert.equal(armHues[0], 0, 'the same vertex is all arm_l on the other bone');
+    // The brush: Replace on forearm_l with a solid strength paints the top vertex (all arm_l) into the forearm in one stroke, one undo step.
+    await active.selectOption('forearm_l');
+    await setBrush('replace');
+    await bar.locator('.aww-radius').fill('25');
+    await bar.locator('.aww-strength').fill('1');
+    await until(page, () => document.querySelector('#animStudio .as-toolbar .atb-mode').textContent === 'Weights · Replace on forearm_l');
+    const at0 = await dots.nth(0).evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]);
+    const frame = await studio.locator('.as-stage iframe').boundingBox();
+    const hue0 = async () => (await dots.evaluateAll(els => els.map(e => Number(/^hsl\((\d+)/.exec(e.getAttribute('fill'))[1]))))[0];
+    assert.equal(await hue0(), 240, 'before the stroke the top vertex has no forearm weight');
+    await page.mouse.move(frame.x + at0[0], frame.y + at0[1]);
+    await page.mouse.down();
+    await page.mouse.move(frame.x + at0[0] + 2, frame.y + at0[1] + 1, { steps: 3 });
+    await page.mouse.up();
+    for (let i = 0; i < 40 && (await hue0()) !== 0; i++) await page.waitForTimeout(100);
+    assert.equal(await hue0(), 0, 'the stroke made the top vertex all forearm_l');
+    await studio.locator('[data-t="undo"]').click();
+    for (let i = 0; i < 40 && (await hue0()) !== 240; i++) await page.waitForTimeout(100);
+    assert.equal(await hue0(), 240, 'one undo takes the whole stroke back');
+    assert.equal(await sum.textContent(), '2 bones', 'and the skin from Auto-weights is still there');
+    await setBrush('pick');
+    // The test pose: the rotate gizmo turns the active bone (forearm_l) and the mesh bends with it; nothing is keyed or made dirty, and Reset pose lets go.
+    const at14 = async () => dots.nth(14).evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]);
+    const applyOff = await studio.locator('[data-t="apply"]').isDisabled();
+    assert.equal(await bar.locator('.aww-posereset').isDisabled(), true, 'nothing is posed yet');
+    const rest14 = await at14();
+    await bar.locator('.aww-posebtn[data-pose="rotate"]').click();
+    const ring = stageFrame.locator('svg circle[stroke="#4aa3ff"]');
+    for (let i = 0; i < 40 && !(await ring.count()); i++) await page.waitForTimeout(100);
+    const [rx, ry, rr] = await ring.first().evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy')), Number(e.getAttribute('r'))]);
+    await page.mouse.move(frame.x + rx + rr, frame.y + ry);
+    await page.mouse.down();
+    await page.mouse.move(frame.x + rx, frame.y + ry + rr, { steps: 8 });
+    await page.mouse.up();
+    const moved = ([x, y]) => Math.hypot(x - rest14[0], y - rest14[1]);
+    for (let i = 0; i < 40 && moved(await at14()) < 3; i++) await page.waitForTimeout(100);
+    assert.ok(moved(await at14()) > 3, 'turning forearm_l carries the vertices that weight it');
+    for (let i = 0; i < 40 && (await bar.locator('.aww-posereset').isDisabled()); i++) await page.waitForTimeout(50); // the drag's end reaches the studio after the stage has drawn it
+    assert.equal(await bar.locator('.aww-posereset').isDisabled(), false, 'Reset pose is there while posed');
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), applyOff, 'a test pose is not an edit of the rig');
+    await bar.locator('.aww-posereset').click();
+    for (let i = 0; i < 40 && moved(await at14()) > 0.5; i++) await page.waitForTimeout(100);
+    assert.ok(moved(await at14()) <= 0.5, 'Reset pose puts the mesh back');
+    assert.equal(await bar.locator('.aww-posereset').isDisabled(), true);
+    await bar.locator('.aww-posebtn[data-pose="rotate"]').click();
+    // One undo step takes the skin away again; redo brings it back.
+    await studio.locator('[data-t="undo"]').click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === 'Not skinned');
+    await studio.locator('[data-t="redo"]').click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '2 bones');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100);
+    const mesh = JSON.parse(saved.at(-1)).deformers.find(d => d.part === 'upper_l').mesh;
+    assert.equal(mesh.defaultBone, 'arm_l', 'the part\'s own bone is the default');
+    assert.ok(mesh.weights && Object.keys(mesh.weights).length > 0, 'the vertices nearer the forearm are weighted');
+    for (const e of Object.values(mesh.weights)) assert.ok(Object.keys(e).length >= 1 && Object.keys(e).length <= 4 && Math.abs(Object.values(e).reduce((s, w) => s + w, 0) - 1) < 0.01);
+    // Precision (6a): a vertex selection, per-bone number fields and the Numeric row, each edit one undo step.
+    const selHint = bar.locator('.aww-selhint'), numBtn = op => bar.locator(`.aww-numbtn[data-op="${op}"]`);
+    const hues15 = async () => dots.evaluateAll(els => els.map(e => Number(/^hsl\((\d+)/.exec(e.getAttribute('fill'))[1])));
+    const waitHues = async fn => { for (let i = 0; i < 40 && !fn(await hues15()); i++) await page.waitForTimeout(100); return hues15(); };
+    await active.selectOption('forearm_l');
+    assert.equal(await bar.locator('.aww-sel').isVisible(), false, 'the selection operations are Select mode\'s');
+    await setBrush('select');
+    assert.equal(await bar.locator('.aww-paint').first().isVisible(), false, 'Select does not paint: no radius or strength');
+    assert.equal(await setValue.isDisabled(), true, 'nothing selected: Set value waits');
+    await bar.locator('.aww-all').click();
+    assert.equal(await selHint.textContent(), '15 selected');
+    assert.equal(await setValue.isDisabled(), false);
+    await bar.locator('.aww-invert').click();
+    assert.equal(await selHint.textContent(), '', 'Invert of All is none');
+    assert.equal(await setValue.isDisabled(), true);
+    assert.equal(await bar.locator('.aww-none-btn').isDisabled(), true);
+    // A rectangle on the stage around the top-left vertex selects just it; Shift-click on another vertex adds it, Esc clears.
+    const p0 = await dots.nth(0).evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]);
+    await page.mouse.move(frame.x + p0[0] - 6, frame.y + p0[1] - 6);
+    await page.mouse.down();
+    await page.mouse.move(frame.x + p0[0] + 6, frame.y + p0[1] + 6, { steps: 4 });
+    await page.mouse.up();
+    await until(page, () => document.querySelector('#animStudio .aww-selhint').textContent === '1 selected');
+    assert.equal(await stageFrame.locator('svg circle[stroke="#ff3b6b"]').count(), 1, 'the stage rings the selected vertex');
+    await dots.nth(4).click({ force: true, modifiers: ['Shift'] });
+    await until(page, () => document.querySelector('#animStudio .aww-selhint').textContent === '2 selected');
+    await page.keyboard.press('Escape');
+    await until(page, () => document.querySelector('#animStudio .aww-selhint').textContent === '');
+    // One selected vertex shows its weights as one number field per bound bone; typing a value sets that bone's weight (one undo step).
+    await page.mouse.move(frame.x + p0[0] - 6, frame.y + p0[1] - 6);
+    await page.mouse.down();
+    await page.mouse.move(frame.x + p0[0] + 6, frame.y + p0[1] + 6, { steps: 4 });
+    await page.mouse.up();
+    const fields = studio.locator('.aww .aww-vw');
+    await until(page, () => /^vertex 0: /.test(document.querySelector('#animStudio .aww-readout').textContent) && document.querySelectorAll('#animStudio .aww-vw').length === 2);
+    assert.equal(await fields.nth(0).inputValue(), '1', 'arm_l has all of the top vertex');
+    await fields.nth(1).fill('0.3');
+    await fields.nth(1).press('Enter');
+    await until(page, () => /forearm_l 0\.3/.test(document.querySelector('#animStudio .aww-readout').textContent));
+    assert.match(await studio.locator('.aww .aww-readout').textContent(), /arm_l 0\.7/);
+    await studio.locator('[data-t="undo"]').click();
+    await until(page, () => /^vertex 0: arm_l 1$/.test(document.querySelector('#animStudio .aww-readout').textContent));
+    // Numeric: All, then Set 1 on forearm_l turns every vertex red; one undo is one step back; Add and Subtract; Reset to default bone.
+    await bar.locator('.aww-all').click();
+    await setValue.click(); // the ▾ panel with the value and its operations
+    await bar.locator('.aww-value').fill('1');
+    await numBtn('set').click();
+    assert.match(await bar.locator('.aww-numhint').textContent(), /selected vertices/);
+    assert.deepEqual((await waitHues(h => h.every(x => x === 0))).every(x => x === 0), true, 'Set 1: every vertex is all forearm_l');
+    await studio.locator('[data-t="undo"]').click();
+    assert.equal((await waitHues(h => h[0] === 240))[0], 240, 'one undo takes the whole Set back');
+    await setValue.click(); // Undo was a press outside the panel, which closed it
+    await bar.locator('.aww-value').fill('0.4');
+    await numBtn('add').click();
+    assert.ok((await waitHues(h => h[0] < 240))[0] < 240, 'Add gave the top vertices some forearm_l');
+    await numBtn('subtract').click();
+    assert.equal((await waitHues(h => h[0] === 240))[0], 240, 'Subtract took it back');
+    await numBtn('smooth').click();
+    await numBtn('prune').click();
+    await numBtn('reset').click();
+    assert.equal((await waitHues(h => h.every(x => x === 240))).every(x => x === 240), true, 'Reset to default bone: nothing is left on forearm_l');
+    assert.match(await studio.locator('.as-note').first().textContent(), /Reset to the default bone 15 vertices/);
+    await setBrush('pick');
+    // Remove skin asks, and one undo brings the weights back.
+    await studio.locator('.as-sub[data-sub="skin"] .aw-unskin').click();
+    await page.locator('dialog.ask').getByRole('button', { name: 'Remove' }).click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === 'Not skinned');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+const BEND_VN = [
+  'label robo_skin_test:',
+  '  behaviors off',
+  '  scene bg_park_evening',
+  '  show robo at center',
+  '  "Robo rests." #rb11',
+  '  show robo pose=bent',
+  '  "Robo bends." #rb12',
+].join('\n');
+
+/**
+ * A roboHeads patch that skins the left upper arm (an 87 x 157 image at 315, 455 on the canvas) to arm_l and forearm_l: three columns of nine vertex rows, the
+ * weight of the forearm rising from 0 at row 5 to 1 at the last. A parameter bends the forearm 70 degrees about the elbow, and the pose "bent" sets it.
+ * `mask` also adds a shape that follows the arm's mesh (or, `'bone'`, hangs on arm_l only) and clips the arm to it.
+ */
+const skinnedArm = (mask = null) => rig => {
+  const verts = [], tris = [], weights = {};
+  for (let r = 0; r < 9; r++) for (let c = 0; c < 3; c++) {
+    verts.push(c * 43.5, r * 19.625);
+    const fw = Math.min(1, Math.max(0, (r - 4) / 4));
+    if (fw > 0) weights[r * 3 + c] = fw >= 1 ? { forearm_l: 1 } : { arm_l: 1 - fw, forearm_l: fw };
+  }
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 2; c++) { const p = r * 3 + c; tris.push(p, p + 1, p + 3, p + 1, p + 4, p + 3); }
+  const shape = [];
+  for (let r = 0; r < 9; r++) shape.push([317, 455 + 2 + r * 19.625 * 0.98]);
+  for (let r = 8; r >= 0; r--) shape.push([400, 455 + 2 + r * 19.625 * 0.98]);
+  const parts = { ...rig.parts };
+  if (mask) {
+    parts.sleeve_clip = mask === 'bone' ? { bone: 'arm_l', polygon: shape } : { follow: 'upper_l', polygon: shape };
+    parts.upper_l = { ...parts.upper_l, clip: 'sleeve_clip' };
+  }
+  return {
+    parts,
+    parameters: [...rig.parameters, { id: 'bend_l', min: 0, max: 1, default: 0 }],
+    keyforms: [...rig.keyforms, { target: 'forearm_l', param: 'bend_l', keys: [{ at: 0 }, { at: 1, rot: 70 }] }],
+    poses: { ...rig.poses, bent: { bend_l: 1 } },
+    deformers: [...(rig.deformers ?? []), { id: 'upper_l_mesh', part: 'upper_l', mesh: { verts, tris, defaultBone: 'arm_l', weights }, keyforms: [] }],
+  };
+};
+/** The same arm as an ordinary mesh with no weights: it rides on its own bone alone. */
+const unskinnedArm = rig => {
+  const { deformers, ...rest } = skinnedArm()(rig), mesh = { ...deformers.at(-1).mesh };
+  delete mesh.weights; delete mesh.defaultBone;
+  return { ...rest, deformers: [...deformers.slice(0, -1), { ...deformers.at(-1), mesh }] };
+};
+
+test('skinning: a part with bone weights bends where the forearm turns, and an unweighted mesh does not', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const lines = [/Robo rests/, /Robo bends/];
+  const skinned = await roboHeads(skinnedArm(), lines, BEND_VN, 'roboskin.vn');
+  const plain = await roboHeads(unskinnedArm, lines, BEND_VN, 'roboskin.vn');
+  const arm = shot => shot.parts.upper_l, forearm = shot => shot.parts.lower_l;
+  assert.ok(Math.abs(forearm(skinned[1])[0] - forearm(skinned[0])[0]) + Math.abs(forearm(skinned[1])[1] - forearm(skinned[0])[1]) > 20, 'the forearm swings in the bent pose');
+  assert.deepEqual(arm(plain[1]), arm(plain[0]), 'an unweighted mesh stays on its own bone: bending the forearm does not move the upper arm');
+  assert.deepEqual(arm(skinned[0]), arm(plain[0]), 'at rest a skinned arm is drawn as the unskinned one');
+  const { canvas } = skinned[1], k = canvas.width / 1920, [bx, by, bw, bh] = arm(skinned[1]);
+  const region = [Math.round(canvas.x + (bx - 20) * k), Math.round(canvas.y + (by - 20) * k), Math.round((bw + 80) * k), Math.round((bh + 80) * k)];
+  assert.ok(differing(skinned[0].img, plain[0].img, ...region) < 0.001, 'at rest a skinned arm looks like the unskinned one');
+  const bent = differing(skinned[1].img, plain[1].img, ...region);
+  assert.ok(bent > 0.01, `the skinned arm's lower end follows the forearm: ${bent} of the pixels around it differ from the unskinned arm`);
+});
+
+test('skinning: a clip shape that follows a skinned part bends with it; one hung on the bone alone does not', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const lines = [/Robo rests/, /Robo bends/];
+  const free = await roboHeads(skinnedArm(), lines, BEND_VN, 'roboskin.vn');
+  const following = await roboHeads(skinnedArm('follow'), lines, BEND_VN, 'roboskin.vn');
+  const onBone = await roboHeads(skinnedArm('bone'), lines, BEND_VN, 'roboskin.vn');
+  const { canvas } = free[1], k = canvas.width / 1920;
+  const moved = (a, b) => a.reduce((s, v, i) => s + Math.abs(v - b[i]), 0);
+  const maskAt = (shots, i) => shots[i].parts['mask:sleeve_clip'];
+  const [bx, by, bw, bh] = free[1].parts.upper_l;
+  const region = [Math.round(canvas.x + bx * k), Math.round(canvas.y + by * k), Math.max(1, Math.round(bw * k)), Math.max(1, Math.round(bh * k))];
+  const kept = differing(following[1].img, free[1].img, ...region);
+  assert.equal(following[1].snap.masks, free[1].snap.masks + 1, 'the clip is one more stencil mask on stage (the robo has its eyelids\' already)');
+  assert.ok(kept < 0.02, `a mask that follows the mesh still covers the bent arm (${kept} of its pixels differ)`);
+  // The stencil's own outline: hung on the arm's mesh it moves when the forearm turns; hung on the bone alone it stays where the arm rests.
+  assert.ok(moved(maskAt(following, 0), maskAt(following, 1)) > 8, `a mask that follows the mesh moves with the bent arm: ${maskAt(following, 0)} -> ${maskAt(following, 1)}`);
+  assert.deepEqual(maskAt(onBone, 1), maskAt(onBone, 0), 'a mask on the bone alone stays where the arm rests');
+});
+
+test('skinning: in the studio a click lands on a skinned arm where it is drawn bent, not where its art rests', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/api/rig*', route => (route.request().method() !== 'PUT' ? route.continue() : route.fulfill({ status: 200, body: 'ok' })));
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    const patch = skinnedArm()(proj.rigs.robo.rig);
+    proj.rigs.robo.rig = { ...proj.rigs.robo.rig, ...patch };
+    const text = JSON.parse(proj.rigTexts.robo);
+    proj.rigTexts.robo = JSON.stringify({ ...text, parameters: patch.parameters, keyforms: patch.keyforms, poses: patch.poses, deformers: [...(text.deformers ?? []), patch.deformers.at(-1)] });
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`);
+    await row('torso').waitFor();
+    await row('torso').click();
+    await studio.locator('[data-gz="weights"]').click();
+    await studio.locator('.ap-row[data-ctl="bend_l"] input[type="range"]').evaluate(e => { e.value = '1'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    const stageFrame = page.frames().find(fr => fr.url().includes('studio='));
+    // The weights tool needs a mesh part chosen to draw its dots; the arm's row is chosen, then the dots are read and a spot between four of them is clicked.
+    await row('upper_l').click();
+    const dots = stageFrame.locator('svg circle[fill^="hsl("]');
+    for (let i = 0; i < 40 && (await dots.count()) !== 27; i++) await page.waitForTimeout(100);
+    assert.equal(await dots.count(), 27);
+    await page.waitForTimeout(500); // the bent pose settles
+    // The arm is small on this stage and a bone handle takes a click within 10 pixels, so zoom in on it first.
+    // The canvas is centred in the stage box, so the zoom aims at a spot of the art measured from the box's middle (it was 330 px down a 603 px box).
+    const box0 = await studio.locator('.as-stage iframe').boundingBox();
+    await page.mouse.move(box0.x + 335, box0.y + box0.height / 2 + 28.5);
+    for (let i = 0; i < 4; i++) { await page.mouse.wheel(0, -300); await page.waitForTimeout(80); }
+    await page.waitForTimeout(400);
+    const at = await dots.evaluateAll(els => els.map(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]));
+    const spot = [19, 22].map(i => at[i]).reduce((s, p) => [s[0] + p[0] / 2, s[1] + p[1] / 2], [0, 0]); // the middle column between rows 6 and 7: well inside the art, in the bent part
+    const box = await studio.locator('.as-stage iframe').boundingBox();
+    await studio.locator('[data-gz="move"]').click(); // the Move tool picks on the stage: a click on art chooses the part (docs/design/studio-stage-modes.md)
+    await page.evaluate(() => { window.__sel = []; window.addEventListener('message', e => { if (e.data?.type === 'studioSelect') window.__sel.push({ name: e.data.name, hits: e.data.hits, at: e.data.at }); }); });
+    await row('torso').click();
+    assert.equal(await row('upper_l').getAttribute('aria-pressed'), 'false');
+    // With the bent mesh drawn there, a click on the spot picks the arm part (upper_l), not the forearm that swung under it, and not its bone.
+    for (let i = 0; i < 20 && (await row('upper_l').getAttribute('aria-pressed')) !== 'true'; i++) { await page.mouse.click(box.x + spot[0], box.y + spot[1]); await page.waitForTimeout(300); }
+    const pressed = await studio.locator('.as-row[aria-pressed="true"]').evaluateAll(es => es.map(e => e.dataset.part));
+    assert.equal(await row('upper_l').getAttribute('aria-pressed'), 'true', `the click chose the arm part, where it is drawn bent (chosen: ${pressed}; the stage said ${JSON.stringify(await page.evaluate(() => window.__sel))}; spot ${spot.map(Math.round)})`);
+    assert.equal(await row('arm_l').getAttribute('aria-pressed'), 'false', 'the bone is not chosen by a plain click');
+    assert.equal(await row('forearm_l').getAttribute('aria-pressed'), 'false');
+    assert.match(await studio.locator('.as-toolbar .atb-line').textContent(), /^poses arm_l, the bone upper_l sits on · /, 'the tool options bar says which bone the gizmo poses');
+    assert.match(await studio.locator('.as-note').getAttribute('data-hint'), /^Alt-click the part, or click its bone's dot, to choose the bone/, 'and the status line how to choose the bone');
+    assert.equal(await studio.locator('.as-sub[data-sub="transform"] .as-bone-go').textContent(), 'Choose arm_l', 'Properties links to the bone');
+    // The gizmo poses the part's bone, but the stage tells the two apart (studio-choice-cue.md): the part is outlined, its bone's dot
+    // stays plain, and the tag by the gizmo says so.
+    const tag = stageFrame.locator('.studio-choice-tag');
+    for (let i = 0; i < 20 && (await tag.isHidden()); i++) await page.waitForTimeout(100);
+    assert.equal(await tag.textContent(), 'upper_l · part — the gizmo poses its bone arm_l');
+    assert.ok(await stageFrame.locator('svg line[data-outline="upper_l"][stroke="#ff3b6b"]').count() >= 4, 'the chosen part is outlined');
+    assert.equal(await stageFrame.locator('svg [data-bone-body]').count(), 0);
+    const dot = stageFrame.locator('svg circle[data-bone="arm_l"]');
+    assert.equal(await dot.getAttribute('data-chosen'), null, 'the bone dot is plain while the part is chosen');
+    const dotAt = await dot.evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]);
+    await row('torso').click();
+    for (let i = 0; i < 20 && (await row('upper_l').getAttribute('aria-pressed')) !== 'false'; i++) await page.waitForTimeout(100);
+    for (let i = 0; i < 20 && (await row('arm_l').getAttribute('aria-pressed')) !== 'true'; i++) { await page.mouse.click(box.x + dotAt[0], box.y + dotAt[1]); await page.waitForTimeout(300); }
+    assert.equal(await row('arm_l').getAttribute('aria-pressed'), 'true', `a click on the bone's pivot dot chooses the bone (dot at ${dotAt.map(Math.round)})`);
+    assert.equal(await row('upper_l').getAttribute('aria-pressed'), 'false');
+    // The bone chosen: its body is drawn, its dot is a ring around the gizmo's centre, the parts it carries are outlined faintly, and the tag says bone.
+    for (let i = 0; i < 20 && !/· bone ·/.test(await tag.textContent()); i++) await page.waitForTimeout(100);
+    assert.match(await tag.textContent(), /^arm_l · bone · \d+ parts?$/);
+    assert.ok(await stageFrame.locator('svg [data-bone-body="arm_l"]').count() >= 2, 'the bone body is drawn');
+    const body = await stageFrame.evaluate(() => {
+      const s = document;
+      const at = n => { const c = s.querySelector(`circle[data-bone="${n}"]`); return [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]; };
+      const [a, b] = [at('arm_l'), at('forearm_l')];
+      return [...s.querySelectorAll('[data-bone-body="arm_l"]')].every(l => [['x1', 'y1', a], ['x2', 'y2', b]].every(([x, y, p]) => Math.abs(Number(l.getAttribute(x)) - p[0]) < 0.5 && Math.abs(Number(l.getAttribute(y)) - p[1]) < 0.5));
+    });
+    assert.ok(body, 'the bone body runs from its joint to its child bone forearm_l');
+    assert.equal(await stageFrame.locator('svg circle[data-bone="arm_l"]').getAttribute('data-chosen'), 'true');
+    assert.equal(await stageFrame.locator('svg circle[data-bone="arm_l"]').getAttribute('r'), '11', 'a ring the gizmo square does not cover');
+    assert.ok(await stageFrame.locator('svg line[data-outline="upper_l"][stroke="#fff"]').count() >= 4, 'the parts it carries are outlined faintly');
+    // The tag stays clear of the gizmo's handles and inside the stage.
+    const clear = await stageFrame.locator('.studio-choice-tag').evaluate(t => {
+      const r = t.getBoundingClientRect(), hits = [...document.querySelectorAll('svg rect, svg polygon')].map(e => e.getBoundingClientRect());
+      return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight && hits.every(h => h.right < r.left || h.left > r.right || h.bottom < r.top || h.top > r.bottom);
+    });
+    assert.ok(clear, 'the tag is inside the stage and off the handles');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
 });
 
 test('theme panel: fields write the theme file, contrast warns, the gallery follows and click-to-inspect jumps to the component', async t => {
@@ -5780,7 +7088,7 @@ test('theme panel: fields write the theme file, contrast warns, the gallery foll
     await until(page, () => [...document.querySelectorAll('#themePanel iframe')].every(f => f.contentDocument?.getElementById('themeStyle')?.textContent.includes('--vn-surface: #ffffff')));
 
     // Clicking the selected options tab inside the gallery opens that component and state in the Components tab.
-    await tile('Options').evaluate(f => f.contentDocument.querySelector('#tabAudio').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
+    await tile('Options').evaluate(f => f.contentDocument.querySelector('#optionsui [role=tab][aria-selected=true]').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })));
     await panel.locator('.td-comp').waitFor();
     assert.equal(await panel.locator('.td-comp').inputValue(), 'tab');
     assert.equal(await panel.locator('.td-state').inputValue(), 'selected');
@@ -5792,3 +7100,193 @@ test('theme panel: fields write the theme file, contrast warns, the gallery foll
   }
 });
 
+test('animation studio: Mirror copies one half of a mesh\'s weights to the other with the bones paired by name, and asks for a partner it cannot find', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    // The left upper arm (87 x 157 pixels) gets a 3 x 5 mesh whose left column is weighted: vertex 0 to arm_l and forearm_l, vertex 3 to spine (a bone with no side in its name).
+    const verts = [], tris = [];
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) verts.push(c * 43.5, r * 39.25);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) { const a = r * 3 + c; tris.push(a, a + 1, a + 3, a + 1, a + 4, a + 3); }
+    const arm = { id: 'upper_l_mesh', part: 'upper_l', mesh: { verts, tris, defaultBone: 'arm_l', weights: { 0: { arm_l: 0.7, forearm_l: 0.3 }, 3: { spine: 1 } } }, keyforms: [] };
+    proj.rigs.robo.rig.deformers.push(arm);
+    const text = JSON.parse(proj.rigTexts.robo);
+    text.deformers.push(arm);
+    proj.rigTexts.robo = JSON.stringify(text);
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), dialog = page.locator('dialog.ask');
+    const sum = studio.locator('.as-sub[data-sub="skin"] .as-sub-sum'), left = studio.locator('.aww-mirbtn[data-from="left"]');
+    await row('upper_l').waitFor();
+    await row('upper_l').click();
+    await studio.locator('[data-gz="weights"]').click();
+    assert.equal(await sum.textContent(), '3 bones', 'arm_l, forearm_l and spine are bound');
+    // Mirror is a selection operation of the tool options bar: Select mode, then its ▾ panel.
+    const mirror = studio.locator('.as-toolbar .aww-mirror');
+    assert.equal(await mirror.isVisible(), false, 'not in a painting mode');
+    await studio.locator('.as-toolbar .aww-modebtn[data-brush="select"]').click();
+    for (let i = 0; i < 40 && (await mirror.isDisabled()); i++) await page.waitForTimeout(100); // the stage measures the image
+    assert.equal(await mirror.isDisabled(), false, 'Mirror waits for the stage to measure the image');
+    await mirror.click();
+    // arm_l and forearm_l pair by name; spine has no side, so it is asked for. A name that is no bone is asked again.
+    await left.click();
+    await dialog.waitFor();
+    assert.match(await dialog.textContent(), /partner of "spine"/);
+    await dialog.locator('input').fill('ghost');
+    await dialog.getByRole('button', { name: 'Use' }).click();
+    await until(page, () => /is no bone of this rig/.test(document.querySelector('dialog.ask')?.textContent ?? ''));
+    await dialog.locator('input').fill('spine');
+    await dialog.getByRole('button', { name: 'Use' }).click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '5 bones');
+    // One undo step takes it back; the answer is remembered, so mirroring again asks nothing.
+    await studio.locator('[data-t="undo"]').click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '3 bones');
+    await mirror.click(); // Undo was a press outside the panel, which closed it
+    await left.click();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '5 bones');
+    assert.equal(await dialog.count(), 0, 'the partner was asked once');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100);
+    const w = JSON.parse(saved.at(-1)).deformers.find(d => d.part === 'upper_l').mesh.weights;
+    assert.deepEqual(w[2], { arm_r: 0.7, forearm_r: 0.3 }, 'the top right vertex has the top left one\'s weights, bones paired');
+    assert.deepEqual(w[5], { spine: 1 }, 'spine is its own partner, as the author said');
+    assert.deepEqual(w[8], { arm_r: 1 }, 'a vertex on the default bone mirrors to the partner of that bone');
+    assert.deepEqual(w[0], { arm_l: 0.7, forearm_l: 0.3 }, 'the source half is untouched');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('animation studio: removing a bone gives its weights to its parent on every skinned mesh, in the same undo step', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  const saved = [];
+  await page.route('**/api/rig*', route => {
+    if (route.request().method() !== 'PUT') return route.continue();
+    saved.push(route.request().postData());
+    return route.fulfill({ status: 200, body: 'ok' });
+  });
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    // The left upper arm's mesh has forearm_l as its default bone and one vertex split between arm_l and forearm_l.
+    const verts = [], tris = [];
+    for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) verts.push(c * 43.5, r * 39.25);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) { const a = r * 3 + c; tris.push(a, a + 1, a + 3, a + 1, a + 4, a + 3); }
+    const arm = { id: 'upper_l_mesh', part: 'upper_l', mesh: { verts, tris, defaultBone: 'forearm_l', weights: { 13: { arm_l: 0.4, forearm_l: 0.6 }, 14: { arm_l: 0.1, forearm_l: 0.2, hand_l: 0.7 } } }, keyforms: [] };
+    proj.rigs.robo.rig.bones.hand_l = { parent: 'forearm_l', pivot: [420, 650] };
+    proj.rigs.robo.rig.deformers.push(arm);
+    const text = JSON.parse(proj.rigTexts.robo);
+    text.bones.hand_l = { parent: 'forearm_l', pivot: [420, 650] };
+    text.deformers.push(arm);
+    proj.rigTexts.robo = JSON.stringify(text);
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`);
+    const sum = studio.locator('.as-sub[data-sub="skin"] .as-sub-sum');
+    await row('forearm_l').waitFor();
+    await row('forearm_l').click();
+    await studio.locator('.as-bone-del').click();
+    await row('forearm_l').waitFor({ state: 'detached' });
+    await row('upper_l').click();
+    await studio.locator('[data-gz="weights"]').click();
+    assert.equal(await sum.textContent(), '2 bones', 'arm_l now carries the weight forearm_l had, hand_l stays');
+    await studio.locator('[data-t="apply"]').click();
+    for (let i = 0; i < 50 && !saved.length; i++) await page.waitForTimeout(100);
+    const rig = JSON.parse(saved.at(-1)), mesh = rig.deformers.find(d => d.part === 'upper_l').mesh;
+    assert.equal(rig.bones.forearm_l, undefined, 'the bone is gone');
+    assert.equal(mesh.defaultBone, 'arm_l', 'the default bone moved up too');
+    assert.deepEqual(mesh.weights[13], undefined, 'all on arm_l, the new default bone: not stored');
+    assert.equal(mesh.weights[14].arm_l, 0.3, 'forearm_l\'s 0.2 joined arm_l\'s 0.1');
+    assert.equal(mesh.weights[14].hand_l, 0.7);
+    assert.equal(JSON.stringify(mesh).includes('forearm_l'), false, 'nothing names the removed bone');
+    // One undo step brings the bone and the weights back together.
+    await studio.locator('[data-t="undo"]').click();
+    await row('forearm_l').waitFor();
+    await until(page, () => document.querySelector('#animStudio .as-sub[data-sub="skin"] .as-sub-sum').textContent === '3 bones');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+test('skinning: a Warp-tool drag on a skinned mesh waits while a bone that moves it is posed by a parameter', async t => {
+  if (skipReason) { t.skip(skipReason); return; }
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.route('**/api/rig*', route => (route.request().method() !== 'PUT' ? route.continue() : route.fulfill({ status: 200, body: 'ok' })));
+  await page.route('**/api/project', async route => {
+    const res = await route.fetch();
+    const proj = await res.json();
+    const patch = skinnedArm()(proj.rigs.robo.rig);
+    patch.deformers.at(-1).keyforms = [{ param: 'bend_l', keys: [{ at: 0 }, { at: 1 }] }]; // the mesh is warped by bend_l too, so choosing that slider keeps the arm chosen
+    proj.rigs.robo.rig = { ...proj.rigs.robo.rig, ...patch };
+    const text = JSON.parse(proj.rigTexts.robo);
+    proj.rigTexts.robo = JSON.stringify({ ...text, parameters: patch.parameters, keyforms: patch.keyforms, poses: patch.poses, deformers: [...(text.deformers ?? []), patch.deformers.at(-1)] });
+    await route.fulfill({ response: res, json: proj });
+  });
+  try {
+    await page.goto(`${base}editor/`);
+    await page.locator('button.anim', { hasText: 'Model' }).nth(1).click();
+    const studio = page.locator('#animStudio'), row = n => studio.locator(`.as-tree .as-row[data-part="${n}"]`), note = studio.locator('.as-note');
+    const slider = studio.locator('.ap-row[data-ctl="bend_l"] input[type="range"]');
+    await row('upper_l').waitFor();
+    await row('upper_l').click();
+    await studio.locator('[data-gz="warp"]').click();
+    await studio.locator('.ap-row[data-ctl="bend_l"] > label').click(); // the active parameter: the warp is keyed to it
+    const stageFrame = page.frames().find(fr => fr.url().includes('studio='));
+    const dot = stageFrame.locator('svg circle[r="3"]').first(); // a vertex of the mesh
+    for (let i = 0; i < 40 && !(await dot.count()); i++) await page.waitForTimeout(100);
+    const drag = async () => {
+      const at = await dot.evaluate(e => [Number(e.getAttribute('cx')), Number(e.getAttribute('cy'))]), box = await studio.locator('.as-stage iframe').boundingBox();
+      await page.mouse.move(box.x + at[0], box.y + at[1]);
+      await page.mouse.down();
+      await page.mouse.move(box.x + at[0] + 6, box.y + at[1] + 4, { steps: 4 });
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+    };
+    // The slider bends the forearm: the mesh is skinned to it, so the drag is refused and the note says why.
+    await slider.evaluate(e => { e.value = '1'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.waitForTimeout(400);
+    await drag();
+    assert.match(await note.textContent(), /skinned and forearm_l is posed by a parameter/);
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true, 'the refused drag changed nothing');
+    // Back at rest the same drag keys the mesh.
+    await slider.evaluate(e => { e.value = '0'; e.dispatchEvent(new Event('input', { bubbles: true })); });
+    await page.waitForTimeout(400);
+    await drag();
+    for (let i = 0; i < 30 && (await studio.locator('[data-t="apply"]').isDisabled()); i++) await page.waitForTimeout(100);
+    assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false, 'at rest the drag wrote a keyform');
+    assert.deepEqual(errors, []);
+  } finally {
+    await context.close();
+  }
+});
+
+describe('browser', { concurrency: Math.max(1, Number(process.env.VN_BROWSER_JOBS) || 6) }, () => {
+  queueRun = true;
+  for (const args of queued) nodeTest(...args);
+});

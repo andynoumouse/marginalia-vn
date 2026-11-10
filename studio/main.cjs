@@ -360,16 +360,26 @@ async function newProject({ parent, name, title, stage, git, template }) {
   if (!title?.trim()) return { error: 'Give the game a title.' };
   if (!parent || !name?.trim()) return { error: 'Choose a location and a folder name.' };
   if (/[<>:"/\\|?*]/.test(name)) return { error: 'The folder name cannot contain < > : " / \\ | ? *' };
+  // The location must be a folder that exists (a file path, or a drive that is not there, used to fail as an unhandled rejection).
+  let parentStat = null;
+  try { parentStat = fs.statSync(parent); } catch { /* not there */ }
+  if (!parentStat) return { error: `The location ${path.resolve(parent)} does not exist; choose a folder that does (Browse...).` };
+  if (!parentStat.isDirectory()) return { error: `The location ${path.resolve(parent)} is a file, not a folder; choose a folder.` };
   const folder = path.resolve(parent, name.trim());
-  if (fs.existsSync(folder) && fs.readdirSync(folder).length) return { error: `${folder} is not empty; choose another folder name.` };
+  if (fs.existsSync(folder)) {
+    if (!fs.statSync(folder).isDirectory()) return { error: `${folder} is a file; choose another folder name.` };
+    if (fs.readdirSync(folder).length) return { error: `${folder} is not empty; choose another folder name.` };
+  }
   let files;
   try { files = newProjectFiles({ title: title.trim(), engineVersion, kind: 'studio', stage, template }); } catch (err) { return { error: err.message }; }
   writeJson(settingsFile(), { ...readSettings(), lastParent: path.resolve(parent) });
-  for (const [rel, text] of Object.entries(files)) {
-    const file = path.join(folder, rel);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, text);
-  }
+  try {
+    for (const [rel, text] of Object.entries(files)) {
+      const file = path.join(folder, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, text);
+    }
+  } catch (err) { return { error: `Could not write ${folder}: ${err.message}` }; }
   try { (await import(pathToFileURL(path.join(engineRoot, 'tools', 'template-assets.mjs')).href)).copyTemplateAssets(templateAssets(template, stage), folder); } catch (err) { return { error: err.message }; }
   if (git && gitAvailable()) {
     const r = spawnSync('git', ['init'], { cwd: folder, windowsHide: true, encoding: 'utf8' });

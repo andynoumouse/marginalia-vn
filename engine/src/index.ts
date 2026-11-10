@@ -4,7 +4,7 @@ export { randomStep, newSeed, type Rng } from './random.js';
 export { autoAnimations, startAuto, stepAuto, holds, parseCondition, everyBounds, reduceMotionSafe, reactionTarget, startReaction, stepReaction, DEFAULT_REACTION_OVER, type AutoDef, type AutoEntry, type AutoContext, type AutoState, type AutoStep, type ReactionDef, type ReactionState } from './auto-anim.js';
 export { AnimPlayer } from './anim-player.js';
 export { overscanZoom } from './camera-fit.js';
-export { animParts, sampleChannel, keysOf, addKey, setKey, deleteKey, setDur, setAuto, autoFields, autoFromFields, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset, setTopLevelProperty, removeTopLevelProperty, writeRigText, textChange, type RigWrite, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, boneSubtree, saveLook, type Looks, type Bones, type PartBones, showLine, type Placement, type PivotFrame, type Pivots, type TextEdit, type Anims } from './anim-edit.js';
+export { animParts, sampleChannel, restEnds, keysOf, addKey, setKey, deleteKey, setDur, secondsOf, progressOf, timeLabel, retimeAnim, hasKeyTimes, setAuto, autoFields, autoFromFields, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset, setTopLevelProperty, removeTopLevelProperty, writeRigText, textChange, type RigWrite, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, boneSubtree, saveLook, type Looks, type Bones, type PartBones, showLine, type Placement, type PivotFrame, type Pivots, type TextEdit, type Anims } from './anim-edit.js';
 export { EASES, EASE_NAMES, DEFAULT_EASE, easing, parseBezierSpec, isEaseSpec, easeProblem, bezierEase, isBezier, presetBezier, lerp, ANIMS, ANIM_NAMES, NO_OFFSET, KEY_CHANNELS, CHANNEL_REST, addOffset, animOffset, scaleOffset, resolveAnim, trackAt, tracksAt, keyframeFn, keyframeParts, type Resolved, type EaseFn, type Bezier, type Offset, type SpriteAnim, type AnimDef, type KeyDef, type KeyChannel, type ParamKey, type ParamTracks } from './anim.js';
 export * from './text.js';
 export * from './fx.js';
@@ -34,17 +34,22 @@ export { sceneAt } from './scene-at.js';
 export { getCompletions, insideScreen, type Suggestion } from './editor-support.js';
 export { parseHelp, helpTopicAt, rigHelpTopicAt, type HelpDoc, type HelpHeading } from './help.js';
 export {
-  checkAssets, checkGame, attachPreloads, assetContext, stateAssets, spriteKeys, bgKey, imageKey, maskKey, opAssets, rigLayers, successors, BLIP_PRESETS, PRELOAD_LINES, VOICE_KEY,
+  checkAssets, checkGame, attachPreloads, uncuedSounds, assetContext, stateAssets, spriteKeys, bgKey, imageKey, maskKey, opAssets, rigLayers, successors, BLIP_PRESETS, PRELOAD_LINES, VOICE_KEY,
   type AssetIndex, type AssetContext, type RigManifest, type RigPart,
 } from './assets.js';
 export * from './params.js';
+export { compileSkin, skinPoints, isSkinned, type MeshSkin } from './skin.js';
 export * from './warp.js';
 export * from './masks.js';
 export * from './mask-edit.js';
+export * from './bone-edit.js';
 export * from './warp-edit.js';
 export * from './keyform-edit.js';
 export * from './param-bind.js';
 export * from './studio-focus.js';
+export * from './studio-stage.js';
+export * from './studio-keys.js';
+export * from './studio-inspector.js';
 export * from './key-copy.js';
 export * from './param-edit.js';
 export * from './param-tracks.js';
@@ -85,7 +90,7 @@ export { editDistance, closest, didYouMean, withFix, wordSpan } from './suggest.
 export { animateRef, type AnimRef } from './anim-ref.js';
 export { findFileRefs, resolveFileRef, type FileRef } from './file-refs.js';
 export { PROGRAM_FORMAT, hashText, scriptsVersion, packProgram, unpackProgram, type ProgramFile } from './program-file.js';
-export { buildFileTree, type FileTree, type FileTreeFolder } from './file-tree.js';
+export { buildFileTree, groupAssetFiles, type FileTree, type FileTreeFolder } from './file-tree.js';
 export { checkProjectPath, planMove, movedPath, isUnder, type MovePlan } from './file-ops.js';
 export { assetRefs, renameAssetRefs, type AssetRef, type AssetRefKind, type AssetRename } from './asset-refs.js';
 export { parseGitStatus, changeKind, suggestCommitMessage, checkCommit, GIT_IGNORE_LINES, LFS_WARN_BYTES, HOST_LIMIT_BYTES, type GitChange, type GitChangeKind, type GitFacts } from './git.js';
@@ -104,3 +109,8 @@ export { gizmoTarget, offsetDelta, sumOffset, isNoOffset, keyedOffset, keyFromDe
 export * from './mesh.js';
 export { generateMesh, triangulate, MESH_DETAIL, MESH_MAX_VERTS, MESH_ALPHA_THRESHOLD, MESH_MIN_TOL, type MeshDetail, type MeshGenOptions, type GeneratedMesh } from './mesh-gen.js';
 export * from './mesh-edit.js';
+export * from './skin-edit.js';
+export { OwnSaves, OWN_SAVE_MS } from './own-saves.js';
+export * from './timeline-rows.js';
+export * from './duration.js';
+export * from './studio-history.js';

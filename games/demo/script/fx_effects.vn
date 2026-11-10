@@ -2,8 +2,8 @@
 # An effect stays on the stage until Reset (or the next scene), so fire several and watch one replace the other.
 
 label fx_filter:
-  scene bg_reading_room fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Filters", "A filter changes the look of the whole scene, and one replaces the other. Reset takes it off.")
   set fx_a_label = "Look"
   set fx_a1 = "blur"
@@ -22,64 +22,64 @@ label fx_filter_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
     if fx_pa == 1 and fx_pb == 1:
-      set fx_fired = "filter blur 0.4 0.6"
-      filter blur 0.4 0.6
+      set fx_fired = "filter blur 0.4 0.6s"
+      filter blur 0.4 0.6s
     elif fx_pa == 1:
-      set fx_fired = "filter blur 1 0.6"
-      filter blur 1 0.6
+      set fx_fired = "filter blur 1 0.6s"
+      filter blur 1 0.6s
     elif fx_pa == 2 and fx_pb == 1:
-      set fx_fired = "filter grayscale 0.4 0.6"
-      filter grayscale 0.4 0.6
+      set fx_fired = "filter grayscale 0.4 0.6s"
+      filter grayscale 0.4 0.6s
     elif fx_pa == 2:
-      set fx_fired = "filter grayscale 1 0.6"
-      filter grayscale 1 0.6
+      set fx_fired = "filter grayscale 1 0.6s"
+      filter grayscale 1 0.6s
     elif fx_pa == 3 and fx_pb == 1:
-      set fx_fired = "filter sepia 0.4 0.6"
-      filter sepia 0.4 0.6
+      set fx_fired = "filter sepia 0.4 0.6s"
+      filter sepia 0.4 0.6s
     elif fx_pa == 3:
-      set fx_fired = "filter sepia 1 0.6"
-      filter sepia 1 0.6
+      set fx_fired = "filter sepia 1 0.6s"
+      filter sepia 1 0.6s
     elif fx_pa == 4 and fx_pb == 1:
-      set fx_fired = "filter night 0.4 0.6"
-      filter night 0.4 0.6
+      set fx_fired = "filter night 0.4 0.6s"
+      filter night 0.4 0.6s
     elif fx_pa == 4:
-      set fx_fired = "filter night 1 0.6"
-      filter night 1 0.6
+      set fx_fired = "filter night 1 0.6s"
+      filter night 1 0.6s
     elif fx_pa == 5 and fx_pb == 1:
-      set fx_fired = "filter vignette 0.4 0.6"
-      filter vignette 0.4 0.6
+      set fx_fired = "filter vignette 0.4 0.6s"
+      filter vignette 0.4 0.6s
     elif fx_pa == 5:
-      set fx_fired = "filter vignette 1 0.6"
-      filter vignette 1 0.6
+      set fx_fired = "filter vignette 1 0.6s"
+      filter vignette 1 0.6s
     elif fx_pa == 6 and fx_pb == 1:
-      set fx_fired = "filter glow 0.4 0.6"
-      filter glow 0.4 0.6
+      set fx_fired = "filter glow 0.4 0.6s"
+      filter glow 0.4 0.6s
     elif fx_pa == 6:
-      set fx_fired = "filter glow 1 0.6"
-      filter glow 1 0.6
+      set fx_fired = "filter glow 1 0.6s"
+      filter glow 1 0.6s
     elif fx_pa == 7 and fx_pb == 1:
-      set fx_fired = "filter chromatic 0.4 0.6"
-      filter chromatic 0.4 0.6
+      set fx_fired = "filter chromatic 0.4 0.6s"
+      filter chromatic 0.4 0.6s
     elif fx_pa == 7:
-      set fx_fired = "filter chromatic 1 0.6"
-      filter chromatic 1 0.6
+      set fx_fired = "filter chromatic 1 0.6s"
+      filter chromatic 1 0.6s
     elif fx_pb == 1:
-      set fx_fired = "filter glitch 0.4 0.6"
-      filter glitch 0.4 0.6
+      set fx_fired = "filter glitch 0.4 0.6s"
+      filter glitch 0.4 0.6s
     else:
-      set fx_fired = "filter glitch 1 0.6"
-      filter glitch 1 0.6
+      set fx_fired = "filter glitch 1 0.6s"
+      filter glitch 1 0.6s
     jump fx_filter_loop
   elif act == "reset":
-    set fx_fired = "filter off 0.5"
-    filter off 0.5
+    set fx_fired = "filter off 0.5s"
+    filter off 0.5s
     jump fx_filter_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_weather:
-  scene bg_library fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Weather", "Particles fall over the scene (embers rise). Change the kind or the amount while it falls; Reset clears the sky.")
   set fx_a_label = "Kind"
   set fx_a1 = "rain"
@@ -95,52 +95,52 @@ label fx_weather_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
     if fx_pa == 1 and fx_pb == 1:
-      set fx_fired = "weather rain 0.3 1"
-      weather rain 0.3 1
+      set fx_fired = "weather rain 0.3 1s"
+      weather rain 0.3 1s
     elif fx_pa == 1 and fx_pb == 2:
-      set fx_fired = "weather rain 0.6 1"
-      weather rain 0.6 1
+      set fx_fired = "weather rain 0.6 1s"
+      weather rain 0.6 1s
     elif fx_pa == 1:
-      set fx_fired = "weather rain 1 1"
-      weather rain 1 1
+      set fx_fired = "weather rain 1 1s"
+      weather rain 1 1s
     elif fx_pa == 2 and fx_pb == 1:
-      set fx_fired = "weather snow 0.3 1"
-      weather snow 0.3 1
+      set fx_fired = "weather snow 0.3 1s"
+      weather snow 0.3 1s
     elif fx_pa == 2 and fx_pb == 2:
-      set fx_fired = "weather snow 0.6 1"
-      weather snow 0.6 1
+      set fx_fired = "weather snow 0.6 1s"
+      weather snow 0.6 1s
     elif fx_pa == 2:
-      set fx_fired = "weather snow 1 1"
-      weather snow 1 1
+      set fx_fired = "weather snow 1 1s"
+      weather snow 1 1s
     elif fx_pa == 3 and fx_pb == 1:
-      set fx_fired = "weather petals 0.3 1"
-      weather petals 0.3 1
+      set fx_fired = "weather petals 0.3 1s"
+      weather petals 0.3 1s
     elif fx_pa == 3 and fx_pb == 2:
-      set fx_fired = "weather petals 0.6 1"
-      weather petals 0.6 1
+      set fx_fired = "weather petals 0.6 1s"
+      weather petals 0.6 1s
     elif fx_pa == 3:
-      set fx_fired = "weather petals 1 1"
-      weather petals 1 1
+      set fx_fired = "weather petals 1 1s"
+      weather petals 1 1s
     elif fx_pb == 1:
-      set fx_fired = "weather embers 0.3 1"
-      weather embers 0.3 1
+      set fx_fired = "weather embers 0.3 1s"
+      weather embers 0.3 1s
     elif fx_pb == 2:
-      set fx_fired = "weather embers 0.6 1"
-      weather embers 0.6 1
+      set fx_fired = "weather embers 0.6 1s"
+      weather embers 0.6 1s
     else:
-      set fx_fired = "weather embers 1 1"
-      weather embers 1 1
+      set fx_fired = "weather embers 1 1s"
+      weather embers 1 1s
     jump fx_weather_loop
   elif act == "reset":
-    set fx_fired = "weather off 1"
-    weather off 1
+    set fx_fired = "weather off 1s"
+    weather off 1s
     jump fx_weather_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_flash:
-  scene bg_library fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Flash", "A burst of colour over the whole screen, or over one character only: a hit, a spell, a lightning strike.")
   set fx_a_label = "What flashes"
   set fx_a1 = "All white"
@@ -156,42 +156,42 @@ label fx_flash_loop:
   if act == "fire":
     if fx_pa == 1:
       if fx_pb == 1:
-        set fx_fired = "flash #ffffff 0.2"
-        flash #ffffff 0.2
+        set fx_fired = "flash #ffffff 0.2s"
+        flash #ffffff 0.2s
       else:
-        set fx_fired = "flash #ffffff 1"
-        flash #ffffff 1
+        set fx_fired = "flash #ffffff 1s"
+        flash #ffffff 1s
     elif fx_pa == 2:
       if fx_pb == 1:
-        set fx_fired = "flash #ff3030 0.2"
-        flash #ff3030 0.2
+        set fx_fired = "flash #ff3030 0.2s"
+        flash #ff3030 0.2s
       else:
-        set fx_fired = "flash #ff3030 1"
-        flash #ff3030 1
+        set fx_fired = "flash #ff3030 1s"
+        flash #ff3030 1s
     elif fx_pa == 3:
       if fx_pb == 1:
-        set fx_fired = "flash iris #ffffff 0.2"
-        flash iris #ffffff 0.2
+        set fx_fired = "flash iris #ffffff 0.2s"
+        flash iris #ffffff 0.2s
       else:
-        set fx_fired = "flash iris #ffffff 1"
-        flash iris #ffffff 1
+        set fx_fired = "flash iris #ffffff 1s"
+        flash iris #ffffff 1s
     else:
       if fx_pb == 1:
-        set fx_fired = "flash iris #ff3030 0.2"
-        flash iris #ff3030 0.2
+        set fx_fired = "flash iris #ff3030 0.2s"
+        flash iris #ff3030 0.2s
       else:
-        set fx_fired = "flash iris #ff3030 1"
-        flash iris #ff3030 1
+        set fx_fired = "flash iris #ff3030 1s"
+        flash iris #ff3030 1s
     jump fx_flash_loop
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_flash_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_tint:
-  scene bg_reading_room fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Tint", "Wash the scene in a colour, softly or strongly. It stays until you take it off.")
   set fx_a_label = "Colour"
   set fx_a1 = "Dusk"
@@ -208,50 +208,50 @@ label fx_tint_loop:
   if act == "fire":
     if fx_pa == 1:
       if fx_pb == 1:
-        set fx_fired = "tint #402010 0.3 1"
-        tint #402010 0.3 1
+        set fx_fired = "tint #402010 0.3 1s"
+        tint #402010 0.3 1s
       else:
-        set fx_fired = "tint #402010 0.7 1"
-        tint #402010 0.7 1
+        set fx_fired = "tint #402010 0.7 1s"
+        tint #402010 0.7 1s
     elif fx_pa == 2:
       if fx_pb == 1:
-        set fx_fired = "tint #203060 0.3 1"
-        tint #203060 0.3 1
+        set fx_fired = "tint #203060 0.3 1s"
+        tint #203060 0.3 1s
       else:
-        set fx_fired = "tint #203060 0.7 1"
-        tint #203060 0.7 1
+        set fx_fired = "tint #203060 0.7 1s"
+        tint #203060 0.7 1s
     elif fx_pa == 3:
       if fx_pb == 1:
-        set fx_fired = "tint #204020 0.3 1"
-        tint #204020 0.3 1
+        set fx_fired = "tint #204020 0.3 1s"
+        tint #204020 0.3 1s
       else:
-        set fx_fired = "tint #204020 0.7 1"
-        tint #204020 0.7 1
+        set fx_fired = "tint #204020 0.7 1s"
+        tint #204020 0.7 1s
     elif fx_pa == 4:
       if fx_pb == 1:
-        set fx_fired = "tint #602040 0.3 1"
-        tint #602040 0.3 1
+        set fx_fired = "tint #602040 0.3 1s"
+        tint #602040 0.3 1s
       else:
-        set fx_fired = "tint #602040 0.7 1"
-        tint #602040 0.7 1
+        set fx_fired = "tint #602040 0.7 1s"
+        tint #602040 0.7 1s
     else:
       if fx_pb == 1:
-        set fx_fired = "tint #901010 0.3 1"
-        tint #901010 0.3 1
+        set fx_fired = "tint #901010 0.3 1s"
+        tint #901010 0.3 1s
       else:
-        set fx_fired = "tint #901010 0.7 1"
-        tint #901010 0.7 1
+        set fx_fired = "tint #901010 0.7 1s"
+        tint #901010 0.7 1s
     jump fx_tint_loop
   elif act == "reset":
-    set fx_fired = "tint off 1"
-    tint off 1
+    set fx_fired = "tint off 1s"
+    tint off 1s
     jump fx_tint_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_camera:
-  scene bg_reading_room fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Camera", "Lean in, slide along, tilt or shake the view. Reset brings the camera back.")
   set fx_a_label = "Move the view"
   set fx_a1 = "Zoom in"
@@ -267,44 +267,44 @@ label fx_camera_loop:
   if act == "fire":
     if fx_pa == 1:
       if fx_pb == 1:
-        set fx_fired = "camera zoom 1.6 at center y=0.2 0.4 ease=out"
-        camera zoom 1.6 at center y=0.2 0.4 ease=out
+        set fx_fired = "camera zoom 1.6 at center y=0.2 0.4s ease=out"
+        camera zoom 1.6 at center y=0.2 0.4s ease=out
       else:
-        set fx_fired = "camera zoom 1.6 at center y=0.2 1.5 ease=out"
-        camera zoom 1.6 at center y=0.2 1.5 ease=out
+        set fx_fired = "camera zoom 1.6 at center y=0.2 1.5s ease=out"
+        camera zoom 1.6 at center y=0.2 1.5s ease=out
     elif fx_pa == 2:
       if fx_pb == 1:
-        set fx_fired = "camera zoom 1.4 at center y=0.2 0.3  /  camera pan right 0.5"
-        camera zoom 1.4 at center y=0.2 0.3
-        camera pan right 0.5
+        set fx_fired = "camera zoom 1.4 at center y=0.2 0.3s  /  camera pan right 0.5s"
+        camera zoom 1.4 at center y=0.2 0.3s
+        camera pan right 0.5s
       else:
-        set fx_fired = "camera zoom 1.4 at center y=0.2 0.3  /  camera pan right 1.5"
-        camera zoom 1.4 at center y=0.2 0.3
-        camera pan right 1.5
+        set fx_fired = "camera zoom 1.4 at center y=0.2 0.3s  /  camera pan right 1.5s"
+        camera zoom 1.4 at center y=0.2 0.3s
+        camera pan right 1.5s
     elif fx_pa == 3:
       if fx_pb == 1:
-        set fx_fired = "camera roll -6 0.3 ease=inout"
-        camera roll -6 0.3 ease=inout
+        set fx_fired = "camera roll -6 0.3s ease=inout"
+        camera roll -6 0.3s ease=inout
       else:
-        set fx_fired = "camera roll -6 1.2 ease=inout"
-        camera roll -6 1.2 ease=inout
+        set fx_fired = "camera roll -6 1.2s ease=inout"
+        camera roll -6 1.2s ease=inout
     else:
-      set fx_fired = "camera zoom 1.05 0.3  /  animate camera shake loop strength=0.5"
-      camera zoom 1.05 0.3
+      set fx_fired = "camera zoom 1.05 0.3s  /  animate camera shake loop strength=0.5"
+      camera zoom 1.05 0.3s
       animate camera shake loop strength=0.5
     jump fx_camera_loop
   elif act == "reset":
-    set fx_fired = "animate camera stop  /  camera reset 0.6"
+    set fx_fired = "animate camera stop  /  camera reset 0.6s"
     animate camera stop
-    camera reset 0.6
+    camera reset 0.6s
     jump fx_camera_loop
   animate camera stop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_gravity:
-  scene bg_library fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Gravity", "How hard weather and bursts fall: slow drift, normal, or upside down. Reset puts it back and clears the sky.")
   set fx_a_label = "Gravity"
   set fx_a1 = "Drifting"
@@ -319,44 +319,44 @@ label fx_gravity_loop:
   if act == "fire":
     if fx_pa == 1:
       if fx_pb == 1:
-        set fx_fired = "gravity 0.2  /  weather snow 0.7 0.5"
+        set fx_fired = "gravity 0.2  /  weather snow 0.7 0.5s"
         gravity 0.2
-        weather snow 0.7 0.5
+        weather snow 0.7 0.5s
       else:
-        set fx_fired = "gravity 0.2  /  weather petals 0.7 0.5"
+        set fx_fired = "gravity 0.2  /  weather petals 0.7 0.5s"
         gravity 0.2
-        weather petals 0.7 0.5
+        weather petals 0.7 0.5s
     elif fx_pa == 2:
       if fx_pb == 1:
-        set fx_fired = "gravity 1  /  weather snow 0.7 0.5"
+        set fx_fired = "gravity 1  /  weather snow 0.7 0.5s"
         gravity 1
-        weather snow 0.7 0.5
+        weather snow 0.7 0.5s
       else:
-        set fx_fired = "gravity 1  /  weather petals 0.7 0.5"
+        set fx_fired = "gravity 1  /  weather petals 0.7 0.5s"
         gravity 1
-        weather petals 0.7 0.5
+        weather petals 0.7 0.5s
     else:
       if fx_pb == 1:
-        set fx_fired = "gravity -1  /  weather snow 0.7 0.5"
+        set fx_fired = "gravity -1  /  weather snow 0.7 0.5s"
         gravity -1
-        weather snow 0.7 0.5
+        weather snow 0.7 0.5s
       else:
-        set fx_fired = "gravity -1  /  weather petals 0.7 0.5"
+        set fx_fired = "gravity -1  /  weather petals 0.7 0.5s"
         gravity -1
-        weather petals 0.7 0.5
+        weather petals 0.7 0.5s
     call fx_step_a(3)
     jump fx_gravity_loop
   elif act == "reset":
-    set fx_fired = "gravity reset  /  weather off 1"
+    set fx_fired = "gravity reset  /  weather off 1s"
     gravity reset
-    weather off 1
+    weather off 1s
     jump fx_gravity_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_burst:
-  scene bg_library fade 0.4
-  show iris smile at center fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at center fade 0.3s
   call fx_open("Particle bursts", "A puff of particles, once, and the script goes straight on. Let one off on a character or on the stage.")
   set fx_a_label = "Kind"
   set fx_a1 = "sparkle"
@@ -402,5 +402,5 @@ label fx_burst_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_burst_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return

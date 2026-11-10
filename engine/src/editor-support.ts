@@ -32,23 +32,23 @@ const soundNames = (files: string[]): Suggestion[] => folderNames(files, 'sound'
 const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]) => ({ label: name, kind: 'keyword', detail: f.help, insertText: `${name}($0)` }));
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
 const COMMANDS = [
-  ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout <seconds>]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
-  ['scene', 'scene <background> [transition] [mask=<image>] [seconds]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade s]'],
-  ['hide', 'hide <character> [fade s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <seconds>'],
-  ['shake', 'shake <character|screen> [seconds]'], ['hop', 'hop <character> [seconds]'],
-  ['animate', 'animate <character> <name|stop> [seconds] [loop]  |  animate <character> pose=<name> | <parameter>=<value> ... [over <seconds>]'],
+  ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout 8s]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
+  ['scene', 'scene <background> [transition] [mask=<image>] [duration]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade 1s]'],
+  ['hide', 'hide <character> [fade 1s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <duration>'],
+  ['shake', 'shake <character|screen> [duration]'], ['hop', 'hop <character> [duration]'],
+  ['animate', 'animate <character> <name|stop> [duration] [loop]  |  animate <character> pose=<name> | <parameter>=<value> ... [over <duration>]'],
   ['hud', 'hud on <screen> [keep] | hud off <screen>  (keep a screen up while the story runs)'],
   ['image', 'image show <name> <file> [at x,y] [layer=] | image move <name> ... | image hide <name>'],
-  ['choreography', 'choreography name:  (indented lines: <seconds> <character|picture|camera>: <step>; play it with perform name)'], ['perform', 'perform <choreography>'],
-  ['burst', 'burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=] [count=] [seconds]'], ['flash', 'flash [#color] [seconds]'], ['tint', 'tint <#color> [strength] [seconds] | tint off'],
+  ['choreography', 'choreography name:  (indented lines: <duration> <character|picture|camera>: <step>; play it with perform name)'], ['perform', 'perform <choreography>'],
+  ['burst', 'burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=] [count=] [duration]'], ['flash', 'flash [#color] [duration]'], ['tint', 'tint <#color> [strength] [duration] | tint off'],
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
   ['behaviors', 'behaviors on | behaviors off  (rig.json "auto" animations: idling, blinking and talking by themselves)'],
-  ['camera', 'camera zoom <factor> [at pos] [y=0-1] [seconds] | camera pan <pos> | camera roll <degrees> | camera reset'],
-  ['weather', 'weather <rain|snow|petals|embers> [intensity] [seconds] | weather off'], ['wind', 'wind <right|left> [strength] [gusts=] [seconds] | wind off'], ['gravity', 'gravity <factor> | gravity reset'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [seconds] | filter off'],
-   ['music', 'music play <name> [loop] [fade s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade s] | sound stop [<name>] [fade s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <seconds>'],
+  ['camera', 'camera zoom <factor> [at pos] [y=0-1] [duration] | camera pan <pos> | camera roll <degrees> | camera reset'],
+  ['weather', 'weather <rain|snow|petals|embers> [intensity] [duration] | weather off'], ['wind', 'wind <right|left> [strength] [gusts=] [duration] | wind off'], ['gravity', 'gravity <factor> | gravity reset'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [duration] | filter off'],
+   ['music', 'music play <name> [loop] [fade 1s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade 1s] | sound stop [<name>] [fade 1s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <duration>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['textbox', 'textbox hide  (hide the text box until the next line)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
-  ['transform', 'transform name:  (indented lines: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [seconds] [ease=], wait <seconds>, repeat [times]; play it with animate <char|image> name)'],
+  ['transform', 'transform name:  (indented lines: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [duration] [ease=], wait <duration>, repeat [times]; play it with animate <char|image> name)'],
   ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ] as const;
 // The compiler keeps this list and the parser's COMMAND_WORDS in step (`on` is the menu's timeout block, not a statement of its own).
@@ -62,7 +62,7 @@ const TEXT_TAGS: Suggestion[] = ([
   ['color', '{color=#rrggbb}..{/color}', 'color=#ff6fa5}$0{/color}'], ['size', '{size=1.5}..{/size}  size multiplier', 'size=1.5}$0{/size}'],
   ['wave', '{wave}..{/wave}  wavy text', 'wave}$0{/wave}'], ['shake', '{shake}..{/shake}  shaky text', 'shake}$0{/shake}'],
   ['ruby', '{ruby=reading}base{/ruby}', 'ruby=}$0{/ruby}'], ['speed', '{speed=0.5}..{/speed}  typing speed multiplier', 'speed=0.5}$0{/speed}'],
-  ['pause', '{pause=0.5}  pause typing (seconds)', 'pause=0.5}'],
+  ['pause', '{pause=0.5s}  pause typing for a duration', 'pause=0.5s}'],
   ['wait', '{wait}  stop until a click, then continue the line', 'wait}'], ['nw', '{nw}  go on to the next line without a click', 'nw}'],
 ] as [string, string, string][]).map(([label, detail, insertText]) => ({ label, kind: 'keyword' as const, detail, insertText }));
 // Formats after `[variable:` in text (`formatValue` in text.ts).

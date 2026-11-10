@@ -1,8 +1,9 @@
 // Copying the keys of one binding onto another, optionally mirrored: the left eye's blink onto the right eye, one parameter's poses onto
-// a second parameter, the left half of a pad onto its right. Pose keyforms only (a slider's `keys`, a pad's `grid` + `forms`). Pure; the
-// studio calls it and keeps the result as one undo step.
+// a second parameter, the left half of a pad onto its right; and one key's pose onto another key (Paste form). Pose keyforms only (a
+// slider's `keys`, a pad's `grid` + `forms`). Pure; the studio calls it and keeps the result as one undo step.
 
-import type { FormValue, KeyformDef, ParamDef } from './params.js';
+import { FORM_FIELDS, type FormValue, type KeyformDef, type ParamDef } from './params.js';
+import { writeForm, type KeySpot } from './keyform-edit.js';
 import type { BindDriver } from './param-bind.js';
 
 export interface CopyOptions {
@@ -76,4 +77,15 @@ export function copyKeys(kfs: readonly KeyformDef[], defs: readonly ParamDef[], 
   const at = out.findIndex(isDest);
   if (at >= 0) out[at] = made; else out.push(made);
   return { keyforms: out, copied: true };
+}
+
+/**
+ * Paste form (the animation studio's Keyforms): `form`, a pose copied from one key, stored as `target`'s key at `spot` (snapped as a drag
+ * snaps it: a slider key within reach, a pad's nearest corner), replacing what is there; `mirrored` flips it sideways as Copy keys' mirror
+ * does (x moves and rotations change sign). Ease and the other keys stay. Null when `target` has no pose binding to write it in.
+ */
+export function pasteForm(kfs: readonly KeyformDef[], defs: readonly ParamDef[], target: string, spot: KeySpot, form: FormValue, mirrored = false): { keyforms: KeyformDef[]; spot: KeySpot } | null {
+  const f: FormValue = {};
+  for (const k of FORM_FIELDS) if (form[k] !== undefined) f[k] = form[k];
+  return writeForm(kfs, defs, target, spot, flipForm(f, mirrored));
 }

@@ -20,8 +20,8 @@ test('script colors: after =, tint and flash; never string ids or comments', () 
   const text = [
     'define alice "Alice" color=#ff6fa5 text=#ffe6f0 #ab12',
     'alice: {color=#fff}Pink{/color} #cd34',
-    '    tint #203060 0.5 2',
-    'flash #ffffff 0.4',
+    '    tint #203060 0.5 2s',
+    'flash #ffffff 0.4s',
     'button b at 1,1 "Go" hover tint #ffcc6666',
     '# tint #123456',
     '"Hello" #abcdef',

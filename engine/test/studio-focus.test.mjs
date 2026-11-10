@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  focusKind, afterChoosePart, afterChooseControl, goUp, breadcrumb, pickTargets, cycleHit, cycleLabel,
+  focusKind, afterChoosePart, afterChooseControl, goUp, breadcrumb, poseTarget, pickTargets, cycleHit, cycleLabel,
 } from '../../dist/engine/src/index.js';
 
 const bound = new Set(['arm_r|lift', 'hand_r|lift']);
@@ -44,6 +44,21 @@ test('the breadcrumb names the keyform, its value and whether a key is there', (
   assert.deepEqual(breadcrumb({ control: 'lift', part: null }, 'Arm lift', '0.5', null).crumbs, [{ text: 'Arm lift', up: null }]);
   assert.deepEqual(breadcrumb({ control: null, part: 'head' }, 'x', '0', null).crumbs, [{ text: 'head', up: null }]);
   assert.deepEqual(breadcrumb({ control: null, part: null }, 'x', '0', null), { crumbs: [], status: '' });
+});
+
+test('the breadcrumb says when the gizmo poses the bone a part sits on, and asks nothing about keys when nothing it poses is bound', () => {
+  const kf = { control: 'eye_x', part: 'eyes' };
+  assert.equal(breadcrumb(kf, 'eye_x', '1', true, 'eyes').status, 'key', 'the part itself: nothing more to say');
+  assert.equal(breadcrumb(kf, 'eye_x', '1', false, 'head').status, 'no key here: a drag adds one · the gizmo poses head, the bone eyes sits on');
+  assert.equal(breadcrumb(kf, 'eye_x', '1', null, 'head').status, 'the gizmo poses head, the bone eyes sits on');
+  assert.equal(breadcrumb(kf, 'eye_x', '1', null).status, '');
+});
+
+test('the gizmo poses a part bound by itself, else the bone it sits on', () => {
+  assert.equal(poseTarget('eyes', 'head', true), 'eyes', 'eyes keyed alone: the gizmo poses the eyes');
+  assert.equal(poseTarget('eyes', 'head', false), 'head', 'not bound by itself: the bone, whose keyform the part follows');
+  assert.equal(poseTarget('skirt', null, false), 'skirt', 'on no bone: the part');
+  assert.equal(poseTarget('skirt', null, true), 'skirt');
 });
 
 test('what a pick may land on', () => {

@@ -1,4 +1,5 @@
 import type { Value } from './expr.js';
+import { durationOf } from './duration.js';
 
 export type TextFx = 'shake' | 'wave';
 export type Segment =
@@ -64,7 +65,7 @@ const COLOR = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,20})$/;
  * Split text into styled runs and timing marks:
  *   {i}{/i} {b}{/b} {color=#ff6fa5}{/color} {size=1.4}{/size} {shake}{/shake} {wave}{/wave} {ruby=reading}base{/ruby}
  *   {speed=0.5}{/speed} (typing speed multiplier)
- *   {pause=0.5} {wait} (until click) {nw} (continue without a click)
+ *   {pause=0.5s} {wait} (until click) {nw} (continue without a click)
  * Anything else in braces is shown as written.
  */
 export function parseRich(text: string): Segment[] {
@@ -82,7 +83,7 @@ export function parseRich(text: string): Segment[] {
     segs.push(seg);
     buf = '';
   };
-  const re = /\{(?:(\/?)(i|b|color|size|shake|wave|ruby|speed)(?:=([^{}]*))?|pause=([0-9]*\.?[0-9]+)|(wait|nw))\}/g;
+  const re = /\{(?:(\/?)(i|b|color|size|shake|wave|ruby|speed)(?:=([^{}]*))?|pause=([0-9]*\.?[0-9]+(?:ms|s))|(wait|nw))\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     const [, close, tag, arg, pause, mark] = m;
@@ -92,7 +93,7 @@ export function parseRich(text: string): Segment[] {
     buf += text.slice(last, m.index);
     last = re.lastIndex;
     flush();
-    if (pause !== undefined) segs.push({ kind: 'pause', seconds: Number(pause) });
+    if (pause !== undefined) segs.push({ kind: 'pause', seconds: durationOf(pause)! });
     else if (mark) segs.push({ kind: mark === 'wait' ? 'wait' : 'next' });
     else if (tag === 'i') italic = !close;
     else if (tag === 'b') bold = !close;

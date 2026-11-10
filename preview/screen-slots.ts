@@ -46,11 +46,11 @@ const ACTION_LAYERS: Record<ActionSlot, { dom: string; menu?: boolean; lockedWhe
   title: { dom: 'titleui' },
   pause: { dom: 'pauseui' },
   options: { dom: 'optionsui', menu: true },
-  saves: { dom: 'savesui' },
+  saves: { dom: 'savesui', menu: true }, // a page tab or a save keeps the keyboard on the screen (UX round PI-7)
   history: { dom: 'historyui' },
   gallery: { dom: 'galleryui' },
   viewer: { dom: 'viewerui' },
-  music: { dom: 'musicui' },
+  music: { dom: 'musicui', menu: true },
   chapters: { dom: 'chaptersui' },
   achievements: { dom: 'achievementsui' },
 };

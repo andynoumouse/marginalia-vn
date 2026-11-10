@@ -6,8 +6,8 @@
 set demo_visits = 0
 
 label demo:
-  scene bg_park_evening fade 0.5
-  show alice neutral at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show alice neutral at center fade 0.4s
 
   # --- input: ask the player for text and store it in [player] ---
   alice: Before we start: what should I call you? #mgwi
@@ -17,91 +17,91 @@ label demo:
   # --- text tags ---
   alice: Plain, {i}italic{/i}, {b}bold{/b}, {color=#ff6fa5}pink{/color} and {size=1.5}big{/size}. #ois0
   alice: {wave}Wavy{/wave}, {shake}shaky{/shake}, and kanji with a reading: {ruby=kan}漢{/ruby}{ruby=ji}字{/ruby}. #tht2
-  alice: A pause{pause=0.6} in the middle. #aoyf
+  alice: A pause{pause=0.6s} in the middle. #aoyf
   alice: Stops here until you click.{wait} And then goes on. #nryn
   alice: This line moves on by itself.{nw} #x1xs
   alice: ...like that. #es2o
 
   # --- scene transitions: `dissolve mask=<image in assets/transitions>` reveals the next picture by a grayscale image ---
-  scene bg_park_night dissolve mask=wipe_clock 1.0
-  show alice neutral at center fade 0.4
+  scene bg_park_night dissolve mask=wipe_clock 1.0s
+  show alice neutral at center fade 0.4s
   alice: That change followed a clock hand drawn by an image. Dark pixels of the mask show the new picture first. #fre3
 
   # --- flash: a screen flash that fades out ---
   alice: Watch the screen. #k01e
   flash
   alice: That was white. Now a red one, slower. #arg3
-  flash #ff3030 0.8
+  flash #ff3030 0.8s
 
   # --- tint: a colour wash over the scene (lasts until the next `scene`) ---
   alice: It's getting late. #irt4
-  tint #203060 0.5 1.5
+  tint #203060 0.5 1.5s
   alice: Evening blue, half strength. #baef
-  tint off 1
+  tint off 1s
   alice: And back to normal. #e3gi
 
   # --- camera: zoom about a point; resets on `scene` ---
   alice: Come closer. #zg8k
-  camera zoom 1.6 at center y=0.4 1.0 ease=out
+  camera zoom 1.6 at center y=0.4 1.0s ease=out
   alice: Much closer. #dakv
-  camera reset 0.6
+  camera reset 0.6s
   alice: That's enough of that. #we2g
 
   # --- camera pan: while zoomed in, slide the view sideways without changing the zoom ---
-  camera zoom 1.5 at left 0.6
+  camera zoom 1.5 at left 0.6s
   alice: Over here... #r3z3
-  camera pan right 1.2 ease=inout
+  camera pan right 1.2s ease=inout
   alice: ...and over there. #iqmh
-  camera reset 0.6
+  camera reset 0.6s
 
   # --- weather: falling particles (rain, snow, petals, embers); lasts until `weather off` or the next `scene`. `wind` and `gravity` act on it ---
-  weather rain 0.7 1
+  weather rain 0.7 1s
   alice: Oh, it started to rain. #jyv8
-  weather snow 0.5 1
+  weather snow 0.5 1s
   alice: Now it's snowing. #yguz
-  weather petals 0.4 1
+  weather petals 0.4 1s
   alice: Petals, even. #j61h
-  wind left 0.8 gusts=0.6 1
+  wind left 0.8 gusts=0.6 1s
   alice: A wind from the right carries them off, and the gusts come and go. #wnvr
   gravity 0.15
   alice: Turn gravity down and they hardly fall at all. #nk7m
   gravity reset
-  wind off 1
-  weather off 1
+  wind off 1s
+  weather off 1s
 
   # --- filter: a look over the whole scene (blur, grayscale, sepia, night, vignette) ---
-  filter sepia 1 0.8
+  filter sepia 1 0.8s
   alice: Like an old photograph. #cn02
-  filter night 0.8 0.8
+  filter night 0.8 0.8s
   alice: Or the middle of the night. #irps
-  filter blur 0.5 0.6
+  filter blur 0.5 0.6s
   alice: Or I need new glasses. #edek
-  filter off 0.6
+  filter off 0.6s
 
   # --- image: a picture over the scene (stage pixels 1920x1080); layer=-1 goes behind the characters, `keep` survives `scene` ---
-  image show photo bg/bg_park_night at 1500,260 anchor=center scale=0.25 rot=-6 fade 0.5
+  image show photo bg/bg_park_night at 1500,260 anchor=center scale=0.25 rot=-6 fade 0.5s
   alice: A photo, pinned over the scene. #wz9k
-  image move photo to 1500,300 scale=0.3 rot=4 0.6 ease=out
+  image move photo to 1500,300 scale=0.3 rot=4 0.6s ease=out
   alice: It can slide, turn and fade like a character. #pqhg
-  image hide photo fade 0.4
+  image hide photo fade 0.4s
 
   # --- move: size, tilt, lift, opacity and mirroring tween together with the position ---
   alice: Watch this. #k1ki
-  move alice scale=1.2 y=-0.03 0.4 ease=back
-  move alice rot=-6 0.3
-  move alice rot=6 0.3
-  move alice rot=0 scale=1 y=0 0.4 ease=bounce
+  move alice scale=1.2 y=-0.03 0.4s ease=back
+  move alice rot=-6 0.3s
+  move alice rot=6 0.3s
+  move alice rot=0 scale=1 y=0 0.4s ease=bounce
   move alice flip=on
   alice: Backwards. #n79i
-  move alice flip=off alpha=0.4 0.5
-  move alice alpha=1 0.5
+  move alice flip=off alpha=0.4 0.5s
+  move alice alpha=1 0.5s
 
   # --- animate: named animations; a loop runs until `animate <char> stop` ---
   alice: Now I'm breathing, and nodding. #jc2t
   animate alice breathe loop
   animate alice nod
   alice: Bouncing, then a gentle sway. #gm52
-  animate alice bounce 1.0 strength=1.5
+  animate alice bounce 1.0s strength=1.5
   animate alice sway loop
   alice: And back to still. #mk0z
   animate alice stop
@@ -127,17 +127,17 @@ label demo:
 
   # --- audio: ambience on its own channel, pausing music, ducking (silent without files in assets/sound and assets/music) ---
   alice: Rain starts under the music. #au01
-  sound loop rain fade 1
+  sound loop rain fade 1s
   music pause
   alice: Music paused, rain still going. #au02
   music resume
   sound play thunder duck
-  sound stop rain fade 2
+  sound stop rain fade 2s
   alice: Everything audio is back to normal. #au03
 
   # --- the effects combine with a menu and variables ---
   set demo_visits += 1
-  menu "Decide quickly!" #q17w timeout 10:
+  menu "Decide quickly!" #q17w timeout 10s:
     "Show it again." #dm01:
       jump demo
     "That's all, thanks." #dm02:

@@ -43,30 +43,35 @@ export class TrackEditor {
     if (!key) return;
     const id = key.dataset.param!, index = Number(key.dataset.pkey), r = this.range(id), lane = host.lanes().findIndex(l => l.id === id);
     this.sel = { id, index };
-    if (!host.editable() || !r) { host.seek(localPoint(tl, e).t); host.refreshView(); return; }
+    if (!host.editable() || !r) { host.seek(localPoint(tl, e).t); host.refreshView(); this.focusSel(); return; }
     tl.setPointerCapture(e.pointerId);
     const end = host.beginDrag();
     const move = (m: PointerEvent) => {
       const p = localPoint(tl, m), c = host.current()!;
-      const out = setParamKey(c.def, id, this.sel!.index, { t: p.t, v: paramValueAt(lane, p.y, r.min, r.max) });
+      const out = setParamKey(c.def, id, this.sel!.index, { t: p.t, v: paramValueAt(tl, lane, p.y, r.min, r.max) });
       this.sel = { id, index: out.index };
       host.dragStep(c.name, out.def);
     };
-    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); };
+    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); this.focusSel(); };
     tl.addEventListener('pointermove', move);
     tl.addEventListener('pointerup', up);
     host.refreshView();
+    this.focusSel();
+  }
+  /** The selected key takes the focus after a click (the timeline redraws its keys), so Delete and the arrows work on it at once. */
+  private focusSel() {
+    if (this.sel) this.host.tl.querySelector<SVGElement>(`[data-pkey="${this.sel.index}"][data-param="${CSS.escape(this.sel.id)}"]`)?.focus({ preventScroll: true });
   }
 
   private addAtPointer(e: MouseEvent) {
     const { host } = this;
     if (!host.editable() || (e.target as Element).closest('[data-pkey]')) return;
-    const p = localPoint(host.tl, e), lanes = host.lanes(), i = paramLaneAt(p.y, lanes.length);
+    const p = localPoint(host.tl, e), lanes = host.lanes(), i = paramLaneAt(host.tl, p.y);
     const c = host.current();
     if (i < 0 || p.x < LABEL || !c) return;
     const { id, min, max } = lanes[i];
     host.edit(() => {
-      const r = addParamKey(c.def, id, { t: Math.round(p.t * 100) / 100, v: paramValueAt(i, p.y, min, max) });
+      const r = addParamKey(c.def, id, { t: Math.round(p.t * 100) / 100, v: paramValueAt(host.tl, i, p.y, min, max) });
       host.setAnim(c.name, r.def);
       this.sel = { id, index: r.index };
     });
@@ -79,7 +84,7 @@ export class TrackEditor {
     if (!r || !k) return;
     const big = e.shiftKey ? 5 : 1;
     let patch: { t?: number; v?: number } | null = null;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') patch = { t: k.t + (e.key === 'ArrowRight' ? 1 : -1) * 0.01 * big };
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') patch = { t: k.t + (e.key === 'ArrowRight' ? 1 : -1) * 0.01 * big / (c.def.dur ?? 1) }; // 0.01 s a press
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') patch = { v: Math.min(r.max, Math.max(r.min, k.v + (e.key === 'ArrowUp' ? 1 : -1) * ((r.max - r.min) / 100) * big)) };
     else if (e.key === 'Delete' || e.key === 'Backspace') {
       e.preventDefault();

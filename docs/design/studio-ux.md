@@ -203,7 +203,9 @@ rig (no parameters, no frames) shows the section header with "none" and a line s
 - **Keyform editing, parameter first** (Model), built, in the order of Live2D Cubism: the parameter decides, the parts follow. No section of
   its own: it is the Parameters section's second job, *binding*. All sliders and pads are in that one palette (viewed, created, renamed, re-ranged and deleted
   there, as in Model). A click on a name makes the row the **active parameter** (highlighted; nothing is guessed from the control used last or from the chosen part).
-  The studio has **one focus**: a parameter, a part, or a part at a parameter's value (a *keyform*). The block, now the first thing in the right column in Model, starts with a
+  The studio has **one focus**: a parameter, a part, or a part at a parameter's value (a *keyform*). (Since step 3a of [studio-inspector.md](studio-inspector.md),
+  the breadcrumb, Bound parts, Moved by and the verbs are in the **focus header** pinned over the right column, the lists as ▾ after the crumb's words; the
+  Active parameter block is gone and Keyforms keeps the keys, the pose and the ease. What follows is the block as first built.) The block, then the first thing in the right column in Model, started with a
   **breadcrumb** (`spine › wave @ 1 · key`; each word a button that goes up one level), then, in the order of the work: the **Active parameter** and what it spans; the
   **Bound parts** list (each a button that chooses the part, with its kind (pose, warp or mask), how many keys it has and how many are posed, and a ✕ that unbinds it);
   **Bind parts…** and, for a pad, the grid size (2 × 2, 3 × 3, 5 × 5); the **Keys** of the chosen part on a slider (click one to put the slider there, or step with ‹ ›;

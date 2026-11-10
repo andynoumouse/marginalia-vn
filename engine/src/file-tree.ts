@@ -37,3 +37,25 @@ export function buildFileTree(files: string[], dirs: string[] = [], filter = '')
   sort(root);
   return { flat: false, root };
 }
+
+/**
+ * The Assets panel's folders: asset paths ('bg/park.png') grouped by their top folder, names in order. A layered
+ * character's files (`layered`: its char/<name>/ folder is shown under Characters instead) and .gitkeep are left out, as
+ * is anything `keep` rejects. One pass, so a folder of thousands of files costs no more than that many.
+ */
+export function groupAssetFiles(files: readonly string[], layered: readonly string[] = [], keep: (file: string) => boolean = () => true): Map<string, string[]> {
+  const hidden = new Set(layered);
+  const out = new Map<string, string[]>();
+  for (const file of files) {
+    const slash = file.indexOf('/');
+    const dir = slash < 0 ? file : file.slice(0, slash), rest = slash < 0 ? '' : file.slice(slash + 1);
+    if (file.endsWith('.gitkeep')) continue;
+    if (dir === 'char' && rest.includes('/') && hidden.has(rest.slice(0, rest.indexOf('/')))) continue;
+    if (!keep(file)) continue;
+    let names = out.get(dir);
+    if (!names) out.set(dir, names = []);
+    names.push(rest);
+  }
+  for (const names of out.values()) names.sort();
+  return out;
+}

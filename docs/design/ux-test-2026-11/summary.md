@@ -45,27 +45,24 @@ the first-hour docs and the quick bar's text halo are fixed, so the top is done.
 - **The quick bar is hard to read.** About 7 px in the editor preview (EA-19), 8.7 px on a phone (PI-2), no backing, so
   contrast is 1.0 to 1.4:1 on light scenes (PI-4, PC-7), and it overlaps the text box edge.
 - **Feedback is thin.** The status line is small, grey, truncated and stale (EA-9, EA-16, EP-15, EL-9); toggles, Reveal
-  and view commands say nothing; saving into a slot gives no confirmation (PI-7); the editor autosaves but the tutorial
-  says press Ctrl+S (EA-9).
+  and view commands say nothing; the editor autosaves but the tutorial says press Ctrl+S (EA-9).
 - **Names are ASCII only.** A Finnish label name such as `päivä_1` is refused (EL-11, confirmed); the message now names the
   character, but accepting accented letters in names is a language decision (see `TODO.md`).
-- **Ending screen.** The short ending has no name of its own and the quick menu stays up over "The End" (PC-4); the
-  "Turn your device" cover blocks a tablet that would fit the stage (PI-11).
+- **Ending screen.** The short ending has no name of its own (PC-4); the "Turn your device" cover blocks a tablet that
+  would fit the stage (PI-11).
 - **Narrow windows.** Studio layout (ES-4), Outline's Close off-screen at 390 px (EL-20), online editor on a phone with
   no notice (ST-6).
 - **Docs and product disagree.** Jargon the tutorial never explains (OB-15), the sample comment (ES-16) and "Rig mode"
   in two sample scripts.
-- **Web export loading.** Black page with no loader for 6 s on fast 3G and 20 s on slow (PX-1: 147 unbundled modules);
-  title waits for the 2.9 MB music (PX-2, by design); first line 26.7 s after New game on slow 3G behind a loading bar
-  reporting 200% (PX-3); a 50-character title runs over the buttons (PX-4); no way to reset progress or export saves (PX-5).
+- **Web export loading.** The modules are about 150 unbundled requests, 6 s on fast 3G and 20 s on slow (PX-1; the page now
+  says it is loading meanwhile); title waits for the 2.9 MB music (PX-2, by design); first line about 27 s after New game on slow
+  3G (PX-3; the bar's 200 % is fixed).
 
 ## Quick wins
 
-Small changes that remove a whole finding each: `ES-16` comment wording; make the Build warning for missing ids offer
-Add Localization IDs as a button (EP-7); `pointer-events:none`
-on the timeline grid so a key on a grid line can be clicked (ES-12); clear the "Not keyed yet" status after Key (ES-11);
-sticky stage-size select in the Studio's new-project dialog (ST-2); a visible error for an unusable project Location
-(ST-1). Not as small as it looked: `labels.music_room` also renames Options' "Music volume" (PX-8), because the stock
+The small ones (ES-16, EP-7, ES-11, ES-12, ST-1, ST-2, ST-3, PI-9, PX-4, the save confirmation of PI-7, the quick menu of PC-4) are
+fixed, and so are PX-5 (Reset progress in Options), the bar of PX-3, the right-click and Ctrl+P routes of ES-2, ST-6 and ST-7, and the
+names of the ♪ and `<` `>` buttons. Not as small as it looked: `labels.music_room` also renames Options' "Music volume" (PX-8), because the stock
 screens are matched to their labels by English text; they would need to carry a label key.
 
 ## Needs a decision, not just a fix
@@ -77,7 +74,7 @@ screens are matched to their labels by English text; they would need to carry a 
   be seconds rather than fractions of Length (ES-7).
 - What a first-time Studio user sees first: Open Folder is the only primary button (ST-5).
 - Title-screen waits for audio on slow networks (PX-2, documented as intended).
-- Whether the online demo should work offline (ST-15) and offer a playable export (ST-7).
+- Whether the online demo should work offline (ST-15).
 
 ## What held up
 

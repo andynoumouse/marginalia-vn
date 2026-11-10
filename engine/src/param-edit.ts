@@ -184,7 +184,7 @@ export function updateParam(doc: ParamDoc, id: string, patch: ParamPatch): Param
 export function deleteParam(doc: ParamDoc, id: string): ParamEdit {
   if (!doc.parameters.some(p => p.id === id)) return { error: `There is no parameter "${id}".` };
   const chains = Object.entries(doc.physics).filter(([, c]) => (c.inputs ?? []).some(i => i.param === id) || (c.outputs ?? []).some(o => o.param === id)).map(([n]) => n);
-  if (chains.length) return { error: `"${id}" is read or written by the physics chain${chains.length === 1 ? '' : 's'} ${chains.join(', ')}. Point ${chains.length === 1 ? 'it' : 'them'} at another parameter (Physics section) first.` };
+  if (chains.length) return { error: `"${id}" is read or written by the physics chain${chains.length === 1 ? '' : 's'} ${chains.join(', ')}. Point ${chains.length === 1 ? 'it' : 'them'} at another parameter (the Physics tab under the stage) first.` };
   const uses = (k: AnyKeyform) => k.param === id || !!k.params?.includes(id);
   const gone = { keyforms: doc.keyforms.filter(uses).length, pads: doc.pads.filter(p => p.x === id || p.y === id).length, poses: 0, tracks: 0, lattices: 0 };
   const poses: Record<string, PoseDef> = {};

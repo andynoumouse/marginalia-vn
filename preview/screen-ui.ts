@@ -120,6 +120,7 @@ export class ScreenLayer {
       this.hoverMask = -1;
       loaded.forEach((m, i) => this.maskData.set(i, m));
       this.root.replaceChildren(...this.draw(view, urlOf), this.tip);
+      this.fitTexts();
       this.root.dataset.visible = 'true';
       this.tip.dataset.show = 'false';
       this.placeScroll(view, []);
@@ -141,6 +142,7 @@ export class ScreenLayer {
     this.cur = this.items.findIndex(it => it.id === kept);
     this.hoverMask = -1;
     this.root.replaceChildren(...this.draw(view, urlOf), this.tip);
+    this.fitTexts();
     this.leave(before);
     this.root.dataset.visible = 'true';
     this.tip.dataset.show = 'false';
@@ -222,6 +224,7 @@ export class ScreenLayer {
         else void loadMask(u).then(m => { if (this.view === view) this.maskData.set(i, m); });
       });
       this.root.replaceChildren(...this.draw(view, this.urlOf), this.tip);
+      this.fitTexts();
       this.leave(before);
       this.placeScroll(view, scrolled);
       this.paint();
@@ -431,6 +434,7 @@ export class ScreenLayer {
       if (part.color) d.style.color = part.color;
       if (part.width) { d.style.width = px(part.width); d.style.textAlign = part.align ?? 'left'; }
       if (part.lines) { d.style.display = '-webkit-box'; d.style.setProperty('-webkit-line-clamp', String(part.lines)); d.style.setProperty('-webkit-box-orient', 'vertical'); d.style.overflow = 'hidden'; }
+      if (part.fit && part.lines) { d.dataset.fit = String(part.lines); d.dataset.font = String(part.font ?? 40); }
       d.textContent = parseRich(part.text).map(s => (s.kind === 'text' ? s.text : '')).join('');
       return [d];
     }
@@ -624,6 +628,16 @@ export class ScreenLayer {
   }
 
   /** Mark the active chain (the item and its ancestors) and show their hover images. */
+  /** `text ... width w lines n fit`: the font shrinks, down to 40 %, until the text takes at most n lines of its box. Measured in place, so it runs once the elements are in the document. */
+  private fitTexts() {
+    for (const d of this.root.querySelectorAll<HTMLElement>('.sc-text[data-fit]')) {
+      const base = Number(d.dataset.font) || 40, min = base * 0.4, step = Math.max(2, base * 0.05);
+      let size = base;
+      d.style.fontSize = px(size);
+      while (size > min && d.scrollHeight > d.clientHeight + 1) { size = Math.max(min, size - step); d.style.fontSize = px(size); }
+    }
+  }
+
   private paint() {
     const on = new Set(this.chainOf(this.cur));
     this.els.forEach((el, k) => { el.dataset.active = String(on.has(k)); const h = this.hovers[k]; if (h) h.hidden = !on.has(k); });

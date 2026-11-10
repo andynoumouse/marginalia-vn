@@ -52,6 +52,10 @@ export interface MenuActions {
   /** Save the current moment into `slot` under the player's `label` (game.json "saveNames"); false when it could not be stored. */
   save(slot: string, label?: string): Promise<boolean>;
   load(slot: string): void;
+  /** Show a short status toast: the `data-ui` label `key`, with `: detail` after it when given. */
+  toast(key: string, detail?: string): void;
+  /** Clear what the player earned (gallery, music room, chapters, unlocks, read text, persistent values); saves stay. */
+  resetProgress(): void;
   /** Roll back to the `n`th line of the history (0-based); the history screen is already closed. */
   rollbackTo(n: number): void;
   /** A history line's recording (by the line's localization id): whether it exists, and play it. */
@@ -268,6 +272,8 @@ export class Menus {
 
   /** `action close` on the project's options screen: the same as Back. */
   closeOptions() { if (this.stack.at(-1) === optionsEl) this.back(); }
+  /** `action reset` on the options screen (UX round PX-5): asks first, then clears the progress and says so. */
+  resetProgress() { this.confirm('confirm_reset', () => { this.act.resetProgress(); this.act.toast('toast_reset'); this.onValues(); }, true); }
 
   /** A translated word kept in a hidden [data-ui] element (see index.html). */
   private label(key: string): string {
@@ -691,6 +697,7 @@ export class Menus {
       const write = async (label?: string) => {
         const ok = await this.act.save(slot, label || undefined);
         this.note = ok ? '' : this.label('save_failed');
+        if (ok) this.act.toast('toast_saved', this.slotTitle(slot)); // "Saved: Slot 4", also for a screen reader (the toast is a status region)
         this.renderSaves();
       };
       // Overwriting offers the old name again.

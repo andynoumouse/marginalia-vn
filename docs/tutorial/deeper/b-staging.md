@@ -9,9 +9,9 @@ pages have a card for each command below: fire it, change it and fire it again.
 ## Moving characters
 
 ```
-move iris to left 0.6 ease=out
-hop iris 0.25
-shake iris 0.3 strength=6
+move iris to left 0.6s ease=out
+hop iris 0.25s
+shake iris 0.3s strength=6
 animate iris breathe loop
 animate iris stop
 ```
@@ -29,7 +29,7 @@ Places other than `left`, `center` and `right` can be named in `game.json`. The 
 }
 ```
 
-so the card catalogue can say `show iris smile at farright fade 0.3`.
+so the card catalogue can say `show iris smile at farright fade 0.3s`.
 
 ## Your own animations
 
@@ -38,24 +38,24 @@ character or on a picture shown with `image show`. (These snippets are not in th
 
 ```
 transform nervous:
-    rot=-2 0.15
-    rot=2 0.3
-    rot=0 0.15
+    rot=-2 0.15s
+    rot=2 0.3s
+    rot=0 0.15s
 
 transform arrive:
     parallel:
-        x=0.1 0.6 ease=out
+        x=0.1 0.6s ease=out
     parallel:
-        alpha=0.4 0.2
-        alpha=1 0.4
-    hop 0.25
+        alpha=0.4 0.2s
+        alpha=1 0.4s
+    hop 0.25s
 
 animate iris nervous
 animate iris arrive
 ```
 
 Every value is relative to where the sprite stands, so the same transform works for anyone anywhere: `x=` and `y=` shift,
-`scale=1.1` is ten percent bigger, `rot=` is degrees and `alpha=` fades. `wait 0.3` holds, a preset name (`hop`, `nod`) plays
+`scale=1.1` is ten percent bigger, `rot=` is degrees and `alpha=` fades. `wait 0.3s` holds, a preset name (`hop`, `nod`) plays
 that preset, `parallel:` blocks run together, and `repeat` at the end plays the steps again (alone, it loops forever).
 
 A transform can also react to the story. Give it parameters and conditions, or let it run by itself:
@@ -63,15 +63,15 @@ A transform can also react to the story. Give it parameters and conditions, or l
 ```
 transform react(strength=1):
     if trust > 2:
-        y=-0.03*strength 0.2 ease=out
-        y=0 0.3 ease=bounce
+        y=-0.03*strength 0.2s ease=out
+        y=0 0.3s ease=bounce
     else:
-        rot=-3*strength 0.15
-        rot=0 0.15
+        rot=-3*strength 0.15s
+        rot=0 0.15s
 
-transform glance every 4..9 while trust > 0:
-    rot=4 0.15
-    rot=0 0.25
+transform glance every 4s..9s while trust > 0:
+    rot=4 0.15s
+    rot=0 0.25s
 
 animate iris react(2)       # once, worked out from `trust` right now
 animate iris glance auto    # now and then, as long as trust is above 0
@@ -83,21 +83,21 @@ The full list of steps is in the [command reference](../../commands.md#transform
 ## The whole scene
 
 ```
-tint #402010 0.3 1.5       # colour wash, strength, fade-in seconds
-filter sepia 0.8 1         # blur, grayscale, sepia, night, vignette
-camera zoom 1.6 at center y=0.35 1.2 ease=out
-camera pan right 1
-camera reset 0.8
-flash #ffffff 0.5
-weather rain 0.8 2         # rain, snow, petals, embers
-weather off 2
+tint #402010 0.3 1.5s      # colour wash, strength, fade-in seconds
+filter sepia 0.8 1s        # blur, grayscale, sepia, night, vignette
+camera zoom 1.6 at center y=0.35 1.2s ease=out
+camera pan right 1s
+camera reset 0.8s
+flash #ffffff 0.5s
+weather rain 0.8 2s        # rain, snow, petals, embers
+weather off 2s
 ```
 
 Tint, filter, camera and weather last until you switch them off or the next `scene`.
 
 ```
-image show postcard bg/cg_window_seat at 960,500 anchor=center scale=0.35 fade 0.4
-image hide postcard fade 0.4
+image show postcard bg/cg_window_seat at 960,500 anchor=center scale=0.35 fade 0.4s
+image hide postcard fade 0.4s
 ```
 
 `image show` puts a picture over the scene; `image hide` removes it.
@@ -105,11 +105,11 @@ image hide postcard fade 0.4
 ## Sound
 
 ```
-music play evening_theme loop fade 2
-sound loop rain fade 2
+music play evening_theme loop fade 2s
+sound loop rain fade 2s
 sound play page_flip1
-sound stop rain fade 3
-music stop fade 3
+sound stop rain fade 3s
+music stop fade 3s
 ```
 
 Music and looping ambience have their own channels. Files come from `assets/music/` and `assets/sound/`. The

@@ -1,6 +1,8 @@
 // Animation clauses of a screen element: `on enter <effect> ...` and `loop <effect> ...` (docs/design/screen-animation.md).
 // Pure parsing and the numbers a renderer needs; the DOM side lives in preview/screen-ui.ts.
 
+import { isBareNumber, isDuration, readDuration } from './duration.js';
+
 export const ENTER_EFFECTS = ['fade', 'slide', 'pop', 'zoom'] as const;
 export type EnterEffect = typeof ENTER_EFFECTS[number];
 export const LOOP_EFFECTS = ['pulse', 'bob', 'sway', 'breathe', 'shiver', 'glow'] as const;
@@ -29,13 +31,19 @@ const NUMBER = /^\d*\.?\d+$/;
 
 function positive(tok: string | undefined, what: string): number {
   const n = tok !== undefined && NUMBER.test(tok) ? Number(tok) : NaN;
-  if (!(n > 0)) throw new AnimSyntaxError(`${what} needs a number above 0 (seconds)`);
+  if (!(n > 0)) throw new AnimSyntaxError(`${what} needs a number above 0`);
   return n;
 }
+/** A duration above 0 with its unit (`0.3s`, `300ms`). */
+function positiveDur(tok: string | undefined, what: string): number {
+  const d = readDuration(tok, `a duration for ${what}`, m => new AnimSyntaxError(m));
+  if (!(d > 0)) throw new AnimSyntaxError(`${what} needs a duration above 0`);
+  return d;
+}
 
-/** The text after `on enter`: `<effect> [slide direction] [seconds] [delay s] [stagger s] [distance=px]`. */
+/** The text after `on enter`: `<effect> [slide direction] [duration] [delay <duration>] [stagger <duration>] [distance=px]`. */
 export function parseEnter(text: string): EnterAnim {
-  const usage = `Use: on enter ${ENTER_EFFECTS.join('|')} [seconds] [delay s] [stagger s]  (slide also takes left, right, up or down and distance=px)`;
+  const usage = `Use: on enter ${ENTER_EFFECTS.join('|')} [duration like 0.3s] [delay 0.1s] [stagger 0.05s]  (slide also takes left, right, up or down and distance=px)`;
   const toks = text.split(/\s+/).filter(Boolean);
   const fx = toks.shift() ?? '';
   if (!(ENTER_EFFECTS as readonly string[]).includes(fx)) throw new AnimSyntaxError(`on enter needs an effect (${ENTER_EFFECTS.join(', ')}), not "${fx}"`);
@@ -48,9 +56,9 @@ export function parseEnter(text: string): EnterAnim {
   let timed = false;
   for (let i = 0; i < toks.length; i++) {
     const w = toks[i];
-    if (NUMBER.test(w) && !timed) { out.dur = positive(w, 'on enter'); timed = true; }
-    else if (w === 'delay') out.delay = positive(toks[++i], 'delay');
-    else if (w === 'stagger') out.stagger = positive(toks[++i], 'stagger');
+    if ((isDuration(w) || isBareNumber(w)) && !timed) { out.dur = positiveDur(w, 'on enter'); timed = true; }
+    else if (w === 'delay') out.delay = positiveDur(toks[++i], 'delay');
+    else if (w === 'stagger') out.stagger = positiveDur(toks[++i], 'stagger');
     else if (/^distance=/.test(w)) {
       if (fx !== 'slide') throw new AnimSyntaxError('distance= goes with slide');
       out.dist = positive(w.slice(9), 'distance=');
@@ -67,7 +75,7 @@ export function parseExit(text: string): ExitAnim {
   return exit;
 }
 
-/** The text after `loop`:`<effect> [seconds] [strength=n]`. */
+/** The text after `loop`:`<effect> [duration] [strength=n]`. */
 export function parseLoop(text: string): LoopAnim {
   const toks = text.split(/\s+/).filter(Boolean);
   const fx = toks.shift() ?? '';
@@ -75,9 +83,9 @@ export function parseLoop(text: string): LoopAnim {
   const out: LoopAnim = { fx: fx as LoopEffect, dur: LOOP_SECONDS[fx as LoopEffect], strength: 1 };
   let timed = false;
   for (const w of toks) {
-    if (NUMBER.test(w) && !timed) { out.dur = positive(w, 'loop'); timed = true; }
+    if ((isDuration(w) || isBareNumber(w)) && !timed) { out.dur = positiveDur(w, 'loop'); timed = true; }
     else if (/^strength=/.test(w)) out.strength = positive(w.slice(9), 'strength=');
-    else throw new AnimSyntaxError('Use: loop pulse|bob|sway|breathe|shiver|glow [seconds] [strength=1]');
+    else throw new AnimSyntaxError('Use: loop pulse|bob|sway|breathe|shiver|glow [duration like 1.2s] [strength=1]');
   }
   return out;
 }

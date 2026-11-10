@@ -17,13 +17,13 @@ const play = async text => {
 test('image: show, change, move, hide', async () => {
   const { p, seen } = await play([
     'label start:', '  scene a',
-    '  image show letter cg/letter at 960,540 anchor=center scale=0.8 layer=-1 fixed keep fade 0.4',
+    '  image show letter cg/letter at 960,540 anchor=center scale=0.8 layer=-1 fixed keep fade 0.4s',
     '  "one"',
-    '  image move letter to 100,200 alpha=0.5 rot=10 0.5 ease=out',
+    '  image move letter to 100,200 alpha=0.5 rot=10 0.5s ease=out',
     '  "two"',
     '  image show letter cg/letter2 scale=2',
     '  "three"',
-    '  image hide letter fade 0.2',
+    '  image hide letter fade 0.2s',
     '  "four"', '',
   ].join('\n'));
   const show = p.ops.find(o => o.op === 'image');
@@ -74,7 +74,7 @@ test('animate on an image: the loop is kept in the picture state until stop, hid
     '  image show lantern prop/lantern at 400,300 keep',
     '  animate lantern sway loop strength=2',
     '  "one"',
-    '  image move lantern to 500,300 0.1',
+    '  image move lantern to 500,300 0.1s',
     '  "two"',
     '  animate lantern stop',
     '  "three"',

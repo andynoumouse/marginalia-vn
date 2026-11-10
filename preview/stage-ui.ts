@@ -118,6 +118,8 @@ export abstract class StageRenderer implements Renderer {
   /** A line was put back in the box without being played (showLine): it is the line on screen for a save, but not a moment of the history. */
   onLineShown: (line: LineInfo) => void = () => {};
   onEnded: () => void = () => {};
+  /** The story reached its end: the shell takes the quick bar down before "The End" shows. */
+  onEnd: () => void = () => {};
   /** The language of the voice recordings played (assets/voice/<id>.<lang>.*): the player's voice setting, which defaults to the text language. */
   lang = 'en';
   /** The line on screen has a voice recording (or no longer does): the shell shows or hides its replay button. */
@@ -183,11 +185,12 @@ export abstract class StageRenderer implements Renderer {
    * Take stock of the project's files; called before the runtime (re)starts, again on every hot reload. Nothing
    * big is fetched here: images and music load when the story gets near them (see ensure).
    */
-  async preload(assets: AssetFile[], rigs: Record<string, RigManifest> = {}): Promise<void> {
+  async preload(assets: AssetFile[], rigs: Record<string, RigManifest> = {}, uncued: string[] = []): Promise<void> {
     this.audio.setAssets(assets);
-    // Text blip samples are needed by the first lines; other sounds load in the background. Music loads when it plays.
+    // Text blip samples are needed by the first lines, and `uncued` sounds (uncuedSounds: screen hover sounds and the like)
+    // can play at any moment; both load in the background. Other sounds and music come through the lookahead.
     const blips = [...Object.values(this.characters).map(c => c.style.blip), ...Object.values(this.blips.voices).flatMap(v => [v.sound, ...Object.values(v.vowels ?? {})])];
-    this.audio.prefetchSounds(blips.filter((b): b is string => !!b));
+    this.audio.prefetchSounds([...blips.filter((b): b is string => !!b), ...uncued]);
     this.files = assetContext({ files: assets.map(a => a.file), rigs });
     // Files that changed or went away must load again.
     this.loader.setVersions(new Map(assets.map(a => [assetKey(a.file), a.v] as const)));
@@ -704,6 +707,7 @@ export abstract class StageRenderer implements Renderer {
   end() {
     box.dataset.visible = 'false';
     this.clearPage();
+    this.onEnd();
     // The words are the translated hidden labels (game.json `labels`, `ui.end_title` / `ui.end_hint`); the editor's preview says what an author means.
     const dev = endedEl.dataset.dev === 'true';
     const word = (key: string, fallback: string) => document.querySelector(`[data-ui="${key}"]`)?.textContent ?? fallback;

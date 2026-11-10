@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { compile, countText, plainText, readingTime, scriptStats, statsText } from '../../dist/engine/src/index.js';
 
 test('tags are left out, a variable is one word, punctuation alone is no word', () => {
-  assert.equal(plainText('{b}Hello{/b} there{pause=0.5} [name]!'), 'Hello there  x!');
+  assert.equal(plainText('{b}Hello{/b} there{pause=0.5s} [name]!'), 'Hello there  x!');
   assert.deepEqual(countText('Oh... {i}really{/i}? — [n:one=one apple|other=# apples] left'), { lines: 1, words: 4, chars: 18 });
   assert.equal(countText('...').words, 0);
 });

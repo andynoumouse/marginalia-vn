@@ -14,7 +14,7 @@ label start:
     set trust += 1
     "Narration [trust]."
     input name "Your trust [trust]?"
-    menu "Pick [trust]" timeout trust * 2:
+    menu "Pick [trust]" timeout (trust * 2)s:
         "Option [trust]" if trust >= 2 and not unlocked.trust else "Locked: [name]":
             call buy("trust", trust + 1)
         "Other":
@@ -56,7 +56,7 @@ test('renaming a global leaves persistent, locals and strings alone', () => {
   assert.match(out, /set persistent\.trust = 1/);
   assert.match(out, /"Trust \[faith\] \/ \[persistent\.trust\]" if faith > 0/);
   assert.match(out, /alice: Hello \[faith\], you have/);
-  assert.match(out, /timeout faith \* 2/);
+  assert.match(out, /timeout \(faith \* 2\)s/);
   assert.match(out, /if faith >= 2 and not unlocked\.trust else "Locked: \[name\]"/);
   assert.match(out, /call buy\("trust", faith \+ 1\)/);
   assert.match(out, /contains\(bag, "trust"\):  # trust comment/);

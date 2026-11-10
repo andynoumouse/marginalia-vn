@@ -115,9 +115,9 @@ and `off` hides it. `build.checks` changes the defaults:
 ```
 
 Names for places on the stage (0 is the left edge, 1 the right edge), usable wherever a script takes a position:
-`show alice at farleft`, `move bob to leftcenter 0.5`, `camera pan rightcenter`. An entry is a number (`x`) or
+`show alice at farleft`, `move bob to leftcenter 0.5s`, `camera pan rightcenter`. An entry is a number (`x`) or
 `{ "x", "y" }`; `y` is a height offset as a fraction of the stage height (negative lifts), the same as `y=` on `show`
-and `move`. `show alice at balcony` stands her at that height, `move bob to balcony 1` slides him there, and a `y=`
+and `move`. `show alice at balcony` stands her at that height, `move bob to balcony 1s` slides him there, and a `y=`
 on the line wins (`show alice at balcony y=0`). `camera` uses only the `x`. A move to a position without `y` leaves
 the height alone. They are added to the built-in
 `left` (0.2), `center` (0.5) and `right` (0.8); an entry with one of those names replaces it. A name is letters,

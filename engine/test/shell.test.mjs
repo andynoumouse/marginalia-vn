@@ -479,16 +479,16 @@ test('audio: nothing is fetched until needed; prefetch loads a file once', async
   assert.deepEqual(fetched, ['assets/music/theme.ogg?v=1']);
 });
 
-test('audio: sounds load in the background, the named ones first; a new asset list stops the old run', async () => {
+test('audio: only the named sounds load in the background; a new asset list stops the old run', async () => {
   fetched.length = 0;
   const audio = new AudioSystem();
   audio.setAssets(audioFiles);
-  audio.prefetchSounds(['beep', 'high']); // "high" is a synth preset, not a file
+  audio.prefetchSounds(['beep', 'high', 'door']); // "high" is a synth preset, not a file
   await new Promise(r => setTimeout(r, 400));
-  assert.deepEqual(fetched.map(u => u.split('/').pop().split('?')[0]), ['beep.wav', 'door.wav', 'step.wav']);
+  assert.deepEqual(fetched.map(u => u.split('/').pop().split('?')[0]), ['beep.wav', 'door.wav']); // step.wav waits for the lookahead or its first play
   assert.ok(!fetched.some(u => u.includes('music/')), 'music stays unloaded');
   fetched.length = 0;
-  audio.prefetchSounds();
+  audio.prefetchSounds(['door', 'step', 'beep']);
   audio.setAssets([]); // hot reload with a new list: the running prefetch ends
   await new Promise(r => setTimeout(r, 400));
   assert.ok(fetched.length <= 1);

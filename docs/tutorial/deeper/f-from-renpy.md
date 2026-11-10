@@ -11,10 +11,10 @@ differences that bite first, and what has no equivalent yet.
 | `define e = Character("Eileen", color="#c8ffc8")` | `define e "Eileen" color=#c8ffc8` | Options are `key=value` words. |
 | `label start:` | `label start:` | Labels are global across all files. |
 | `scene bg park` | `scene bg_park` | Names are file names under `assets/bg/`, without the extension. |
-| `scene bg park with dissolve` | `scene bg_park dissolve 1.0` | The transition and its seconds go on the same line. |
+| `scene bg park with dissolve` | `scene bg_park dissolve 1.0s` | The transition and its seconds go on the same line. |
 | `show eileen happy at left` | `show e happy at left` | The first word after the character is a pose or look. |
-| `show eileen happy with dissolve` | `show e happy fade 0.3` | |
-| `hide eileen` | `hide e fade 0.3` | |
+| `show eileen happy with dissolve` | `show e happy fade 0.3s` | |
+| `hide eileen` | `hide e fade 0.3s` | |
 | `e "Hello."` | `e: Hello.` | The text is not quoted. A bare `"text"` is narration. |
 | `"Narration."` | `"Narration."` | |
 | `menu:` with `"Choice":` | `menu:` with `"Choice":` | Options may have a prompt line: `menu "Prompt":`. |
@@ -27,10 +27,10 @@ differences that bite first, and what has no equivalent yet.
 | `renpy.input(...)` or `$ n = renpy.input("Name?")` | `input n "Name?" default="Alex" max=16` | |
 | `play music "x.ogg"` | `music play x loop` | Tracks are in `assets/music/`; `loop` is explicit. |
 | `play sound "x.ogg"` | `sound play x` | `sound loop`, `sound stop` for ambience. |
-| `pause 1.0` | `wait 1.0` | |
-| `with hpunch` / `vpunch` | `shake 0.3` | |
+| `pause 1.0` | `wait 1.0s` | |
+| `with hpunch` / `vpunch` | `shake 0.3s` | |
 | `persistent.x = 1` | `set persistent.x = 1` | Same name, a `set` statement. |
-| `{w=0.5}` / `{i}` / `{b}` | `{pause=0.5}` / `{i}` / `{b}` | [Text tags](../../commands.md#text-tags). |
+| `{w=0.5}` / `{i}` / `{b}` | `{pause=0.5s}` / `{i}` / `{b}` | [Text tags](../../commands.md#text-tags). |
 | `[name]` interpolation | `[name]` | Number formats: `[n:2]`, plurals `[n:coin\|coins]`. |
 | `renpy.random.randint(1, 6)` | `random(1, 6)` | Also `pick(...)` and `chance(25)`, seeded and replayed by rollback. |
 | `image eileen happy = "..."` | a file at `assets/char/eileen/happy.png` | No `image` declarations; the folder is the declaration. |

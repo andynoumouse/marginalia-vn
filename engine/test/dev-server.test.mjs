@@ -187,3 +187,23 @@ test('git: the status of a repository, a scoped commit, and the .gitignore fix',
   assert.deepEqual(s.blockers, ['Nothing to commit.']);
   assert.equal((await commit('again')).status, 409);
 });
+
+test('a reload event names every file changed in its batch, as project paths', async () => {
+  const got = [];
+  const req = http.get(`${base}/__events`, res => {
+    res.setEncoding('utf8');
+    res.on('data', chunk => { for (const m of chunk.matchAll(/^data: (.*)$/gm)) got.push(JSON.parse(m[1])); });
+  });
+  try {
+    await new Promise(r => setTimeout(r, 300)); // the stream is open
+    const r = await fetch(`${base}/api/script?file=park.vn`, { method: 'PUT', headers: editor, body: readFileSync(at('script/park.vn')) });
+    assert.equal(r.status, 200);
+    writeFileSync(at('script/extra_events.vn'), '# x\n');
+    for (let i = 0; i < 50 && !got.some(e => e.files?.includes('script/extra_events.vn')); i++) await new Promise(r => setTimeout(r, 100));
+    const files = got.filter(e => e.type === 'content').flatMap(e => e.files);
+    assert.ok(files.includes('script/park.vn') && files.includes('script/extra_events.vn'), JSON.stringify(got));
+  } finally {
+    req.destroy();
+    rmSync(at('script/extra_events.vn'), { force: true });
+  }
+});

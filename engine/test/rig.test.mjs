@@ -212,7 +212,7 @@ test('parts: rigLayers names the part of each layer; pivots and key parts are ch
 });
 
 test('animate part=: parsed, kept on a loop and checked against the character\'s parts', async () => {
-  const src = 'define mina "Mina"\ndefine bo "Bo"\nlabel start:\n  show mina\n  animate mina sway loop part=hair\n  animate mina nod part=tail\n  animate bo bob part=head\n  animate mina wave 2 part=\n  end\n';
+  const src = 'define mina "Mina"\ndefine bo "Bo"\nlabel start:\n  show mina\n  animate mina sway loop part=hair\n  animate mina nod part=tail\n  animate bo bob part=head\n  animate mina wave 2s part=\n  end\n';
   const p = compile([{ file: 't.vn', text: src }]);
   const ops = p.ops.filter(o => o.op === 'animate');
   assert.deepEqual(ops.slice(0, 2).map(o => [o.name, o.loop, o.part]), [['sway', true, 'hair'], ['nod', false, 'tail']]);

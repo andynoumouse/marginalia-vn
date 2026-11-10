@@ -38,7 +38,7 @@ converts a PSD you drop on it on the spot.
 Variants are chosen by name in `show`:
 
 ```vn
-show mina smile at center fade 0.3
+show mina smile at center fade 0.3s
 show mina smile eyes=closed
 show mina glasses=none
 ```
@@ -71,7 +71,7 @@ palette), or open a character folder on its own with *Open Character...* in Marg
 project: [standalone studio](../../standalone-studio.md). It has two modes:
 
 - **Model**: set up the character: bones and their pivots, which parts hang on which bone, parameters such as head
-  angle or mouth open, key forms, mesh warps and physics for hair and cloth.
+  angle or mouth open, key forms, mesh warps, bone weights and physics for hair and cloth.
 - **Animate**: a timeline of keys. An animation can also be **automatic** (`auto` in `rig.json`): a blink that repeats
   every few seconds, a mouth that moves *while speaking*, a breathing loop that is always on. **Reactions** hold a
   pose while a script condition is true (a blush while `affection > 3`). The **Place in scene** section drags the
@@ -85,9 +85,25 @@ animate mina wave
 
 and the studio can export a movie as a PNG sequence with transparency.
 
+### A part that bends
+
+A bone turns its parts as stiff pieces, so a sleeve drawn over the elbow would crease. To make one part bend along the
+bones instead (a sleeve, a tail, a lock of hair), give it a mesh and weights in Model mode:
+
+1. Choose the part in the Parts tree and press **D** (the **Warp** tool): Properties opens **Deform**; press **Generate mesh** in its Mesh row.
+2. Press **B** (the **Weights** tool). Properties opens **Skin**: choose the bones that may move the part from its **Bind ▾**, then press **Auto-weights**:
+   every vertex gets a share of each bone by how near it is. The stage shows the active bone's share as heat on the mesh.
+3. Fix it by hand with the brush in the tool options bar over the stage (**Add**, **Subtract**, **Replace**, **Smooth**; **[** and
+   **]** size it) or by typing numbers for selected vertices (**Select**, then **Set value**).
+   **Test pose** turns the bone with a gizmo without keying anything, so you can look at the bend while you paint.
+4. **Apply**, as always. A `wave` that turns the forearm now bends the sleeve at the joint.
+
+The demo's robot does this with its left sleeve; the sample's Mina wears her back hair as one weighted mesh on strand bones
+that physics swings. The reference is [Skinning](../../rig-json.md#skinning).
+
 ## Where to look next
 
 - `games/demo/` has a layered robot character (`assets/char/robo/`) with a rig, parameters, poses, a mesh warp on the
-  torso and animations to open in the studio. The Rigs page of its feature index (New game) plays them from the script.
+  torso, a skinned sleeve and animations to open in the studio. The Rigs page of its feature index (New game) plays them from the script.
 - [rig-json.md](../../rig-json.md) is the full reference for looks, bones, parameters and animations.
 - A flat-image character can use `animate` presets and `move`; see [staging](b-staging.md).

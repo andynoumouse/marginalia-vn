@@ -1,8 +1,8 @@
-// The Reactions section (Model mode): rig.json `reactions`, the poses the character holds while a condition is true (condition, pose,
+// The Reactions tab (of the rig strip under the stage, Model mode): rig.json `reactions`, the poses the character holds while a condition is true (condition, pose,
 // seconds and ease of the move into it; add, remove, reorder: the first entry that holds wins), and the studio-only Test variables
 // that stand in for the story's variables so a condition can be seen to hold. See docs/design/auto-animations.md.
 import { DEFAULT_REACTION_OVER, EASE_NAMES, parseCondition, parseVarValue, type ReactionDef, type Value } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, layoutRows } from './anim-dom.js';
 
 export interface ReactionHost {
   reactions(): ReactionDef[];
@@ -51,6 +51,7 @@ export class ReactionPanel {
         <button type="button" class="ar-addvar" title="Give a story variable a value for this preview only">Add variable</button>
         <span class="as-pivot-hint">Only here, never saved: the studio has no story, so conditions that name a variable use these.</span></div>
       <div class="ar-vars"></div>`;
+    layoutRows(this.root);
     this.list = this.root.querySelector('.ar-list')!;
     this.vars = this.root.querySelector('.ar-vars')!;
     this.root.querySelector('.ar-add')!.addEventListener('click', () => {

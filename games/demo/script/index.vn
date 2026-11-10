@@ -135,10 +135,10 @@ screen fx_panel(inout fx_pa, inout fx_pb):
 # its work (every state of the tour times every state of the index) until it gave up. Esc, Leave the library, New game is the way.
 # For the same reason the tour and library cards put index_page back to "stage" before they jump away.
 label start:
-  scene bg_library fade 0.6
+  scene bg_library fade 0.6s
   hud off status
-  sound stop fade 1
-  music play evening_theme loop fade 2
+  sound stop fade 1s
+  music play evening_theme loop fade 2s
 
 label index_loop:
   show screen feature_index as card
@@ -294,7 +294,7 @@ label fx_close:
   hud off fx_coins_hud
   # The panel's variables go back to empty, so every card leaves the story in the same state (the playtest bot counts situations by variables).
   call fx_open("", "")
-  scene bg_library fade 0.4
+  scene bg_library fade 0.4s
   return
 
 # After a fire, a card whose options are toggles (left / right, show / hide) moves its radio on to the next one, so the next

@@ -1,6 +1,6 @@
 # Bone-weighted skinning of free meshes
 
-Status: design, agreed 2026-11-08, nothing built. A free mesh ([free-mesh.md](free-mesh.md)) gets per-vertex bone weights, so one drawn
+Status: design, agreed 2026-11-08; steps 1 (core), 2 (renderer, with its browser tests), 3 (tip and the pure edits), 4 (Mina's hair), 5a (Weights tool: bind and Auto-weights), 5b (heat overlay, vertex readout) and 5c (the brush) and 5d (the test pose) built, 6a (selection and the numeric tools), 6b (Mirror) and 6c (bone removal and the rest-pose rule); the rest not. A free mesh ([free-mesh.md](free-mesh.md)) gets per-vertex bone weights, so one drawn
 part (an arm, a ponytail, a tail, a scarf) bends along the skeleton instead of turning as a rigid piece. It joins two things that
 exist today: the bone tree ([rig-hierarchy.md](rig-hierarchy.md), `engine/src/bones.ts`) and the triangle mesh. The survey in
 [rig-formats.md](rig-formats.md) lists weighted meshes as missing, and rig-hierarchy.md left room for them.
@@ -158,6 +158,7 @@ test of `mesh-edit` extended to check the weights after every step.
 Model mode, a **Weights** tool (icon, a key letter picked when the step is built, the letter free in the studio's tool keys) and
 a section of its own after Warp, closed until the tool is on. It follows the studio's one-focus model
 ([studio-focus-and-verbs.md](studio-focus-and-verbs.md)): the focus is a part with a mesh; **Bind bones…** is a pick verb.
+What a click on the stage does while the tool is on, and why a miss must not leave it, is in [studio-stage-modes.md](studio-stage-modes.md).
 
 1. **Bind bones…** picks the bones that may influence the mesh, from the tree or by clicking a bone handle on the stage (the
    pick stays on until Done or Esc). The section lists them, each with a colour chip and an eye (show only this one), and the
@@ -215,7 +216,7 @@ reach goes to the nearest; the result never has more than 4 influences and alway
 ## Physics
 
 The payoff of the feature is a hair or tail chain that turns bones, so a skinned strand mesh bends with no parameters in between
-(Mina's `hair_back` today goes through 15 parameters into a lattice). This already works with no engine change: a physics output
+(Mina's `hair_back` went through 15 parameters into a lattice when this was written; it is skinned now, with no parameters). This already works with no engine change: a physics output
 `{ "part": "<name>", "scale": ... }` adds a rotation to a part **or a bone**. `stepPhysics` returns it by name, the renderer adds
 it to the pose, `placeRig` moves a name that is a bone as a bone, and `checkPhysics` accepts a bone name there. A chain with one
 segment per strand bone writes each segment (`segment`) to that bone's rotation. What is left is small: the key is called `part`
@@ -264,8 +265,50 @@ documented in `rig-json.md` until a rig can show them: `weights` and `defaultBon
    sways from bone rotations with no parameter between.
 5. **Studio, weighting.** The Weights section: bind list, heat overlay, vertex readout, Auto-weights, the brush (add, subtract,
    replace, smooth), Test pose. Done when an author can weight a mesh by brushing and try a pose without keying anything.
+   Too big for one session, so it is four, each ending with `npm test` green and the browser gate run (the stage side is `preview/`).
+   It follows the Warp tool's shape: a panel in the editor (`editor/anim-weights.ts`, a `WeightsPanel` working through a
+   `WeightsHost` like `WarpPanel`/`WarpHost` in `anim-warp.ts`), a stage overlay in `preview/studio-gizmo.ts`, and messages between the two
+   (`studio.ts` lists them). The editor keeps the working copy of `deformers`, so every edit is `host.set(next)` (one undo step) or a
+   `host.drag()` (a stroke), and the pure maths is `skin-edit.ts`; nothing new goes in the engine except small query helpers.
+   - **5a. Panel and binding (editor only).** The Weights tool (icon; key letter picked from those free in the studio's tool keys) and a
+     section after Warp, closed until the tool is on. Focus: a part with a free-mesh deformer (else a hint). The *bound bones* are the
+     UI's own list (the bones in the mesh's weights and its `defaultBone`, plus those the author adds; not stored). **Bind bones…** picks
+     from the tree; the first bind of a mesh sets `defaultBone` to the part's bone and offers **Auto-weights** (`autoWeights` with the
+     `blend` field, default `defaultBlend`), also for the selected vertices only. Active bone = a row of the list. No stage change yet: the
+     result is checked by the sample drawing bent in the preview. Needs: `rigGeometry`'s pivots in canvas pixels for the tree
+     (`resolvePivots`), a browser test that Bind + Auto-weights writes `weights` and undoes in one step.
+   - **5b. Stage overlay.** `studioWeights { id, bone, weights }` in; the mesh is drawn with each vertex's weight of the active bone as
+     heat (transparent to solid), the bone's body and tip drawn over it, and a click on a vertex reports `studioWeightsPick { id, vertex }`
+     for the readout (`arm_l 0.65 · forearm_l 0.35`). The eye on a bone row shows only that bone's heat. Needs a query for the bones' canvas
+     positions as drawn (like `studioMesh`).
+   - **5c. Brush.** Radius and strength fields and the modes Add / Subtract / Replace / Smooth. The stage reports the pointer in the part's
+     pixels (`studioWeightsBrush { phase, id, at }`, with a ring cursor of the radius) and the panel applies `addBoneWeight` /
+     `setBoneWeight` / `smoothWeights` to the vertices within the radius, weighted by distance, through `host.drag()`: one undo step per
+     stroke. Selection by rectangle and the numeric fields are step 6.
+   - **5d. Test pose.** With the tool on, the rotate and move gizmos on a bone pose it without keying: the editor holds the test offsets
+     and sends them to the stage as pending offsets (the gizmo's `base` already does this for a drag not yet keyed); **Reset pose** clears
+     them, and leaving the tool does too. Done when an author can bend an elbow, brush, and see the result move.
 6. **Studio, precision.** The numeric Set / Add / Subtract on a selection, Prune, Reset to the default bone, Mirror, bone rename and
    delete, and the rest-pose rule for keyforms. Done when a mesh can be weighted from the keyboard alone.
+   Three sessions, each ending with `npm test` green and a full browser run (the gate or not: the Weights section's test is in it):
+   - **6a. Selection and the numeric tools.** The Weights section gets a vertex selection like the Warp tool's: a **Select** entry in the brush
+     mode list (drag a rectangle on the stage, Shift-click toggles a vertex, Esc clears; `studioWeightsSelect { id, points, mode }` from the stage,
+     the selected vertices ringed) and **All / None / Invert** buttons. The vertex row under the readout shows the weights of the picked or single
+     selected vertex as one number field per bone (typing sets that bone's weight, `setBoneWeight`). A **Numeric** row works on the selection and the
+     active bone: a value field with **Set**, **Add** and **Subtract** (`setBoneWeight`, `addBoneWeight`), **Smooth** (an amount field, `smoothWeights`),
+     **Prune** (a limit field, `pruneWeights`) and **Reset to default bone** (`resetWeights`); each is one undo step through `host.set`. Not in this
+     step: the "soft reach along the edges" of the Warp tool (the brush has a falloff already); add it only if painting by selection proves too blunt.
+   - **6b. Mirror.** **Mirror** (left to right, right to left) across the part's vertical middle: `meshMirrorPartners` pairs the vertices, `mirrorWeights`
+     copies the weights with the bones paired by name (`pairedBone`). The image size it needs comes from the stage: `drawWeights` reports it as
+     `studioWarpBox` does for the Warp tool. An unpaired bone asks which bone is its partner (`promptAsk`, checked against the bone names, the answer
+     kept for the next press); nothing is guessed. Vertices with no partner are counted in the note. One undo step.
+   - **6c. Bones in the tree, and the rest-pose rule.** *Remove bone* in the Parts tree (`deleteBone`) today changes `bones` and `parts` only; it
+     must also give the bone's weights, and `defaultBone` if it was that bone, to its parent on every mesh (`deleteWeightBone`), in the same undo step.
+     The rest-pose rule: a Warp-tool drag on a skinned mesh is refused, with a hint, while a bone that influences it (or one above it) is posed by
+     keyforms at the current slider values (`evalAll` of the keyforms, a pure `posedInfluences(mesh, bones, offsets)` in `skin-edit.ts`); the Weights
+     tool's own test pose never reaches it (the Warp tool lets go of it). **Rename bone is not part of this step**: the Parts tree cannot rename a
+     bone at all, and a rename must be carried through keyforms, animation keys, physics, masks and parts as the parameter rename is; it is its own
+     item in `TODO.md`, and `renameWeightBone` is ready for it.
 7. **Docs.** A Skinning subsection in `rig-json.md`; the rig.json F1 help keys; the tutorial's layered-character page.
 8. **Optional: keyforms under a pose.** The drag conversion described under Authoring. Decided after step 6, by whether correctives
    for bent joints turn out to be wanted.

@@ -8,6 +8,8 @@ export interface DockPanel {
   zone: string;
   /** The zones it may be moved to (its own `zone` is always allowed); all zones when left out. */
   zones?: readonly string[];
+  /** A panel new in this version goes right after this one (wherever the author put it) when a stored layout lacks it; else at the end of its zone. */
+  after?: string;
 }
 
 export interface DockSpec { zones: readonly string[]; panels: readonly DockPanel[] }
@@ -28,7 +30,7 @@ export function defaultDock(spec: DockSpec): DockLayout {
 
 /**
  * `layout` made valid for `spec`: unknown zones and panels, duplicates and panels in a zone they may not be in are dropped, and
- * panels the layout lacks (new in this version) are put in their own zone, after the ones it has, in spec order.
+ * panels the layout lacks (new in this version) are put after their `after` panel, or in their own zone after the ones it has, in spec order.
  */
 export function fixDock(spec: DockSpec, layout: DockLayout | null | undefined): DockLayout {
   const out: DockLayout = {};
@@ -43,7 +45,12 @@ export function fixDock(spec: DockSpec, layout: DockLayout | null | undefined): 
       out[z].push(id);
     }
   }
-  for (const p of spec.panels) if (!seen.has(p.id) && out[p.zone]) out[p.zone].push(p.id);
+  for (const p of spec.panels) {
+    if (seen.has(p.id)) continue;
+    const z = p.after !== undefined ? spec.zones.find(z => out[z].includes(p.after!) && mayGo(p, z)) : undefined;
+    if (z !== undefined) out[z].splice(out[z].indexOf(p.after!) + 1, 0, p.id);
+    else if (out[p.zone]) out[p.zone].push(p.id);
+  }
   return out;
 }
 

@@ -62,7 +62,8 @@ if (build.mode === 'build') {
 }
 
 // After the build: project-data.mjs uses the built engine (engine/src/project-data.ts).
-const { projectData: readProject } = await import('../tools/project-data.mjs');
+const { projectIndex } = await import('../tools/project-data.mjs');
+const { projectFromListing } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'index.js')).href);
 const { isLocalHost, isOwnOrigin, isOpenable } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'request-guard.js')).href);
 
 // ---- art pipeline ----
@@ -72,32 +73,54 @@ if (!process.argv.includes('--no-art') && !studioOnly) {
 
 // ---- project data (shared with the web export) ----
 // The editor's files panel also gets the PSD masters and the top-level asset folders (empty ones included); the export does not.
-const projectData = () => ({
-  ...readProject(project),
-  masters: ['bg', 'char', 'ui'].flatMap(d => subEntries(path.join(project, 'masters', d), e => e.isFile() && /\.psd$/i.test(e.name)).map(n => `${d}/${n}`)),
-  assetDirs: subEntries(assetDir, e => e.isDirectory()),
-});
+// The listing stays in memory (projectIndex): the watchers below say which paths changed, and API writes other than a
+// script save call for a full scan. Without a working watcher every request scans, as the export does.
+const index = projectIndex(project);
+let unwatched = false;
+const projectData = () => {
+  if (unwatched) index.stale();
+  return {
+    ...projectFromListing(index.listing()),
+    masters: ['bg', 'char', 'ui'].flatMap(d => subEntries(path.join(project, 'masters', d), e => e.isFile() && /\.psd$/i.test(e.name)).map(n => `${d}/${n}`)),
+    assetDirs: subEntries(assetDir, e => e.isDirectory()),
+  };
+};
 const subEntries = (dir, keep) => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).filter(keep).map(e => e.name).sort() : []);
 
 // ---- live reload ----
 const clients = new Set();
-function broadcast(type, file) {
-  const msg = `data: ${JSON.stringify({ type, file })}\n\n`;
+/** `files`: the changed paths relative to the project ('/'-separated); '' stands for one the watcher did not name. */
+function broadcast(type, files) {
+  const msg = `data: ${JSON.stringify({ type, files })}\n\n`;
   for (const c of clients) c.write(msg);
 }
+const projectPath = full => path.relative(project, full).split(path.sep).join('/');
 function watch(dir, type) {
   if (!fs.existsSync(dir)) { // a folder made later (the first theme file makes themes/) is picked up, and its arrival counts as a change
-    const wait = setInterval(() => { if (fs.existsSync(dir)) { clearInterval(wait); watch(dir, type); broadcast(type, path.basename(dir)); } }, 1000);
+    const wait = setInterval(() => { if (fs.existsSync(dir)) { clearInterval(wait); watch(dir, type); index.stale(); broadcast(type, [projectPath(dir)]); } }, 1000);
     wait.unref();
     return;
   }
-  let timer;
+  // Changes are sent 120 ms after the last one, with every file named meanwhile (the editor skips the ones it saved itself).
+  // The index hears of each one at once, so a request that beats the broadcast still sees it.
+  let timer, names = new Set();
   try {
     fs.watch(dir, { recursive: true }, (_ev, file) => {
       clearTimeout(timer);
-      timer = setTimeout(() => { console.log(`[${type}] changed: ${file ?? ''}`); broadcast(type, file ?? ''); }, 120);
+      const name = file ? projectPath(path.join(dir, file)) : '';
+      if (type === 'content') index.touch([name]);
+      names.add(name);
+      timer = setTimeout(() => {
+        const files = [...names];
+        names = new Set();
+        console.log(`[${type}] changed: ${files.join(', ')}`);
+        broadcast(type, files);
+      }, 120);
     });
-  } catch (e) { console.warn(`Cannot watch ${dir}: ${e.message}`); }
+  } catch (e) {
+    console.warn(`Cannot watch ${dir}: ${e.message}`);
+    if (type === 'content') unwatched = true;
+  }
 }
 if (!studioOnly) {
   watch(scriptDir, 'content');
@@ -106,7 +129,7 @@ if (!studioOnly) {
   watch(assetDir, 'content');
   watch(path.join(project, 'themes'), 'content');
   watch(path.join(project, 'masters'), 'masters'); // only the editor's files panel listens (the converter's output arrives as 'content')
-  fs.watchFile(gameFile, { interval: 300 }, () => broadcast('content', 'game.json')); // also notices it being created
+  fs.watchFile(gameFile, { interval: 300 }, () => { index.touch(['game.json']); broadcast('content', ['game.json']); }); // also notices it being created
 }
 
 // ---- script saving (used by the editor) ----
@@ -604,6 +627,14 @@ http.createServer((req, res) => {
     return;
   }
   if (studioOnly && url.pathname.startsWith('/api/')) { res.writeHead(404); res.end('No game project: this server only serves the character studio'); return; }
+  // A write through the API is in the index before its answer goes out, so the editor's next request sees it whatever
+  // the watcher is doing. A script save names its file; moves, deletes, uploads and the rest re-scan.
+  if (url.pathname.startsWith('/api/') && req.method !== 'GET') {
+    res.on('finish', () => {
+      if (url.pathname === '/api/script' && req.method === 'PUT') index.touch([`script/${url.searchParams.get('file') ?? ''}`]);
+      else index.stale();
+    });
+  }
   if (url.pathname === '/api/script' && req.method === 'PUT') { guard(res, saveScript(req, res, url)); return; }
   if (url.pathname === '/api/asset' && req.method === 'PUT') { guard(res, saveAsset(req, res, url)); return; }
   if (url.pathname === '/api/folder' && req.method === 'PUT') { saveFolder(req, res, url); return; }

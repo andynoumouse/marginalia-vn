@@ -144,6 +144,37 @@ export function deleteWarpKey(def: DeformerDef, param: ParamDef, value: number):
 }
 
 /**
+ * Adds a key at `value` holding the shape the keyform gives there, so the curve stays as it is (Keyforms' Add key). The same deformer when a key
+ * is there already; a parameter with no keyform yet gets rest at its default and, away from it, a second key at rest.
+ */
+export function addWarpKey(def: DeformerDef, param: ParamDef, value: number): DeformerDef {
+  if (warpKeyAt(def, param, value) !== null) return def;
+  const n = deformerPoints(def), v = clampTo(param, value), next = structuredClone(def);
+  next.keyforms ??= [];
+  let k = formIndex(next, param.id);
+  if (k < 0) { k = next.keyforms.length; next.keyforms.push({ param: param.id, keys: [] }); }
+  const kf = next.keyforms[k], keys = kf.keys!;
+  keys.sort((a, b) => a.at - b.at);
+  if (!keys.length && Math.abs(param.default - v) > WARP_KEY_SNAP * (param.max - param.min)) keys.push({ at: param.default });
+  const at = keys.findIndex(key => key.at > v);
+  keys.splice(at < 0 ? keys.length : at, 0, keyOf(v, sparse(keyformAt(kf, n, v))));
+  return next;
+}
+
+/**
+ * Writes a copied keyform shape (`disp`, every point's [dx, dy] interleaved, as ownDisplacement gives it) at `value`: the key there takes it, or
+ * a new one is made (setWarpOwn). `mirrored` flips it sideways on a lattice (column c takes column cols - c, dx changes sign). The same deformer
+ * when the point counts differ, when a mesh is asked to mirror (its vertices have no fixed partners), or when nothing would change.
+ */
+export function pasteWarpForm(def: DeformerDef, param: ParamDef, value: number, disp: readonly number[], mirrored = false): DeformerDef {
+  const n = deformerPoints(def);
+  if (disp.length !== n * 2 || (mirrored && def.mesh)) return def;
+  const cols = mirrored ? deformerGrid(def)[0] + 1 : 0;
+  const from = (p: number) => (mirrored ? Math.floor(p / cols) * cols + (cols - 1 - (p % cols)) : p);
+  return setWarpOwn(def, param, value, Array.from({ length: n }, (_, p) => [p, [(mirrored ? -1 : 1) * disp[from(p) * 2], disp[from(p) * 2 + 1]]] as const));
+}
+
+/**
  * Copies the keyform at `value` across the vertical axis of the lattice: `from` the left half to the right (or back), the
  * displacement of a mirrored point flipped in x. Points on the axis cannot move sideways in a symmetric shape, so their dx goes to 0.
  */
@@ -344,7 +375,7 @@ export function resizeWarp(def: DeformerDef, grid: readonly [number, number]): D
 
 // ---- presets ----
 
-/** Shapes the Warp section can write as explicit keys; there is no preset type at run time. */
+/** Shapes the Warp tool's Presets ▾ can write as explicit keys; there is no preset type at run time. */
 export type WarpPreset = 'sway' | 'breathe' | 'sine' | 'noise';
 export interface WarpPresetOptions {
   /** Size of the effect: a fraction of the part's width (sway, sine, noise) or the scale gained (breathe). */

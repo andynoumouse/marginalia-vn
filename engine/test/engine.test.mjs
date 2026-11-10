@@ -24,7 +24,7 @@ test('expressions', () => {
 });
 
 test('rich text and interpolation', () => {
-  const segs = parseRich('Hi {i}there{/i}{pause=0.5} you');
+  const segs = parseRich('Hi {i}there{/i}{pause=0.5s} you');
   assert.deepEqual(segs.map(s => s.kind), ['text', 'text', 'pause', 'text']);
   assert.equal(segs[1].italic, true);
   assert.equal(interpolate('Hello [who], [nope]', { who: 'Al' }), 'Hello Al, [nope]');
@@ -285,17 +285,17 @@ test('{speed=} scales typing speed for the text inside; bad values stay as text'
 test('commands refuse words they do not know instead of ignoring them', () => {
   const bad = [
     'shake iris strength=8 loop', 'shake iris 1 2', 'scene bg fadee', 'scene bg fade 1 2', 'hide iris fade 1 2', 'hide iris now', 'hop iris 1 2',
-    'flash #fff 1 2', 'tint #123456 0.5 1 2', 'tint off x', 'camera reset 1 2', 'camera zoom 2 at center 1 2', 'camera pan center 1 2',
-    'weather rain 0.5 1 2', 'weather off x', 'filter sepia 1 1 2', 'music play a loop x', 'music stop fade 1 x', 'wait 1 2', 'jump a b', 'end now', 'return x',
+    'flash #fff 1 2', 'tint #123456 0.5 1s 2', 'tint off x', 'camera reset 1 2', 'camera zoom 2 at center 1 2', 'camera pan center 1 2',
+    'weather rain 0.5 1s 2', 'weather off x', 'filter sepia 1 1s 2', 'music play a loop x', 'music stop fade 1 x', 'wait 1 2', 'jump a b', 'end now', 'return x',
   ];
   for (const line of bad) {
     const p = compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\nlabel a:\n  end\n` }]);
     assert.ok(errors(p).length > 0, `${line} should be an error`);
   }
   assert.match(errors(compile([{ file: 't.vn', text: 'label start:\n  shake iris loop\n  end\n' }]))[0].message, /animate <char> shake loop/);
-  const good = ['shake iris', 'shake iris 1 strength=4', 'shake screen strength=2 0.5', 'scene bg', 'scene bg wipe right 1', 'hide iris fade 1', 'hop iris 0.5',
-    'flash', 'flash #fff 1', 'tint #123456', 'tint #123456 0.5 1', 'tint off 1', 'camera reset 1', 'camera zoom 2 at center 1', 'camera pan center 1',
-    'weather rain 0.5 1', 'weather off 1', 'filter sepia 1 1', 'music play a loop fade 1', 'music stop fade 1', 'wait 1', 'jump a'];
+  const good = ['shake iris', 'shake iris 1s strength=4', 'shake screen strength=2 0.5s', 'scene bg', 'scene bg wipe right 1s', 'hide iris fade 1s', 'hop iris 0.5s',
+    'flash', 'flash #fff 1s', 'tint #123456', 'tint #123456 0.5 1s', 'tint off 1s', 'camera reset 1s', 'camera zoom 2 at center 1s', 'camera pan center 1s',
+    'weather rain 0.5 1s', 'weather off 1s', 'filter sepia 1 1s', 'music play a loop fade 1s', 'music stop fade 1s', 'wait 1s', 'jump a'];
   for (const line of good) {
     const p = compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\nlabel a:\n  end\n` }]);
     assert.deepEqual(errors(p).map(d => d.message), [], line);
@@ -383,7 +383,7 @@ test('input stores text in a variable and replays on restore', async () => {
 
 test('flash, tint and camera: parsing, lasting state, reset on scene', async () => {
   const text = [
-    'label start:', '  scene a', '  tint #203060 0.5 1', '  camera zoom 1.5 at left y=0.4 0.8 ease=out', '  flash', '  flash #ff0000 0.2',
+    'label start:', '  scene a', '  tint #203060 0.5 1s', '  camera zoom 1.5 at left y=0.4 0.8s ease=out', '  flash', '  flash #ff0000 0.2s',
     '  "x"', '  scene b', '  "y"', '',
   ].join('\n');
   const p = compile([{ file: 't.vn', text }]);
@@ -442,7 +442,7 @@ test('nvl: lines collect on a page; clear, scene and off end it; restore and sav
 });
 
 test('textbox hide: asks the renderer to hide the box before the next line; bad forms are errors', async () => {
-  const p = compile([{ file: 't.vn', text: 'label start:\n  "one"\n  textbox hide\n  wait 0\n  "two"\n' }]);
+  const p = compile([{ file: 't.vn', text: 'label start:\n  "one"\n  textbox hide\n  wait 0s\n  "two"\n' }]);
   assert.deepEqual(errors(p), []);
   const r = new NullRenderer();
   const log = [];
@@ -720,12 +720,30 @@ test('help: topic under the cursor', () => {
 });
 
 test('help: rig.json section under the cursor', () => {
-  const lines = ['{', '  "order": ["a",', '    "b"],', '  "bones": {', '    "head": {}', '  },', '  "looks": { "shy": { "look": "smile" } }', '}'];
+  const lines = ['{', '  "order": ["a",', '    "b"],', '  "bones": {', '    "head": {}', '  },', '  "looks": { "shy": { "look": "smile" } },',
+    '  "pads": [],', '  "deformers": [{', '    "id": "d", "part": "p",', '    "mesh": { "verts": [0, 0],', '      "defaultBone": "a",', '      "weights": {',
+    '        "0": { "a": 1 }', '      }', '    },', '    "keyforms": [{ "param": "x", "keys": [] }]', '  }],', '  "physics": {},', '  "comment": 1', '}'];
   assert.equal(rigHelpTopicAt(lines, 0), null);
   assert.equal(rigHelpTopicAt(lines, 2), 'order');
   assert.equal(rigHelpTopicAt(lines, 4), 'bones');
   assert.equal(rigHelpTopicAt(lines, 6), 'looks');
-  assert.equal(rigHelpTopicAt(lines, 99), 'looks');
+  assert.equal(rigHelpTopicAt(lines, 7), 'parameters-pads-keyforms');
+  assert.equal(rigHelpTopicAt(lines, 9), 'deformers', 'id and part');
+  assert.equal(rigHelpTopicAt(lines, 10), 'deformers', 'verts before the skin keys');
+  assert.equal(rigHelpTopicAt(lines, 11), 'skinning', 'defaultBone');
+  assert.equal(rigHelpTopicAt(lines, 13), 'skinning', 'inside weights');
+  assert.equal(rigHelpTopicAt(lines, 16), 'deformers', 'keyforms after the weights');
+  assert.equal(rigHelpTopicAt(lines, 18), 'physics');
+  assert.equal(rigHelpTopicAt(lines, 19), null, 'an unknown key');
+  assert.equal(rigHelpTopicAt(lines, 99), null);
+  // The skin's sections exist in the reference, so the keys resolve.
+  const doc = parseHelp(readFileSync(new URL('../../docs/rig-json.md', import.meta.url), 'utf8'));
+  for (const key of ['skinning', 'deformers', 'parameters-pads-keyforms', 'physics', 'poses', 'reactions', 'auto']) assert.equal(doc.find(key), key, key);
+  // Links written for GitHub (a dash per slash) point at the heading id the help gives the section.
+  assert.match(doc.html, /data-help="parameters-pads-keyforms"/);
+  assert.doesNotMatch(doc.html, /data-help="[^"]*--/);
+  const link = parseHelp('## a / b\n\nSee [it](#a--b) and [that](#a-b).\n');
+  assert.equal((link.html.match(/data-help="a-b"/g) ?? []).length, 2);
 });
 
 test('outline: labels, edges, layers and unreachable labels', () => {
@@ -904,7 +922,7 @@ test('playLabel runs a label as a cutscene after the setup, without ending the g
 });
 
 test('move: position, transforms and flip update the sprite state', async () => {
-  const src = 'define alice "Alice"\nlabel start:\n  show alice at left\n  move alice to right y=-0.05 scale=1.2 rot=-8 alpha=0.5 flip=on 0.6 ease=back\n  move alice scale=1\n  end\n';
+  const src = 'define alice "Alice"\nlabel start:\n  show alice at left\n  move alice to right y=-0.05 scale=1.2 rot=-8 alpha=0.5 flip=on 0.6s ease=back\n  move alice scale=1\n  end\n';
   const p = compile([{ file: 't.vn', text: src }]);
   assert.deepEqual(errors(p), []);
   const mv = p.ops.filter(o => o.op === 'move');
@@ -918,7 +936,7 @@ test('move: position, transforms and flip update the sprite state', async () => 
 test('move: bad arguments are parse errors', () => {
   const run = line => compile([{ file: 't.vn', text: `define alice "Alice"\nlabel start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
   assert.match(run('move alice'), /Use: move/);
-  assert.match(run('move alice to right 1 ease=wobble'), /Unknown ease/);
+  assert.match(run('move alice to right 1s ease=wobble'), /Unknown ease/);
   assert.match(run('move alice spin=3'), /Unknown property/);
   assert.match(run('move alice flip=maybe'), /on or off/);
   assert.match(run('move alice y=abc'), /number/);
@@ -927,7 +945,7 @@ test('move: bad arguments are parse errors', () => {
 test('camera: an unknown ease is a parse error', () => {
   const run = line => compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end\n` }]).diagnostics.map(d => d.message).join('|');
   assert.match(run('camera zoom 1.5 1 ease=wobble'), /Unknown ease/);
-  assert.equal(run('camera zoom 1.5 1 ease=back'), '');
+  assert.equal(run('camera zoom 1.5 1s ease=back'), '');
 });
 
 test('define: "screen" is reserved for `shake screen`', () => {
@@ -936,7 +954,7 @@ test('define: "screen" is reserved for `shake screen`', () => {
 });
 
 test('animate: one-shots leave no state, loops are kept on the sprite until stopped or hidden', async () => {
-  const src = 'define alice "Alice"\nlabel start:\n  show alice\n  animate alice nod\n  animate alice bob 0.5 strength=2\n  animate alice breathe loop\n  animate alice sway 4 loop strength=0.5\n  "mid"\n  animate alice stop\n  "after"\n  end\n';
+  const src = 'define alice "Alice"\nlabel start:\n  show alice\n  animate alice nod\n  animate alice bob 0.5s strength=2\n  animate alice breathe loop\n  animate alice sway 4s loop strength=0.5\n  "mid"\n  animate alice stop\n  "after"\n  end\n';
   const p = compile([{ file: 't.vn', text: src }]);
   assert.deepEqual(errors(p), []);
   const an = p.ops.filter(o => o.op === 'animate').map(o => [o.name, o.dur, o.loop, o.strength]);
@@ -954,7 +972,7 @@ test('animate: bad arguments are parse errors', () => {
   assert.match(run('animate alice'), /needs an animation/);
   assert.match(run('animate alice 3x'), /not an animation name/);
   assert.match(run('animate alice bob fast'), /Use: animate/);
-  assert.match(run('animate alice bob 0'), /Use: animate/);
+  assert.match(run('animate alice bob 0s'), /Use: animate/);
   assert.match(run('animate bob nod'), /Unknown character/);
 });
 

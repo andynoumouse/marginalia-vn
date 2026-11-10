@@ -16,7 +16,7 @@ test('namedPositions: built ins, project names, invalid entries dropped, built i
 
 test('custom positions resolve in show, move and camera; without the table they are errors', () => {
   const pos = namedPositions(game);
-  const p = compile(script('show al at farleft\n  move al to leftcenter 0.5\n  camera pan farleft'), pos);
+  const p = compile(script('show al at farleft\n  move al to leftcenter 0.5s\n  camera pan farleft'), pos);
   assert.deepEqual(errors(p), []);
   assert.equal(p.ops.find(o => o.op === 'show').x, 0.08);
   assert.equal(p.ops.find(o => o.op === 'move').x, 0.35);
@@ -55,9 +55,9 @@ test('a position can carry a height: used by show and move unless the line has i
   assert.equal(ops('show al at balcony y=0.1').y, 0.1);
   assert.equal(ops('show al y=0.1 at balcony').y, 0.1);
   assert.equal(ops('show al at left').y, undefined);
-  assert.equal(ops('move al to balcony 0.5').y, -0.15);
-  assert.equal(ops('move al to balcony y=0 0.5').y, 0);
-  assert.equal(ops('move al to left 0.5').y, null);
+  assert.equal(ops('move al to balcony 0.5s').y, -0.15);
+  assert.equal(ops('move al to balcony y=0 0.5s').y, 0);
+  assert.equal(ops('move al to left 0.5s').y, null);
   const cam = compile(script('camera pan balcony'), pos).ops.find(o => o.op === 'camera');
   assert.equal(cam.x, 0.7);
   assert.equal(cam.y, 0.5); // the camera's y is a point on the stage, not a sprite offset

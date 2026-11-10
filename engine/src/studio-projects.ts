@@ -94,6 +94,11 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'burst puffs particles, a voiced line moves the mouth with the recording, and wind and gravity act on physics chains, weather and bursts. scene now resets the camera view.',
     'game.json "theme" is the name of a theme file (an inline object is no longer read), and theme files use the layered keys (tokens, components, styles): move old flat keys such as textbox, choices and skins into components and styles.',
   ],
+  '0.11': [
+    'Durations carry their unit: write wait 1s, move alice to left 0.5s, fade 0.3s, {pause=0.5s}, 0.6s alice: hop in a choreography, every 3s..6s, on enter fade 0.3s, and timeout 8s or timeout (8 - difficulty)s. A bare number where a duration goes is now an error that says how to write it; shake 0.4s on its own shakes the screen.',
+    'Free meshes can be skinned to bones (bone weights in rig.json, painted with the studio\'s Weights tool), and Mina\'s hair is a skinned strand turned by physics.',
+    'The animation studio shows key times in seconds and asks whether keys stretch when Length changes; undo and redo go to what they change; Apply keeps rig.json\'s own layout.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

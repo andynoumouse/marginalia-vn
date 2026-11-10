@@ -3,8 +3,8 @@
 # Browsers only start audio after a click, which the card you pressed already was.
 
 label fx_music:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Music", "One track plays on the music channel. Pause keeps its place, resume carries on from there, stop ends it.")
   set fx_a_label = "Command"
   set fx_a1 = "play"
@@ -16,30 +16,30 @@ label fx_music_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
     if fx_pa == 1:
-      set fx_fired = "music play evening_theme loop fade 1"
-      music play evening_theme loop fade 1
+      set fx_fired = "music play evening_theme loop fade 1s"
+      music play evening_theme loop fade 1s
     elif fx_pa == 2:
-      set fx_fired = "music pause fade 0.5"
-      music pause fade 0.5
+      set fx_fired = "music pause fade 0.5s"
+      music pause fade 0.5s
     elif fx_pa == 3:
-      set fx_fired = "music resume fade 0.5"
-      music resume fade 0.5
+      set fx_fired = "music resume fade 0.5s"
+      music resume fade 0.5s
     else:
-      set fx_fired = "music stop fade 1"
-      music stop fade 1
+      set fx_fired = "music stop fade 1s"
+      music stop fade 1s
     call fx_step_a(4)
     jump fx_music_loop
   elif act == "reset":
-    set fx_fired = "music play evening_theme loop fade 1"
-    music play evening_theme loop fade 1
+    set fx_fired = "music play evening_theme loop fade 1s"
+    music play evening_theme loop fade 1s
     jump fx_music_loop
-  music play evening_theme loop fade 1
-  hide iris fade 0.2
+  music play evening_theme loop fade 1s
+  hide iris fade 0.2s
   return
 
 label fx_sounds:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Sound effects", "A sound plays once. With duck, the music dips under it and eases back.")
   set fx_a_label = "Sound"
   set fx_a1 = "flip 1"
@@ -85,12 +85,12 @@ label fx_sounds_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_sounds_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_sound_loops:
-  scene bg_library fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_library fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Sound loops", "A looping sound (rain, a crowd) runs under the music until you stop it. Fades soften the start and end.")
   set fx_a_label = "Rain"
   set fx_a1 = "Start rain"
@@ -104,24 +104,24 @@ label fx_sound_loops_loop:
   if act == "fire":
     if fx_pa == 1:
       if fx_pb == 1:
-        set fx_fired = "sound loop rain fade 0.5"
-        sound loop rain fade 0.5
+        set fx_fired = "sound loop rain fade 0.5s"
+        sound loop rain fade 0.5s
       else:
-        set fx_fired = "sound loop rain fade 3"
-        sound loop rain fade 3
+        set fx_fired = "sound loop rain fade 3s"
+        sound loop rain fade 3s
     else:
       if fx_pb == 1:
-        set fx_fired = "sound stop rain fade 0.5"
-        sound stop rain fade 0.5
+        set fx_fired = "sound stop rain fade 0.5s"
+        sound stop rain fade 0.5s
       else:
-        set fx_fired = "sound stop rain fade 3"
-        sound stop rain fade 3
+        set fx_fired = "sound stop rain fade 3s"
+        sound stop rain fade 3s
     call fx_step_a(2)
     jump fx_sound_loops_loop
   elif act == "reset":
-    set fx_fired = "sound stop fade 1"
-    sound stop fade 1
+    set fx_fired = "sound stop fade 1s"
+    sound stop fade 1s
     jump fx_sound_loops_loop
-  sound stop fade 0.5
-  hide iris fade 0.2
+  sound stop fade 0.5s
+  hide iris fade 0.2s
   return

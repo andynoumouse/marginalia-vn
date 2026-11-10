@@ -13,7 +13,7 @@ const script = [
   '  alice: "Hush." style=whisper #aa01',
   '  alice: "Plain."',
   '  "Narration." style=whisper #aa02',
-  '  menu "Quick!" #pr01 style=urgent timeout 5:',
+  '  menu "Quick!" #pr01 style=urgent timeout 5s:',
   '    "Run" #op01:',
   '      jump out',
   '    on timeout:',
@@ -36,11 +36,11 @@ test('style= on a line, a menu and a define reaches the renderer', async () => {
 });
 
 test('style= does not disturb ids: assignIds keeps it before the new id', () => {
-  const text = 'label start:\n  alice: "Hi" style=whisper\n  "Hmm" style=soft\n  menu "Q" style=urgent timeout 3:\n    "A":\n      end\n    on timeout:\n      end\n';
+  const text = 'label start:\n  alice: "Hi" style=whisper\n  "Hmm" style=soft\n  menu "Q" style=urgent timeout 3s:\n    "A":\n      end\n    on timeout:\n      end\n';
   const out = assignIds(text, existingIds([text]), () => 0.5).text.split('\n');
   assert.match(out[1], /^  alice: "Hi" style=whisper #\w{4,8}$/);
   assert.match(out[2], /^  "Hmm" style=soft #\w{4,8}$/);
-  assert.match(out[3], /^  menu "Q" #\w{4,8} style=urgent timeout 3:$/);
+  assert.match(out[3], /^  menu "Q" #\w{4,8} style=urgent timeout 3s:$/);
   assert.deepEqual(existingIds([out.join('\n')]).size, 3 + 1); // three lines, plus the option
 });
 

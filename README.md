@@ -27,7 +27,7 @@ any line, Ctrl+P jumps to files, labels and assets, and panels show your variabl
 - Localization with stable string ids, plus voice lines per language
 - PSD art pipeline: layered characters and backgrounds converted to game-ready assets
 - Playtest bot that plays every route and reports dead ends, unreachable lines and unused assets
-- Animation studio (Model and Animate modes: bones, parameters, keyforms, mesh warps and free meshes, masks, physics, automatic animations and reactions, a timeline, PNG-sequence movie export), also [on its own](docs/standalone-studio.md) on a character folder with no game
+- Animation studio (Model and Animate modes: bones, parameters, keyforms, mesh warps, free meshes and bone-weighted skinning, masks, physics, automatic animations and reactions, a timeline, PNG-sequence movie export), also [on its own](docs/standalone-studio.md) on a character folder with no game
 - Web export, plus a desktop build; Marginalia Studio as a desktop editor for Windows
 
 ## Quick start
@@ -64,10 +64,10 @@ With no `--template` you get **Blank**: one scene and one line. The [tutorial](d
 define alice "Alice" color=#ff6fa5      # a character
 set trust = 0                           # top-level lines run once before the story starts
 label start:                            # entry point
-  scene bg_park fade 0.5
+  scene bg_park fade 0.5s
   music play theme loop
-  show alice smile at left fade 0.3     # one or more looks, then slot=variant overrides
-  alice: Hello, [name].{pause=0.4}
+  show alice smile at left fade 0.3s     # one or more looks, then slot=variant overrides
+  alice: Hello, [name].{pause=0.4s}
   menu "Optional prompt line":
     "Be kind" if trust >= 0:
       set trust += 1

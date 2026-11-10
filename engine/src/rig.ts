@@ -308,6 +308,7 @@ function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, prob
   for (const [b, def] of Object.entries(bones)) {
     if (def.parent !== undefined && (typeof def.parent !== 'string' || !Object.hasOwn(bones, def.parent))) problem(`bones.${b}.parent: no bone named "${String(def.parent)}" (bones: ${Object.keys(bones).join(', ')})`, b);
     if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`bones.${b}.pivot: use [x, y] in pixels of the PSD canvas`, b);
+    if (def.tip !== undefined && !isPoint(def.tip)) problem(`bones.${b}.tip: use [x, y] in pixels of the PSD canvas`, b);
     if (names.has(b)) problem(`bones: "${b}" is also a part name; the part wins where a script or key names it`, b);
   }
   for (const loop of boneCycles(bones)) problem(`bones: parents form a loop (${[...loop, loop[0]].join(' > ')})`, loop[0]);
@@ -320,6 +321,14 @@ function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, prob
     if (def.bone === undefined) continue;
     if (typeof def.bone !== 'string' || !Object.hasOwn(bones, def.bone)) problem(`parts.${part}.bone: no bone named "${String(def.bone)}" (bones: ${Object.keys(bones).join(', ')})`, part);
     else if (!shape) onBone.set(def.bone, (onBone.get(def.bone) ?? 0) + 1); // a shape moves with its bone but cannot measure a pivot from it
+  }
+  // A bone that a skinned mesh weights moves that mesh: it has something on it (and a pivot can be measured from nothing there, but it moves art).
+  for (const d of Array.isArray(data.deformers) ? data.deformers : []) {
+    const m = d && typeof d === 'object' ? (d as { mesh?: { weights?: unknown; defaultBone?: unknown } }).mesh : undefined;
+    if (!m || typeof m !== 'object') continue;
+    const used = new Set<string>(typeof m.defaultBone === 'string' ? [m.defaultBone] : []);
+    if (m.weights && typeof m.weights === 'object') for (const e of Object.values(m.weights)) if (e && typeof e === 'object') for (const b of Object.keys(e)) used.add(b);
+    for (const b of used) if (Object.hasOwn(bones, b)) onBone.set(b, (onBone.get(b) ?? 0) + 1);
   }
   // Warnings: a bone that moves nothing, or has nothing to turn about.
   const looped = new Set(boneCycles(bones).flat());

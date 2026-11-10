@@ -344,11 +344,21 @@
     body.preview-over #paneBack { display: inline-block; }
     #main > #sidebar { grid-column: auto; position: absolute; z-index: 20; top: 0; bottom: 0; left: 0; width: min(240px, 85vw); box-shadow: 4px 0 24px rgba(0, 0, 0, .5); }
   }
+  /* A phone cannot hold the editor: a notice says so (dismissable); the games themselves play on a phone (UX round ST-6). */
+  #narrow { display: none; gap: 10px; align-items: center; padding: 6px 10px; background: color-mix(in srgb, var(--warn, #e8b64c) 18%, var(--ink, #0e1117)); color: var(--text, #e6e9ef); font-size: 13px; }
+  #narrow[hidden] { display: none !important; }
+  #narrow span { flex: 1; }
   /* A phone-sized bar would take half the screen wrapped: scroll it in one row instead. */
   @media (max-width: 600px) {
     #bar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; white-space: nowrap; }
     #bar > * { flex: none; }
+    #narrow { display: flex; }
   }
+  #onlineBuild { background: var(--panel, #171b23); color: var(--text, #e6e9ef); border: 1px solid var(--line, #2a303c); border-radius: 8px; padding: 18px 20px; max-width: 520px; font-size: 14px; line-height: 1.45; }
+  #onlineBuild::backdrop { background: #0008; }
+  #onlineBuild h3 { margin: 0 0 10px; font-size: 16px; }
+  #onlineBuild p { margin: 0; }
+  #onlineBuild .buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 
   .vn-preview-line { background: rgba(95, 209, 195, .13); }
   .vn-preview-gutter { background: var(--accent); width: 3px !important; margin-left: 3px; }
@@ -356,6 +366,12 @@
 </head>
 <body>
   <a id="skip" href="#main" title="Alt+1">Skip to the code editor</a>
+  <div id="narrow" role="status"><span>This editor needs a wider window (about 900 px or more). The games themselves play fine on a phone.</span><button type="button" id="narrowClose">Dismiss</button></div>
+  <dialog id="onlineBuild" aria-labelledby="onlineBuildHead">
+    <h3 id="onlineBuildHead">Build is not available in the online demo</h3>
+    <p>The online demo keeps your project in this browser and cannot export a playable game. Download the project as a zip, then build it with Marginalia Studio or <code>vn export</code> on your computer (docs/exporting.md).</p>
+    <div class="buttons"><button type="button" id="onlineBuildZip">Download project (.zip)</button><button type="button" id="onlineBuildClose" autofocus>Close</button></div>
+  </dialog>
   <div id="bar">
     <strong>Marginalia VN</strong>
     <div class="group">

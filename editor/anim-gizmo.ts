@@ -1,4 +1,4 @@
-// The tool row over the studio's stage: which gizmo tool is on (Move / Rotate / Scale, and Pivot, Warp and Mask in Model mode),
+// The tool row over the studio's stage: which gizmo tool is on (Move / Rotate / Scale, and Pivot, Warp, Weights and Mask in Model mode),
 // local or world axes, auto-key and the Key button; and, in the Selection section, the exact values of the chosen part or bone.
 // The stage page draws and drags the gizmo (preview/studio-gizmo.ts) and reports a finished drag as a delta; this hands it on
 // as one undo step: a key at the playhead in Animate mode, a keyform of the active parameter at its current value in Model mode.
@@ -6,21 +6,25 @@
 // copy; this works through `GizmoHost`.
 
 import {
-  addKey, isNoOffset, keyedOffset, keyFromDelta, NO_OFFSET, sumOffset,
+  addKey, escapesToMove, isNoOffset, keyedOffset, keyFromDelta, NO_OFFSET, sumOffset,
   type AnimDef, type GizmoSpace, type GizmoTool, type KeyChannel, type Offset, type StudioMode,
 } from '../engine/src/index.js';
 
-/** Pivot, Warp and Mask are for Model mode: the pivot cross, the lattice of the part's mesh warp (the Warp section keeps the keyform they write to), and the points of a drawn mask. */
-export type StageTool = GizmoTool | 'pivot' | 'warp' | 'mask';
-const TOOL_KEYS: Record<string, StageTool> = { w: 'move', e: 'rotate', r: 'scale', q: 'pivot', d: 'warp', m: 'mask' };
+/** Pivot, Warp and Mask are for Model mode: the pivot cross, the lattice of the part's mesh warp (Keyforms shows the keyform they write to), and the points of a drawn mask. */
+export type StageTool = GizmoTool | 'pivot' | 'warp' | 'weights' | 'mask';
+/** The tools only Model mode has (they draw no transform gizmo). */
+const MODEL_TOOLS: readonly StageTool[] = ['pivot', 'warp', 'weights', 'mask'];
+const TOOL_KEYS: Record<string, StageTool> = { w: 'move', e: 'rotate', r: 'scale', q: 'pivot', d: 'warp', b: 'weights', m: 'mask' };
 const FIELDS: KeyChannel[] = ['x', 'y', 'scale', 'rot', 'opacity'];
 
 export interface GizmoHost {
   mode(): StudioMode;
   /** The chosen part or bone. */
   part(): string | null;
+  /** What the gizmo moves: in Model mode a chosen part on a bone gives the bone (the part stays chosen for the deform sections); else the chosen row. */
+  subject(): string | null;
   t(): number;
-  anim(): { name: string; def: AnimDef; preset: boolean } | null;
+  anim(): { name: string; def: AnimDef; preset: boolean; dur?: number } | null;
   post(msg: object): void;
   note(text: string): void;
   /** Change the working copy as one undo step. */
@@ -28,10 +32,16 @@ export interface GizmoHost {
   setAnim(name: string, def: AnimDef): void;
   /** The tool changed: Model mode places pivots only with the Pivot tool, shows the lattice only with the Warp tool and the points of a drawn mask only with the Mask tool. */
   toolChanged(): void;
+  /** Auto-key was turned on or off: the tool options bar says whether a drag keys. */
+  autoChanged?(): void;
   /** Model mode: a finished gizmo drag of `name`, `delta` on top of the pose on show. The studio writes it as the keyform of the active parameter at its value (one undo step). */
   keyformDrag(name: string, tool: GizmoTool, delta: Offset): void;
   undo(): void;
   redo(): void;
+  /** The Weights tool's test pose: which gizmo to show (null: none) and on which bone (its active one). Drags with it are kept as unkeyed offsets, never written. */
+  weights?(): { tool: GizmoTool | null; bone: string | null };
+  /** The test pose changed (a drag, or Reset pose). */
+  posed?(): void;
 }
 
 export class GizmoBar {
@@ -58,7 +68,7 @@ export class GizmoBar {
     this.nameEl = q('.as-gz-name');
     for (const b of this.buttons) b.addEventListener('click', () => this.setTool(b.dataset.gz as StageTool));
     this.worldBtn.addEventListener('click', () => this.toggleWorld());
-    this.autoBtn.addEventListener('click', () => { this.auto = !this.auto; if (this.auto) this.commit(); this.show(); });
+    this.autoBtn.addEventListener('click', () => { this.auto = !this.auto; if (this.auto) this.commit(); this.show(); this.host.autoChanged?.(); });
     this.keyBtn.addEventListener('click', () => this.commit());
     q('.as-gz-fit').addEventListener('click', () => host.post({ type: 'studioView', whole: false }));
     for (const c of FIELDS) this.fields[c].addEventListener('change', () => this.typed(c));
@@ -67,15 +77,22 @@ export class GizmoBar {
   /** A new opening or a change of mode. */
   setMode(mode: StudioMode) {
     // Model keeps the tool it has (it starts on Move: a click on the stage picks parts to bind; the Pivot tool is one key away); Animate has no Pivot, Warp or Mask.
-    this.tool = mode === 'model' ? this.tool : this.tool === 'pivot' || this.tool === 'warp' || this.tool === 'mask' ? 'move' : this.tool;
+    this.tool = mode === 'model' ? this.tool : MODEL_TOOLS.includes(this.tool) ? 'move' : this.tool;
     this.clearPending();
     this.sent = '';
   }
 
+  /** Does a drag in Animate write a key at once (Auto-key on)? */
+  get autoKey() { return this.auto; }
+
+  /** Is anything posed and not keyed (a test pose, or a drag with Auto-key off)? */
+  get hasPending() { return this.pending.size > 0; }
+
   setTool(tool: StageTool) {
+    if (this.tool === 'weights' && tool !== 'weights') this.clearPending(); // leaving the Weights tool lets go of the test pose
     const mode = this.host.mode();
-    if (mode === 'animate' && (tool === 'pivot' || tool === 'warp' || tool === 'mask')) {
-      this.host.note(`The ${tool === 'warp' ? 'Warp' : tool === 'mask' ? 'Mask' : 'Pivot'} tool is for Model mode.`);
+    if (mode === 'animate' && MODEL_TOOLS.includes(tool)) {
+      this.host.note(`The ${tool === 'warp' ? 'Warp' : tool === 'mask' ? 'Mask' : tool === 'weights' ? 'Weights' : 'Pivot'} tool is for Model mode.`);
       return;
     }
     this.tool = tool;
@@ -88,6 +105,8 @@ export class GizmoBar {
   key(key: string, ctrl: boolean, shift: boolean): boolean {
     if (ctrl) { if (key === 'y' || (key === 'z' && shift)) this.host.redo(); else if (key === 'z') this.host.undo(); else return false; return true; }
     if (Object.hasOwn(TOOL_KEYS, key)) { this.setTool(TOOL_KEYS[key]); return true; }
+    // Esc on the stage with nothing selected in a deform tool (the stage page decides that), or with any tool but Move: back to Move. On Move it closes the studio.
+    if (key === 'escape') { if (escapesToMove(this.tool)) { this.setTool('move'); return true; } return false; }
     if (key === 'x') { this.toggleWorld(); return true; }
     if (key === 'f') { this.host.post({ type: 'studioView', whole: shift }); return true; }
     return false;
@@ -99,10 +118,12 @@ export class GizmoBar {
     this.send();
   }
 
-  /** Tell the stage which tool is on and for what. */
+  /** Tell the stage which tool is on and for what, and which stage mode the tool row is in (`stage`: what a press does there). */
   send() {
-    const tool = this.tool === 'pivot' || this.tool === 'warp' || this.tool === 'mask' ? null : this.tool;
-    const msg = { type: 'studioGizmo', tool, name: this.host.part(), space: this.space };
+    // With the Weights tool the gizmo is the test pose's: on the panel's active bone, as the panel says (none by default).
+    const w = this.tool === 'weights' ? this.host.weights?.() ?? null : null;
+    const tool = this.tool === 'weights' ? w?.tool ?? null : MODEL_TOOLS.includes(this.tool) ? null : this.tool;
+    const msg = { type: 'studioGizmo', tool, name: this.tool === 'weights' ? w?.bone ?? null : this.host.subject(), space: this.space, stage: this.tool };
     const s = JSON.stringify(msg);
     if (s === this.sent) return;
     this.sent = s;
@@ -114,6 +135,13 @@ export class GizmoBar {
   event(m: { phase: 'start' | 'move' | 'end'; name: string; tool: GizmoTool; delta: Offset }) {
     if (m.phase !== 'end') return; // the stage shows the drag as it goes; the working copy changes once, at the release
     if (this.host.mode() !== 'animate') {
+      if (this.tool === 'weights') {
+        // The test pose: the stage shows the drag on top of the pose; nothing is keyed or written, and Reset pose lets it go.
+        if (!isNoOffset(m.delta)) this.pending.set(m.name, [...(this.pending.get(m.name) ?? []), { tool: m.tool, delta: m.delta }]);
+        this.postExtra();
+        this.host.posed?.();
+        return;
+      }
       if (!isNoOffset(m.delta)) this.host.keyformDrag(m.name, m.tool, m.delta);
       this.postExtra(); // ends the drag on the stage; the written keyform is what it shows now
       return;
@@ -146,6 +174,8 @@ export class GizmoBar {
       for (const [name, pieces] of todo) for (const p of pieces) def = keyFromDelta(def, name, t, p.tool, p.delta);
       this.host.setAnim(a.name, def);
     });
+    const secs = a.dur !== undefined ? ` (${+(t * a.dur).toFixed(2)} s)` : '';
+    this.host.note(`Keyed ${todo.map(([name]) => name).join(', ')} at the playhead${secs}.`);
     this.postExtra();
     this.show();
   }
@@ -154,6 +184,7 @@ export class GizmoBar {
     if (!this.pending.size) return;
     this.pending.clear();
     this.postExtra();
+    this.host.posed?.();
   }
 
   private postExtra() {

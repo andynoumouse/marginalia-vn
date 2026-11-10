@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkRig, defaultPolygon, edgeMidpoint, insertPolygonPoint, movePolygonPoint, nearestEdge, removePolygonPoint, MASK_MAX_POINTS, addShape, renameShape, deleteShape, setClip, moveShape, clipGroupIssues, addToGroup, shapeSummary, clippedBy, clipTargets, shapeAtEdge, shapeAtInside, pointInOutline } from '../../dist/engine/src/index.js';
+import { checkRig, defaultPolygon, edgeMidpoint, insertPolygonPoint, movePolygonPoint, nearestEdge, removePolygonPoint, MASK_MAX_POINTS, addShape, renameShape, deleteShape, setClip, moveShape, clipGroupIssues, addToGroup, clippedBy, clipTargets, shapeAtEdge, shapeAtInside, pointInOutline } from '../../dist/engine/src/index.js';
 
 const tri = [[10, 10], [60, 10], [30, 50]];
 const poly = { id: 'm', part: 'iris', polygon: tri, on: 'head', keyforms: [{ param: 'open', keys: [{ at: 0, pts: { 0: [0, 0.1], 2: [0.1, 0] } }, { at: 1 }] }] };
@@ -23,18 +23,30 @@ test('movePolygonPoint rounds, and ignores a missing point or no move', () => {
 test('insertPolygonPoint adds a point and shifts the keyforms\' point numbers up', () => {
   const next = insertPolygonPoint(poly, 1, [35.4, 8]);
   assert.deepEqual(next.polygon, [[10, 10], [35, 8], [60, 10], [30, 50]]);
-  assert.deepEqual(next.keyforms[0].keys[0].pts, { 0: [0, 0.1], 3: [0.1, 0] }, 'point 2 became point 3, point 0 stayed');
+  assert.deepEqual(next.keyforms[0].keys[0].pts, { 0: [0, 0.1], 1: [0, 0.05], 3: [0.1, 0] }, 'point 2 became point 3, point 0 stayed; the new point moves halfway with its edge');
   assert.deepEqual(insertPolygonPoint(poly, 3, [0, 0]).polygon.at(-1), [0, 0], 'appends at the count');
   assert.equal(insertPolygonPoint(poly, 9, [0, 0]), poly);
   const full = { id: 'f', part: 'p', polygon: Array.from({ length: MASK_MAX_POINTS }, (_, i) => [i, 0]) };
   assert.equal(insertPolygonPoint(full, 0, [1, 1]), full, 'at the cap nothing is added');
 });
 
+test('a point added to a keyed shape follows its edge at every key, so a closed lid gets no spike', () => {
+  // Appended: the edge runs from the last point (moved 0.1 sideways) back to the first (moved 0.1 down); halfway along, half of each.
+  const end = insertPolygonPoint(poly, 3, [20, 30]);
+  assert.deepEqual(end.keyforms[0].keys[0].pts, { 0: [0, 0.1], 2: [0.1, 0], 3: [0.05, 0.05] });
+  assert.equal(end.keyforms[0].keys[1].pts, undefined, 'a key where nothing moves stays empty');
+  // A quarter of the way along an edge whose ends both moved; on a pad's grid of forms too.
+  const pad = { id: 'p', part: 'x', polygon: [[0, 0], [100, 0], [50, 80]], keyforms: [{ params: ['a', 'b'], grid: { x: [0, 1], y: [0, 1] }, forms: [{}, { pts: { 0: [0.2, 0], 1: [0, 0.4] } }, {}, {}] }] };
+  const q = insertPolygonPoint(pad, 1, [25, 0]);
+  assert.deepEqual(q.keyforms[0].forms[1].pts, { 0: [0.2, 0], 1: [0.15, 0.1], 2: [0, 0.4] });
+  assert.deepEqual(q.keyforms[0].forms[0], {}, 'a form where nothing moves stays empty');
+});
+
 test('removePolygonPoint drops a point, its keyform entries and shifts the rest down; three points stay three', () => {
   const four = insertPolygonPoint(poly, 1, [35, 8]);
   const next = removePolygonPoint(four, 0);
   assert.deepEqual(next.polygon, [[35, 8], [60, 10], [30, 50]]);
-  assert.deepEqual(next.keyforms[0].keys[0].pts, { 2: [0.1, 0] }, 'point 0 is gone, point 3 became 2');
+  assert.deepEqual(next.keyforms[0].keys[0].pts, { 0: [0, 0.05], 2: [0.1, 0] }, 'point 0 is gone, point 1 (moved halfway with its edge when it was added) became 0, point 3 became 2');
   assert.equal(removePolygonPoint(poly, 0), null);
   assert.equal(removePolygonPoint(four, 9), null);
   const bare = removePolygonPoint({ id: 'a', part: 'p', polygon: [[0, 0], [1, 0], [1, 1], [0, 1]] }, 3);
@@ -153,13 +165,8 @@ test('clipGroupIssues finds a clipped part in a group whose shape is not, and ad
   assert.deepEqual(addToGroup([{ id: 'a', members: ['x', 'lids'], keyforms: [] }, { id: 'b', members: ['y'], keyforms: [] }], 'b', 'lids').map(d => d.members), [['x'], ['y', 'lids']], 'a member is in one group at most');
 });
 
-test('shapeSummary, clippedBy and clipTargets', () => {
+test('clippedBy and clipTargets', () => {
   const set = base();
-  assert.equal(shapeSummary(set, 'lids'), 'shape, 3 points, clips 1');
-  assert.equal(shapeSummary(set, 'spare'), 'shape, 3 points');
-  assert.equal(shapeSummary(set, 'iris'), 'to eyes');
-  assert.equal(shapeSummary(set, 'face'), '2 shapes');
-  assert.equal(shapeSummary({ shapes: {}, clips: {} }, null), 'none');
   assert.deepEqual(clippedBy(set, 'lids'), ['eyes']);
   assert.deepEqual(clipTargets(['a', 'b', 'c'], 'b'), ['a', 'c']);
 });

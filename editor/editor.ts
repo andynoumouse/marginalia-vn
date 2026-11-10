@@ -5,7 +5,7 @@
 import { keepPreviewDevice } from './preview-device.js';
 import {
   COMMAND_WORDS, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
-  BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest,
+  BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest, OwnSaves,
 } from '../engine/src/index.js';
 import { AssetViewer } from './asset-viewer.js';
 import { AnimStudio, type Mode } from './anim-studio.js';
@@ -125,7 +125,7 @@ function registerTokenizer() {
         [/"(?:[^"\\]|\\.)*"/, 'string'],
         [/\s#[A-Za-z0-9]{4,8}(?=\s*:?\s*$)/, 'meta.id'],
         [/\bif\b/, 'keyword'],
-        [/[0-9]+(\.[0-9]+)?/, 'number'],
+        [/[0-9]+(\.[0-9]+)?(?:ms|s)?/, 'number'],
         [/[A-Za-z_]\w*/, 'identifier'],
         [/[<>=!+\-*\/%():]+/, 'delimiter'],
         [/\s+/, ''],
@@ -135,7 +135,7 @@ function registerTokenizer() {
         [/[A-Za-z_]\w*(?==)/, 'attribute.name'],
         [/[A-Za-z_]\w*/, { cases: { '@keywords': 'keyword', '@modifiers': 'keyword.other', '@default': 'identifier' } }],
         [/#[0-9a-fA-F]{3,8}/, 'number.hex'],
-        [/[0-9]+(\.[0-9]+)?/, 'number'],
+        [/[0-9]+(\.[0-9]+)?(?:ms|s)?/, 'number'],
         [/"(?:[^"\\]|\\.)*"/, 'string'],
         [/[<>=!+\-*\/%():]+/, 'delimiter'],
         [/\s+/, ''],
@@ -490,6 +490,8 @@ function updateProblemCount() {
 
 // Counted so syncFromDisk can tell that a save landed while its GET was in flight (its text is then older than the model's).
 let saving = 0, saveEpoch = 0;
+/** Scripts this tab just saved: their reload event brings nothing new here, so it skips the /api/project round trip. */
+const ownSaves = new OwnSaves();
 
 const saveChains = new WeakMap<FileState, Promise<void>>();
 
@@ -529,6 +531,7 @@ async function saveNow(f: FileState) {
     });
     if (!r.ok) throw new Error(`the dev server answered ${r.status}`);
     f.saved = text;
+    if (f.kind === 'script') ownSaves.saved(`script/${f.name}`, performance.now());
     const recovered = f.failed !== undefined;
     saveSettled(f);
     const stuck = [...files.values()].filter(x => x.failed !== undefined).map(x => x.name);
@@ -954,12 +957,23 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
   }, animation, mode);
 }
 
-/** The animation a script line plays, opened in the studio (F12 on an `animate` line); other lines get the normal Go to Definition. */
+/** The character (and animation) the cursor's script line is about: an `animate` line, or a `show` line of a rigged character. */
+function studioRefAtCursor(): { char: string; name?: string } | null {
+  const pos = S.editor.getPosition();
+  if (files.get(S.active)?.kind !== 'script' || !pos) return null;
+  const line = S.editor.getModel().getLineContent(pos.lineNumber);
+  const ref = animateRef(line);
+  if (ref) return ref;
+  const show = /^\s*show\s+([A-Za-z_]\w*)/.exec(line);
+  return show && S.projectAssets.rigs[show[1]] ? { char: show[1] } : null;
+}
+
+/** The animation a script line plays, opened in the studio (F12 or the right-click menu on an `animate` line; a `show` line opens its character); other lines get the normal Go to Definition. */
 function openAnimationAtCursor() {
   const pos = S.editor.getPosition();
-  const ref = files.get(S.active)?.kind === 'script' && pos ? animateRef(S.editor.getModel().getLineContent(pos.lineNumber)) : null;
+  const ref = studioRefAtCursor();
   if (!ref) { S.editor.trigger('vn', 'editor.action.revealDefinition', null); return; }
-  if (!S.projectAssets.rigs[ref.char]) { setStatus(`${ref.char} has no rig (sprite.json) to open ${ref.name} in`); return; }
+  if (!S.projectAssets.rigs[ref.char]) { setStatus(`${ref.char} has no rig (sprite.json) to open ${ref.name ?? 'it'} in`); return; }
   openAnimStudio(ref.char, ref.name, { file: S.active, line: pos!.lineNumber });
 }
 
@@ -1133,6 +1147,12 @@ function setupPalette() {
   };
   const commands = buildCommands(host);
   for (const c of commands) if (c.key) S.editor.addCommand(c.key.code, () => void c.run());
+  // The right-click menu offers the studio on an `animate` or `show` line of a rigged character (UX round ES-2); F12 does the same.
+  const studioLine = S.editor.createContextKey('vnStudioLine', false) as { set(on: boolean): void };
+  const checkStudioLine = () => studioLine.set(!!studioRefAtCursor());
+  S.editor.onDidChangeCursorPosition(checkStudioLine);
+  S.editor.onDidChangeModel(checkStudioLine);
+  S.editor.addAction({ id: 'vn.openInStudio', label: 'Open in Animation Studio (F12)', precondition: 'vnStudioLine', contextMenuGroupId: 'navigation', contextMenuOrder: 1.1, run: () => openAnimationAtCursor() });
   S.palette = new Palette($('left'), paletteModes(host, commands), () => S.editor.focus());
   S.help = new HelpDialog(document.body);
   S.assetViewer = new AssetViewer(document.body);
@@ -1193,6 +1213,7 @@ function setupBuildAndGit() {
     reveal: goToLine,
     openTranslations: () => void S.translations.open(() => S.editor.focus()),
     openVoice: () => void S.voiceDialog.open(() => S.editor.focus()),
+    addIds: addIdsEverywhere,
     saveAll,
     build: (target, out, langs, playtest) => runTask('build', 'build', `&target=${target}&out=${encodeURIComponent(out)}${langQuery(langs)}${playtestQuery(playtest)}`),
     portable: 'vnStudio' in window, // studio/preload.cjs
@@ -1318,7 +1339,7 @@ async function loadProject() {
   recompile();
   const first = files.keys().next().value as string | undefined;
   if (first) activate(first);
-  setStatus(S.caps.online ? 'ready (online demo: the project is kept in this browser; Ctrl+P > Online to download it as a zip)' : 'ready');
+  setStatus(S.caps.online ? 'ready (online demo: the project is kept in this browser)' : 'ready');
 }
 
 /** The sidebar, the toolbar buttons and the splitter. */
@@ -1334,8 +1355,13 @@ function wireToolbar() {
   $('helpBtn').addEventListener('click', () => toggleHelp($('helpBtn')));
   $('outlineBtn').addEventListener('click', () => toggleOutline($('outlineBtn')));
   $('translateBtn').addEventListener('click', () => void S.translations.open(focusBack($('translateBtn'))));
-  $('buildBtn').addEventListener('click', () => void S.buildDialog.open(focusBack($('buildBtn'))));
-  $('buildBtn').hidden = !S.caps.tasks.includes('build');
+  // The online demo has no Build: the button stays and says what to do instead (UX round ST-7).
+  const onlineBuild = $('onlineBuild') as HTMLDialogElement;
+  $('buildBtn').addEventListener('click', () => { if (S.caps.tasks.includes('build')) void S.buildDialog.open(focusBack($('buildBtn'))); else onlineBuild.showModal(); });
+  $('buildBtn').hidden = !S.caps.tasks.includes('build') && !S.caps.online;
+  $('onlineBuildZip').addEventListener('click', async () => { onlineBuild.close(); await saveAllNow(); location.assign('../project.zip'); });
+  $('onlineBuildClose').addEventListener('click', () => onlineBuild.close());
+  $('narrowClose').addEventListener('click', () => { $('narrow').hidden = true; });
   $('projectsBtn').hidden = !S.caps.online;
   $('projectsBtn').addEventListener('click', () => void backToProjects());
   $('voiceBtn').addEventListener('click', () => void S.voiceDialog.open(focusBack($('voiceBtn'))));
@@ -1364,8 +1390,9 @@ function watchDisk() {
     toastError('The dev server stopped answering. What you type stays in the editor and is saved when it is back (restart it with the same command).');
   };
   events.onmessage = e => {
-    if (!['content', 'masters'].includes((JSON.parse(e.data) as { type: string }).type)) return;
-    void syncFromDisk();
+    const msg = JSON.parse(e.data) as { type: string; files?: string[] };
+    if (!['content', 'masters'].includes(msg.type)) return;
+    if (!ownSaves.covers(msg.files, performance.now())) void syncFromDisk();
     if (S.caps.git) S.gitPanel.refreshSoon();
   };
 }

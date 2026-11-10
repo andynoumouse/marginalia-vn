@@ -74,17 +74,17 @@ Parameters are local to the call, and `return` restores any variable they hid.
 ## Timed and disabled choices
 
 ```
-menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" timeout 8:
+menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" timeout 8s:
   "Open the box" if archive_open == 1 else "You need the brass key.":
-    iris: It's a stack of rain-stained postcards. {pause=0.4}Take one.
+    iris: It's a stack of rain-stained postcards. {pause=0.4s}Take one.
     ...
     unlock lamp_room
     set persistent.secrets += 1
   "Hold the lamp steady":
     iris: Thank you. The light steadies.
   on timeout:
-    flash #000000 0.4
-    iris: Too slow! The lamp went out. {pause=0.4}Never mind, it comes back.
+    flash #000000 0.4s
+    iris: Too slow! The lamp went out. {pause=0.4s}Never mind, it comes back.
 ```
 
 An option with `else "reason"` is shown greyed out instead of hidden. Players can extend or remove the clock in Options, so

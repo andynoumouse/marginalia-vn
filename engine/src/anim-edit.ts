@@ -32,6 +32,16 @@ export function sampleChannel(def: AnimDef, ch: KeyChannel, part: string | null,
   return out;
 }
 
+/**
+ * The ends (0 and 1) where channel `ch` of the body (`part` null) or one part sits at rest without a key there: a keyed channel starts
+ * from rest unless a key is at t=0 and returns to rest unless one is at t=1. Empty when the channel has no keys.
+ */
+export function restEnds(def: AnimDef, ch: KeyChannel, part: string | null): number[] {
+  const ts = keysOf(def, part).filter(k => Number.isFinite(k.key[ch])).map(k => clamp01(k.key.t));
+  if (!ts.length) return [];
+  return [0, 1].filter(end => !ts.includes(end));
+}
+
 /** Keys of `def` as a pair of (index, key) for the body (`part` null) or one part. */
 export function keysOf(def: AnimDef, part: string | null): { index: number; key: KeyDef }[] {
   return (def.keys ?? []).flatMap((key, index) => ((key.part ?? null) === part ? [{ index, key }] : []));
@@ -71,6 +81,39 @@ export function setDur(def: AnimDef, dur: number): AnimDef {
   const { dur: _old, ...rest } = def;
   return Number.isFinite(dur) && dur > 0 ? { dur: round4(dur), ...rest } : rest as AnimDef;
 }
+
+// ---- key times in seconds (docs/design/time-units.md, part 2) ----
+// rig.json keeps a key's time as a fraction (0-1) of the animation, since a script can play it at any length; the studio shows and takes seconds.
+
+/** A key's time in seconds, for an animation `dur` seconds long, to the millisecond. */
+export const secondsOf = (t: number, dur: number): number => Math.round(t * dur * 1000) / 1000;
+/** Seconds typed for a key, as the fraction stored: clamped to the animation and rounded as keys are. */
+export const progressOf = (seconds: number, dur: number): number => round4(clamp01(dur > 0 ? seconds / dur : 0));
+/** A key's time as the studio shows it: `0.27 s`. */
+export const timeLabel = (t: number, dur: number): string => `${+secondsOf(t, dur).toFixed(2)} s`;
+
+/**
+ * `def` with its length changed from `from` to `to` seconds while every key keeps its time in seconds: key-form frame tracks and
+ * parameter keys move with the channel keys. Keys past the new end are dropped (`dropped` counts them); a frame clip (fps) is timed in
+ * seconds already and stays as it is.
+ */
+export function retimeAnim(def: AnimDef, from: number, to: number): { def: AnimDef; dropped: number } {
+  const k = to > 0 ? from / to : 1;
+  let dropped = 0;
+  const keep = <T extends { t: number }>(list: T[]): T[] => list.flatMap(x => {
+    const t = round4(x.t * k);
+    if (t > 1 + 1e-9) { dropped++; return []; }
+    return [{ ...x, t: Math.min(1, t) }];
+  });
+  const next: AnimDef = { ...setDur(def, to), keys: keep(def.keys ?? []) };
+  if (def.params) next.params = Object.fromEntries(Object.entries(def.params).map(([id, keys]) => [id, keep(keys)]));
+  if (def.frames) next.frames = def.frames.map(f => (Array.isArray(f.keys) ? { ...f, keys: keep(f.keys) } : f));
+  return { def: next, dropped };
+}
+
+/** Whether `def` has keys timed as fractions of its length (channel, parameter or key-form frame keys): changing its length then asks whether they stretch. */
+export const hasKeyTimes = (def: AnimDef): boolean =>
+  (def.keys?.length ?? 0) > 0 || Object.values(def.params ?? {}).some(k => k.length > 0) || (def.frames ?? []).some(f => (f.keys?.length ?? 0) > 0);
 
 /** A name from `base` that `anims` does not have yet: `base`, `base2`, `base3`... */
 export function uniqueName(anims: Anims, base: string): string {
@@ -157,6 +200,8 @@ const isScalar = (v: unknown) => v === null || typeof v !== 'object';
  * `value` as JSON in the layout rig.json is written in: two-space indent, lists of plain values and objects of plain
  * values inside lists (a key of an animation) on one line. `pad` is the indent of the line it starts on.
  */
+/** How long a one-line object may get (with its indent) before `pretty` spreads it over lines. */
+const ONE_LINE = 100;
 function pretty(value: unknown, pad: string, inList = false): string {
   if (isScalar(value)) return JSON.stringify(value) ?? 'null';
   const list = Array.isArray(value);
@@ -166,6 +211,12 @@ function pretty(value: unknown, pad: string, inList = false): string {
   if ((list || inList) && items.every(([, v]) => isScalar(v))) {
     const body = items.map(([k, v]) => one(k, v, pad, false)).join(', ');
     return list ? `[${body}]` : `{ ${body} }`;
+  }
+  // A short object of plain values (or lists of them) stays on one line anywhere, as rig.json is written by hand: a vertex's
+  // weights `{ "arm_l": 0.78, "forearm_l": 0.22 }`, a bone `{ "parent": "spine", "pivot": [340, 480] }`.
+  if (!list && pad !== '' && items.every(([, v]) => isScalar(v) || (Array.isArray(v) && v.every(isScalar)))) { // the file's own top level stays spread out
+    const line = `{ ${items.map(([k, v]) => one(k, v, pad, false)).join(', ')} }`;
+    if (pad.length + line.length <= ONE_LINE) return line;
   }
   const inner = `${pad}  `;
   return `${list ? '[' : '{'}\n${items.map(([k, v]) => `${inner}${one(k, v, inner, list)}`).join(',\n')}\n${pad}${list ? ']' : '}'}`;
@@ -275,6 +326,25 @@ function readMembers(s: string, i: number): { members: Member[]; tail: string } 
   }
 }
 
+/** The items of the JSON list that starts at `i` (a `[`): the space before each and where it is, and the space before the `]`. */
+function readElements(s: string, i: number): { items: { lead: string; vs: number; ve: number }[]; tail: string } | null {
+  const items: { lead: string; vs: number; ve: number }[] = [];
+  let from = ++i;
+  for (;;) {
+    i = ws(s, i);
+    if (s[i] === ']') return { items, tail: s.slice(from, i) };
+    if (items.length) {
+      if (s[i] !== ',') return null;
+      from = ++i;
+      i = ws(s, i);
+    }
+    const ve = skipValue(s, i);
+    if (ve < 0) return null;
+    items.push({ lead: s.slice(from, i), vs: i, ve });
+    i = from = ve;
+  }
+}
+
 /**
  * The text for the JSON value written in `s` from `vs` to `ve` (whose value is `was`) once it becomes `now`. A value that
  * did not change keeps its text; in an object only the properties that changed are written anew (in the layout of
@@ -284,6 +354,20 @@ function readMembers(s: string, i: number): { members: Member[]; tail: string } 
 function rewriteValue(s: string, vs: number, ve: number, was: unknown, now: unknown): string {
   if (jsonEqual(was, now)) return s.slice(vs, ve);
   const pad = lineIndent(s, vs);
+  // A list of the same length: each item keeps its text unless it changed (one deformer edited, the others as written).
+  if (Array.isArray(was) && Array.isArray(now) && was.length === now.length && was.length && s[vs] === '[') {
+    const read = readElements(s, vs);
+    if (read && read.items.length === was.length) {
+      const oneLine = !s.slice(vs, ve).includes('\n');
+      let out = '[';
+      for (const [j, it] of read.items.entries()) {
+        const body = rewriteValue(s, it.vs, it.ve, was[j], now[j]);
+        if (oneLine && body.includes('\n')) return pretty(now, pad);
+        out += `${j ? ',' : ''}${it.lead}${body}`;
+      }
+      return `${out}${read.tail}]`;
+    }
+  }
   if (!isObject(was) || !isObject(now) || s[vs] !== '{') return pretty(now, pad);
   const read = readMembers(s, vs);
   if (!read) return pretty(now, pad);

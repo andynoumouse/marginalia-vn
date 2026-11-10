@@ -4,7 +4,7 @@ import { compile, Runtime, NullRenderer, assignIds, successors, buildOutline, pl
 
 const SCRIPT = [
   'label start:',                      // 1
-  '  menu "Quick!" timeout 5:',        // 2
+  '  menu "Quick!" timeout 5s:',        // 2
   '    "Run":',                        // 3
   '      "You run."',                  // 4
   '      jump done',                   // 5
@@ -36,8 +36,8 @@ test('parser: the timeout form compiles to a menu op with a timeout block', () =
   assert.ok(menu.timeout.target > menu.options[1].target);
   assert.ok(menu.end > menu.timeout.target);
   // without a prompt, and with an expression
-  assert.deepEqual(errors(build('label start:\n  menu timeout 8 - 2:\n    "A":\n      end\n    on timeout:\n      end\n')), []);
-  assert.deepEqual(errors(build('label start:\n  set d = 3\n  menu "Go" #ab12 timeout 8 - d:\n    "A":\n      end\n    on timeout:\n      end\n')), []);
+  assert.deepEqual(errors(build('label start:\n  menu timeout (8 - 2)s:\n    "A":\n      end\n    on timeout:\n      end\n')), []);
+  assert.deepEqual(errors(build('label start:\n  set d = 3\n  menu "Go" #ab12 timeout (8 - d)s:\n    "A":\n      end\n    on timeout:\n      end\n')), []);
   // a plain menu has no timeout
   assert.equal(build('label start:\n  menu:\n    "A":\n      end\n').ops.find(o => o.op === 'menu').timeout, null);
 });
@@ -46,26 +46,29 @@ test('parser: the broken forms are errors', () => {
   const opt = '    "A":\n      end\n';
   const block = '    on timeout:\n      end\n';
   const bad = (menu, rest = '') => errors(build(`label start:\n${menu}${rest}`));
-  assert.ok(bad('  menu timeout 5:\n', opt).some(m => /needs an "on timeout:"/.test(m)));
+  assert.ok(bad('  menu timeout 5s:\n', opt).some(m => /needs an "on timeout:"/.test(m)));
   assert.ok(bad('  menu:\n', opt + block).some(m => /needs the menu to have a clock/.test(m)));
-  assert.ok(bad('  menu timeout 5:\n', opt + block + block).some(m => /only one/.test(m)));
-  assert.ok(bad('  menu timeout 5:\n', opt + block + opt).some(m => /last block/.test(m)));
-  assert.ok(bad('  menu timeout 5:\n', block).some(m => /at least one option/.test(m)));
-  assert.ok(bad('  menu timeout 5 +:\n', opt + block).length > 0); // a bad expression
+  assert.ok(bad('  menu timeout 5s:\n', opt + block + block).some(m => /only one/.test(m)));
+  assert.ok(bad('  menu timeout 5s:\n', opt + block + opt).some(m => /last block/.test(m)));
+  assert.ok(bad('  menu timeout 5s:\n', block).some(m => /at least one option/.test(m)));
+  assert.ok(bad('  menu timeout (5 +)s:\n', opt + block).length > 0); // a bad expression
+  assert.ok(bad('  menu timeout 5:\n', opt + block).some(m => /needs its unit: write 5s/.test(m)), 'a bare number is refused');
+  assert.ok(bad('  menu timeout t:\n', opt + block).some(m => /\(8 - difficulty\)s/.test(m)), 'an expression needs brackets and its unit');
+  assert.deepEqual(bad('  menu timeout 1500ms:\n', opt + block), [], 'ms works too');
   assert.ok(bad('  on timeout:\n      end\n').some(m => /only belongs inside/.test(m)));
 });
 
 test('compile: a fixed timeout under 2 seconds warns, 0 (no clock) and variable ones do not', () => {
   const make = t => build(`label start:\n  set d = 1\n  menu timeout ${t}:\n    "A":\n      end\n    on timeout:\n      end\n`);
-  assert.ok(warnings(make('1')).some(m => /too short/.test(m)));
-  assert.deepEqual(warnings(make('2')), []);
-  assert.deepEqual(warnings(make('0')), []);
-  assert.deepEqual(warnings(make('d')), []);
+  assert.ok(warnings(make('1s')).some(m => /too short/.test(m)));
+  assert.deepEqual(warnings(make('2s')), []);
+  assert.deepEqual(warnings(make('0s')), []);
+  assert.deepEqual(warnings(make('(d)s')), []);
 });
 
 test('ids: assigning a prompt id keeps the timeout', () => {
-  const { text } = assignIds('label start:\n  menu "Quick!" timeout 8 - 1:\n    "A":\n      end\n    on timeout:\n      end\n', new Set(), () => 0.3);
-  assert.match(text, /menu "Quick!" #\w{4} timeout 8 - 1:/);
+  const { text } = assignIds('label start:\n  menu "Quick!" timeout (8 - 1)s:\n    "A":\n      end\n    on timeout:\n      end\n', new Set(), () => 0.3);
+  assert.match(text, /menu "Quick!" #\w{4} timeout \(8 - 1\)s:/);
   assert.deepEqual(errors(build(text)), []);
 });
 
@@ -88,7 +91,7 @@ test('runtime: the renderer gets the seconds; an answer past the last option run
 
 test('runtime: seconds are evaluated when the menu is shown; 0 or less means no clock', async () => {
   const mk = t => build(`label start:\n  set d = 3\n  menu timeout ${t}:\n    "A":\n      end\n    on timeout:\n      end\n`);
-  for (const [t, want] of [['8 - d', { seconds: 5 }], ['0', undefined], ['0 - 4', undefined]]) {
+  for (const [t, want] of [['(8 - d)s', { seconds: 5 }], ['0s', undefined], ['(0 - 4)s', undefined]]) {
     const r = new NullRenderer();
     await new Runtime(mk(t), r).start();
     assert.deepEqual(r.timers[0] ?? undefined, want, t);
@@ -179,11 +182,11 @@ test('playtest: the bot takes the timeout; a fixed 0 leaves the block unreachabl
   const r = playtest(build(SCRIPT));
   assert.deepEqual(r.unreachableLines, []);
 
-  const zero = playtest(build(SCRIPT.replace('timeout 5', 'timeout 0')));
+  const zero = playtest(build(SCRIPT.replace('timeout 5s', 'timeout 0s')));
   assert.deepEqual(zero.unreachableLines.map(l => [l.from, l.to]), [[9, 12]]);
 
   // a variable clock may expire, so its block is reachable
-  const dyn = playtest(build(SCRIPT.replace('menu "Quick!" timeout 5', 'set t = 4\n  menu "Quick!" timeout t')));
+  const dyn = playtest(build(SCRIPT.replace('menu "Quick!" timeout 5s', 'set t = 4\n  menu "Quick!" timeout (t)s')));
   assert.deepEqual(dyn.unreachableLines, []);
 });
 

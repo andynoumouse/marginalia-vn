@@ -15,14 +15,17 @@ export interface HelpDoc {
 
 export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
-/** Inline markdown: `code`, **bold**, [text](#anchor | http url). Everything else is plain text. */
+/**
+ * Inline markdown: `code`, **bold**, [text](#anchor | http url). Everything else is plain text. An anchor written for GitHub
+ * (`#parameters--pads--keyforms`, a dash per word and per slash) is folded to the heading id `slug` makes (`parameters-pads-keyforms`).
+ */
 function inline(src: string): string {
   const codes: string[] = [];
   let s = src.replace(/`([^`]+)`/g, (_, c: string) => { codes.push(`<code>${esc(c)}</code>`); return `\u0000${codes.length - 1}\u0000`; });
   s = esc(s)
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\[([^\]]+)\]\((#[\w-]+|https?:\/\/[^)\s]+)\)/g, (_, t: string, u: string) =>
-      u.startsWith('#') ? `<a href="${u}" data-help="${u.slice(1)}">${t}</a>` : `<a href="${u}" target="_blank" rel="noopener">${t}</a>`);
+      u.startsWith('#') ? `<a href="${u}" data-help="${u.slice(1).replace(/-+/g, '-')}">${t}</a>` : `<a href="${u}" target="_blank" rel="noopener">${t}</a>`);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => codes[Number(i)]);
 }
 
@@ -101,14 +104,30 @@ export function helpTopicAt(line: string, column = line.length): string | null {
   return COMMAND_WORD.exec(t)?.[1] ?? null;
 }
 
+/** rig.json's top-level keys and the docs/rig-json.md heading (its slug) that explains each. */
+const RIG_TOPICS: Readonly<Record<string, string>> = {
+  order: 'order', bones: 'bones', parts: 'parts', looks: 'looks', pivots: 'pivots', auto: 'auto', reactions: 'reactions', animations: 'animations',
+  categories: 'parameters-pads-keyforms', parameters: 'parameters-pads-keyforms', pads: 'parameters-pads-keyforms', keyforms: 'parameters-pads-keyforms',
+  deformers: 'deformers', masks: 'masks', poses: 'poses', physics: 'physics',
+};
+/** Keys of a deformer and its mesh other than the skin's: above a line, the nearest of these or `weights` says which section the line is in. */
+const DEFORMER_KEYS = new Set(['id', 'part', 'members', 'box', 'grid', 'mesh', 'verts', 'tris', 'detail', 'keyforms', 'param', 'keys', 'params', 'forms', 'at', 'pts']);
+
 /**
- * The docs/rig-json.md section for a line (0-based) of a rig.json text: the top-level key (`order`, `bones`,
- * `bones`, `parts`, `looks`, `animations`, `pivots`, `idle`, `speak` or `blink`) the line sits under, or null above the first one. Look the key up with `HelpDoc.find`.
+ * The docs/rig-json.md section for a line (0-based) of a rig.json text: the top-level key (`order`, `bones`, `parts`, `looks`,
+ * `animations`, `deformers`, `physics`...) the line sits under, or null above the first one or under an unknown key. A line in a mesh's
+ * `weights` or at its `defaultBone` is `skinning`. Look the key up with `HelpDoc.find`.
  */
 export function rigHelpTopicAt(lines: readonly string[], line: number): string | null {
+  let skin: boolean | undefined; // under deformers: is the nearest deformer key above the line the skin's?
   for (let i = Math.min(line, lines.length - 1); i >= 0; i--) {
-    const m = /^ {0,2}"(order|bones|parts|looks|animations|pivots|idle|speak|blink)"\s*:/.exec(lines[i]);
-    if (m) return m[1];
+    const top = /^ {0,2}"(\w+)"\s*:/.exec(lines[i]);
+    if (top) return top[1] === 'deformers' && skin ? 'skinning' : RIG_TOPICS[top[1]] ?? null;
+    if (skin === undefined) {
+      const key = /^\s*"(\w+)"\s*:/.exec(lines[i])?.[1];
+      if (key === 'weights' || key === 'defaultBone') skin = true;
+      else if (key !== undefined && DEFORMER_KEYS.has(key)) skin = false;
+    }
   }
   return null;
 }

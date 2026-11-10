@@ -3,7 +3,7 @@
 // owns the tabs and the editor and hands the panel what it calls back into (see initSidebar).
 
 import {
-  buildFileTree, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, screenStarter, UI_SCREENS,
+  buildFileTree, groupAssetFiles, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, screenStarter, UI_SCREENS,
   type FileTreeFolder, type LabelEdit, type RigManifest, type UiScreen,
 } from '../engine/src/index.js';
 import { type Mode } from './anim-studio.js';
@@ -544,12 +544,8 @@ export function renderSidebarAssets() {
   const focused = focusedKey(sbAssetsEl);
   const filtering = sbFilter.value.trim() !== '';
   const chars =Object.keys(S.projectAssets.rigs).sort().filter(c => sbMatch(`char/${c}`));
-  const byDir = new Map<string, string[]>();
-  for (const file of S.projectAssets.files) {
-    if (file.endsWith('.gitkeep') || Object.entries(S.projectAssets.rigs).some(([c, r]) => !r.flat && file.startsWith(`char/${c}/`)) || !sbMatch(file)) continue;
-    const [dir, ...rest] = file.split('/');
-    byDir.set(dir, [...(byDir.get(dir) ?? []), rest.join('/')]);
-  }
+  const layered = Object.entries(S.projectAssets.rigs).filter(([, r]) => !r.flat).map(([c]) => c); // shown under Characters
+  const byDir = groupAssetFiles(S.projectAssets.files, layered, sbMatch);
   if (!filtering) for (const dir of S.projectAssets.dirs) if (dir !== 'char' || byDir.has(dir)) byDir.set(dir, byDir.get(dir) ?? []); // empty folders too
   const groups = [...byDir.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([dir, names]) => {
     const d = document.createElement('details');
@@ -563,8 +559,9 @@ export function renderSidebarAssets() {
     ]);
     s.dataset.key = `assets/${dir}/`;
     s.append(Object.assign(document.createElement('span'), { textContent: `${dir} (${names.length})` }), sbIcon(add));
-    names.sort();
-    d.append(s, ...names.map(n => {
+    d.append(s);
+    // A folder's rows are made when it is first open: a closed folder of thousands of files costs one line.
+    const rows = () => names.map(n => {
       const file = `${dir}/${n}`, master = masterOf(file);
       // Converted art is rewritten from its master; a character's rig.json is edited from Characters.
       const fixed = master ? `made from masters/${master}: change the master instead`
@@ -587,8 +584,13 @@ export function renderSidebarAssets() {
         revealItem(`assets/${file}`),
         ...(master ? [revealItem(`masters/${master}`, `${REVEAL} (Master)`)] : []),
       ]);
-    }));
-    d.addEventListener('toggle', () => { if (!filtering) { if (d.open) openDirs.add(dir); else openDirs.delete(dir); } });
+    });
+    let filled = d.open;
+    if (filled) d.append(...rows());
+    d.addEventListener('toggle', () => {
+      if (d.open && !filled) { filled = true; d.append(...rows()); }
+      if (!filtering) { if (d.open) openDirs.add(dir); else openDirs.delete(dir); }
+    });
     return d;
   });
   // Masters the converter has not turned into art yet (it is off, still running, or the PSD failed): listed only while there are some.
@@ -724,9 +726,15 @@ export function setSidebar(show: boolean, remember = true) {
 }
 
 
+/** What the panels and the game.json schema were last drawn from; a sync that brings the same skips the redraw. */
+let drawnFrom = '';
+
 export function setAssets(proj: Project) {
   S.themeTexts = proj.themeTexts ?? {};
   S.themeSheets = proj.themeSheets ?? {};
+  const from = JSON.stringify([proj.assets, proj.masters, proj.assetDirs, proj.scriptDirs, Object.keys(S.themeTexts), Object.keys(S.themeSheets)]);
+  if (from === drawnFrom) return;
+  drawnFrom = from;
   S.scriptDirs = proj.scriptDirs ?? [];
   renderSidebarFiles();
   const assetFiles = proj.assets.map(a => a.file);

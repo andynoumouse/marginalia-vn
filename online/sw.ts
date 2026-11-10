@@ -43,15 +43,18 @@ const mimeOf = (p: string) => MIME[/\.[^./]*$/.exec(p)?.[0].toLowerCase() ?? '']
 
 // ---- live reload: the dev server's Server-Sent Events, per project, debounced like its file watcher ----
 const streams = new Set<{ project: string; push(s: string): void }>();
-const pending = new Map<string, number>();
+const pending = new Map<string, { timer: number; files: Set<string> }>();
 function changed(project: string, type: string, file: string) {
   const k = `${project}\n${type}`;
-  clearTimeout(pending.get(k));
-  pending.set(k, setTimeout(() => {
+  const p = pending.get(k) ?? { timer: 0, files: new Set<string>() };
+  clearTimeout(p.timer);
+  p.files.add(file); // every file named meanwhile, as the dev server sends them
+  pending.set(k, p);
+  p.timer = setTimeout(() => {
     pending.delete(k);
-    const msg = `data: ${JSON.stringify({ type, file })}\n\n`;
+    const msg = `data: ${JSON.stringify({ type, files: [...p.files] })}\n\n`;
     for (const s of streams) if (s.project === project) s.push(msg);
-  }, 120) as unknown as number);
+  }, 120) as unknown as number;
 }
 function events(project: string): Response {
   let entry: { project: string; push(s: string): void };

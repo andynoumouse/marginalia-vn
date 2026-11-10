@@ -114,7 +114,7 @@ function pair(tok: string | undefined, what: string): [number, number] {
 
 export type ElementSyntax =
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string; /** px, default 40 */ font?: number; /** a box this wide (px), the text aligned inside it */ width?: number; align?: 'left' | 'center' | 'right'; /** CSS colour */ color?: string; /** show at most this many lines */ lines?: number }
+  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string; /** px, default 40 */ font?: number; /** a box this wide (px), the text aligned inside it */ width?: number; align?: 'left' | 'center' | 'right'; /** CSS colour */ color?: string; /** show at most this many lines */ lines?: number; /** shrink the font until the text fits `width` in `lines` lines */ fit?: boolean }
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
   /** `value`, `min` and `max` are expression text (no spaces); the parser turns them into expressions. */
   | { kind: 'bar'; x: number; y: number; w: number; h: number; value: string; min: string; max: string; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; readout: boolean }
@@ -138,7 +138,7 @@ export function parseElementLine(t: string, inLayout = false, stage: StageSize =
   if (anim) {
     const problem = animProblem(p.el.kind, anim);
     if (problem) throw new ElementSyntaxError(problem);
-    if (anim.enter?.stagger) throw new ElementSyntaxError('stagger belongs on an each line: each <list> as <name> on enter fade stagger 0.05:');
+    if (anim.enter?.stagger) throw new ElementSyntaxError('stagger belongs on an each line: each <list> as <name> on enter fade stagger 0.05s:');
     p.anim = anim;
   }
   return p;
@@ -216,7 +216,7 @@ function takeClauses(text: string, kind: string) {
 /** Everything the words of an element line gave, for `buildElement`. */
 interface ElementParts {
   kind: string; role: Bind['role'] | null; isSelect: boolean; id: string; bind?: Bind; at: [number, number] | null; size: [number, number] | null;
-  str: ReturnType<typeof elementString>; style?: string; font?: number; width?: number; talign?: 'left' | 'center' | 'right'; color?: string; lines?: number;
+  str: ReturnType<typeof elementString>; style?: string; font?: number; width?: number; talign?: 'left' | 'center' | 'right'; color?: string; lines?: number; fit?: boolean;
   readout: boolean; act: ShellAction | null; actVar: string | null; on: HudHandlers; focus: FocusHints; shape: 'rect' | 'ellipse' | 'poly' | 'mask'; points: [number, number][];
   cursor: string | null; imageFile: string | null; maskFile: string | null; hover: string | null; plain: boolean; fx: HoverFx; tooltip?: string; sub?: string; tip: boolean;
   cond: ParsedElement['cond']; enabled: ParsedElement['enabled']; sets: ParsedElement['sets'];
@@ -224,7 +224,7 @@ interface ElementParts {
 
 /** The element the parts describe, or the error for a part that is missing. */
 function buildElement(f: ElementParts, stage: StageSize): ParsedElement {
-  const { kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, readout, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets } = f;
+  const { kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, fit, readout, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets } = f;
   let { act } = f;
   switch (kind) {
     case 'image':
@@ -232,7 +232,7 @@ function buildElement(f: ElementParts, stage: StageSize): ParsedElement {
     case 'text':
       if (!str) throw new ElementSyntaxError('Use: text at x,y "Text"');
       if (!at) throw new ElementSyntaxError('text needs a position: text at x,y "Text"');
-      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}), ...(font ? { font } : {}), ...(width ? { width } : {}), ...(talign ? { align: talign } : {}), ...(color ? { color } : {}), ...(lines ? { lines } : {}) }, cond, enabled, sets };
+      return { el: { kind, x: at[0], y: at[1], text: str.text, id: str.id, ...(style ? { style } : {}), ...(font ? { font } : {}), ...(width ? { width } : {}), ...(talign ? { align: talign } : {}), ...(color ? { color } : {}), ...(lines ? { lines } : {}), ...(fit ? { fit } : {}) }, cond, enabled, sets };
     case 'slider':
       if (!(id in SLIDER_SETTINGS)) throw new ElementSyntaxError(`slider needs a setting (${Object.keys(SLIDER_SETTINGS).join(', ')}): slider <setting> at x,y [size w,h]`);
       if (!at) throw new ElementSyntaxError(`slider ${id} needs a position: at x,y`);
@@ -299,7 +299,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
   let shape: 'rect' | 'ellipse' | 'poly' | 'mask' = 'rect';
   let id = '';
   let readout = false;
-  let style: string | undefined, color: string | undefined, lines: number | undefined, font: number | undefined, width: number | undefined, talign: 'left' | 'center' | 'right' | undefined;
+  let style: string | undefined, color: string | undefined, lines: number | undefined, font: number | undefined, width: number | undefined, talign: 'left' | 'center' | 'right' | undefined, fit = false;
   const focus: FocusHints = {};
   const on: HudHandlers = {};
   let act: ShellAction | null = null, actVar: string | null = null;
@@ -339,6 +339,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
       lines = Number(toks[++i]);
       if (!Number.isInteger(lines) || lines < 1 || lines > 50) throw new ElementSyntaxError('lines needs a whole number from 1 to 50: lines 2');
     }
+    else if (kind === 'text' && w === 'fit') fit = true;
     else if (kind === 'text' && w === 'color') {
       color = toks[++i] ?? '';
       if (!TINT.test(color) && !/^\[[A-Za-z_][\w.]*\]$/.test(color)) throw new ElementSyntaxError('color needs a color without spaces, like #ff6688, gold or rgba(255,100,100,.9), or [variable] holding one');
@@ -377,7 +378,8 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
     if (kind === 'hotspot' && !size) throw new ElementSyntaxError(`hotspot ${id} inside a row, column or grid needs size w,h`);
     at = [0, 0];
   }
-  return buildElement({ kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, readout, act, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets }, stage);
+  if (fit && !(lines && width)) throw new ElementSyntaxError('fit shrinks the text to its box, so it needs width and lines: width full lines 2 fit');
+  return buildElement({ kind, role, isSelect, id, bind, at, size, str, style, font, width, talign, color, lines, fit, readout, act, actVar, on, focus, shape, points, cursor, imageFile, maskFile, hover, plain, fx, tooltip, sub, tip, cond, enabled, sets }, stage);
 }
 
 /** `n` (all sides), `v,h` or `t,r,b,l` slice or padding, in pixels with no spaces; what a frame's `slice` and `padding` take. */

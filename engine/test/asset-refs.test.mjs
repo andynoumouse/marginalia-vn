@@ -11,8 +11,8 @@ label start:
     image show photo cg/letter
     music play evening loop
     sound play thunder duck
-    sound loop rain fade 2
-    sound stop fade 1
+    sound loop rain fade 2s
+    sound stop fade 1s
     alice "scene bg_park is where we met #ab12"
     scene "[place]"
 screen map:

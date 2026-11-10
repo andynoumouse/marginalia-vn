@@ -34,6 +34,29 @@ function ask(message: string, ok: string, value?: string, safe = false): Promise
   });
 }
 
+/** Ask which of `choices` (button labels, the first one the default) to take: its index, or null when cancelled. */
+export function choiceAsk(message: string, choices: string[]): Promise<number | null> {
+  if (!document.getElementById('askStyle')) document.head.append(Object.assign(document.createElement('style'), { id: 'askStyle', textContent: STYLE }));
+  return new Promise(resolve => {
+    const dlg = Object.assign(document.createElement('dialog'), { className: 'ask' });
+    const buttons = Object.assign(document.createElement('div'), { className: 'buttons' });
+    let result: number | null = null;
+    const cancel = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Cancel' });
+    cancel.addEventListener('click', () => dlg.close());
+    const picks = choices.map((label, i) => {
+      const b = Object.assign(document.createElement('button'), { type: 'button', textContent: label, className: i === 0 ? 'primary' : '' });
+      b.addEventListener('click', () => { result = i; dlg.close(); });
+      return b;
+    });
+    buttons.append(cancel, ...[...picks].reverse()); // the default last, at the right as in the confirm
+    dlg.append(Object.assign(document.createElement('p'), { textContent: message }), buttons);
+    document.body.append(dlg);
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
+    dlg.showModal();
+    picks[0]?.focus();
+  });
+}
+
 /** Ask a yes/no question; the confirming button reads `ok`. `safe` puts the focus on Cancel, so a key typed ahead (Enter, Space) declines: for what cannot be undone. */
 export const confirmAsk = async (message: string, ok = 'OK', safe = false) => (await ask(message, ok, undefined, safe)) === true;
 

@@ -3,8 +3,8 @@
 # opening brace is followed by an invisible zero-width space: the panel then shows the tag as written instead of using it.
 
 label fx_text_tags:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Text tags", "Tags inside a line change how it looks: slant, weight, colour, size, motion, and a small reading above a word.")
   set fx_a_label = "Tag"
   set fx_a1 = "italic"
@@ -43,12 +43,12 @@ label fx_text_tags_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_text_tags_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_text_timing:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Text timing", "Pause the typing, wait for a click mid-line, go on to the next line by itself, or slow the text down.")
   set fx_a_label = "Tag"
   set fx_a1 = "pause"
@@ -61,7 +61,7 @@ label fx_text_timing_loop:
   if act == "fire":
     if fx_pa == 1:
       set fx_fired = "{​pause=0.8}"
-      iris: A pause{pause=0.8} in the middle of a line. #e7l3
+      iris: A pause{pause=0.8s} in the middle of a line. #e7l3
     elif fx_pa == 2:
       set fx_fired = "{​wait}"
       iris: Wait for a click{wait} and the line goes on. #czkm
@@ -76,11 +76,11 @@ label fx_text_timing_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_text_timing_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_nvl:
-  scene bg_reading_room fade 0.4
+  scene bg_reading_room fade 0.4s
   call fx_open("Full-page text", "nvl on gathers lines on one page. nvl clear starts a new page, nvl off goes back to the text box.")
   set fx_a_label = "Page of"
   set fx_a1 = "Narration"
@@ -111,8 +111,8 @@ label fx_nvl_loop:
   return
 
 label fx_menus:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Menus", "A plain menu, a locked option that says why, and a clock that runs out. Brass key: can the locked one open?")
   set fx_a_label = "Menu"
   set fx_a1 = "Plain"
@@ -141,8 +141,8 @@ label fx_menus_loop:
         "Leave it" #d18o:
           iris: Some boxes are best left alone. #exvo
     else:
-      set fx_fired = 'menu "The lamp flickers!" timeout 5:'
-      menu "The lamp flickers!" #rq2m timeout 5:
+      set fx_fired = 'menu "The lamp flickers!" timeout 5s:'
+      menu "The lamp flickers!" #rq2m timeout 5s:
         "Steady it" #vc9p:
           iris: Thank you. The light steadies. #itww
         "Wait" #libm:
@@ -153,7 +153,7 @@ label fx_menus_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_menus_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 set fx_key = 0
@@ -161,8 +161,8 @@ set fx_name = ""
 set fx_n = 1
 
 label fx_input:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Asking a name", "input asks the player for text and keeps it in a variable, cut to a length. The answer can be used in any line.")
   set fx_a_label = "Longest answer"
   set fx_a1 = "6 letters"
@@ -182,12 +182,12 @@ label fx_input_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_input_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_number_formats:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Number formats", "A variable in square brackets shows its value; a format after a colon shapes it.")
   set fx_a_label = "Format"
   set fx_a1 = "plain"
@@ -224,5 +224,5 @@ label fx_number_formats_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_number_formats_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return

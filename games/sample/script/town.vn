@@ -8,8 +8,8 @@ set bread = false
 
 label town_square:
   unlock town_visit
-  scene bg_park_evening fade 0.5
-  show alice neutral at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show alice neutral at center fade 0.4s
   alice: Pick a direction. We have until dark. #jklz
   menu:
     "The bakery smells nice." #lwg2:
@@ -51,7 +51,7 @@ label baker_chat:
   jump town_square
 
 label library:
-  scene bg_park_night dissolve 0.8
+  scene bg_park_night dissolve 0.8s
   "Dust hung in the lamplight." #k1nb
   menu:        
     "Search the shelves." #aq1f:
@@ -95,7 +95,7 @@ label riddle:
   return
 
 label harbor:
-  scene bg_park_evening dissolve 0.8
+  scene bg_park_evening dissolve 0.8s
   "Gulls, rope and the slap of water." #etbk
   menu:
     "Talk to the fisherman." #ogjx:
@@ -139,7 +139,7 @@ label finale_check:
     jump home_early
 
 label good_ending:
-  scene bg_park_night dissolve 1.2
+  scene bg_park_night dissolve 1.2s
   show alice smile
   "Inside was a note: thank you for looking." #pemu
   unlock town_finale

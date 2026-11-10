@@ -5,7 +5,10 @@ compiled together, labels are global, and top-level lines (`define`, `set`, ...)
 the story starts. The story begins at `label start:` (or the first label). Indent with spaces, never tabs.
 Lines starting with `#` are comments. The sample `games/sample/script/demo.vn` uses most of what is below.
 
-Durations are in seconds. Positions are `left` (0.2), `center` (0.5), `right` (0.8), a name from game.json `positions` (e.g. `farleft`) or a number from 0 (left edge) to 1 (right edge).
+Durations carry their unit: `2s`, `0.25s` or `250ms` (`wait 1s`, `move alice to left 0.5s`). A bare number where a duration goes is an
+error, so in `tint #ffcc88 0.5 1s` the 0.5 is the strength and the 1s the time. Choreography times (`0.6s alice: hop`), `{pause=0.5s}` in
+text and `every 3s..6s` on a transform take the unit too; a menu's `timeout` takes `8s`, or an expression in brackets with its unit,
+`timeout (8 - difficulty)s`. Positions are `left` (0.2), `center` (0.5), `right` (0.8), a name from game.json `positions` (e.g. `farleft`) or a number from 0 (left edge) to 1 (right edge).
 Visual commands (everything under "Stage") accept `nowait` to run in the background while the script goes on.
 
 Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) · [Stage](#stage) · [Effects](#effects) ·
@@ -87,7 +90,7 @@ that is not in the theme is a warning and the default look is used.
 A choice. Each option is a quoted string ending in `:` with an indented body. Add `if <condition>` to show an
 option only when the condition holds. Bodies usually end with a `jump`.
 
-`menu "Prompt" style=urgent timeout 5:` shows the choices with the theme's `styles.urgent.choice` (and its `hover`,
+`menu "Prompt" style=urgent timeout 5s:` shows the choices with the theme's `styles.urgent.choice` (and its `hover`,
 `focus` and `disabled` states). `style=` comes after the prompt and its id, before `timeout`.
 
 ```
@@ -109,13 +112,13 @@ menu "What do you say?" #pr01:
   condition hides the option, as before. A menu where nothing can be chosen (all options hidden or disabled) is skipped.
   The recorded answer is the index among the options shown (disabled ones count), the playtest bot only takes enabled ones.
   Like other conditions, `random()`, `pick()` and `chance()` are not allowed in it.
-- **Timed choices:** `menu "Text" timeout 8:` gives the player that many seconds (an expression, evaluated once when the menu is
-  shown, so `timeout 8 - difficulty` works and `random()` is allowed; 0 or less means no clock). It needs one `on timeout:`
+- **Timed choices:** `menu "Text" timeout 8s:` gives the player that long. An expression goes in brackets with its unit after them,
+  `timeout (8 - difficulty)s`; it is evaluated once when the menu is shown, so `random()` is allowed, and 0 or less means no clock. It needs one `on timeout:`
   block as the last block of the menu. The block is never shown as an option; it is what the story does when the clock
   runs out, written as ordinary script:
 
   ```
-  menu "The guard turns around!" timeout 8:
+  menu "The guard turns around!" timeout 8s:
     "Run":
       jump chase
     "Hide behind the crates":
@@ -147,9 +150,9 @@ The next line shows it again, so there is nothing to switch back on. (The player
 the middle mouse button.) Inside a `screen:` block, `textbox off` is the screen setting instead.
 
 ```
-scene sunset fade 1
+scene sunset fade 1s
 textbox hide
-wait 3
+wait 3s
 "We watched it go down."
 ```
 
@@ -180,12 +183,12 @@ Used inside dialogue and narration text.
 | `{wave}..{/wave}`, `{shake}..{/shake}` | animated text (still under Reduce motion) |
 | `{ruby=reading}base{/ruby}` | small reading above the base text |
 | `{speed=0.5}..{/speed}` | typing speed multiplier for the text inside (on top of the character's `speed=` and the player's setting) |
-| `{pause=0.5}` | pause typing for that many seconds |
+| `{pause=0.5s}` | pause typing for that many seconds |
 | `{wait}` | stop until the player clicks, then continue the same line |
 | `{nw}` | go on to the next line without a click once the text is shown |
 
 ```
-alice: A pause{pause=0.6} in the middle.
+alice: A pause{pause=0.6s} in the middle.
 alice: {color=#ff6fa5}Pink{/color}, {size=1.5}big{/size}, {ruby=kan}漢{/ruby}.
 alice: Wait for it... {speed=0.4}slowly{/speed} now.
 alice: Wait for it...{wait} there.
@@ -195,7 +198,7 @@ alice: This line moves on by itself.{nw}
 ## Stage
 
 ### scene
-`scene <background> [transition] [seconds]` replaces the background, removes all shown characters and resets
+`scene <background> [transition] [duration]` replaces the background, removes all shown characters and resets
 `tint`, `camera`, `weather`, `wind`, `gravity` and `filter`. Transitions: `cut` (default), `fade`, `dissolve`,
 `wipe <left|right|up|down>`, `iris` (a circle opening from the middle), `blinds` (twelve vertical slats) and
 `pixelate` (the picture breaks into growing blocks, is swapped, and sharpens again). Background `<name>` is `assets/bg/<name>.png|webp|jpg`.
@@ -205,16 +208,16 @@ pixels last, with a soft edge (the Ren'Py ImageDissolve look). The mask is `asse
 stretched to the stage; `mask=<name>` alone means `dissolve`. A missing mask gives a plain dissolve and a warning.
 
 ```
-scene bg_park_evening fade 0.5
-scene bg_park_night dissolve 1.2
-scene bg_room wipe right 0.8
-scene bg_attic iris 1.0
-scene bg_hall pixelate 0.8
-scene bg_park_night dissolve mask=wipe_clock 0.8
+scene bg_park_evening fade 0.5s
+scene bg_park_night dissolve 1.2s
+scene bg_room wipe right 0.8s
+scene bg_attic iris 1.0s
+scene bg_hall pixelate 0.8s
+scene bg_park_night dissolve mask=wipe_clock 0.8s
 ```
 
 ### show / hide
-`show <char> [look ...] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <seconds>] [slot=variant ...] [pose=<name>[,<name>]]`. For layered
+`show <char> [look ...] [at <position>] [y=] [scale=] [flip=on|off] [anchor=] [order=front|back | behind=<char>] [fade <duration>] [slot=variant ...] [pose=<name>[,<name>]]`. For layered
 (PSD) characters a *look* picks a variant per slot: a name from the character's `rig.json` `looks`, or a variant name or
 tag from the PSD (`show mina smile`), and `slot=variant` overrides one slot (`glasses=none` empties it). Several looks
 may stand on the line and apply left to right, the last winning per slot (`show mina shy casual`); `slot=variant` beats
@@ -222,7 +225,7 @@ every look (see [rig-json.md](rig-json.md#looks)). A look-less show keeps the ch
 character the first word names the image (`show iris smile`). `y=`, `scale=` and `flip=` place the character in the same
 units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
 The **Place in scene** section of the animation studio (Character: Animation Studio, Animate mode) writes the whole line for you: drag the character where it should stand. The line includes the look and slot variants chosen under Look and in the Properties section, and "Insert in script" puts it under the line the cursor was on.
-`hide <char> [fade <seconds>]`.
+`hide <char> [fade <duration>]`.
 
 Characters are drawn in the order they were first shown, the newest in front. `order=front` or `order=back` moves a
 character in front of or behind everyone on stage, and `behind=<char>` puts it just behind that character (nothing
@@ -232,16 +235,16 @@ several are on stage. The editor warns when a character shown without `at` would
 center (unless the `show` has `behind=` or `order=`, which say the overlap is meant).
 
 ```
-show alice smile at left fade 0.3
+show alice smile at left fade 0.3s
 show alice smile at 0.35 y=0.02 scale=1.1
 show alice neutral eyes=closed
 show bob at center behind=alice      # bob steps in, drawn behind alice
 show alice order=back                # alice steps back behind everyone
-hide alice fade 0.3
+hide alice fade 0.3s
 ```
 
 ### move
-`move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=] [flip=on|off] [anchor=] [seconds] [ease=]` slides a character and/or
+`move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=] [flip=on|off] [anchor=] [duration] [ease=]` slides a character and/or
 changes how it is drawn, all together over the seconds (instant when omitted). The changes last until the next
 `move` or until the character is hidden or the scene changes.
 
@@ -256,20 +259,20 @@ changes how it is drawn, all together over the seconds (instant when omitted). T
 - `ease=`: `linear`, `in`, `out`, `inout` (default), `back` (overshoots the end), `bounce`, `elastic`, or your own curve as `bezier(x1,y1,x2,y2)` (the control points of a CSS `cubic-bezier`, written without spaces: `ease=bezier(0.2,0,0.4,1)`; `x1` and `x2` run from 0 to 1, a `y` outside 0 to 1 overshoots). Every `ease=` in the script commands and in `transform` steps takes either form.
 
 ```
-move alice to right 0.6 ease=out
-move alice scale=1.15 y=-0.02 0.3 ease=back
-move alice rot=-6 alpha=0.6 0.5
+move alice to right 0.6s ease=out
+move alice scale=1.15 y=-0.02 0.3s ease=back
+move alice rot=-6 alpha=0.6 0.5s
 move alice flip=on
-move alice rot=15 anchor=head 0.4
+move alice rot=15 anchor=head 0.4s
 show alice at left anchor=center
 ```
 
 ### shake / hop
-`shake <char|screen> [seconds] [strength=8]` and `hop <char> [seconds]`.
+`shake <char|screen> [duration] [strength=8]` and `hop <char> [duration]`. `shake 0.4s`, with a duration first, shakes the screen.
 
 ```
-shake alice 0.3 strength=6
-hop alice 0.25
+shake alice 0.3s strength=6
+hop alice 0.25s
 ```
 
 On a character both are the `shake` and `hop` animations below. `shake` happens once and takes no `loop`; for a
@@ -283,7 +286,7 @@ see [rig-json.md](rig-json.md#poses)); several names after the commas lay over e
 values at once, without a tween, and leaves the parameters it does not name where they are (a new character starts at
 the defaults). For a tween see [animate](#animate).
 
-`animate <char> <name> [seconds] [loop] [strength=1] [part=<part>]` plays a named animation on a character (a preset below, or a
+`animate <char> <name> [duration] [loop] [strength=1] [part=<part>]` plays a named animation on a character (a preset below, or a
 keyframe animation from the character's `rig.json`, see [rig-json.md](rig-json.md)); `animate <char> stop` ends
 its loop. The animation adds to where the character stands (`move`, `show at`), so the two combine. Without `loop`
 it plays once for the seconds (a default for each name) and the script waits for it unless `nowait`. With `loop`
@@ -314,11 +317,11 @@ character and a picture is an error: rename one.
 ```
 animate alice breathe loop
 animate alice nod
-animate alice bounce 1.2 strength=1.5
+animate alice bounce 1.2s strength=1.5
 animate alice stop
 ```
 
-**Poses and parameters.** `animate <char> pose=<name>[,<name>] [<parameter>=<value> ...] [over <seconds>] [ease=<name>]`
+**Poses and parameters.** `animate <char> pose=<name>[,<name>] [<parameter>=<value> ...] [over <duration>] [ease=<name>]`
 tweens a layered character's rig.json parameters (see [rig-json.md](rig-json.md#parameters--pads--keyforms)) from where they are
 to the values of the pose(s) and of the named parameters (written after the poses, so they win). Each parameter moves
 straight from its current value to the target along its own curve: the `ease` of its definition in rig.json, `linear`
@@ -331,9 +334,9 @@ The keyforms turn the values into movement and fading of parts and bones.
 
 ```
 show robo pose=happy
-animate robo look_x=0.6 mouth=0.8 over 0.4
-animate robo pose=sad over 0.5 ease=out
-animate robo pose=face_sad,eyes_wide brow=0.2 over 1 nowait
+animate robo look_x=0.6 mouth=0.8 over 0.4s
+animate robo pose=sad over 0.5s ease=out
+animate robo pose=face_sad,eyes_wide brow=0.2 over 1s nowait
 ```
 
 ### transform
@@ -342,34 +345,34 @@ animate robo pose=face_sad,eyes_wide brow=0.2 over 1 nowait
 
 ```
 transform nervous:
-    rot=-2 0.15
-    rot=2 0.3 ease=inout
-    rot=0 0.15
+    rot=-2 0.15s
+    rot=2 0.3s ease=inout
+    rot=0 0.15s
 
 transform pace:
-    x=0.05 1
-    x=0 1
+    x=0.05 1s
+    x=0 1s
     repeat                      # no count: loops by itself, no `loop` needed
 
 animate alice nervous
 animate alice pace
-animate lantern nervous 1.5 strength=2
+animate lantern nervous 1.5s strength=2
 
 transform arrive:
     parallel:
-        x=0.1 0.6 ease=out          # slides in while ...
+        x=0.1 0.6s ease=out          # slides in while ...
     parallel:
-        alpha=0.4 0.2               # ... it fades up in two stages
-        alpha=1 0.4
-    wait 0.2
-    x=0 0.3
+        alpha=0.4 0.2s              # ... it fades up in two stages
+        alpha=1 0.4s
+    wait 0.2s
+    x=0 0.3s
 ```
 
 Each line is one step:
 
 - A **tween**: any of `x=`, `y=`, `scale=`, `rot=`, `alpha=`, then the seconds and `ease=` (the names of [move](#move)). Every value is **relative to where the sprite stands**, so one transform serves any character or picture at any position: `x=` and `y=` shift by a fraction of the stage's shorter side, `scale=` is a size (1 is as it is, 1.1 is ten percent bigger), `rot=` is degrees, `alpha=` is a factor on its opacity. Two color channels work the same way: `tint=#rrggbb` multiplies the sprite by a color on top of its own `tint=` (`tint=none` is back to white), and `flash=` mixes it toward a color and back, as [flash](#flash) does (`flash=0.8` is 80% white, `flash=#ff0000` all the way to red, `flash=#ff0000:0.8` 80% red; `flash=0` ends it). They are plain numbers and colors, not expressions, and `animate`'s `strength=` scales them. A channel a step does not name holds its value. Without seconds the step happens at once.
-- `wait <seconds>` holds everything where it is.
-- A **preset** by name, `hop`, `nod`, `shake`, `shiver`, `bob`, `sway`, `bounce` or `pulse`, with optional seconds and `strength=` (`hop 0.25 strength=2`), plays on top of where the tweens left things, so "slide in, hop, settle" is three lines. `breathe` is refused: it stretches width and height by different amounts, which a transform cannot express (use `animate <char> breathe loop`).
+- `wait <duration>` holds everything where it is.
+- A **preset** by name, `hop`, `nod`, `shake`, `shiver`, `bob`, `sway`, `bounce` or `pulse`, with optional seconds and `strength=` (`hop 0.25s strength=2`), plays on top of where the tweens left things, so "slide in, hop, settle" is three lines. `breathe` is refused: it stretches width and height by different amounts, which a transform cannot express (use `animate <char> breathe loop`).
 - `parallel:` with an indented block is one **branch**; `parallel:` blocks that follow each other are branches of one step.
   They start together and the step ends with the longest. A channel (`x`, `y`, `scale`, `rot`, `alpha`) may be moved by one
   branch only. A channel holds its value while a branch is waiting or has finished.
@@ -389,17 +392,17 @@ variables. `if <condition>:`, `elif <condition>:` and `else:` blocks play the fi
 ```
 transform react(strength=1):
     if trust > 2:
-        y=-0.03*strength 0.2 ease=out
-        y=0 0.3 ease=bounce
+        y=-0.03*strength 0.2s ease=out
+        y=0 0.3s ease=bounce
     else:
-        rot=-3*strength 0.15
-        rot=0 0.15
+        rot=-3*strength 0.15s
+        rot=0 0.15s
     pick:
         choice:
-            wait 0.2
+            wait 0.2s
         choice:
-            x=0.01 0.1
-            x=0 0.1
+            x=0.01 0.1s
+            x=0 0.1s
 
 animate alice react(2)
 ```
@@ -409,19 +412,19 @@ numbers, so a rollback or a load plays the same branch, and a looping one is kep
 the chosen branch, it does not choose again.
 
 **By itself.** A transform line may say when it runs on its own, as a rig.json [`auto`](rig-json.md#auto) animation does:
-`transform fidget every 4..9 while trust > 2:`. `every <seconds>` (or a range) plays it once, waits a random time within
+`transform fidget every 4s..9s while trust > 2:`. `every <duration>` (or a range) plays it once, waits a random time within
 the range after it ends, and plays again; `while <condition>` loops it for as long as the condition holds; with both, the
 timer only runs while the condition holds. The condition is an expression over the story's variables. Nothing runs until
 the transform is attached to a character or picture:
 
 ```
 transform lean while mood:
-    x=0.01 0.5
-    x=0 0.5
+    x=0.01 0.5s
+    x=0 0.5s
 
-transform glance every 4..9:
-    rot=4 0.15
-    rot=0 0.25
+transform glance every 4s..9s:
+    rot=4 0.15s
+    rot=0 0.25s
 
 animate alice glance auto            # alice looks about now and then
 animate lamp lean auto               # works on a picture too
@@ -437,17 +440,17 @@ Not available yet: `pose=` as a step.
 
 ### choreography / perform
 `choreography <name>:` defines a staged moment for several actors at once, played with `perform <name>`. Each line says when
-(seconds from the start) an actor starts a step: `<seconds> <actor>: <step>`. The actor is a character, a picture shown with
+(seconds from the start) an actor starts a step: `<duration> <actor>: <step>`. The actor is a character, a picture shown with
 `image show`, or `camera`; the step is a tween, a `wait` or a preset, exactly as in a [transform](#transform). Define it at the
 top level of any script (names are global).
 
 ```
 choreography reunion:
-    0.0 alice: x=0.12 0.8 ease=out        # alice slides in ...
-    0.0 bob:   x=-0.12 0.8 ease=out       # ... as bob does
-    0.8 alice: hop
-    1.0 bob:   nod
-    1.4 camera: scale=1.06 0.6 ease=inout # then the view pushes in
+    0.0s alice: x=0.12 0.8s ease=out        # alice slides in ...
+    0.0s bob:   x=-0.12 0.8s ease=out       # ... as bob does
+    0.8s alice: hop
+    1.0s bob:   nod
+    1.4s camera: scale=1.06 0.6s ease=inout # then the view pushes in
 
 perform reunion
 alice: There you are.
@@ -463,17 +466,17 @@ as on an `animate` of its own. A choreography is a list of ordinary animations, 
 load shows the state the parts left (where they stood), as for any one-shot `animate`.
 
 ### wait
-`wait <seconds>` pauses the script.
+`wait <duration>` pauses the script.
 
 ## Effects
 
 ### flash
-`flash [#color] [seconds]` flashes the screen and fades it out (white, 0.4 s by default). `flash <char|picture> [#color] [seconds]` flashes just that character or picture: it goes to the color and fades back (a hit, a magic effect). It is not kept in saves, and reduced motion drops it. A name that is neither a character nor a shown picture does nothing.
+`flash [#color] [duration]` flashes the screen and fades it out (white, 0.4 s by default). `flash <char|picture> [#color] [duration]` flashes just that character or picture: it goes to the color and fades back (a hit, a magic effect). It is not kept in saves, and reduced motion drops it. A name that is neither a character nor a shown picture does nothing.
 
 ```
 flash
-flash #ff3030 0.8
-flash alice #ffffff 0.2
+flash #ff3030 0.8s
+flash alice #ffffff 0.2s
 ```
 
 ### focus
@@ -508,12 +511,12 @@ behaviors on
 ```
 
 ### tint
-`tint <#color> [strength 0-1] [seconds]` washes the scene in a color (strength 0.4 by default; the seconds are
-the fade-in). It lasts until `tint off [seconds]` or the next `scene`.
+`tint <#color> [strength 0-1] [duration]` washes the scene in a color (strength 0.4 by default; the seconds are
+the fade-in). It lasts until `tint off [duration]` or the next `scene`.
 
 ```
-tint #203060 0.5 1.5
-tint off 1
+tint #203060 0.5 1.5s
+tint off 1s
 ```
 
 ### image
@@ -538,33 +541,33 @@ not scale it) and combines with `image move` and animations. Showing the picture
 `image hide` stops it. The video restarts from the beginning after a `scene` (when shown with `keep`), a rollback or a load.
 Its own sound plays, following the Master and Sound sliders, and the music is left alone. Unlike `movie play` it cannot be skipped.
 
-`image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=...]` slides and fades like `move`;
+`image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration] [ease=...]` slides and fades like `move`;
 `image hide <name> [fade s]` removes it. (Inside a `screen:` block, `image` is the screen element instead.)
 
 ```
-image show letter cg/letter at 960,540 anchor=center scale=0.8 fade 0.4
-image move letter to 960,300 scale=1 0.5 ease=out
+image show letter cg/letter at 960,540 anchor=center scale=0.8 fade 0.4s
+image move letter to 960,300 scale=1 0.5s ease=out
 image show frame ui/frame layer=-1 fixed keep
-image hide letter fade 0.3
+image hide letter fade 0.3s
 ```
 
 ### camera
-`camera zoom <factor> [at <position>] [y=0-1] [seconds] [ease=...]` zooms (factor 1 or more) about a point;
-`camera pan <position> [y=0-1] [seconds] [ease=...]` moves that point while keeping the zoom, so the view slides
-(it only shows while zoomed in); `camera roll <degrees> [seconds] [ease=...]` tilts the view about the same point, keeping
+`camera zoom <factor> [at <position>] [y=0-1] [duration] [ease=...]` zooms (factor 1 or more) about a point;
+`camera pan <position> [y=0-1] [duration] [ease=...]` moves that point while keeping the zoom, so the view slides
+(it only shows while zoomed in); `camera roll <degrees> [duration] [ease=...]` tilts the view about the same point, keeping
 zoom and pan (positive turns clockwise; at zoom 1 or more the view zooms in just enough that a tilt, or a shake from
-`animate camera`, never shows the edge of the stage; a zoomed-out camera still shows it); `camera reset [seconds]` goes back, roll included. Resets on `scene`. Pictures can follow the camera
+`animate camera`, never shows the edge of the stage; a zoomed-out camera still shows it); `camera reset [duration]` goes back, roll included. Resets on `scene`. Pictures can follow the camera
 by only a share of it: see `parallax=` under [image](#image).
 
 ```
-camera zoom 1.6 at center y=0.4 1.0 ease=out
-camera pan right 1.5
-camera roll -4 0.8 ease=inout
-camera reset 0.6
+camera zoom 1.6 at center y=0.4 1.0s ease=out
+camera pan right 1.5s
+camera roll -4 0.8s ease=inout
+camera reset 0.6s
 ```
 
 ### burst
-`burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]` lets off a puff of particles once
+`burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [duration]` lets off a puff of particles once
 and goes on at once: it does not hold the script up. `at <character>` puts it at the middle of that character on the screen;
 `at <position>` (a name like `center` or a number 0-1) puts it at that place across the stage, at the height `y=` (0 top, 1 bottom;
 the middle by default). With no `at` it is the middle of the stage. `count=` is how many particles (1 to 500; each kind has its own
@@ -580,35 +583,35 @@ shows none. At most 800 particles are alive at once.
 
 ```
 burst sparkle at alice
-burst confetti at center y=0.3 count=80 3
-burst smoke at right 2
+burst confetti at center y=0.3 count=80 3s
+burst smoke at right 2s
 ```
 
 ### weather
-`weather <rain|snow|petals|embers> [intensity 0-1] [seconds]` lets particles fall (embers rise) over the scene;
+`weather <rain|snow|petals|embers> [intensity 0-1] [duration]` lets particles fall (embers rise) over the scene;
 intensity is how many (0.6 by default) and the seconds are the fade-in. A new kind replaces the old one.
-It lasts until `weather off [seconds]` or the next `scene`, and is kept in saves. Reduced motion shows none.
+It lasts until `weather off [duration]` or the next `scene`, and is kept in saves. Reduced motion shows none.
 
 ```
-weather rain 0.8 2
+weather rain 0.8 2s
 weather snow
-weather off 1.5
+weather off 1.5s
 ```
 
 ### wind
-`wind <right|left> [strength 0-2] [gusts=0-1] [seconds]` blows on the physics chains of every character on stage
+`wind <right|left> [strength 0-2] [gusts=0-1] [duration]` blows on the physics chains of every character on stage
 (hair, ribbons, hems: see [rig.json physics](rig-json.md#physics)). `right` pushes things to the right. Strength is
 0.5 by default, and 1 holds long hair about 10 degrees off; `gusts` is 0 for a steady wind up to 1 for one that
 keeps dying down and swelling (0.4 by default); the seconds are how long the wind takes to build or fall.
-A new `wind` replaces the old one. It lasts until `wind off [seconds]` or the next `scene`, and is kept in saves.
+A new `wind` replaces the old one. It lasts until `wind off [duration]` or the next `scene`, and is kept in saves.
 A chain's `windScale` sets how much of it that chain feels. A character with no physics is not affected, and reduced
 motion keeps the chains at rest. The wind also carries `weather` (petals and snow most, heavy rain less) and `burst`
 particles (smoke and dust most) sideways, and rain streaks slant with it.
 
 ```
-wind right 0.6 gusts=0.4 1.5
+wind right 0.6 gusts=0.4 1.5s
 wind left 1
-wind off 2
+wind off 2s
 ```
 
 ### gravity
@@ -626,31 +629,31 @@ gravity reset
 ```
 
 ### filter
-`filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds]` changes the look of the whole scene
+`filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration]` changes the look of the whole scene
 (strength 1 by default; the seconds are the fade-in). One filter at a time: a new one replaces the old.
-It lasts until `filter off [seconds]` or the next `scene`. It does not touch the text box.
+It lasts until `filter off [duration]` or the next `scene`. It does not touch the text box.
 
 - `glow`: a soft bloom, the bright parts bleeding into their surroundings (a sunset, a lamp, a dream). Around 0.4 to 0.6 is gentle; 1 is strong.
 - `chromatic`: red and blue pulled apart toward the edges of the picture, like a cheap lens (a shock, a drug, a fever).
 - `glitch`: bands of the picture torn sideways with a color split, jumping about twelve times a second (a broken screen, a signal lost). It moves, so reduced motion shows none of it.
 
 ```
-filter sepia 1 0.8
+filter sepia 1 0.8s
 filter night 0.7
-filter off 1
+filter off 1s
 ```
 
 ## Audio
 
 ### music
-`music play <name> [loop] [fade <seconds>]`, `music stop [fade <seconds>]`, `music pause [fade <seconds>]` and
-`music resume [fade <seconds>]`. Tracks are `assets/music/<name>.ogg|mp3|wav|m4a|flac|opus`; music crossfades over
+`music play <name> [loop] [fade <duration>]`, `music stop [fade <duration>]`, `music pause [fade <duration>]` and
+`music resume [fade <duration>]`. Tracks are `assets/music/<name>.ogg|mp3|wav|m4a|flac|opus`; music crossfades over
 `fade` and loops only with `loop`. `pause` fades the track out and remembers where it was; `resume` carries on from there.
 `play` and `stop` end a pause, and `pause` with no music playing does nothing. A pause survives saves, rollback and hot reload.
 
 ```
 music play evening_theme loop
-music stop fade 1
+music stop fade 1s
 ```
 
 ### voice lines
@@ -683,15 +686,15 @@ extension) for the voice actor; tick "Missing only" first to get just what is le
 `sound play <name> [duck]` plays `assets/sound/<name>.*` once. A cue without a file is shown as text in the corner.
 `duck` dips the music under the sound while it plays and eases it back after.
 
-`sound loop <name> [fade <seconds>]` starts a looping sound (rain, a crowd) on its own channel; any number can run
-under the music, and looping the same name twice does nothing. `sound stop [<name>] [fade <seconds>]` ends one looping
+`sound loop <name> [fade <duration>]` starts a looping sound (rain, a crowd) on its own channel; any number can run
+under the music, and looping the same name twice does nothing. `sound stop [<name>] [fade <duration>]` ends one looping
 sound, or all of them without a name. Looping sounds keep running across `scene` (stop them yourself), and are rebuilt
 by saves, rollback and hot reload. While the player skips, fades finish at once and `sound play` stays silent.
 
 ```
-sound loop rain fade 2
+sound loop rain fade 2s
 sound play thunder duck
-sound stop rain fade 3
+sound stop rain fade 3s
 ```
 
 ### movie
@@ -857,7 +860,7 @@ Coordinates are **stage pixels**: 1920x1080 unless game.json `stage` sets anothe
 screen map:
   image "ui/map.png" at 0,0 size 1920,1080       # backdrop (omit to draw over the current scene); `at` and `size` are optional
   text at 80,48 "You carry: [bag]"               # [variables] work; lists show item names
-  text at 0,60 "Big" font 100 width full align center   # `font` is the size in pixels (default 40); `color c` tints it (`color #6b7385`, one word, or `[variable]` holding one) and `style=` takes the colour from the theme; `width` (pixels or `full`, the stage) gives it a box to `align` left, center or right in, and `lines n` cuts it after n lines
+  text at 0,60 "Big" font 100 width full align center   # `font` is the size in pixels (default 40); `color c` tints it (`color #6b7385`, one word, or `[variable]` holding one) and `style=` takes the colour from the theme; `width` (pixels or `full`, the stage) gives it a box to `align` left, center or right in, and `lines n` cuts it after n lines; `fit` (with `width` and `lines`) shrinks the font instead, down to 40 %, until the text fits (the stock title does this for a long game title)
   hotspot cafe at 300,300 size 360,200 "The cafe"            # a rectangle; the label is the tooltip
   hotspot lake ellipse at 900,600 size 440,240 "The lake"
   hotspot station poly 1300,300 1600,260 1680,520 "The station" if visited > 0   # hidden unless the condition holds
@@ -928,8 +931,8 @@ hotspot door mask "ui/door_mask.png" at 800,300 size 200,300 "Door" hover tint r
 `on enter` and `loop` clauses:
 
 ```
-on enter <effect> [seconds] [delay seconds] [stagger seconds]
-loop <effect> [seconds] [strength=1]
+on enter <effect> [duration] [delay seconds] [stagger seconds]
+loop <effect> [duration] [strength=1]
 ```
 
 `on enter` plays when the element first appears: `fade`, `slide left|right|up|down` (it comes in from that side by
@@ -956,7 +959,7 @@ image "ui/new.png" at 1700,90 loop pulse 1.2
 
 The default screens (what the game draws when a project declares none, and what the editor's Edit button copies into the project) carry matching `on enter` and `on exit` clauses to edit or remove.
 
-`on exit <effect> [seconds] [delay s]` takes the same effects, played the other way (`slide left` leaves toward the left). It runs
+`on exit <effect> [duration] [delay s]` takes the same effects, played the other way (`slide left` leaves toward the left). It runs
 when the screen stays up and the element goes away (an `if` turning false, a list losing an entry): a copy of the element,
 inert and unclickable, stays at its old place while the effect plays. It also runs when a screen is dismissed (a Back button, a toast ending), so a closing
 screen's elements can fade or slide out; the game does not wait for it. Elements inside a `scroll` area just disappear. With Reduce motion on they disappear at once. `stagger` is for `on enter` only.
@@ -964,7 +967,7 @@ screen's elements can fade or slide out; the game does not wait for it. Elements
 `on click <label>` is for a HUD (below); a blocking screen ignores it.
 
 `action <name>` on a button or hotspot runs a built-in of the game shell instead of a label: `back`, `history`, `auto`, `skip`,
-`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters`, `achievements` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `tab` and `cycle` (below). The quick menu is a screen named `quickmenu`, shown while a game is being played. Without one in your project the default bar is drawn (the same way); declaring your own replaces it whole
+`qsave`, `qload`, `save`, `load`, `options`, `voice` (hear the current line again) or `hide`; on the title screen also `start`, `continue`, `gallery`, `music`, `chapters`, `achievements` and `quit`, and on the pause menu `resume` and `title` (back to the main menu, after the usual confirmation), and on the options screen `close`, `fullscreen`, `reset` (clears what the player earned, after a confirmation: gallery, music room, chapters, achievements, read text and persistent values; saves stay), `tab` and `cycle` (below). The quick menu is a screen named `quickmenu`, shown while a game is being played. Without one in your project the default bar is drawn (the same way); declaring your own replaces it whole
 (game.json `quickMenu` then only fills in the variables below). Nothing is recorded in saves; Auto and Skip show `aria-pressed` while they are on, so a theme can style them.
 The screen is redrawn before every line like a HUD, so `[variables]`, `if` and `enabled` work. The shell fills in `quick_items` (the buttons game.json `quickMenu.items` lists, in
 order; the replay `voice` button only on a voiced line) and `quick_place` (an anchor place from `quickMenu.position` and `align`, like `topleft` or `bottom`). In `each quick_items as q`, `[q.label]` is

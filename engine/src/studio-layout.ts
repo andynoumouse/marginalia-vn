@@ -1,7 +1,8 @@
 // Layout rules of the animation studio (editor/anim-studio.ts) that need no DOM: its two modes, the collapsible sections of
-// its right-hand column, which of them each mode has and which start open, and the layout the browser keeps between
-// openings. See docs/design/studio-ux.md.
+// its right-hand column, which of them each mode has and which start open, Model's rig strip under the stage, and the layout
+// the browser keeps between openings. See docs/design/studio-ux.md and docs/design/studio-inspector.md.
 import type { DockSpec } from './dock.js';
+import { PROP_BLOCK_IDS, subOpenKey } from './studio-inspector.js';
 
 /**
  * Model: what the character is (parts, bones, pivots, parameters, physics), with the keyforms authored parameter-first as in Live2D
@@ -20,11 +21,8 @@ export const STUDIO_SECTIONS: Record<StudioMode, SectionSpec[]> = {
     { id: 'poses', title: 'Poses', open: false },
     { id: 'params', title: 'Parameters', open: true },
     { id: 'keyforms', title: 'Keyforms', open: true },
+    { id: 'param', title: 'Parameter', open: true },
     { id: 'sel', title: 'Properties', open: true },
-    { id: 'warp', title: 'Warp', open: false },
-    { id: 'mask', title: 'Mask', open: false },
-    { id: 'physics', title: 'Physics', open: false },
-    { id: 'reactions', title: 'Reactions', open: false },
   ],
   animate: [
     { id: 'tree', title: 'Parts', open: true },
@@ -58,8 +56,44 @@ export function dragColumn(side: StudioSide, px: number): { collapsed: true } | 
   return px < range.min * COLLAPSE_SHARE ? { collapsed: true } : { width: Math.round(clamp(px, range.min, range.max)) };
 }
 
-/** What is kept: for each mode, the sections the author opened (true) or closed (false), the sizes the author dragged (both modes) and the columns folded away. */
-export interface StudioLayout { open: Partial<Record<StudioMode, Record<string, boolean>>>; size?: StudioSizes; collapsed?: Partial<Record<StudioSide, true>> }
+/**
+ * What is kept: for each mode, the sections the author opened (true) or closed (false) (Model also the Properties sub-blocks, `sub:<id>`), the
+ * sizes the author dragged (both modes), the columns folded away, and the rig strip's tab and whether it is open (absent: folded on Physics).
+ */
+export interface StudioLayout { open: Partial<Record<StudioMode, Record<string, boolean>>>; size?: StudioSizes; collapsed?: Partial<Record<StudioSide, true>>; rig?: RigStripState }
+
+/**
+ * The rig strip (docs/design/studio-inspector.md, step 5): Model mode's rig-wide setup in tabs under the stage, where Animate has its
+ * transport and timeline. Folded it is its tab row; open, a fixed height whatever the tab holds, so the stage changes size only on a fold.
+ */
+export const RIG_TABS = ['physics', 'reactions'] as const;
+export type RigTab = (typeof RIG_TABS)[number];
+export interface RigStripState { tab: RigTab; open: boolean }
+/** The strip's height in px: its tab row alone (folded), and open (the tab row and the panel under it). */
+export const RIG_STRIP = { folded: 32, open: 240 };
+const RIG_FOLDED: RigStripState = { tab: 'physics', open: false };
+
+/** The strip's tab and open state in `layout`. */
+export const rigStripOf = (layout: StudioLayout): RigStripState => layout.rig ?? RIG_FOLDED;
+
+/** A click on tab `tab`: the open tab folds the strip, any other tab (or any tab of a folded strip) opens it on that tab. */
+export function rigTabClick(layout: StudioLayout, tab: RigTab): StudioLayout {
+  const now = rigStripOf(layout);
+  return withRigStrip(layout, now.open && now.tab === tab ? { tab, open: false } : { tab, open: true });
+}
+
+/** The layout with the strip's state; folded on Physics (the default) is not kept. */
+export function withRigStrip(layout: StudioLayout, state: RigStripState): StudioLayout {
+  const { rig: _was, ...rest } = layout;
+  return state.open || state.tab !== RIG_FOLDED.tab ? { ...rest, rig: { tab: state.tab, open: state.open } } : rest;
+}
+
+/** What the strip shows in `mode`: Model only, its tabs less the ones a host runs the studio without, the tab on show (the first when the kept one is left out), and its height (0 when not shown). */
+export function rigStrip(mode: StudioMode, state: RigStripState, without: readonly string[] = []): { shown: boolean; tabs: RigTab[]; tab: RigTab | null; open: boolean; height: number } {
+  const tabs = RIG_TABS.filter(t => !without.includes(t));
+  if (mode !== 'model' || !tabs.length) return { shown: false, tabs, tab: null, open: false, height: 0 };
+  return { shown: true, tabs, tab: tabs.includes(state.tab) ? state.tab : tabs[0], open: state.open, height: state.open ? RIG_STRIP.open : RIG_STRIP.folded };
+}
 export const NO_LAYOUT: StudioLayout = { open: {} };
 
 /** The layout with a column folded away or brought back. */
@@ -82,7 +116,7 @@ export function readLayout(raw: string | null | undefined): StudioLayout {
       const m = (stored as Record<string, unknown>)[mode];
       if (!m || typeof m !== 'object') continue;
       const kept: Record<string, boolean> = {};
-      for (const s of STUDIO_SECTIONS[mode]) { const v = (m as Record<string, unknown>)[s.id]; if (typeof v === 'boolean') kept[s.id] = v; }
+      for (const id of [...sectionIds(mode), ...(mode === 'model' ? PROP_BLOCK_IDS.map(subOpenKey) : [])]) { const v = (m as Record<string, unknown>)[id]; if (typeof v === 'boolean') kept[id] = v; }
       open[mode] = kept;
     }
   }
@@ -97,8 +131,11 @@ export function readLayout(raw: string | null | undefined): StudioLayout {
   const collapsed: StudioLayout['collapsed'] = {};
   if (folded && typeof folded === 'object') for (const s of ['left', 'right'] as const) if ((folded as Record<string, unknown>)[s] === true) collapsed[s] = true;
   const hasSize = size.left !== undefined || size.right !== undefined || size.split !== undefined, hasFold = Object.keys(collapsed).length > 0;
-  if (!Object.keys(open).length && !hasSize && !hasFold) return NO_LAYOUT;
-  return { open, ...(hasSize ? { size } : {}), ...(hasFold ? { collapsed } : {}) };
+  const r = (data as { rig?: unknown }).rig;
+  const tab = r && typeof r === 'object' ? (r as Record<string, unknown>).tab : undefined, rigOpen = r && typeof r === 'object' ? (r as Record<string, unknown>).open : undefined;
+  const rig = RIG_TABS.includes(tab as RigTab) && typeof rigOpen === 'boolean' ? withRigStrip(NO_LAYOUT, { tab: tab as RigTab, open: rigOpen }).rig : undefined;
+  if (!Object.keys(open).length && !hasSize && !hasFold && !rig) return NO_LAYOUT;
+  return { open, ...(hasSize ? { size } : {}), ...(hasFold ? { collapsed } : {}), ...(rig ? { rig } : {}) };
 }
 
 /** The layout with the sizes `size` put over the ones kept (each clamped to its range). */
@@ -145,11 +182,14 @@ export const STUDIO_ZONES = ['left', 'left2', 'right'] as const;
 const START: Record<(typeof STUDIO_ZONES)[number], string[]> = {
   left: ['poses', 'params', 'tree'],
   left2: [],
-  right: ['keyforms', 'sel', 'warp', 'mask', 'frames', 'physics', 'reactions', 'place'],
+  right: ['keyforms', 'param', 'sel', 'frames', 'place'],
 };
 
+/** Sections added after layouts were first stored: where a stored layout without them gets them (the Parameter section takes Keyforms' place). */
+const AFTER: Record<string, string> = { param: 'keyforms' };
+
 export function studioDockSpec(): DockSpec {
-  return { zones: STUDIO_ZONES, panels: STUDIO_ZONES.flatMap(zone => START[zone].map(id => ({ id, zone }))) };
+  return { zones: STUDIO_ZONES, panels: STUDIO_ZONES.flatMap(zone => START[zone].map(id => ({ id, zone, ...(AFTER[id] ? { after: AFTER[id] } : {}) }))) };
 }
 
 /** The panels `mode` shows: its sections, less the ones a host runs the studio without. */

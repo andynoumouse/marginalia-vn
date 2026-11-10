@@ -50,10 +50,10 @@ define mina "Mina" color=#ff9ec4 blip=high
 define you "You" color=#7cc4ff blip=mid
 
 label start:
-  scene bg_title fade 0.5
-  music play evening_theme loop fade 1
+  scene bg_title fade 0.5s
+  music play evening_theme loop fade 1s
   "A quiet evening. Someone is waiting for you."
-  show mina neutral at center fade 0.3
+  show mina neutral at center fade 0.3s
   mina: You came. I wasn't sure you would.
   you: Sorry I'm late.
 ```
@@ -98,13 +98,13 @@ you, so if you type it instead, leave out the leading spaces; **Shift+Tab** step
 define ren "Ren" color=#9ec4ff blip=low
 
 label start:
-  scene bg_platform fade 0.8
-  music play evening_theme loop fade 2
-  sound loop rain fade 2
+  scene bg_platform fade 0.8s
+  music play evening_theme loop fade 2s
+  sound loop rain fade 2s
   "The last train of the night is twenty minutes late."
   "The platform is empty except for one girl with a red umbrella."
 
-  show mina neutral at center fade 0.4
+  show mina neutral at center fade 0.4s
   mina: You're waiting for the {i}last{/i} train too?
   you: Seems so.
   mina: Then we're stuck with each other. I'm Mina.

@@ -8,7 +8,8 @@
 
 import { NO_OFFSET, type Offset } from './anim.js';
 
-export interface BoneDef { parent?: string; pivot?: [number, number] }
+/** `tip` is where a bone ends, [x, y] in canvas pixels like `pivot`: it moves nothing, it only shapes auto-weights (skin-edit.ts) and the studio's drawing. */
+export interface BoneDef { parent?: string; pivot?: [number, number]; tip?: [number, number] }
 /** A matrix as Pixi writes it: x' = a x + c y + tx, y' = b x + d y + ty. */
 export interface Matrix { a: number; b: number; c: number; d: number; tx: number; ty: number }
 export interface Box { x: number; y: number; w: number; h: number }
@@ -120,22 +121,27 @@ export function placeParts(bones: Record<string, BoneDef>, parts: Record<string,
   return placeRig(bones, parts, offsets, pivotOf, origin, unit).parts;
 }
 
-/** placeParts, and the world matrix of every bone too (what something that follows a bone but is no part, such as a mask polygon, is drawn with). */
-export function placeRig(bones: Record<string, BoneDef>, parts: Record<string, PlacedPart>, offsets: ReadonlyMap<string, Offset>, pivotOf: (part: string) => [number, number] | null, origin: [number, number], unit: number): { parts: Record<string, Matrix>; bones: Record<string, Matrix> } {
+/**
+ * placeParts, and the world matrix of every bone too (what something that follows a bone but is no part, such as a mask polygon, is drawn with).
+ * A part in `skinned` (its mesh has bone weights, docs/design/skinning.md) is drawn with the rest matrix: its bone does not move it, the
+ * weights do. Its own offset is not put on that matrix either but handed back in `keys`, to be applied to its vertices before the skin.
+ */
+export function placeRig(bones: Record<string, BoneDef>, parts: Record<string, PlacedPart>, offsets: ReadonlyMap<string, Offset>, pivotOf: (part: string) => [number, number] | null, origin: [number, number], unit: number, skinned: ReadonlySet<string> = new Set()): { parts: Record<string, Matrix>; bones: Record<string, Matrix>; keys: Record<string, Matrix> } {
   const boxes: Record<string, Box[]> = {};
   for (const [, p] of Object.entries(parts)) if (p.bone !== undefined && Object.hasOwn(bones, p.bone)) (boxes[p.bone] ??= []).push(p.box);
   const pivots = resolvePivots(bones, boxes, origin);
   const world = composeBones(bones, new Map([...offsets].filter(([n]) => !Object.hasOwn(parts, n))), pivots, unit); // a name that is also a part moves the part only
-  const out: Record<string, Matrix> = {};
+  const out: Record<string, Matrix> = {}, keys: Record<string, Matrix> = {};
   for (const [name, p] of Object.entries(parts)) {
     const bone = p.bone !== undefined && Object.hasOwn(bones, p.bone) ? p.bone : undefined;
-    const own = offsets.get(name);
-    const base = bone ? world[bone] : BONE_REST;
+    const own = offsets.get(name), skin = skinned.has(name);
+    const base = bone && !skin ? world[bone] : BONE_REST;
     if (!own) { out[name] = base; continue; }
     const pv = pivotOf(name) ?? (isPoint(p.pivot) ? p.pivot : bone ? pivots[bone] : [p.box.x + p.box.w / 2, p.box.y + p.box.h / 2] as [number, number]);
-    out[name] = mulMatrix(base, offsetMatrix(own, pv, unit));
+    const key = offsetMatrix(own, pv, unit);
+    if (skin) { out[name] = base; keys[name] = key; } else out[name] = mulMatrix(base, key);
   }
-  return { parts: out, bones: world };
+  return { parts: out, bones: world, keys };
 }
 
 /**

@@ -7,6 +7,7 @@ import type { AutoDef } from './auto-anim.js';
 import { evalExpr, ExprError, parseExpr, type Expr, type Value } from './expr.js';
 import type { Rng } from './random.js';
 import { rgbNumber } from './fx.js';
+import { durationOf, isBareNumber, readDuration, unitMessage } from './duration.js';
 import type { Src } from './types.js';
 
 /** A number, or an expression (over the transform's parameters and the script's variables) worked out when `animate` runs. */
@@ -29,14 +30,14 @@ export type TransformStep = TweenStep | WaitStep | PresetStep | ParallelStep | I
 export type TransformRepeat = number | 'forever' | null;
 /** A parameter of `transform name(amount=1):` and the number it has when `animate` gives no argument. */
 export interface TransformParam { name: string; def: number }
-/** `auto`: `transform fidget every 4..9 while trust > 2:` runs by itself on whatever it is attached to (`animate <target> fidget auto`). */
+/** `auto`: `transform fidget every 4s..9s while trust > 2:` runs by itself on whatever it is attached to (`animate <target> fidget auto`). */
 /** One line of a `choreography` block: the step `step` (a tween, a wait or a preset) that `target` starts `at` seconds in. */
 export interface ChoreographyLine { at: number; target: string; step: TweenStep | WaitStep | PresetStep; src: Src }
 export interface ChoreographyDef { name: string; src: Src; lines: ChoreographyLine[] }
 
 export interface TransformDef { name: string; src: Src; params: TransformParam[]; steps: TransformStep[]; repeat: TransformRepeat; auto?: AutoDef }
 
-export const TRANSFORM_USAGE = 'A transform step is: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [seconds] [ease=], wait <seconds>, a preset [seconds] [strength=], parallel:, if <condition>:, pick:, or repeat [times] (last)';
+export const TRANSFORM_USAGE = 'A transform step is: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [duration like 0.5s] [ease=], wait <duration>, a preset [duration] [strength=], parallel:, if <condition>:, pick:, or repeat [times] (last)';
 const MAX_STEPS = 400; // after repeat is unrolled
 
 /** The tween properties a writer types, and the rig key channel each sets. */
@@ -72,16 +73,16 @@ export function parseTransformLine(text: string, src: Src): TransformStep | { re
     return { repeat: Number(rest[0]) };
   }
   if (head === 'wait') {
-    if (rest.length !== 1 || !finite(rest[0]) || Number(rest[0]) < 0) throw new Error('Use: wait <seconds>');
-    return { kind: 'wait', dur: Number(rest[0]), src };
+    if (rest.length !== 1) throw new Error('Use: wait <duration>, like wait 0.5s');
+    return { kind: 'wait', dur: readDuration(rest[0], 'a duration after wait'), src };
   }
   if (ANIM_NAMES.includes(head)) { // a preset: hop 0.25 strength=2
     const step: PresetStep = { kind: 'preset', name: head, dur: ANIMS[head].dur, strength: 1, src };
     let gotDur = false;
     for (const t of rest) {
       if (t.startsWith('strength=')) step.strength = valueOf('strength', t.slice(9));
-      else if (finite(t) && Number(t) > 0 && !gotDur) { step.dur = Number(t); gotDur = true; }
-      else throw new Error(`Use: ${head} [seconds] [strength=1]`);
+      else if ((durationOf(t) ?? 0) > 0 && !gotDur) { step.dur = durationOf(t)!; gotDur = true; }
+      else throw new Error(isBareNumber(t) && !gotDur ? unitMessage(t) : `Use: ${head} [duration like 0.25s] [strength=1]`);
     }
     return step;
   }
@@ -108,11 +109,10 @@ export function parseTransformLine(text: string, src: Src): TransformStep | { re
         if (c) step.flashColor = c;
         any = true;
       } else throw new Error(`Unknown property "${k}" in a transform (x, y, scale, rot, alpha, tint, flash, ease)`);
-    } else if (finite(t) && !gotDur) {
-      if (Number(t) < 0) throw new Error('The seconds of a step cannot be negative');
-      step.dur = Number(t);
+    } else if (durationOf(t) !== null && !gotDur) {
+      step.dur = durationOf(t)!;
       gotDur = true;
-    } else throw new Error(TRANSFORM_USAGE);
+    } else throw new Error(isBareNumber(t) && !gotDur ? unitMessage(t) : TRANSFORM_USAGE);
   }
   if (!any) throw new Error(TRANSFORM_USAGE);
   return step;

@@ -9,7 +9,7 @@ export type StageEvent =
   | { type: 'ready' }
   | { type: 'picked'; x: number; y: number; drag?: string }
   | { type: 'placed'; x: number; y: number }
-  | { type: 'select'; name: string | null; hits: string[]; at: [number, number]; shift: boolean; ctrl: boolean }
+  | { type: 'select'; name: string | null; hits: string[]; at: [number, number]; shift: boolean; ctrl: boolean; alt: boolean }
   | { type: 'gizmo'; phase: 'start' | 'move' | 'end'; name: string; tool: GizmoTool; delta: Offset }
   | { type: 'key'; key: string; ctrl: boolean; shift: boolean }
   | { type: 'warpDrag'; phase: 'start' | 'move' | 'end'; id: string; point: number; delta: [number, number] }
@@ -20,6 +20,9 @@ export type StageEvent =
   | { type: 'maskDrag'; phase: 'start' | 'move' | 'end'; shape: string; point: number; delta: [number, number] }
   | { type: 'maskAdd'; shape: string; index: number; at: [number, number] }
   | { type: 'maskRemove'; shape: string; point: number }
+  | { type: 'weightsPick'; id: string; vertex: number }
+  | { type: 'weightsSelect'; id: string; points: number[]; mode: 'set' | 'add' | 'toggle' }
+  | { type: 'weightsBrush'; phase: 'start' | 'move' | 'end'; id: string; hits: [number, number][] }
   | { type: 'maskBox'; part: string; x: number; y: number; w: number; h: number }
   | { type: 'time'; t: number; playing?: boolean }
   | { type: 'exportReady'; id: number; frames: number; width: number; height: number }
@@ -36,8 +39,24 @@ export class StageBridge {
   private frame: HTMLIFrameElement | null = null;
   private source: StageSource | null = null;
 
+  /** The studio's narrow layout (studio.css): the columns stack and scroll, so the stage is in the way of a wheel that scrolls them. */
+  private narrow = matchMedia('(max-width: 900px)');
+
   constructor(private slot: HTMLElement, private onEvent: (e: StageEvent) => void) {
     window.addEventListener('message', e => this.onMessage(e));
+    this.narrow.addEventListener('change', () => this.postScrolls());
+  }
+
+  /** Tell the stage whether a plain wheel scrolls the column (narrow) or zooms (SA-6). */
+  private postScrolls() { this.post({ type: 'studioScrolls', on: this.narrow.matches }); }
+
+  /** A wheel the stage passed on: scroll the nearest ancestor of the frame that scrolls, as the wheel would anywhere else in the column. */
+  private scrollColumn(dy: number) {
+    for (let p = this.frame?.parentElement; p; p = p.parentElement) {
+      const o = getComputedStyle(p).overflowY;
+      if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) { p.scrollBy({ top: dy }); return; }
+    }
+    document.scrollingElement?.scrollBy({ top: dy });
   }
 
   get mounted() { return this.frame !== null; }
@@ -62,10 +81,11 @@ export class StageBridge {
     if (e.origin !== location.origin || !this.frame || e.source !== this.frame.contentWindow) return;
     const m = e.data as { type?: string; x?: unknown; y?: unknown; t?: unknown; drag?: string; playing?: boolean } | null;
     if (m?.type === 'studioProjectRequest') { if (this.source) this.post({ type: 'studioProject', project: this.source.project() }); }
-    else if (m?.type === 'studioReady') this.onEvent({ type: 'ready' });
+    else if (m?.type === 'studioReady') { this.postScrolls(); this.onEvent({ type: 'ready' }); }
+    else if (m?.type === 'studioWheel' && num((m as { dy?: unknown }).dy)) this.scrollColumn((m as { dy: number }).dy);
     else if (m?.type === 'studioPicked' && num(m.x) && num(m.y)) this.onEvent({ type: 'picked', x: m.x, y: m.y, drag: m.drag });
     else if (m?.type === 'studioPlaced' && num(m.x) && num(m.y)) this.onEvent({ type: 'placed', x: m.x, y: m.y });
-    else if (m?.type === 'studioSelect') this.onEvent({ type: 'select', name: typeof (m as { name?: unknown }).name === 'string' ? (m as { name: string }).name : null, hits: Array.isArray((m as { hits?: unknown }).hits) ? (m as { hits: unknown[] }).hits.filter((h): h is string => typeof h === 'string') : [], at: Array.isArray((m as { at?: unknown }).at) && num((m as { at: unknown[] }).at[0]) && num((m as { at: unknown[] }).at[1]) ? [(m as { at: number[] }).at[0]!, (m as { at: number[] }).at[1]!] : [0, 0], shift: (m as { shift?: unknown }).shift === true, ctrl: (m as { ctrl?: unknown }).ctrl === true });
+    else if (m?.type === 'studioSelect') this.onEvent({ type: 'select', name: typeof (m as { name?: unknown }).name === 'string' ? (m as { name: string }).name : null, hits: Array.isArray((m as { hits?: unknown }).hits) ? (m as { hits: unknown[] }).hits.filter((h): h is string => typeof h === 'string') : [], at: Array.isArray((m as { at?: unknown }).at) && num((m as { at: unknown[] }).at[0]) && num((m as { at: unknown[] }).at[1]) ? [(m as { at: number[] }).at[0]!, (m as { at: number[] }).at[1]!] : [0, 0], shift: (m as { shift?: unknown }).shift === true, ctrl: (m as { ctrl?: unknown }).ctrl === true, alt: (m as { alt?: unknown }).alt === true });
     else if (m?.type === 'studioGizmoDrag') {
       const g = m as unknown as { phase: 'start' | 'move' | 'end'; name: string; tool: GizmoTool; delta: Offset };
       this.onEvent({ type: 'gizmo', phase: g.phase, name: g.name, tool: g.tool, delta: g.delta });
@@ -85,6 +105,16 @@ export class StageBridge {
     } else if (m?.type === 'studioAlphaData') {
       const g = m as unknown as { id: unknown; part: unknown; w: unknown; h: unknown; alpha: unknown };
       if (num(g.id) && typeof g.part === 'string' && num(g.w) && num(g.h)) this.onEvent({ type: 'alpha', id: g.id, part: g.part, w: g.w, h: g.h, alpha: g.alpha instanceof Uint8Array ? g.alpha : null });
+    } else if (m?.type === 'studioWeightsPick') {
+      const g = m as unknown as { id: unknown; vertex: unknown };
+      if (typeof g.id === 'string' && Number.isInteger(g.vertex)) this.onEvent({ type: 'weightsPick', id: g.id, vertex: g.vertex as number });
+    } else if (m?.type === 'studioWeightsSelect') {
+      const g = m as unknown as { id: unknown; points: unknown; mode: unknown };
+      if (typeof g.id === 'string' && Array.isArray(g.points) && g.points.every(Number.isInteger) && (g.mode === 'set' || g.mode === 'add' || g.mode === 'toggle')) this.onEvent({ type: 'weightsSelect', id: g.id, points: g.points as number[], mode: g.mode });
+    } else if (m?.type === 'studioWeightsBrush') {
+      const g = m as unknown as { phase: unknown; id: unknown; hits: unknown };
+      const hits = Array.isArray(g.hits) ? g.hits.filter((h): h is [number, number] => Array.isArray(h) && h.length === 2 && Number.isInteger(h[0]) && num(h[1])) : [];
+      if (typeof g.id === 'string' && (g.phase === 'start' || g.phase === 'move' || g.phase === 'end')) this.onEvent({ type: 'weightsBrush', phase: g.phase, id: g.id, hits });
     } else if (m?.type === 'studioMaskDrag') {
       const g = m as unknown as { phase: 'start' | 'move' | 'end'; shape: string; point: number; delta: unknown };
       if (typeof g.shape === 'string' && Number.isInteger(g.point) && Array.isArray(g.delta) && g.delta.every(num)) this.onEvent({ type: 'maskDrag', phase: g.phase, shape: g.shape, point: g.point, delta: [g.delta[0], g.delta[1]] });

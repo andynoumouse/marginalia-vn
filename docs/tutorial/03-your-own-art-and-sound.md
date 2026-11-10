@@ -25,7 +25,7 @@ A picture you name but have not made yet is drawn as a placeholder, so the story
    landed. Dropped on the **assets** heading, files are sorted by type: images go to `assets/bg/`, sounds to
    `assets/music/`, fonts to `assets/fonts/`. Dropped on a folder's own row, they go into that folder.
 3. Name it for what it shows, such as `bg_platform.png`, in `assets/bg/`.
-4. Use it: `scene bg_platform fade 0.8`.
+4. Use it: `scene bg_platform fade 0.8s`.
 
 Dragging is not the only way. Hover over the **assets** heading or a folder row and its icons appear: **Add files**
 opens the file picker and **New folder** makes a folder, such as one for a new character.
@@ -46,7 +46,7 @@ assets/char/mina/smile.png
 assets/char/ren/neutral.png
 ```
 
-then `show mina smile at center fade 0.3`. Show the character again with another pose name to swap the picture. Keep
+then `show mina smile at center fade 0.3s`. Show the character again with another pose name to swap the picture. Keep
 the feet near the bottom of the image and use transparent PNGs. The template's silhouettes use the same names, so
 you can paint over them.
 
@@ -60,10 +60,10 @@ Drop an `.ogg` or `.mp3` into `assets/music/` or `assets/sound/`. A sound droppe
 The Last Train uses:
 
 ```vn
-  music play evening_theme loop fade 2
-  sound loop rain fade 2
+  music play evening_theme loop fade 2s
+  sound loop rain fade 2s
   sound play thunder duck
-  sound stop rain fade 3
+  sound stop rain fade 3s
 ```
 
 - `music` crossfades over `fade` and repeats only with `loop`.

@@ -35,7 +35,7 @@ export type HudEvent = typeof HUD_EVENTS[number];
 /** The label each event of an element calls. */
 export type HudHandlers = Partial<Record<HudEvent, string>>;
 /** Built-in actions an element can trigger with `action <name>` (the quick menu's and the title screen's buttons); the shell runs them, the script does not see them. */
-export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice', 'line', 'remove', 'rename', 'select', 'choose'] as const;
+export const SHELL_ACTIONS = ['back', 'history', 'auto', 'skip', 'qsave', 'qload', 'save', 'load', 'options', 'hide', 'start', 'continue', 'quit', 'resume', 'title', 'close', 'fullscreen', 'reset', 'tab', 'cycle', 'slot', 'page', 'delete', 'gallery', 'tile', 'music', 'track', 'stop', 'chapters', 'chapter', 'achievements', 'next', 'prev', 'voice', 'line', 'remove', 'rename', 'select', 'choose'] as const;
 export type ShellAction = typeof SHELL_ACTIONS[number];
 /** Reserved screen name: when a project declares it, the shell draws it in place of the default quick menu bar. */
 export const QUICKMENU_SCREEN = 'quickmenu';
@@ -129,7 +129,7 @@ export const DEFAULT_SLICE: Sides = [32, 32, 32, 32];
 interface Common { src: Src; cond: Expr | null; anim?: ElementAnim }
 export type ScreenNode = Common & (
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string; /** px, default 40 */ font?: number; /** a box this wide (px), the text aligned inside it */ width?: number; align?: 'left' | 'center' | 'right'; /** CSS colour */ color?: string; /** show at most this many lines */ lines?: number }
+  | { kind: 'text'; x: number; y: number; text: string; id: string | null; style?: string; /** px, default 40 */ font?: number; /** a box this wide (px), the text aligned inside it */ width?: number; align?: 'left' | 'center' | 'right'; /** CSS colour */ color?: string; /** show at most this many lines */ lines?: number; /** shrink the font until the text fits `width` in `lines` lines */ fit?: boolean }
   /** A range input bound to a player setting (options screen). */
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean }
   | { kind: 'hotspot'; id: string; shape: Shape; label: string; labelId: string | null; enabled: Expr | null; cursor: string | null; hover: string | null; plain: boolean; fx: HoverFx; tip: boolean; focus: FocusHints; on: HudHandlers; act: ShellAction | null; sets?: LocalSets; /** elements shown with it, in stage coordinates: the group stays active while any of them is */ body?: ScreenNode[] }
@@ -206,7 +206,7 @@ export function screenParams(def: ScreenDef | undefined, args: Expr[] | undefine
 export type ViewPart = (
   | { kind: 'scroll'; /** the number its children carry in `area` */ index: number; x: number; y: number; w: number; h: number; start: 'top' | 'bottom'; bar: boolean; contentH: number }
   | { kind: 'image'; file: string; x: number; y: number; w: number | null; h: number | null }
-  | { kind: 'text'; x: number; y: number; text: string; style?: string; font?: number; width?: number; align?: 'left' | 'center' | 'right'; color?: string; lines?: number }
+  | { kind: 'text'; x: number; y: number; text: string; style?: string; font?: number; width?: number; align?: 'left' | 'center' | 'right'; color?: string; lines?: number; fit?: boolean }
   | { kind: 'slider'; setting: string; x: number; y: number; w: number; h: number; readout: boolean; min: number; max: number; step: number; value: number; /** what a screen reader calls it: the text beside it (see `nameParts`) */ name?: string }
   | { kind: 'panel'; x: number; y: number; w: number; h: number; file: string | null; slice: Sides; edge: FrameEdge; color?: string }
   | { kind: 'bar'; x: number; y: number; w: number; h: number; back: string | null; fill: string | null; slice: Sides | null; edge: FrameEdge; padding: Sides; color: string | null; value: number; min: number; max: number; /** 0..1 */ fraction: number; /** "37 / 100" with `readout` */ readout: string | null }
@@ -413,7 +413,7 @@ export function resolveScreen(def: ScreenDef, scope: Vars, env: ScreenEnv): Scre
           parts.push(mark(n, { kind: 'image', file: env.text(null, n.file, vars), x: n.x + ox, y: n.y + oy, w: n.w, h: n.h }));
           break;
         case 'text':
-          parts.push(mark(n, { kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars), ...(n.style ? { style: n.style } : {}), ...(n.font ? { font: n.font } : {}), ...(n.width ? { width: n.width } : {}), ...(n.align ? { align: n.align } : {}), ...(n.color ? textColor(n.color, env, vars) : {}), ...(n.lines ? { lines: n.lines } : {}) }));
+          parts.push(mark(n, { kind: 'text', x: n.x + ox, y: n.y + oy, text: env.text(n.id, n.text, vars), ...(n.style ? { style: n.style } : {}), ...(n.font ? { font: n.font } : {}), ...(n.width ? { width: n.width } : {}), ...(n.align ? { align: n.align } : {}), ...(n.color ? textColor(n.color, env, vars) : {}), ...(n.lines ? { lines: n.lines } : {}), ...(n.fit ? { fit: true } : {}) }));
           break;
         case 'slider': {
           const r = SLIDER_SETTINGS[n.setting as keyof typeof SLIDER_SETTINGS] ?? SLIDER_SETTINGS.master;

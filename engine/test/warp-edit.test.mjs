@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addDeformer, checkDeformers, deformerOf, deleteWarpKey, dragWarpPoint, evalDeformer, latticeEdges, mirrorWarp, ownDisplacement, pickPoint,
+  addDeformer, addWarpKey, pasteWarpForm, checkDeformers, deformerOf, deleteWarpKey, dragWarpPoint, evalDeformer, latticeEdges, mirrorWarp, ownDisplacement, pickPoint,
   removeDeformer, replaceDeformer, resetWarpPoint, resizeWarp, setWarpOwn, smoothWarp, warpKeyAt, warpKeyValues, warpPreset, WARP_PRESETS,
-  averageDisplacement, combineSelection, invertSelection, moveWarpPoints, softWeights, transformWarpPoints, warpAllPoints, warpColumn, warpRow,
+  averageDisplacement, combineSelection, invertSelection, moveWarpPoints, softWeights, transformWarpPoints, warpAllPoints, warpColumn, warpRow, groupBones,
 } from '../../dist/engine/src/index.js';
 
 const near = (a, b, eps = 1e-5) => assert.ok(Math.abs(a - b) <= eps, `${a} is not ${b}`);
@@ -119,6 +119,31 @@ test('delete key removes the key the value selects and the keyform with its last
   assert.deepEqual(one.keyforms[0].keys, [{ at: 0 }]);
   assert.equal(deleteWarpKey(def, sway, 0.5), def, 'no key there');
   assert.deepEqual(deleteWarpKey(one, sway, 0).keyforms, []);
+});
+
+test('add key holds the shape the keyform gives at the value, so the curve stays; no keyform yet: rest at the default too', () => {
+  const def = deformer([{ param: 'sway', keys: [{ at: 0 }, { at: 1, pts: { 4: [0.02, 0] } }] }]);
+  const mid = addWarpKey(def, sway, 0.5);
+  assert.deepEqual(mid.keyforms[0].keys, [{ at: 0 }, { at: 0.5, pts: { 4: [0.01, 0] } }, { at: 1, pts: { 4: [0.02, 0] } }]);
+  for (const v of [0.25, 0.75]) nearAll(ownDisplacement(mid, sway, v), ownDisplacement(def, sway, v));
+  assert.equal(addWarpKey(def, sway, 0.99), def, 'a key within reach is there already');
+  assert.deepEqual(addWarpKey(deformer(), turn, 1).keyforms, [{ param: 'turn', keys: [{ at: 0 }, { at: 1 }] }]);
+  assert.deepEqual(addWarpKey(deformer(), turn, 0).keyforms, [{ param: 'turn', keys: [{ at: 0 }] }]);
+});
+
+test('paste form writes a copied shape at the value, mirrored sideways on a lattice; a mismatch or a mesh mirror changes nothing', () => {
+  const def = deformer([{ param: 'sway', keys: [{ at: 0 }, { at: 1, pts: { 0: [0.01, 0.02], 4: [0.03, 0] } }] }]);
+  const copied = ownDisplacement(def, sway, 1);
+  const half = pasteWarpForm(def, sway, 0.5, copied);
+  assert.deepEqual(half.keyforms[0].keys.map(k => k.at), [0, 0.5, 1], 'a new key between');
+  nearAll(ownDisplacement(half, sway, 0.5), copied);
+  const flipped = pasteWarpForm(def, sway, 1, copied, true);
+  assert.deepEqual(flipped.keyforms[0].keys[1].pts, { 2: [-0.01, 0.02], 4: [-0.03, 0] }, 'column 0 goes to column 2; the middle column stays, dx flipped');
+  assert.equal(pasteWarpForm(def, sway, 1, copied), def, 'the same shape: nothing changes');
+  assert.equal(pasteWarpForm(def, sway, 1, copied.slice(2)), def, 'another point count');
+  const mesh = { id: 'm', part: 'p', mesh: { verts: [0, 0, 10, 0, 0, 10], tris: [0, 1, 2] }, keyforms: [{ param: 'sway', keys: [{ at: 0 }, { at: 1 }] }] };
+  assert.equal(pasteWarpForm(mesh, sway, 1, [0.01, 0, 0, 0, 0, 0], true), mesh, 'a mesh is not mirrored');
+  assert.deepEqual(pasteWarpForm(mesh, sway, 1, [0.01, 0, 0, 0, 0, 0]).keyforms[0].keys[1].pts, { 0: [0.01, 0] });
 });
 
 test('setWarpOwn takes several points at once', () => {
@@ -409,4 +434,12 @@ test('members from a bone are the parts on it and the bones below, in the parts 
   const shapes = { lids: { bone: 'head' }, lip: { bone: 'jaw' }, loose: {}, lost: { bone: 'nope' } };
   assert.deepEqual(membersFromBone(bones, parts, 'head', shapes), ['face', 'mouth', 'eyes', 'lids', 'lip'], 'shapes on the bone and below follow the parts');
   assert.deepEqual(membersFromBone(bones, parts, 'jaw', shapes), ['mouth', 'lip']);
+});
+
+test('groupBones: the bones a group warp\'s members sit on, in member order, without skinned meshes', () => {
+  const boneOf = m => ({ upper: 'arm_r', lower: 'forearm_r', hand: 'forearm_r', skirt: undefined, lid: 'head' })[m];
+  assert.deepEqual(groupBones(['upper', 'lower', 'hand'], boneOf), ['arm_r', 'forearm_r'], 'a group from arm_r takes forearm_r\'s parts too');
+  assert.deepEqual(groupBones(['lower', 'hand'], boneOf), ['forearm_r']);
+  assert.deepEqual(groupBones(['upper', 'skirt'], boneOf), ['arm_r', ''], 'a part on no bone counts as one more');
+  assert.deepEqual(groupBones(['upper', 'lower'], boneOf, m => m === 'lower'), ['arm_r'], 'a skinned mesh follows its weights, not its bone');
 });

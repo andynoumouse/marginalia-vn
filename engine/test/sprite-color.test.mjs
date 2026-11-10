@@ -49,7 +49,7 @@ test('ease=bezier(...): accepted in scripts and transforms, evaluated as a cubic
   assert.ok(straight > 0.49 && straight < 0.51, 'a straight line is linear');
   assert.match(easeProblem('bezier(2,0,0.4,1)'), /x1 and x2 from 0 to 1/);
   assert.match(easeProblem('wobble'), /Unknown ease "wobble"/);
-  const text = ['transform t:', '    x=0.1 0.5 ease=bezier(0.2,0,0.4,1)', '    x=0 0.5 ease=bezier(9,0,0,0)', 'label start:', '  "hi"', ''].join('\n');
+  const text = ['transform t:', '    x=0.1 0.5s ease=bezier(0.2,0,0.4,1)', '    x=0 0.5s ease=bezier(9,0,0,0)', 'label start:', '  "hi"', ''].join('\n');
   const p = compile([{ file: 't.vn', text }]);
   const errors = p.diagnostics.filter(d => d.severity === 'error');
   assert.equal(errors.length, 1, JSON.stringify(errors));

@@ -162,6 +162,13 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
           f.name === S.active ? 'current' : ''].filter(Boolean).join('  '),
         run: () => h.activate(f.name),
       }));
+      // Plain "studio" (or a rigged character's name) reaches the animation studio from here too (UX round ES-2).
+      const word = q.trim().toLowerCase();
+      if (word) {
+        const chars = Object.keys(S.projectAssets.rigs).sort();
+        if (/^(studio|anim|model|rig)/.test(word)) for (const c of chars) items.push({ label: `Animation studio: ${c}`, detail: 'character', run: () => h.openAnimStudio(c) });
+        else for (const { entry: c, hits } of rank(chars, q, c => c)) items.push({ label: c, hits, detail: 'Animation studio', run: () => h.openAnimStudio(c) });
+      }
       const base = h.newFileBase(q);
       if (base && !files.has(`${base}.vn`) && !files.has(q.trim())) {
         items.push({ label: `Create ${base}.vn`, className: 'create', run: () => void h.newFile(base) });

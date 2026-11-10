@@ -5,7 +5,7 @@
 // project data from project.json instead of the dev server, no live reload.
 
 import { initDebug } from './debug.js';
-import { attachPreloads, quickMenuSettings, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeSplash, Runtime, stageSize, titleFade, fitScale, stageInsets, needsRotate, touchSettings, barBoost, boostOrigin, resolveTouch, textFloor, TOUCH_MIN_CSS, classifyStroke, stillForLongPress, LONG_PRESS_MS, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
+import { attachPreloads, uncuedSounds, quickMenuSettings, crashReport, sceneAt, memoryBudget, sourceLanguage, voiceLanguages, resolveVoiceLanguage, residencyReport, captionTable, scriptsVersion, unpackProgram, type ProgramFile, type Program, checkAssets, checkGame, achievementItems, achievementProblems, achievementToastSettings, achievementToToast, speakerFocusSettings, sideImageSettings, normalizeAchievements, compile, Locale, musicItems, namedAnchors, namedPositions, normalizeSplash, Runtime, stageSize, titleFade, fitScale, stageInsets, needsRotate, touchSettings, barBoost, boostOrigin, resolveTouch, textFloor, TOUCH_MIN_CSS, classifyStroke, stillForLongPress, LONG_PRESS_MS, type Diagnostic, type MusicItem, type DisplayState, type RigManifest, type Src } from '../engine/src/index.js';
 import { AchievementQueue } from './achievement-queue.js';
 import { SaveCapture } from './save-capture.js';
 import { QuickActions } from './quick-actions.js';
@@ -141,6 +141,7 @@ try {
 }
 // The dev preview lets browser tests read the stage (the characters' draw order, tint and bounds); an export does not.
 if (devMode) (window as unknown as { vnStage: () => unknown }).vnStage = () => renderer.stageSnapshot();
+if (devMode) (window as unknown as { vnParts: (char: string) => unknown }).vnParts = (char: string) => renderer.partBounds(char);
 // Saves and settings are kept per game, so the id must be known before anything reads them.
 setGameId(gameId(firstProject?.game ?? {}));
 const settings = loadSettings();
@@ -430,6 +431,8 @@ const menus = new Menus(settings, {
     if (s) resumeSave(s, () => void enterGame(rt => rt.restore(s.at, s.choices, s.screen), s));
   },
   rollbackTo: n => rollbackTo(n),
+  toast: (key, detail) => toast(key, detail),
+  resetProgress: () => { for (const s of [imagesSeen, tracksHeard, labelsReached, unlocked, optionsTaken]) s.clear(); persistent.clear(); seen.clear(); },
   hasVoice: id => renderer.hasVoice(id),
   playVoice: id => renderer.playVoice(id),
   galleryItems,
@@ -651,7 +654,7 @@ async function load() {
   applyGame(proj.assets ?? []);
 
   renderer.characters = program.characters;
-  await renderer.preload(proj.assets ?? [], proj.rigs);
+  await renderer.preload(proj.assets ?? [], proj.rigs, uncuedSounds(program, game));
   if (stale()) return;
   const index = {
     files: (proj.assets ?? []).map(a => a.file),
@@ -771,7 +774,8 @@ renderer.onLineShown = line => { lastLine = line; };
 renderer.onBackground = name => { if (scene === 'playing') imagesSeen.add(name); };
 renderer.onMusic = name => { if (scene === 'playing') tracksHeard.add(name); };
 if (embedded) $('ended').dataset.dev = 'true'; // the editor's preview: a click starts over, and the words are the author's
-renderer.onEnded = () => { if (embedded) void runtime?.start(); else void showTitle(); };
+renderer.onEnd = () => showQuick(false); // "The End" stands alone: no Skip or Auto over it (UX round PC-4)
+renderer.onEnded = () => { if (embedded) { showQuick(true); void runtime?.start(); } else void showTitle(); };
 
 // ---- input ----
 // The first gesture anywhere unlocks audio (browsers block it until then).
@@ -981,6 +985,9 @@ watchGamepad(handleAction, () => uiRoot() !== null, s => {
 
 let ctrlSkip = false;
 window.addEventListener('keydown', e => {
+  // The studio's stage plays no game: its keys are the gizmo's (studio-gizmo.ts), which hands the studio the rest. Tab, Esc and Space
+  // taken here as skip, menu and advance would keep the keyboard in the stage.
+  if (studioChar !== null) return;
   const dir = ({ ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' } as Record<string, Action>)[e.key];
   // The on-screen keyboard hides once real typing starts; arrows, Enter, Space and modifiers (sent by pads that
   // emulate a keyboard, or used to drive the on-screen keys) leave it alone.

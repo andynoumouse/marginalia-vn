@@ -201,6 +201,7 @@ export function initScreenSync(host: ScreenSyncHost) {
     const act = item?.act;
     if (act === 'close') menus.closeOptions();
     else if (act === 'fullscreen') menus.toggleFullscreen();
+    else if (act === 'reset') menus.resetProgress();
     else if (act === 'tab') menus.setTab(item!.id);
     else if (act === 'cycle') menus.cycle(item!.id);
     else if (act === 'select') menus.toggleSelect(item!.id);

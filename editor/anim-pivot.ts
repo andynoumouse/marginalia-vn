@@ -1,8 +1,10 @@
-// The Pivot row of the animation studio: the pivot of the chosen part or bone as two fields, picking it on the stage,
-// clearing it, and giving other parts the same pivot. The studio keeps the working copy; this works through `PivotHost`.
+// The Pivot row of the animation studio (Properties, Transform): the pivot of the chosen part or bone as two fields; and, in the tool options bar with the
+// Pivot tool (Q, which is the pick on the stage), clearing it and giving other parts the same pivot. The studio keeps the working copy;
+// this works through `PivotHost`.
 
-import type { Pivots } from '../engine/src/index.js';
+import type { Pivots, SetView } from '../engine/src/index.js';
 import { el } from './anim-dom.js';
+import { Popover } from './studio-popover.js';
 
 export interface PivotState {
   /** The part or bone chosen. */
@@ -16,13 +18,13 @@ export interface PivotState {
   pivots: Pivots;
   /** Every part of the character. */
   parts: string[];
+  /** A Ctrl-click set: the fields show the pivot its parts share (blank when they differ), and a pivot typed is set on all of them. */
+  set: SetView | null;
 }
 
 export interface PivotHost {
   state(): PivotState;
-  /** Start or stop picking on the stage. */
-  setPicking(on: boolean): void;
-  /** Set the chosen part's pivot as one undo step. */
+  /** Set the chosen part's pivot (a set's: every part's) as one undo step. */
   setPivot(at: [number, number]): void;
   /** Clear it (ends picking first). */
   clear(): void;
@@ -33,59 +35,57 @@ export interface PivotHost {
 export class PivotPanel {
   private name: HTMLElement;
   private hint: HTMLElement;
-  private pickBtn: HTMLButtonElement;
   private fields: Record<'x' | 'y', HTMLInputElement>;
   private clearBtn: HTMLButtonElement;
   private shareBtn: HTMLButtonElement;
   private shareBox: HTMLElement;
+  private share: Popover;
 
-  constructor(root: HTMLElement, private host: PivotHost) {
+  /** `row` is the Pivot row of Properties' Transform sub-block, `bar` the Pivot panel of the tool options bar. */
+  constructor(private row: HTMLElement, bar: HTMLElement, private host: PivotHost) {
+    const root = row;
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
     this.name = q('.as-pivot-name');
     this.hint = q('.as-pivot-hint');
-    this.pickBtn = q('.as-pick');
     this.fields = { x: q('[data-p="x"]'), y: q('[data-p="y"]') };
-    this.clearBtn = q('.as-pivot-clear');
-    this.shareBtn = q('.as-pivot-share');
-    this.shareBox = q('.as-share');
-    this.shareBtn.addEventListener('click', () => this.toggleShare());
-    this.pickBtn.addEventListener('click', () => host.setPicking(!host.state().picking));
+    this.clearBtn = bar.querySelector('.as-pivot-clear')!;
+    this.shareBtn = bar.querySelector('.as-pivot-share')!;
+    this.shareBox = bar.querySelector('.as-share')!;
+    this.share = new Popover(this.shareBtn, this.shareBox, () => this.fillShare());
     this.clearBtn.addEventListener('click', () => host.clear());
     for (const axis of ['x', 'y'] as const) this.fields[axis].addEventListener('change', () => this.typed());
   }
 
   /** A new opening: the list of parts to share with is closed. */
-  reset() { this.shareBox.hidden = true; }
+  reset() { this.share.close(); }
 
   private typed() {
     const { part } = this.host.state();
     if (!part) return;
     const x = Number(this.fields.x.value), y = Number(this.fields.y.value);
-    if (this.fields.x.value === '' || this.fields.y.value === '' || !Number.isFinite(x) || !Number.isFinite(y)) { this.show(); return; }
+    if (this.fields.x.value === '' || this.fields.y.value === '') return; // one typed into a blank row: wait for the other
+    if (!Number.isFinite(x) || !Number.isFinite(y)) { this.show(); return; }
     this.host.setPivot([x, y]);
   }
 
   show() {
-    const { part, at, isBone, picking } = this.host.state();
-    this.name.textContent = part ? `Pivot of ${part}` : 'Pivot';
+    const { part, at: own, isBone, picking, set } = this.host.state();
+    this.name.textContent = 'Pivot'; // the focus header names the part
+    const at = set ? set.pivot.value ?? undefined : own;
     this.fields.x.value = at ? String(at[0]) : '';
     this.fields.y.value = at ? String(at[1]) : '';
     for (const f of Object.values(this.fields)) f.disabled = !part;
-    this.pickBtn.disabled = !part;
-    this.clearBtn.disabled = !at;
-    this.shareBtn.disabled = part !== null && isBone;
-    if (!this.shareBox.hidden) this.fillShare();
-    this.pickBtn.textContent = picking ? 'Done picking' : 'Pick on stage';
-    this.pickBtn.setAttribute('aria-pressed', String(picking));
-    this.hint.textContent = picking ? 'Click the stage where the part should turn. The character is shown at rest.'
-      : part ? (at ? '' : isBone ? "No pivot of its own: the bone turns about its parent's pivot, else the middle of its parts." : 'No pivot: the part turns about the middle of its image.') : 'Choose a part or a bone in the tree. The pivot is where it turns and scales; in PSD pixels.';
-  }
-
-  private toggleShare() {
-    const open = this.shareBox.hidden;
-    this.shareBox.hidden = !open;
-    this.shareBtn.setAttribute('aria-expanded', String(open));
-    if (open) this.fillShare();
+    // A set clears every part's pivot; Same pivot gives one part's to others, which a set does by typing it.
+    this.clearBtn.disabled = set ? !set.pivot.mixed && !at : !at;
+    this.shareBtn.disabled = (part !== null && isBone) || !!set;
+    if (this.shareBtn.disabled) this.share.close();
+    if (this.share.isOpen) this.fillShare();
+    // The hint is the row's tooltip (Transform has room for the two rows only); it is said in PSD pixels.
+    const hint = set ? (picking ? `Click the stage where the ${set.label} should turn: each gets that pivot.` : set.pivot.mixed ? `The ${set.label} have different pivots: a pivot typed here is set on all of them (Ctrl+Z undoes it at once)` : at ? `Where the ${set.label} turn and scale, in PSD pixels: a pivot typed here is set on all of them` : `None of the ${set.label} has a pivot: one typed here is set on all of them`)
+      : picking ? 'Click the stage where the part should turn. The character is shown at rest.'
+      : part ? (at ? 'Where it turns and scales, in PSD pixels (the Pivot tool, Q, places it on the stage)' : isBone ? "No pivot of its own: the bone turns about its parent's pivot, else the middle of its parts." : 'No pivot: the part turns about the middle of its image (Q places one).') : 'Choose a part or a bone in the tree. The pivot is where it turns and scales; in PSD pixels.';
+    this.hint.textContent = hint;
+    this.row.title = hint;
   }
 
   /** One checkbox for every other part; ticking it gives that part the pivot of the chosen one. */

@@ -5,8 +5,8 @@
 define mina "Mina" color=#b48cff
 
 label mina_demo:
-  scene bg_park_evening fade 0.5
-  show mina at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show mina at center fade 0.4s
   mina: This is a layered PSD character. Eyes, mouth and the two outfit parts are slots; the rest are plain parts. #p2r0
 
   # A pose from the PSD: picks, per slot, the variant named or aliased "smile" (eyes and mouth here).
@@ -42,5 +42,5 @@ label mina_demo:
 
   # rig.json "order" re-stacks parts: top is drawn over bottom, so the shirt hangs over the skirt (see the rig).
   show mina uniform
-  hide mina fade 0.4
+  hide mina fade 0.4s
   end

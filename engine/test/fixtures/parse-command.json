@@ -12,7 +12,7 @@
   ],
   "diagnostics": []
  },
- "scene park fade 2": {
+ "scene park fade 2s": {
   "ops": [
    {
     "op": "scene",
@@ -25,7 +25,7 @@
   ],
   "diagnostics": []
  },
- "scene park dissolve 1.5": {
+ "scene park dissolve 1.5s": {
   "ops": [
    {
     "op": "scene",
@@ -50,7 +50,7 @@
    "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
   ]
  },
- "scene park mask=ui/m.png dissolve 1": {
+ "scene park mask=ui/m.png dissolve 1s": {
   "ops": [
    {
     "op": "scene",
@@ -321,7 +321,7 @@
   ],
   "diagnostics": []
  },
- "hide ann fade 1": {
+ "hide ann fade 1s": {
   "ops": [
    {
     "op": "hide",
@@ -366,7 +366,7 @@
   ],
   "diagnostics": []
  },
- "move ann to right 1.5": {
+ "move ann to right 1.5s": {
   "ops": [
    {
     "op": "move",
@@ -526,7 +526,7 @@
  "move ann": {
   "ops": [],
   "diagnostics": [
-   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]"
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [duration like 0.5s] [ease=]"
   ]
  },
  "move ann to": {
@@ -538,7 +538,7 @@
  "move ann bogus": {
   "ops": [],
   "diagnostics": [
-   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]"
+   "error: Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [duration like 0.5s] [ease=]"
   ]
  },
  "move ann to right nowait": {
@@ -571,7 +571,7 @@
   ],
   "diagnostics": []
  },
- "shake screen 1": {
+ "shake screen 1s": {
   "ops": [
    {
     "op": "shake",
@@ -582,7 +582,7 @@
   ],
   "diagnostics": []
  },
- "shake ann 0.5 strength=12": {
+ "shake ann 0.5s strength=12": {
   "ops": [
    {
     "op": "shake",
@@ -608,7 +608,7 @@
  "shake screen 1 2 3": {
   "ops": [],
   "diagnostics": [
-   "error: Use: shake <char|screen> [seconds] [strength=8]"
+   "error: A duration needs its unit: write 1s (or 1000ms), not 1"
   ]
  },
  "animate ann bob": {
@@ -625,7 +625,7 @@
   ],
   "diagnostics": []
  },
- "animate ann bob 2 loop": {
+ "animate ann bob 2s loop": {
   "ops": [
    {
     "op": "animate",
@@ -688,7 +688,7 @@
   ],
   "diagnostics": []
  },
- "animate ann turn=10 over 2 ease=out": {
+ "animate ann turn=10 over 2s ease=out": {
   "ops": [
    {
     "op": "param",
@@ -752,7 +752,7 @@
   ],
   "diagnostics": []
  },
- "hop ann 0.5": {
+ "hop ann 0.5s": {
   "ops": [
    {
     "op": "hop",
@@ -771,7 +771,7 @@
  "hop ann x": {
   "ops": [],
   "diagnostics": [
-   "error: Use: hop <char> [seconds]"
+   "error: Use: hop <char> [duration like 0.25s]"
   ]
  },
  "burst sparkle": {
@@ -797,7 +797,7 @@
   ],
   "diagnostics": []
  },
- "burst confetti at center y=0.3 count=80 2": {
+ "burst confetti at center y=0.3 count=80 2s": {
   "ops": [
    {
     "op": "burst",
@@ -810,7 +810,7 @@
   ],
   "diagnostics": []
  },
- "burst smoke at 0.3 1.5": {
+ "burst smoke at 0.3 1.5s": {
   "ops": [
    {
     "op": "burst",
@@ -838,19 +838,19 @@
  "burst": {
   "ops": [],
   "diagnostics": [
-   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [duration like 1s]"
   ]
  },
  "burst rainbow": {
   "ops": [],
   "diagnostics": [
-   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [duration like 1s]"
   ]
  },
  "burst sparkle at": {
   "ops": [],
   "diagnostics": [
-   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [duration like 1s]"
   ]
  },
  "burst sparkle at ann y=0.2": {
@@ -888,7 +888,7 @@
  "burst sparkle 0": {
   "ops": [],
   "diagnostics": [
-   "error: Use: burst <sparkle|smoke|confetti|dust> [at <character|position>] [y=0-1] [count=] [seconds]"
+   "error: A duration needs its unit: write 0s (or 0ms), not 0"
   ]
  },
  "flash": {
@@ -912,7 +912,7 @@
   ],
   "diagnostics": []
  },
- "flash ann #ff0000 0.2": {
+ "flash ann #ff0000 0.2s": {
   "ops": [
    {
     "op": "flash",
@@ -923,7 +923,7 @@
   ],
   "diagnostics": []
  },
- "flash ann 0.5": {
+ "flash ann 0.5s": {
   "ops": [
    {
     "op": "flash",
@@ -937,7 +937,7 @@
  "flash ann #fff 1 2": {
   "ops": [],
   "diagnostics": [
-   "error: Use: flash [<character or picture>] [#rrggbb] [seconds]"
+   "error: Use: flash [<character or picture>] [#rrggbb] [duration like 0.4s]"
   ]
  },
  "move ann tint=#ff8080": {
@@ -959,7 +959,7 @@
   ],
   "diagnostics": []
  },
- "move ann tint=none 1": {
+ "move ann tint=none 1s": {
   "ops": [
    {
     "op": "move",
@@ -984,7 +984,7 @@
    "error: tint= takes a color like #ff8080, or none"
   ]
  },
- "image move logo tint=#80ff80 1": {
+ "image move logo tint=#80ff80 1s": {
   "ops": [
    {
     "op": "image",
@@ -1045,7 +1045,7 @@
   ],
   "diagnostics": []
  },
- "flash #ff0000 0.5": {
+ "flash #ff0000 0.5s": {
   "ops": [
    {
     "op": "flash",
@@ -1055,7 +1055,7 @@
   ],
   "diagnostics": []
  },
- "flash 0.5": {
+ "flash 0.5s": {
   "ops": [
    {
     "op": "flash",
@@ -1079,7 +1079,7 @@
  "flash #fff 1 2": {
   "ops": [],
   "diagnostics": [
-   "error: Use: flash [<character or picture>] [#rrggbb] [seconds]"
+   "error: Use: flash [<character or picture>] [#rrggbb] [duration like 0.4s]"
   ]
  },
  "tint #ff8800": {
@@ -1104,7 +1104,7 @@
   ],
   "diagnostics": []
  },
- "tint #ff8800 0.5 2": {
+ "tint #ff8800 0.5 2s": {
   "ops": [
    {
     "op": "tint",
@@ -1126,7 +1126,7 @@
   ],
   "diagnostics": []
  },
- "tint off 2": {
+ "tint off 2s": {
   "ops": [
    {
     "op": "tint",
@@ -1146,7 +1146,7 @@
  "tint red": {
   "ops": [],
   "diagnostics": [
-   "error: Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]"
+   "error: Use: tint <#rrggbb> [strength 0-1] [duration like 1s]  or  tint off [duration]"
   ]
  },
  "tint #ff8800 2": {
@@ -1158,7 +1158,7 @@
  "tint off x": {
   "ops": [],
   "diagnostics": [
-   "error: Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]"
+   "error: Use: tint <#rrggbb> [strength 0-1] [duration like 1s]  or  tint off [duration]"
   ]
  },
  "camera zoom 1.5": {
@@ -1187,7 +1187,7 @@
   ],
   "diagnostics": []
  },
- "camera zoom 2 at left y=0.3 1": {
+ "camera zoom 2 at left y=0.3 1s": {
   "ops": [
    {
     "op": "camera",
@@ -1213,7 +1213,7 @@
   ],
   "diagnostics": []
  },
- "camera pan 0.3 y=0.4 2": {
+ "camera pan 0.3 y=0.4 2s": {
   "ops": [
    {
     "op": "camera",
@@ -1240,7 +1240,7 @@
   ],
   "diagnostics": []
  },
- "camera roll -8 1.5 ease=out": {
+ "camera roll -8 1.5s ease=out": {
   "ops": [
    {
     "op": "camera",
@@ -1269,7 +1269,7 @@
  "camera roll 5 y=0.2": {
   "ops": [],
   "diagnostics": [
-   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [duration like 1s], camera pan <pos> [y=0-1] [duration], camera roll <degrees> [duration], or camera reset [duration]"
   ]
  },
  "camera reset": {
@@ -1286,7 +1286,7 @@
   ],
   "diagnostics": []
  },
- "camera reset 1": {
+ "camera reset 1s": {
   "ops": [
    {
     "op": "camera",
@@ -1303,13 +1303,13 @@
  "camera": {
   "ops": [],
   "diagnostics": [
-   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [duration like 1s], camera pan <pos> [y=0-1] [duration], camera roll <degrees> [duration], or camera reset [duration]"
   ]
  },
  "camera tilt": {
   "ops": [],
   "diagnostics": [
-   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]"
+   "error: Use: camera zoom <factor> [at <pos>] [y=0-1] [duration like 1s], camera pan <pos> [y=0-1] [duration], camera roll <degrees> [duration], or camera reset [duration]"
   ]
  },
  "camera zoom": {
@@ -1340,7 +1340,7 @@
   ],
   "diagnostics": []
  },
- "weather petals 0.5 3": {
+ "weather petals 0.5 3s": {
   "ops": [
    {
     "op": "weather",
@@ -1362,7 +1362,7 @@
   ],
   "diagnostics": []
  },
- "weather off 2": {
+ "weather off 2s": {
   "ops": [
    {
     "op": "weather",
@@ -1376,13 +1376,13 @@
  "weather": {
   "ops": [],
   "diagnostics": [
-   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [seconds], or weather off [seconds]"
+   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [duration like 2s], or weather off [duration]"
   ]
  },
  "weather fog": {
   "ops": [],
   "diagnostics": [
-   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [seconds], or weather off [seconds]"
+   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [duration like 2s], or weather off [duration]"
   ]
  },
  "weather rain 2": {
@@ -1413,7 +1413,7 @@
   ],
   "diagnostics": []
  },
- "filter chromatic 0.6 1": {
+ "filter chromatic 0.6 1s": {
   "ops": [
    {
     "op": "filter",
@@ -1435,7 +1435,7 @@
   ],
   "diagnostics": []
  },
- "filter sepia 0.5 2": {
+ "filter sepia 0.5 2s": {
   "ops": [
    {
     "op": "filter",
@@ -1457,7 +1457,7 @@
   ],
   "diagnostics": []
  },
- "filter off 1": {
+ "filter off 1s": {
   "ops": [
    {
     "op": "filter",
@@ -1471,19 +1471,19 @@
  "filter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
   ]
  },
  "filter glitter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
   ]
  },
  "filter night x": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [seconds], or filter off [seconds]"
+   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
   ]
  },
  "focus on": {
@@ -1655,7 +1655,7 @@
   ],
   "diagnostics": []
  },
- "image show logo ui/logo.png scale=2 rot=5 alpha=0.5 anchor=0.5,0.5 layer=2 fixed keep fade 1": {
+ "image show logo ui/logo.png scale=2 rot=5 alpha=0.5 anchor=0.5,0.5 layer=2 fixed keep fade 1s": {
   "ops": [
    {
     "op": "image",
@@ -1695,7 +1695,7 @@
   ],
   "diagnostics": []
  },
- "image move logo scale=2 1.5 ease=out": {
+ "image move logo scale=2 1.5s ease=out": {
   "ops": [
    {
     "op": "image",
@@ -1716,7 +1716,7 @@
  "image move logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "image hide logo": {
@@ -1730,7 +1730,7 @@
   ],
   "diagnostics": []
  },
- "image hide logo fade 1": {
+ "image hide logo fade 1s": {
   "ops": [
    {
     "op": "image",
@@ -1744,37 +1744,37 @@
  "image hide logo fade": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Expected a fade duration like 0.5s or 500ms"
   ]
  },
  "image": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "image show": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "image show logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "image dance logo": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "image show 1x f.png": {
   "ops": [],
   "diagnostics": [
-   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]"
+   "error: Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]"
   ]
  },
  "music play theme": {
@@ -1801,7 +1801,7 @@
   ],
   "diagnostics": []
  },
- "music play theme loop fade 2": {
+ "music play theme loop fade 2s": {
   "ops": [
    {
     "op": "music",
@@ -1813,7 +1813,7 @@
   ],
   "diagnostics": []
  },
- "music play theme fade 1": {
+ "music play theme fade 1s": {
   "ops": [
    {
     "op": "music",
@@ -1837,7 +1837,7 @@
   ],
   "diagnostics": []
  },
- "music stop fade 2": {
+ "music stop fade 2s": {
   "ops": [
    {
     "op": "music",
@@ -1861,7 +1861,7 @@
   ],
   "diagnostics": []
  },
- "music resume fade 1": {
+ "music resume fade 1s": {
   "ops": [
    {
     "op": "music",
@@ -1888,13 +1888,13 @@
  "music rewind": {
   "ops": [],
   "diagnostics": [
-   "error: Use: music play <name> [loop] [fade n], music stop [fade n], music pause [fade n] or music resume [fade n]"
+   "error: Use: music play <name> [loop] [fade 2s], music stop [fade 2s], music pause [fade 2s] or music resume [fade 2s]"
   ]
  },
  "music stop fade": {
   "ops": [],
   "diagnostics": [
-   "error: Expected a number for fade duration"
+   "error: Expected a fade duration like 0.5s or 500ms"
   ]
  },
  "sound play click": {
@@ -1931,7 +1931,7 @@
   ],
   "diagnostics": []
  },
- "sound loop rain fade 2": {
+ "sound loop rain fade 2s": {
   "ops": [
    {
     "op": "sound",
@@ -1964,7 +1964,7 @@
   ],
   "diagnostics": []
  },
- "sound stop rain fade 1": {
+ "sound stop rain fade 1s": {
   "ops": [
    {
     "op": "sound",
@@ -1984,25 +1984,25 @@
  "sound play": {
   "ops": [],
   "diagnostics": [
-   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+   "error: Use: sound play <name> [duck], sound loop <name> [fade 1s] or sound stop [<name>] [fade 1s]"
   ]
  },
  "sound play a b": {
   "ops": [],
   "diagnostics": [
-   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+   "error: Use: sound play <name> [duck], sound loop <name> [fade 1s] or sound stop [<name>] [fade 1s]"
   ]
  },
  "sound stop duck": {
   "ops": [],
   "diagnostics": [
-   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+   "error: Use: sound play <name> [duck], sound loop <name> [fade 1s] or sound stop [<name>] [fade 1s]"
   ]
  },
  "sound play click fade 1": {
   "ops": [],
   "diagnostics": [
-   "error: Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]"
+   "error: A duration needs its unit: write 1s (or 1000ms), not 1"
   ]
  },
  "movie play intro": {
@@ -2071,10 +2071,10 @@
  "wait": {
   "ops": [],
   "diagnostics": [
-   "error: Expected a number for seconds"
+   "error: Expected a duration like 0.5s or 500ms"
   ]
  },
- "wait 2": {
+ "wait 2s": {
   "ops": [
    {
     "op": "wait",
@@ -2083,7 +2083,7 @@
   ],
   "diagnostics": []
  },
- "wait 0.5": {
+ "wait 0.5s": {
   "ops": [
    {
     "op": "wait",
@@ -2095,13 +2095,13 @@
  "wait x": {
   "ops": [],
   "diagnostics": [
-   "error: Expected a number for seconds"
+   "error: Expected a duration like 0.5s or 500ms, not \"x\""
   ]
  },
  "wait 1 2": {
   "ops": [],
   "diagnostics": [
-   "error: Unexpected \"2\" in wait (use: wait <seconds>)"
+   "error: A duration needs its unit: write 1s (or 1000ms), not 1"
   ]
  },
  "call other": {

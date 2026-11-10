@@ -182,7 +182,7 @@ test('titleView is the reserved title screen; continue is disabled without a sav
   const stock = new Runtime(build('label start:\n  end\n'), new NullRenderer());
   const acts = v => v.parts.filter(x => x.act).map(x => [x.act, x.enabled]);
   assert.deepEqual(acts(stock.titleView(false, false, true, false, false, 'My Game')), [['start', true], ['continue', false], ['load', true], ['music', true], ['options', true]]);
-  assert.ok(stock.titleView(true, true, true, true, true, 'My Game').parts.some(x => x.kind === 'text' && x.text === 'My Game' && x.font === 100));
+  assert.ok(stock.titleView(true, true, true, true, true, 'My Game').parts.some(x => x.kind === 'text' && x.text === 'My Game' && x.font === 100 && x.fit === true), 'the stock title shrinks a long game title (fit)');
   assert.ok(!stock.titleView(true, true, true, true, true, 'My Game', false).parts.some(x => x.kind === 'text'), 'show_title false hides the game name');
   const info = (can, text) => stock.titleView(can, true, true, true, true, 'My Game', false, text).parts.filter(x => x.sub).map(x => x.sub);
   assert.deepEqual(info(true, 'Park, evening'), ['Park, evening']);
@@ -1007,8 +1007,8 @@ test('the starter options screen: a page at a time, optional settings only when 
   assert.deepEqual(ids(rt.optionsView(base)), ['audio', 'game', 'access', 'slider:master', 'slider:music', 'slider:sound', 'slider:voice', 'text_sounds', 'full', 'done']);
   assert.deepEqual(rt.optionsView(base).parts.filter(x => x.role === 'tab').map(x => [x.id, x.checked]), [['audio', true], ['game', false], ['access', false]]); // the shown tab is lit
   assert.equal(rt.optionsView(base).parts.find(x => x.id === 'text_sounds').label, 'On');
-  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'full', 'done']);
-  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game', has_languages: true, has_themes: true, has_voice_languages: true, speaker_focus: 'on' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'speaker_focus', 'language', 'theme', 'voice_language', 'full', 'done']);
+  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'reset', 'full', 'done']);
+  assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'game', has_languages: true, has_themes: true, has_voice_languages: true, speaker_focus: 'on' })).slice(3), ['slider:text_speed', 'auto_speed', 'skip', 'speaker_focus', 'language', 'theme', 'voice_language', 'reset', 'full', 'done']);
   assert.deepEqual(ids(rt.optionsView({ ...base, tab: 'access' })).slice(3), ['slider:text_size', 'slider:box_opacity', 'reduce_motion', 'captions', 'announce_lines', 'timed_choices', 'full', 'done']);
 });
 
@@ -1034,6 +1034,12 @@ test('inside an each an element id may be <entry>.<word>, and nothing else; text
   const bad = build('screen s:\n  each slots as slot at 0,0 step 0,100:\n    button other at 0,0 size 40,40 "x"\nlabel start:\n  end\n');
   assert.ok(errors(bad).length > 0);
   assert.ok(errors(build('screen s:\n  text at 0,0 "x" lines 0\nlabel start:\n  end\n')).length > 0);
+  // `fit` shrinks the font to the box, so it needs both width and lines.
+  const fit = build('screen s:\n  text at 0,0 "x" width 300 lines 2 fit\nlabel start:\n  end\n');
+  assert.deepEqual(errors(fit), []);
+  assert.equal(fit.screens.s.body[0].fit, true);
+  assert.equal(new Runtime(fit, new NullRenderer()).viewOf('s', {}).parts[0].fit, true);
+  assert.match(errors(build('screen s:\n  text at 0,0 "x" lines 2 fit\nlabel start:\n  end\n'))[0], /fit .*width and lines/);
 });
 
 test('a button takes sub "text": a second line inside it, worked out with variables, and a taller button', () => {

@@ -18,8 +18,8 @@ const BACK_AT = '  button done at 1500,960 "Back" action close\n';
 
 const STARTERS: Record<string, string> = {
   [TITLE_SCREEN]: `screen title:
-  text at 0,60 "[game_title]" style=title font 100 width full align center on enter fade 0.6 on exit fade 0.2 if show_title
-  column anchor bottom margin 0,0,60,0 gap 12 align stretch width 420 on enter slide up 0.35 distance=30 on exit fade 0.2:
+  text at 0,60 "[game_title]" style=title font 100 width full align center lines 1 fit on enter fade 0.6s on exit fade 0.2s if show_title
+  column anchor bottom margin 0,0,60,0 gap 12 align stretch width 420 on enter slide up 0.35s distance=30 on exit fade 0.2s:
     button go "New game" action start
     button more "Continue" sub "[continue_text]" action continue
     button load "Load" action load
@@ -30,8 +30,8 @@ const STARTERS: Record<string, string> = {
     button opt "Options" action options
 `,
   [PAUSE_SCREEN]: `screen pause:
-  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
-  column anchor center gap 12 align stretch width 420 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2s on exit fade 0.15s
+  column anchor center gap 12 align stretch width 420 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     button back "Resume" action resume
     button sv "Save" action save
     button ld "Load" action load
@@ -44,15 +44,15 @@ const STARTERS: Record<string, string> = {
       button q "[q.label]" font 28 tooltip "[q.hint]" action [q]
 `,
   [OPTIONS_SCREEN]: `screen options:
-  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
-  panel at 240,90 size 1440,900 on enter fade 0.25 on exit fade 0.15
-  text at 300,120 "Options" font 52 on enter slide down 0.3 distance=30 on exit fade 0.15
-  panel at 300,273 size 1320,2 color rgba(255,255,255,.25) on enter fade 0.25 on exit fade 0.15
-  row at 300,210 gap 8 on enter slide down 0.3 distance=30 on exit fade 0.15:
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2s on exit fade 0.15s
+  panel at 240,90 size 1440,900 on enter fade 0.25s on exit fade 0.15s
+  text at 300,120 "Options" font 52 on enter slide down 0.3s distance=30 on exit fade 0.15s
+  panel at 300,273 size 1320,2 color rgba(255,255,255,.25) on enter fade 0.25s on exit fade 0.15s
+  row at 300,210 gap 8 on enter slide down 0.3s distance=30 on exit fade 0.15s:
     button audio size 240,64 "Audio" action tab
     button game size 240,64 "Game" action tab
     button access size 360,64 "Accessibility" action tab
-  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "audio" on enter fade 0.25:
+  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "audio" on enter fade 0.25s:
     text "Master volume" font 34
     slider master size 520,48 readout
     text "Music" font 34
@@ -63,7 +63,7 @@ const STARTERS: Record<string, string> = {
     slider voice size 520,48 readout
     text "Text sounds" font 34
     button text_sounds "[text_sounds_word]" action cycle
-  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "game" on enter fade 0.25:
+  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "game" on enter fade 0.25s:
     text "Text speed" font 34
     slider text_speed size 520,48 readout
     text "Auto speed" font 34
@@ -78,7 +78,8 @@ const STARTERS: Record<string, string> = {
     select theme if has_themes
     text "Voice language" font 34 if has_voice_languages
     select voice_language if has_voice_languages
-  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "access" on enter fade 0.25:
+    button reset size 520,60 "Reset progress" action reset
+  grid 2 at 300,310 gap 12 cell 620,60 align stretch if tab == "access" on enter fade 0.25s:
     text "Text size" font 34
     slider text_size size 520,48 readout
     text "Text box opacity" font 34
@@ -93,22 +94,22 @@ const STARTERS: Record<string, string> = {
     button touch_gestures "[touch_gestures_word]" action cycle if has_touch
     text "Timed choices" font 34
     select timed_choices
-  row at 300,870 gap 20 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  row at 300,870 gap 20 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     button full size 300,64 "Fullscreen" action fullscreen if has_fullscreen
     button done size 240,64 "Back" action close
 `,
   [SAVES_SCREEN]: `screen saves:
-  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
-  panel at 110,40 size 1700,1000 on enter fade 0.25 on exit fade 0.15
-  text at 170,60 "Save" font 52 if mode == "save" on enter slide down 0.3 distance=30 on exit fade 0.15
-  text at 170,60 "Load" font 52 if mode == "load" on enter slide down 0.3 distance=30 on exit fade 0.15
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2s on exit fade 0.15s
+  panel at 110,40 size 1700,1000 on enter fade 0.25s on exit fade 0.15s
+  text at 170,60 "Save" font 52 if mode == "save" on enter slide down 0.3s distance=30 on exit fade 0.15s
+  text at 170,60 "Load" font 52 if mode == "load" on enter slide down 0.3s distance=30 on exit fade 0.15s
   text at 520,80 "[note]" font 28 color #e8706a if note != ""
-  each pages as pg at 170,150 step 76,0 on enter fade 0.3 stagger 0.02 on exit fade 0.15:
+  each pages as pg at 170,150 step 76,0 on enter fade 0.3s stagger 0.02s on exit fade 0.15s:
     button pg at 0,0 size 64,56 "[pg.name]" tooltip "[pg.title]" action page
     panel at 0,0 size 64,56 color rgba(255,255,255,.18) if pg == page
-  button done at 1550,56 size 200,64 "Back" action close on enter fade 0.3 on exit fade 0.15
+  button done at 1550,56 size 200,64 "Back" action close on enter fade 0.3s on exit fade 0.15s
   grid 3 at 170,230 gap 24 cell 500,360:
-    each slots as slot on enter slide up 0.25 distance=30 stagger 0.04 on exit fade 0.15:
+    each slots as slot on enter slide up 0.25s distance=30 stagger 0.04s on exit fade 0.15s:
       panel size 500,360 color rgba(0,0,0,0):
         button slot at 0,0 size 500,360 " " action slot enabled mode == "save" or not slot.empty
         image "[slot.thumb]" at 10,10 size 480,270 if slot.thumb != ""
@@ -121,22 +122,22 @@ const STARTERS: Record<string, string> = {
         button slot.remove at 436,16 size 48,48 "×" tooltip "Delete save" action remove if slot.removable
 `,
   [HISTORY_SCREEN]: `screen history:
-  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "History" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "History" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,170 "Nothing yet." if total == 0
-  scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3s distance=30 on exit fade 0.15s:
     each lines as ln step 0,140:
       text at 0,0 "[ln.name]" font 26 color [ln.color] if ln.name != ""
       button ln at 0,40 size 1500,84 "[ln.text]" action line
-      button ln.voice at 1512,40 size 68,84 "♪" action voice if ln.voiced
+      button ln.voice at 1512,40 size 68,84 "♪" tooltip "Hear this line" action voice if ln.voiced
 ${BACK}`,
   [GALLERY_SCREEN]: `screen gallery:
-  panel size full color rgba(4,6,10,.72) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "Gallery" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.72) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "Gallery" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,70 "[count] / [total]" font 32 width 1600 align right color #aab0be
-  scroll at 160,160 size 1600,740 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,160 size 1600,740 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     grid 4 gap 20 cell 380,250:
-      each tiles as t on enter fade 0.3 stagger 0.03 on exit fade 0.15:
+      each tiles as t on enter fade 0.3s stagger 0.03s on exit fade 0.15s:
         panel size 380,250 color rgba(0,0,0,0):
           button t at 0,0 size 380,250 " " action tile enabled t.unlocked
           image "[t.file]" at 10,10 size 360,203 if t.unlocked
@@ -145,20 +146,20 @@ ${BACK}`,
 ${BACK}`,
   [VIEWER_SCREEN]: `screen viewer:
   panel size full color #000
-  image "[file]" at 0,0 size 1920,1080 on enter fade 0.3 on exit fade 0.2
+  image "[file]" at 0,0 size 1920,1080 on enter fade 0.3s on exit fade 0.2s
   hotspot shut at 0,0 size 1920,1080 "Close" hover none tooltip off action close
   text at 80,40 "[title]  [position] / [total]"
-  button prev at 80,960 "<" action prev if total > 1
-  button next at 1700,960 ">" action next if total > 1
+  button prev at 80,960 "<" tooltip "Previous picture" action prev if total > 1
+  button next at 1700,960 ">" tooltip "Next picture" action next if total > 1
 ${BACK_AT}`,
   [MUSIC_SCREEN]: `screen music:
-  panel size full color rgba(4,6,10,.72) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "Music" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.72) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "Music" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,70 "[count] / [total]" font 32 width 1600 align right color #aab0be
   text at 160,125 "♪ [now]" font 30 color #aab0be if now != ""
-  scroll at 160,180 size 1600,720 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,180 size 1600,720 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     column gap 12:
-      each tracks as t on enter slide right 0.25 distance=40 stagger 0.03 on exit fade 0.15:
+      each tracks as t on enter slide right 0.25s distance=40 stagger 0.03s on exit fade 0.15s:
         panel size 1000,72 color rgba(0,0,0,0):
           button t at 0,0 size 1000,72 "[t.title]" action track enabled t.unlocked
           text at 24,14 "♪" font 36 if t.playing
@@ -167,29 +168,29 @@ ${BACK_AT}`,
     button done size 200,64 "Back" action close
 `,
   [CHAPTERS_SCREEN]: `screen chapters:
-  panel size full color rgba(4,6,10,.72) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "Chapters" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.72) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "Chapters" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,70 "[count] / [total]" font 32 width 1600 align right color #aab0be
-  scroll at 160,160 size 1600,740 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,160 size 1600,740 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     column gap 12:
-      each chapters as c on enter slide right 0.25 distance=40 stagger 0.03 on exit fade 0.15:
+      each chapters as c on enter slide right 0.25s distance=40 stagger 0.03s on exit fade 0.15s:
         button c size 1000,72 "[c.title]" action chapter enabled c.unlocked
 ${BACK}`,
   [ACHIEVEMENTS_SCREEN]: `screen achievements:
-  panel size full color rgba(4,6,10,.72) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "Achievements" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.72) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "Achievements" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,70 "[count] / [total]" font 32 width 1600 align right color #aab0be if total > 0 and endings_total == 0
-  scroll at 160,160 size 1600,740 on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,160 size 1600,740 on enter slide up 0.3s distance=30 on exit fade 0.15s:
     column gap 16:
       text "Endings  [endings_count] / [endings_total]" font 28 color #aab0be if endings_total > 0
-      each endings as e on enter fade 0.25 stagger 0.03:
+      each endings as e on enter fade 0.25s stagger 0.03s:
         panel size 1580,92 color rgba(0,0,0,0):
           image "[e.icon]" at 0,6 size 80,80 if e.icon != ""
           text at 104,4 "[e.title]" font 32 if e.unlocked
           text at 104,4 "[e.title]" font 32 color #6b7385 if not e.unlocked
           text at 104,48 "[e.description]" font 24 color #aab0be
       text "Achievements  [count] / [total]" font 28 color #aab0be if total > 0 and endings_total > 0
-      each achievements as a on enter fade 0.25 stagger 0.03:
+      each achievements as a on enter fade 0.25s stagger 0.03s:
         panel size 1580,92 color rgba(0,0,0,0):
           image "[a.icon]" at 0,6 size 80,80 if a.icon != ""
           text at 104,4 "[a.title]" font 32 if a.unlocked
@@ -197,7 +198,7 @@ ${BACK}`,
           text at 104,48 "[a.description]" font 24 color #aab0be
 ${BACK}`,
   [ACHIEVEMENT_TOAST_SCREEN]: `screen achievement_toast:
-  row anchor [position] margin 40 on enter slide down 0.3 distance=20 on exit fade 0.25:
+  row anchor [position] margin 40 on enter slide down 0.3s distance=20 on exit fade 0.25s:
     panel size 700,140:
       row at 24,22 gap 22:
         image "[icon]" size 96,96 if icon != ""

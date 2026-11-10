@@ -9,8 +9,8 @@ declare const monaco: any;
 const LABEL_KEYS = ['new_game', 'continue', 'load', 'save', 'options', 'resume', 'main_menu', 'master_volume', 'music_volume',
   'sound_volume', 'voice_volume', 'text_speed', 'auto_advance', 'skip_mode', 'skip_read', 'skip_all', 'language', 'fullscreen', 'back',
   'yes', 'no', 'instant', 'slow', 'normal', 'fast', 'slot', 'page', 'auto', 'auto_short', 'quick', 'quick_short',
-  'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
-  'confirm_qload', 'history', 'history_empty', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
+  'choice', 'choice_short', 'choice_saves', 'empty_slot', 'delete', 'save_failed', 'confirm_overwrite', 'confirm_load', 'confirm_old_save', 'confirm_delete', 'confirm_title', 'reset_progress', 'confirm_reset', 'toast_reset', 'crash_title', 'crash_text', 'crash_copy', 'crash_copied', 'crash_to_title',
+  'confirm_qload', 'history', 'history_empty', 'save_name', 'cancel', 'rename', 'toast_qsaved', 'toast_saved', 'toast_no_qsave', 'toast_skip_unread', 'toast_pad_on', 'toast_pad_nonstandard', 'toast_pad_off', 'text_sounds', 'text_size', 'box_opacity', 'reduce_motion', 'speaker_focus', 'timed_choices', 'timed_extended', 'timed_off', 'timed_announce', 'tab_audio', 'tab_game', 'tab_access', 'on', 'off',
   'gallery', 'locked', 'music_room', 'chapters', 'stop', 'achievements', 'endings', 'achievement_unlocked', 'ending_reached', 'end_title', 'end_hint', 'hidden_achievement', 'rotate_device',
   'theme', 'voice_language', 'sound_captions', 'announce_lines', 'voice_same',
   ...QUICK_ITEMS.map(i => `q_${i}`)];
@@ -422,6 +422,7 @@ const rigBones = ({ boneNames }: RigSchemaContext) => (
       properties: {
         parent: str('Another bone; without one the bone hangs from the character.', boneNames),
         pivot: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'Where it turns, [x, y] in pixels of the PSD canvas. Without one: its parent\'s.' },
+        tip: { type: 'array', minItems: 2, maxItems: 2, items: { type: 'number' }, description: 'Where the bone ends, [x, y] in pixels of the PSD canvas. Moves nothing: it shapes auto-weights for skinned meshes.' },
       },
     },
   }
@@ -449,8 +450,23 @@ const rigParts = ({ manifest, boneNames }: RigSchemaContext) => {
   };
 };
 
+/** A deformer's free mesh; `weights` and `defaultBone` skin it to the bones (at most 4 per vertex). */
+const rigMesh = (boneNames: string[]) => ({
+  type: 'object',
+  description: 'A free mesh in place of a lattice: verts, tris, and optionally bone weights.',
+  properties: {
+    verts: { type: 'array', items: { type: 'number' } }, tris: { type: 'array', items: { type: 'number' } }, detail: { type: 'string' },
+    defaultBone: str('The bone a vertex without weights binds to (a skinned mesh).', boneNames),
+    weights: {
+      type: 'object',
+      description: 'Skinning: vertex number to { bone: weight }, at most 4 bones, normalized when read. A vertex not listed binds to defaultBone. The part\'s own bone does not move a skinned mesh.',
+      additionalProperties: { type: 'object', additionalProperties: { type: 'number', exclusiveMinimum: 0 } },
+    },
+  },
+});
+
 /** The parameter model and secondary motion: what the animation studio writes. Their contents are checked by the engine (checkRig), not here. */
-const rigModel = () => ({
+const rigModel = ({ boneNames }: RigSchemaContext) => ({
   categories: { type: 'array', description: "The Parameters panel's groups, in order: a parameter or pad names one in its \"group\".", items: { type: 'string' } },
   parameters: {
     type: 'array',
@@ -467,7 +483,7 @@ const rigModel = () => ({
   pads: { type: 'array', description: '2D controls over two parameters: a UI grouping only.', items: { type: 'object', properties: { id: { type: 'string' }, x: { type: 'string' }, y: { type: 'string' }, group: { type: 'string' } } } },
   poses: { type: 'object', description: 'Named snapshots of some parameters ({ "happy": { "mouth_smile": 1 } }), set with `show <char> pose=happy`.', additionalProperties: { type: 'object', additionalProperties: { type: 'number' } } },
   keyforms: { type: 'array', description: 'Authored poses of a bone or part at chosen parameter values, blended.', items: { type: 'object' } },
-  deformers: { type: 'array', description: 'Lattices that warp a part\'s mesh (or a group of parts), driven by parameters.', items: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } } },
+  deformers: { type: 'array', description: 'Lattices that warp a part\'s mesh (or a group of parts), driven by parameters.', items: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, mesh: rigMesh(boneNames) } } },
   physics: { type: 'object', description: 'Secondary motion: chains by id, reading parameters or bone channels and writing parameters or a part\'s rotation.', additionalProperties: { type: 'object' } },
 });
 
@@ -594,7 +610,7 @@ function rigSchemas() {
         additionalProperties: false,
         properties: {
           order: rigOrder(ctx), bones: rigBones(ctx), parts: rigParts(ctx), looks: rigLooks(ctx),
-          pivots: rigPivots(ctx), animations: rigAnimations(ctx), reactions: rigReactions(ctx), ...rigModel(),
+          pivots: rigPivots(ctx), animations: rigAnimations(ctx), reactions: rigReactions(ctx), ...rigModel(ctx),
         },
       },
     }];

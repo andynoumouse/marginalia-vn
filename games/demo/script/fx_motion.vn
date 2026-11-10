@@ -3,53 +3,53 @@
 
 # Values are relative to where the character stands, and the amount scales them: the same transform serves every character.
 transform wobble(amount=1):
-    rot=-2*amount 0.15
-    rot=2*amount 0.3 ease=inout
-    rot=0 0.15
+    rot=-2*amount 0.15s
+    rot=2*amount 0.3s ease=inout
+    rot=0 0.15s
 
 transform arrive(amount=1):
     x=-0.25*amount
     alpha=0
     parallel:
-        x=0 0.6 ease=out
+        x=0 0.6s ease=out
     parallel:
-        alpha=1 0.6
+        alpha=1 0.6s
 
 transform heartbeat(amount=1):
-    scale=1+0.05*amount 0.12
-    scale=1 0.12
-    scale=1+0.08*amount 0.12
-    scale=1 0.3
+    scale=1+0.05*amount 0.12s
+    scale=1 0.12s
+    scale=1+0.08*amount 0.12s
+    scale=1 0.3s
 
 # A staged moment for several actors, as a timetable: "<seconds> <actor>: <step>". The camera can be an actor too.
 choreography meeting:
-    0.0 iris: x=0.1 0.8 ease=out
-    0.0 theo: x=-0.1 0.8 ease=out
-    0.8 iris: hop
-    1.0 theo: nod
-    1.4 camera: scale=1.06 0.6 ease=inout
-    2.0 iris: x=0 0.6 ease=inout
-    2.0 theo: x=0 0.6 ease=inout
-    2.0 camera: scale=1 0.6 ease=inout
+    0.0s iris: x=0.1 0.8s ease=out
+    0.0s theo: x=-0.1 0.8s ease=out
+    0.8s iris: hop
+    1.0s theo: nod
+    1.4s camera: scale=1.06 0.6s ease=inout
+    2.0s iris: x=0 0.6s ease=inout
+    2.0s theo: x=0 0.6s ease=inout
+    2.0s camera: scale=1 0.6s ease=inout
 
 choreography startled:
-    0.0 iris: hop 0.25 strength=2
-    0.0 theo: shake 0.4
-    0.0 camera: scale=1.08 0.2 ease=out
-    0.5 iris: shiver 0.5
-    0.5 camera: scale=1 0.4 ease=inout
+    0.0s iris: hop 0.25s strength=2
+    0.0s theo: shake 0.4s
+    0.0s camera: scale=1.08 0.2s ease=out
+    0.5s iris: shiver 0.5s
+    0.5s camera: scale=1 0.4s ease=inout
 
 choreography farewell:
-    0.0 iris: x=-0.1 0.8 ease=inout
-    0.0 theo: x=0.1 0.8 ease=inout
-    0.8 iris: nod
-    0.8 theo: nod
-    1.6 iris: x=0 0.6 ease=inout
-    1.6 theo: x=0 0.6 ease=inout
+    0.0s iris: x=-0.1 0.8s ease=inout
+    0.0s theo: x=0.1 0.8s ease=inout
+    0.8s iris: nod
+    0.8s theo: nod
+    1.6s iris: x=0 0.6s ease=inout
+    1.6s theo: x=0 0.6s ease=inout
 
 label fx_animate_presets:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Animate presets", "Ready-made motions for any character. Play one once, or loop it until you press Reset.")
   set fx_a_label = "Preset"
   set fx_a1 = "breathe"
@@ -121,12 +121,12 @@ label fx_animate_presets_loop:
     animate iris stop
     jump fx_animate_presets_loop
   animate iris stop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_transform:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.3 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.3 fade 0.3s
   call fx_open("Your own animation", "A transform is a short list of steps you write yourself. Its amount is a parameter, so one transform serves any size.")
   set fx_a_label = "Transform"
   set fx_a1 = "wobble"
@@ -174,13 +174,13 @@ label fx_transform_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_transform_loop
-  hide iris fade 0.2
+  hide iris fade 0.2s
   return
 
 label fx_choreography:
-  scene bg_reading_room fade 0.4
-  show iris smile at 0.2 fade 0.3
-  show theo neutral at 0.5 fade 0.3
+  scene bg_reading_room fade 0.4s
+  show iris smile at 0.2 fade 0.3s
+  show theo neutral at 0.5 fade 0.3s
   call fx_open("Choreography", "Several actors on one timetable: two characters and the camera move together, then come to rest.")
   set fx_a_label = "Perform"
   set fx_a1 = "meeting"
@@ -203,6 +203,6 @@ label fx_choreography_loop:
   elif act == "reset":
     set fx_fired = "nothing yet"
     jump fx_choreography_loop
-  hide iris fade 0.2
-  hide theo fade 0.2
+  hide iris fade 0.2s
+  hide theo fade 0.2s
   return

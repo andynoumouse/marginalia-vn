@@ -11,7 +11,7 @@ const build = lines => compile([{ file: 'a.vn', text: lines.join('\n') }]);
 const ops = (name, p) => p.ops.filter(o => o.op === name);
 
 test('camera pan: parsed without a zoom, keeps the zoom in the state, resets on scene', async () => {
-  const p = build(['label start:', '  scene a', '  camera zoom 1.5 at left 0.2', '  camera pan right y=0.3 1.2 ease=out', '  "x"', '  scene b', '  "y"']);
+  const p = build(['label start:', '  scene a', '  camera zoom 1.5 at left 0.2s', '  camera pan right y=0.3 1.2s ease=out', '  "x"', '  scene b', '  "y"']);
   assert.deepEqual(p.diagnostics, []);
   const [, pan] = ops('camera', p);
   assert.deepEqual([pan.zoom, pan.x, pan.y, pan.dur, pan.ease], [null, 0.8, 0.3, 1.2, 'out']);
@@ -32,7 +32,7 @@ test('camera pan: bad arguments are parse errors', () => {
 
 test('weather and filter: parsing, lasting state, reset on scene', async () => {
   const p = build([
-    'label start:', '  scene a', '  weather rain 0.8 2', '  filter sepia 0.5 1', '  "x"',
+    'label start:', '  scene a', '  weather rain 0.8 2s', '  filter sepia 0.5 1s', '  "x"',
     '  weather snow', '  filter blur', '  "y"', '  weather off', '  filter off', '  "z"', '  weather petals', '  filter night', '  scene b', '  "w"',
   ]);
   assert.deepEqual(p.diagnostics, []);
@@ -70,7 +70,7 @@ test('weather and filter survive a restore into the middle of the story', async 
 });
 
 test('scene accepts the iris, blinds and pixelate transitions', () => {
-  const p = build(['label start:', '  scene a iris 1', '  scene b blinds', '  scene c pixelate 0.8', '  scene d wipe up 0.4']);
+  const p = build(['label start:', '  scene a iris 1s', '  scene b blinds', '  scene c pixelate 0.8s', '  scene d wipe up 0.4s']);
   assert.deepEqual(p.diagnostics, []);
   assert.deepEqual(ops('scene', p).map(o => [o.transition, o.dur, o.dir]), [['iris', 1, null], ['blinds', 0.5, null], ['pixelate', 0.8, null], ['wipe', 0.4, 'up']]);
 });
@@ -137,7 +137,7 @@ test('iris, blinds and pixelate geometry', () => {
 });
 
 test('scene accepts mask=<image> on dissolve; elsewhere it is an error', () => {
-  const p = build(['label start:', '  scene a dissolve mask=wipe_clock 0.8', '  scene b mask=radial', '  scene c dissolve', '  scene d mask=x wipe up', '  scene e dissolve mask=']);
+  const p = build(['label start:', '  scene a dissolve mask=wipe_clock 0.8s', '  scene b mask=radial', '  scene c dissolve', '  scene d mask=x wipe up', '  scene e dissolve mask=']);
   assert.deepEqual(p.diagnostics.map(d => d.line), [5, 6]);
   assert.deepEqual(ops('scene', p).map(o => [o.transition, o.mask, o.dur]), [['dissolve', 'wipe_clock', 0.8], ['dissolve', 'radial', 0.5], ['dissolve', null, 0.5]]);
 });
@@ -187,7 +187,7 @@ test('cameraPivot: recovers the pivot from the world offset, the fallback at zoo
 
 test('wind: parsing, lasting state, reset on scene, bad arguments', async () => {
   const p = build([
-    'label start:', '  scene a', '  wind right 0.6 gusts=0.2 1.5', '  "x"', '  wind left', '  "y"', '  wind off 2', '  "z"', '  wind right 1', '  scene b', '  "w"',
+    'label start:', '  scene a', '  wind right 0.6 gusts=0.2 1.5s', '  "x"', '  wind left', '  "y"', '  wind off 2s', '  "z"', '  wind right 1', '  scene b', '  "w"',
   ]);
   assert.deepEqual(p.diagnostics, []);
   const [right, left, off] = ops('wind', p);

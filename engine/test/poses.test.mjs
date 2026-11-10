@@ -35,7 +35,7 @@ test('lerpParams: per-parameter easing, untouched parameters stay, results are c
 });
 
 test('parse: show pose=, animate pose= and parameter=value', () => {
-  const p = build(['show robo pose=happy,left', 'animate robo look_x=0.6 mouth=0.8 over 0.4', 'animate robo pose=sad mouth=0 over 0.5 ease=out nowait', 'animate robo pose=happy']);
+  const p = build(['show robo pose=happy,left', 'animate robo look_x=0.6 mouth=0.8 over 0.4s', 'animate robo pose=sad mouth=0 over 0.5s ease=out nowait', 'animate robo pose=happy']);
   assert.deepEqual(errs(p), []);
   const show = p.ops.find(o => o.op === 'show');
   assert.deepEqual(show.poses, ['happy', 'left']);
@@ -51,8 +51,8 @@ test('parse: show pose=, animate pose= and parameter=value', () => {
 
 test('parse: bad pose and parameter arguments', () => {
   const run = line => build([line]).diagnostics.map(d => d.message).join('|');
-  assert.match(run('animate robo pose=happy over'), /number/);
-  assert.match(run('animate robo pose=happy over -1'), /negative/);
+  assert.match(run('animate robo pose=happy over'), /duration after over like 0.5s/);
+  assert.match(run('animate robo pose=happy over -1s'), /cannot be negative/);
   assert.match(run('animate robo mouth=x'), /number/);
   assert.match(run('animate robo mouth=1 fast'), /Use: animate/);
   assert.match(run('animate robo mouth=1 ease=wobble'), /Unknown ease/);
@@ -62,7 +62,7 @@ test('parse: bad pose and parameter arguments', () => {
 });
 
 test('state: poses and values layer in order and persist until hide', async () => {
-  const p = build(['show robo pose=happy', 'animate robo look_x=0.6', 'animate robo pose=sad mouth=0.4 over 0.5', '"mid"', 'show robo pose=left', '"again"', 'hide robo', 'show robo', '"fresh"']);
+  const p = build(['show robo pose=happy', 'animate robo look_x=0.6', 'animate robo pose=sad mouth=0.4 over 0.5s', '"mid"', 'show robo pose=left', '"again"', 'hide robo', 'show robo', '"fresh"']);
   p.rigPoses = { robo: poses };
   const r = new NullRenderer(), seen = [];
   const rt = new Runtime(p, r);

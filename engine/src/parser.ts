@@ -4,6 +4,7 @@ import { parseCondition, type AutoDef } from './auto-anim.js';
 import { parseTransformLine, type ChoreographyDef, type ChoreographyLine, type TransformDef, type TransformParam, type TransformRepeat, type TransformStep } from './transform.js';
 import { BUILTIN_POSITIONS, type Position, type Positions } from './positions.js';
 import { parseExpr, parseExprList, usesRandom, ExprError, type Expr } from './expr.js';
+import { durationOf, isBareNumber, isDuration, readDuration, unitMessage } from './duration.js';
 import { BURST_NAMES, FILTER_NAMES, WEATHER_NAMES, isBurstName, isFilterName, isWeatherName, type BurstName, type FilterName, type WeatherName } from './fx.js';
 import type { LocalSets, ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
@@ -27,7 +28,7 @@ const RESERVED_WORDS = ['true', 'false', 'and', 'or', 'not'];
 /** What each block opener looks like, for a line that starts with one but is not written right (see FileParser.slip). */
 const OPENER_USAGE: Record<string, string> = {
   label: 'Use: label <name>:  or  label <name>(<parameters>):',
-  menu: 'Use: menu:  or  menu "Prompt":  (with timeout <seconds> before the colon for a clock)',
+  menu: 'Use: menu:  or  menu "Prompt":  (with timeout 8s before the colon for a clock)',
   if: 'Use: if <condition>:',
   elif: 'Use: elif <condition>:',
   else: 'Use: else:',
@@ -49,8 +50,8 @@ export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{
 const RE_ON_TIMEOUT = /^on[ \t]+timeout[ \t]*:$/;
 const RE_TRANSFORM = /^transform[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?(?:[ \t]+((?:every|while)\b.*?))?[ \t]*:$/;
 const RE_CHOREO = /^choreography[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:$/;
-const RE_CHOREO_LINE = /^(\d+(?:\.\d+)?|\.\d+)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*(\S.*)$/;
-const RE_TRANSFORM_AUTO = /^(?:every[ \t]+(\d+(?:\.\d+)?|\.\d+)(?:\.\.(\d+(?:\.\d+)?|\.\d+))?)?(?:[ \t]*while[ \t]+(.+))?$/;
+const RE_CHOREO_LINE = /^((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*(\S.*)$/;
+const RE_TRANSFORM_AUTO = /^(?:every[ \t]+((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?)(?:\.\.((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?))?)?(?:[ \t]*while[ \t]+(.+))?$/;
 const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:?$/;
 const RE_SHOW_SCREEN = /^show[ \t]+screen[ \t]+([A-Za-z_]\w*)[ \t]*(?:\((.*)\))?(?:[ \t]+as[ \t]+([A-Za-z_]\w*))?[ \t]*(?:#.*)?$/;
 export const RE_DEFINE_ITEM = /^define[ \t]+item[ \t]+[A-Za-z_]\w*(?=[ \t]|$)/;
@@ -131,6 +132,18 @@ function num(tok: string | undefined, what: string): number {
   if (tok === undefined || tok === '' || !Number.isFinite(n)) throw new ParseError(`Expected a number for ${what}`);
   return n;
 }
+/** A duration with its unit (`0.5s`, `500ms`) in seconds; a bare number there says to add the unit. */
+const durArg = (tok: string | undefined, what = 'a duration') => readDuration(tok, what, m => new ParseError(m));
+/** A token in a run of optional trailing arguments that is a bare number: in a duration's place it is an error (it lacks its unit). */
+const bareDur = (tok: string | undefined) => { if (isBareNumber(tok)) throw new ParseError(unitMessage(tok!)); };
+/** An optional duration argument: null when absent, its seconds when it has its unit, the unit message for a bare number, else `usage`. */
+const optDur = (tok: string | undefined, usage: string): number | null => {
+  if (tok === undefined) return null;
+  bareDur(tok);
+  const d = durationOf(tok);
+  if (d === null) throw new ParseError(usage);
+  return d;
+};
 function anchorArg(tok: string, anchors: Anchors): Anchor {
   try { return parseAnchor(tok.slice(7), anchors); } catch (e) { throw new ParseError((e as Error).message); }
 }
@@ -158,18 +171,19 @@ class Cmd {
   need = (i: number, what: string) => { if (this.a[i] === undefined) throw new ParseError(`"${this.cmd}" needs ${what}`); return this.a[i]; };
   /** The command takes `n` arguments (and nowait): anything after them is a mistake, not something to ignore. */
   extra = (n: number, hint = '') => { if (this.a.length > n) throw new ParseError(`Unexpected "${this.a[n]}" in ${this.cmd}${hint ? ` (${hint})` : ''}`); };
-  /** Optional trailing numbers (`[strength] [seconds]`) at `from`: at most `max`, each a number. */
-  numbers = (from: number, max: number, usage: string) => {
-    if (this.a.length > from + max || this.a.slice(from).some(t => !isNum(t))) throw new ParseError(usage);
-  };
-  /** `<cmd> <name> [level 0-1] [seconds]`: the level (a[1]) and the duration (a[2]); `<cmd> off [seconds]` has only the duration. */
+  /** `<cmd> <name> [level 0-1] [duration]`: the level (a bare number) and the duration (with its unit), either one optional. */
   parseLevel = (usage: string, what: string, dflt: number) => {
-    this.numbers(1, 2, usage);
-    const level = isNum(this.a[1]) ? Number(this.a[1]) : dflt;
+    const rest = this.a.slice(1);
+    let i = 0;
+    const level = isNum(rest[0]) ? Number(rest[i++]) : dflt;
     if (level < 0 || level > 1) throw new ParseError(`${what} is 0 to 1`);
-    return { level, dur: isNum(this.a[2]) ? Number(this.a[2]) : 0 };
+    const d = optDur(rest[i], usage);
+    if (d !== null) i++;
+    if (rest.length > i) throw new ParseError(isBareNumber(rest[i]) ? unitMessage(rest[i]) : usage);
+    return { level, dur: d ?? 0 };
   };
-  offDur = (usage: string) => { this.numbers(1, 1, usage); return isNum(this.a[1]) ? Number(this.a[1]) : 0; };
+  /** `<cmd> off [duration]`. */
+  offDur = (usage: string) => { if (this.a.length > 2) throw new ParseError(usage); return optDur(this.a[1], usage) ?? 0; };
   /** `<cmd> on` or `<cmd> off`. */
   parseOnOff = () => {
     if ((this.a[0] !== 'on' && this.a[0] !== 'off') || this.a.length > 1) throw new ParseError(`Use: ${this.cmd} on  |  ${this.cmd} off`);
@@ -192,10 +206,12 @@ function parseSceneCommand(c: Cmd): OpBody {
   let transition = (mask ? 'dissolve' : 'cut') as Transition;
   if (TRANSITIONS.includes(a[i] as Transition)) transition = a[i++] as Transition;
   if (mask && transition !== 'dissolve') throw new ParseError(`mask= works with dissolve, not ${transition}`);
-  if (transition === 'wipe') dir = !isNum(a[i]) && a[i] !== undefined ? a[i++] : 'left';
-  const dur = isNum(a[i]) ? Number(a[i]) : transition === 'cut' ? 0 : 0.5;
-  if (isNum(a[i])) i++;
+  if (transition === 'wipe') dir = !isNum(a[i]) && !isDuration(a[i]) && a[i] !== undefined ? a[i++] : 'left';
+  bareDur(a[i]);
+  const d = durationOf(a[i]);
+  if (d !== null) i++;
   extra(i, `transitions: ${TRANSITIONS.join(', ')}`);
+  const dur = d ?? (transition === 'cut' ? 0 : 0.5);
   return visual({ op: 'scene', bg, transition, dir, mask, dur });
 }
 
@@ -230,7 +246,7 @@ function parseShowCommand(c: Cmd): OpBody {
       if (v === char) throw new ParseError(`"${char}" cannot stand behind itself`);
       place.behind = v; i++;
     }
-    else if (t === 'fade') { fade = num(a[i + 1], 'fade duration'); i += 2; }
+    else if (t === 'fade') { fade = durArg(a[i + 1], 'a fade duration'); i += 2; }
     else if (t.startsWith('y=')) { place.y = num(t.slice(2), 'y'); i++; }
     else if (t.startsWith('scale=')) { place.scale = num(t.slice(6), 'scale'); i++; }
     else if (t.startsWith('flip=')) {
@@ -253,8 +269,8 @@ function parseHideCommand(c: Cmd): OpBody {
   const { need, extra, visual } = c;
   const a = c.a;
   const char = need(0, 'a character');
-  const fade = a[1] === 'fade' ? num(a[2], 'fade duration') : 0;
-  extra(a[1] === 'fade' ? 3 : 1, 'use: hide <char> [fade seconds]');
+  const fade = a[1] === 'fade' ? durArg(a[2], 'a fade duration') : 0;
+  extra(a[1] === 'fade' ? 3 : 1, 'use: hide <char> [fade <duration>]');
   return visual({ op: 'hide', char, fade });
 }
 
@@ -262,7 +278,7 @@ function parseMoveCommand(c: Cmd): OpBody {
   const { need, visual, positions, anchors } = c;
   const a = c.a;
   const char = need(0, 'a character');
-  const usage = 'Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [seconds] [ease=]';
+  const usage = 'Use: move <char> [to <position>] [y=] [scale=] [rot=] [alpha=] [tint=<#rrggbb|none>] [flip=on|off] [anchor=] [duration like 0.5s] [ease=]';
   let x: number | null = null, dur = 0, ease = DEFAULT_EASE, tint: string | null | undefined;
   const props: Record<string, number> = {};
   let flip: boolean | null = null, anchor: Anchor | null = null, posY: number | undefined;
@@ -286,8 +302,8 @@ function parseMoveCommand(c: Cmd): OpBody {
       if (!['y', 'scale', 'rot', 'alpha'].includes(k)) throw new ParseError(`Unknown property "${k}" in move`);
       props[k] = num(v, k); i++;
     }
-    else if (isNum(t)) { dur = Number(t); i++; }
-    else throw new ParseError(usage);
+    else if (isDuration(t)) { dur = durationOf(t)!; i++; }
+    else { bareDur(t); throw new ParseError(usage); }
   }
   if (x === null && flip === null && anchor === null && tint === undefined && Object.keys(props).length === 0) throw new ParseError(usage);
   return visual({ op: 'move', char, x, y: props.y ?? posY ?? null, scale: props.scale ?? null, rotation: props.rot ?? null, alpha: props.alpha ?? null, flip, anchor, ...(tint !== undefined ? { tint } : {}), dur, ease });
@@ -303,15 +319,20 @@ function tintArg(t: string): string | null {
 
 function parseShakeCommand(c: Cmd): OpBody {
   const { need, visual } = c;
-  const a = c.a;
-  const target = need(0, 'a character or "screen"');
+  // `shake 0.4s` (a duration first) shakes the screen, as `shake screen 0.4s` does; a bare number there is a missing unit, not a name.
+  bareDur(c.a[0]);
+  const a = isDuration(c.a[0]) ? ['screen', ...c.a] : c.a;
+  const target = a === c.a ? need(0, 'a character or "screen"') : 'screen';
   let dur = 0.3, strength = 8, gotDur = false;
   for (const t of a.slice(1)) {
     if (t.startsWith('strength=')) strength = num(t.slice(9), 'strength');
-    else if (isNum(t) && !gotDur) { dur = Number(t); gotDur = true; }
-    else throw new ParseError(t === 'loop'
-      ? 'shake is a single shake and has no loop: use animate <char> shake loop for a continuous one'
-      : 'Use: shake <char|screen> [seconds] [strength=8]');
+    else if (isDuration(t) && !gotDur) { dur = durationOf(t)!; gotDur = true; }
+    else {
+      if (!gotDur) bareDur(t);
+      throw new ParseError(t === 'loop'
+        ? 'shake is a single shake and has no loop: use animate <char> shake loop for a continuous one'
+        : 'Use: shake <char|screen> [duration like 0.3s] [strength=8]');
+    }
   }
   return visual({ op: 'shake', target, dur, strength });
 }
@@ -327,17 +348,17 @@ function parseAnimateCommand(c: Cmd): OpBody {
     let text = name;
     while ((text.match(/\(/g) ?? []).length > (text.match(/\)/g) ?? []).length && argsAt < a.length) text += ' ' + a[argsAt++];
     const close = text.lastIndexOf(')');
-    if (close !== text.length - 1 || (text.match(/\(/g) ?? []).length !== (text.match(/\)/g) ?? []).length) throw new ParseError('Use: animate <char> name(arguments) [seconds] [loop] [strength=1]');
+    if (close !== text.length - 1 || (text.match(/\(/g) ?? []).length !== (text.match(/\)/g) ?? []).length) throw new ParseError('Use: animate <char> name(arguments) [duration] [loop] [strength=1]');
     try { args = parseExprList(text.slice(open + 1, close)); } catch (e) { throw new ParseError(e instanceof ExprError ? e.message : String(e)); }
     name = text.slice(0, open);
   }
   if (name.includes('=')) { // animate <char> pose=<name> / <param>=<value> ... [over <seconds>] [ease=<name>]
-    const usage = 'Use: animate <char> [pose=<name>[,<name>]] [<parameter>=<value> ...] [over <seconds>] [ease=<name>]';
+    const usage = 'Use: animate <char> [pose=<name>[,<name>]] [<parameter>=<value> ...] [over <duration>] [ease=<name>]';
     const poses: string[] = [], params: Record<string, number> = {};
     let dur = 0, ease: string | null = null;
     for (let i = 1; i < a.length;) {
       const t = a[i];
-      if (t === 'over') { dur = num(a[i + 1], 'duration'); if (dur < 0) throw new ParseError('The duration after over cannot be negative'); i += 2; }
+      if (t === 'over') { dur = durArg(a[i + 1], 'a duration after over'); i += 2; }
       else if (t.startsWith('pose=')) { poses.push(...poseNames(t)); i++; }
       else if (t.startsWith('ease=')) {
         ease = t.slice(5);
@@ -361,19 +382,19 @@ function parseAnimateCommand(c: Cmd): OpBody {
     else if (t === 'off' && auto === 'on') auto = 'off';
     else if (t.startsWith('strength=')) strength = num(t.slice(9), 'strength');
     else if (t.startsWith('part=') && t.length > 5) part = t.slice(5);
-    else if (isNum(t) && Number(t) > 0) dur = Number(t);
-    else throw new ParseError('Use: animate <char> <name> [seconds] [loop] [strength=1] [part=name], animate <char> <name> auto [off], or animate <char> stop');
+    else if (isDuration(t) && durationOf(t)! > 0) dur = durationOf(t)!;
+    else { bareDur(t); throw new ParseError('Use: animate <char> <name> [duration like 2s] [loop] [strength=1] [part=name], animate <char> <name> auto [off], or animate <char> stop'); }
   }
-  if (auto && (loop || dur !== null || strength !== 1 || part !== null || args)) throw new ParseError('animate <target> <name> auto [off] attaches or detaches an automatic transform: it takes no seconds, loop, strength, part or arguments');
+  if (auto && (loop || dur !== null || strength !== 1 || part !== null || args)) throw new ParseError('animate <target> <name> auto [off] attaches or detaches an automatic transform: it takes no duration, loop, strength, part or arguments');
   return visual({ op: 'animate', char, name, dur, loop, strength, part, ...(args ? { args } : {}), ...(auto ? { auto } : {}) });
 }
 
 function parseHopCommand(c: Cmd): OpBody {
-  const { need, numbers, visual } = c;
-  const a = c.a;
+  const { need, visual } = c;
+  const a = c.a, usage = 'Use: hop <char> [duration like 0.25s]';
   const char = need(0, 'a character');
-  numbers(1, 1, 'Use: hop <char> [seconds]');
-  return visual({ op: 'hop', char, dur: isNum(a[1]) ? Number(a[1]) : 0.25 });
+  if (a.length > 2) throw new ParseError(usage);
+  return visual({ op: 'hop', char, dur: optDur(a[1], usage) ?? 0.25 });
 }
 
 function parsePerformCommand(c: Cmd): OpBody {
@@ -386,7 +407,7 @@ function parsePerformCommand(c: Cmd): OpBody {
 function parseBurstCommand(c: Cmd): OpBody {
   const { visual, positions } = c;
   const a = c.a;
-  const usage = `Use: burst <${BURST_NAMES.join('|')}> [at <character|position>] [y=0-1] [count=] [seconds]`;
+  const usage = `Use: burst <${BURST_NAMES.join('|')}> [at <character|position>] [y=0-1] [count=] [duration like 1s]`;
   if (!isBurstName(a[0] ?? '')) throw new ParseError(usage);
   let char: string | undefined, x: number | undefined, y: number | undefined, count: number | null = null, dur: number | null = null;
   for (let i = 1; i < a.length;) {
@@ -402,8 +423,8 @@ function parseBurstCommand(c: Cmd): OpBody {
       if (!Number.isInteger(count) || count < 1 || count > 500) throw new ParseError('count= is a whole number from 1 to 500');
       i++;
     }
-    else if (isNum(t) && dur === null && Number(t) > 0) { dur = Number(t); i++; }
-    else throw new ParseError(usage);
+    else if (isDuration(t) && dur === null && durationOf(t)! > 0) { dur = durationOf(t)!; i++; }
+    else { bareDur(t); throw new ParseError(usage); }
   }
   if (char !== undefined && y !== undefined) throw new ParseError('y= places a burst at a point; at a character it comes from the character');
   return visual({ op: 'burst', kind: a[0] as BurstName, ...(char !== undefined ? { char } : {}), ...(x !== undefined ? { x } : {}), ...(y !== undefined ? { y } : {}), count, dur });
@@ -412,19 +433,20 @@ function parseBurstCommand(c: Cmd): OpBody {
 function parseFlashCommand(c: Cmd): OpBody {
   const { visual } = c;
   const a = c.a;
-  // A first word that is neither a color nor a number names the character or picture to flash instead of the screen.
-  const char = a[0] !== undefined && !COLOR.test(a[0]) && !isNum(a[0]) ? a[0] : undefined;
+  // A first word that is neither a color nor a duration names the character or picture to flash instead of the screen.
+  const char = a[0] !== undefined && !COLOR.test(a[0]) && !isNum(a[0]) && !isDuration(a[0]) ? a[0] : undefined;
   const args = char ? a.slice(1) : a;
   const color = args.find(t => COLOR.test(t)) ?? '#ffffff';
   const rest = args.filter(t => t !== color);
-  if (rest.length > 1) throw new ParseError('Use: flash [<character or picture>] [#rrggbb] [seconds]');
-  return visual({ op: 'flash', color, dur: rest.length ? num(rest[0], 'duration') : 0.4, ...(char ? { char } : {}) });
+  const usage = 'Use: flash [<character or picture>] [#rrggbb] [duration like 0.4s]';
+  if (rest.length > 1) throw new ParseError(usage);
+  return visual({ op: 'flash', color, dur: optDur(rest[0], usage) ?? 0.4, ...(char ? { char } : {}) });
 }
 
 function parseTintCommand(c: Cmd): OpBody {
   const { need, parseLevel, offDur, visual } = c;
   const a = c.a;
-  const usage = 'Use: tint <#rrggbb> [strength 0-1] [seconds]  or  tint off [seconds]';
+  const usage = 'Use: tint <#rrggbb> [strength 0-1] [duration like 1s]  or  tint off [duration]';
   if (a[0] === 'off') return visual({ op: 'tint', color: null, strength: 0, dur: offDur(usage) });
   const color = need(0, 'a color like #203060, or "off"');
   if (!COLOR.test(color)) throw new ParseError(usage);
@@ -449,22 +471,21 @@ function parseCameraCommand(c: Cmd): OpBody {
   const rest = a.filter(t => !t.startsWith('ease=') && !t.startsWith('y='));
   const ease = easeArg ? easeArg.slice(5) : 'inout';
   if (!isEaseSpec(ease)) throw new ParseError(easeProblem(ease));
-  const usage = 'Use: camera zoom <factor> [at <pos>] [y=0-1] [seconds], camera pan <pos> [y=0-1] [seconds], camera roll <degrees> [seconds], or camera reset [seconds]';
-  const tail = (from: number) => { if (rest.length > from + 1 || (rest[from] !== undefined && !isNum(rest[from]))) throw new ParseError(usage); };
-  if (rest[0] === 'reset') { tail(1); return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, roll: 0, dur: isNum(rest[1]) ? Number(rest[1]) : 0, ease }); }
+  const usage = 'Use: camera zoom <factor> [at <pos>] [y=0-1] [duration like 1s], camera pan <pos> [y=0-1] [duration], camera roll <degrees> [duration], or camera reset [duration]';
+  /** The optional duration at `from`, and nothing after it. */
+  const tail = (from: number) => { if (rest.length > from + 1) throw new ParseError(usage); return optDur(rest[from], usage) ?? 0; };
+  if (rest[0] === 'reset') return visual({ op: 'camera', zoom: 1, x: 0.5, y: 0.5, roll: 0, dur: tail(1), ease });
   if (rest[0] === 'roll') {
     // Turns the view about the current pivot, keeping zoom and pan.
     if (yArg) throw new ParseError(usage);
     const roll = num(rest[1], 'roll angle');
-    tail(2);
-    return visual({ op: 'camera', zoom: null, x: null, y: null, roll, dur: isNum(rest[2]) ? Number(rest[2]) : 0, ease });
+    return visual({ op: 'camera', zoom: null, x: null, y: null, roll, dur: tail(2), ease });
   }
   if (rest[0] === 'pan') {
     // Moves the point the zoom is about, keeping the zoom: only visible while zoomed in.
     const x = parsePos(rest[1], positions).x;
     const y = yArg ? num(yArg.slice(2), 'y') : 0.5;
-    tail(2);
-    return visual({ op: 'camera', zoom: null, x, y, dur: isNum(rest[2]) ? Number(rest[2]) : 0, ease });
+    return visual({ op: 'camera', zoom: null, x, y, dur: tail(2), ease });
   }
   if (rest[0] !== 'zoom') throw new ParseError(usage);
   const zoom = num(rest[1], 'zoom factor');
@@ -472,14 +493,13 @@ function parseCameraCommand(c: Cmd): OpBody {
   let i = 2, x = 0.5;
   const y = yArg ? num(yArg.slice(2), 'y') : 0.5;
   if (rest[i] === 'at') { x = parsePos(rest[i + 1], positions).x; i += 2; }
-  tail(i);
-  return visual({ op: 'camera', zoom, x, y, dur: isNum(rest[i]) ? Number(rest[i]) : 0, ease });
+  return visual({ op: 'camera', zoom, x, y, dur: tail(i), ease });
 }
 
 function parseWeatherCommand(c: Cmd): OpBody {
   const { parseLevel, offDur, visual } = c;
   const a = c.a;
-  const usage = `Use: weather <${WEATHER_NAMES.join('|')}> [intensity 0-1] [seconds], or weather off [seconds]`;
+  const usage = `Use: weather <${WEATHER_NAMES.join('|')}> [intensity 0-1] [duration like 2s], or weather off [duration]`;
   if (a[0] === 'off') return visual({ op: 'weather', kind: null, intensity: 0, dur: offDur(usage) });
   if (!isWeatherName(a[0] ?? '')) throw new ParseError(usage);
   const { level: intensity, dur } = parseLevel(usage, 'Weather intensity', 0.6);
@@ -488,7 +508,7 @@ function parseWeatherCommand(c: Cmd): OpBody {
 
 function parseWindCommand(c: Cmd): OpBody {
   const { offDur, visual } = c;
-  const usage = 'Use: wind <right|left> [strength 0-2] [gusts=0-1] [seconds], or wind off [seconds]';
+  const usage = 'Use: wind <right|left> [strength 0-2] [gusts=0-1] [duration like 2s], or wind off [duration]';
   const gustArg = c.a.find(t => t.startsWith('gusts='));
   const a = c.a.filter(t => t !== gustArg);
   if (a[0] === 'off') {
@@ -496,12 +516,15 @@ function parseWindCommand(c: Cmd): OpBody {
     return visual({ op: 'wind', strength: 0, gusts: 0, dur: offDur(usage) });
   }
   if (a[0] !== 'right' && a[0] !== 'left') throw new ParseError(usage);
-  if (a.length > 3 || a.slice(1).some(t => !isNum(t))) throw new ParseError(usage);
-  const level = isNum(a[1]) ? Number(a[1]) : 0.5;
+  let i = 1;
+  const level = isNum(a[i]) ? Number(a[i++]) : 0.5;
   if (level < 0 || level > 2) throw new ParseError('Wind strength is 0 to 2');
+  const d = optDur(a[i], usage);
+  if (d !== null) i++;
+  if (a.length > i) throw new ParseError(isBareNumber(a[i]) ? unitMessage(a[i]) : usage);
   const gusts = gustArg ? Number(gustArg.slice(6)) : 0.4;
   if (!isNum(gustArg ? gustArg.slice(6) : '0') || gusts < 0 || gusts > 1) throw new ParseError('Wind gusts are 0 (steady) to 1 (fully gusting)');
-  return visual({ op: 'wind', strength: a[0] === 'right' ? level : -level, gusts, dur: isNum(a[2]) ? Number(a[2]) : 0 });
+  return visual({ op: 'wind', strength: a[0] === 'right' ? level : -level, gusts, dur: d ?? 0 });
 }
 
 function parseGravityCommand(c: Cmd): OpBody {
@@ -517,7 +540,7 @@ function parseGravityCommand(c: Cmd): OpBody {
 function parseFilterCommand(c: Cmd): OpBody {
   const { parseLevel, offDur, visual } = c;
   const a = c.a;
-  const usage = `Use: filter <${FILTER_NAMES.join('|')}> [strength 0-1] [seconds], or filter off [seconds]`;
+  const usage = `Use: filter <${FILTER_NAMES.join('|')}> [strength 0-1] [duration like 1s], or filter off [duration]`;
   if (a[0] === 'off') return visual({ op: 'filter', name: null, strength: 0, dur: offDur(usage) });
   if (!isFilterName(a[0] ?? '')) throw new ParseError(usage);
   const { level: strength, dur } = parseLevel(usage, 'Filter strength', 1);
@@ -534,7 +557,7 @@ function parseHudCommand(c: Cmd): OpBody {
 function parseImageCommand(c: Cmd): OpBody {
   const { visual, anchors, stage } = c;
   const a = c.a;
-  const usage = 'Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade s], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [seconds] [ease=], or image hide <name> [fade s]';
+  const usage = 'Use: image show <name> <file> [at x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [layer=] [parallax=] [fixed] [keep] [fade <duration>], image move <name> [to x,y] [scale=] [rot=] [alpha=] [anchor=] [tint=] [duration like 0.5s] [ease=], or image hide <name> [fade <duration>]';
   const verb = a[0], name = a[1];
   if (!name || !/^[A-Za-z_]\w*$/.test(name)) throw new ParseError(usage);
   const xy = (tok: string | undefined) => {
@@ -543,8 +566,8 @@ function parseImageCommand(c: Cmd): OpBody {
     return { x: Number(m[1]), y: Number(m[2]) };
   };
   if (verb === 'hide') {
-    if (a.length > 2 && (a[2] !== 'fade' || !isNum(a[3]) || a.length > 4)) throw new ParseError(usage);
-    return visual({ op: 'image', action: 'hide', name, fade: a[2] ? Number(a[3]) : 0 });
+    if (a.length > 2 && (a[2] !== 'fade' || a.length > 4)) throw new ParseError(usage);
+    return visual({ op: 'image', action: 'hide', name, fade: a[2] ? durArg(a[3], 'a fade duration') : 0 });
   }
   if (verb !== 'show' && verb !== 'move') throw new ParseError(usage);
   const props: Record<string, number> = {};
@@ -553,7 +576,7 @@ function parseImageCommand(c: Cmd): OpBody {
   for (let i = 2; i < a.length;) {
     const t = a[i];
     if (t === (verb === 'show' ? 'at' : 'to')) { pos = xy(a[i + 1]); i += 2; }
-    else if (verb === 'show' && t === 'fade') { fade = num(a[i + 1], 'fade duration'); i += 2; }
+    else if (verb === 'show' && t === 'fade') { fade = durArg(a[i + 1], 'a fade duration'); i += 2; }
     else if (verb === 'show' && t === 'fixed') { fixed = true; i++; }
     else if (verb === 'show' && t === 'keep') { keep = true; i++; }
     else if (verb === 'show' && t.startsWith('parallax=')) {
@@ -578,9 +601,9 @@ function parseImageCommand(c: Cmd): OpBody {
       if (!['scale', 'rot', 'alpha'].includes(k)) throw new ParseError(`Unknown property "${k}" in image ${verb}`);
       props[k] = num(v, k); i++;
     }
-    else if (verb === 'move' && isNum(t)) { dur = Number(t); i++; }
+    else if (verb === 'move' && isDuration(t)) { dur = durationOf(t)!; i++; }
     else if (verb === 'show' && file === null) { file = t; i++; }
-    else throw new ParseError(`Unexpected "${t}" in image ${verb}`);
+    else { if (verb === 'move') bareDur(t); throw new ParseError(`Unexpected "${t}" in image ${verb}`); }
   }
   if (props.scale !== undefined && props.scale <= 0) throw new ParseError('scale= must be above 0');
   if (props.alpha !== undefined && (props.alpha < 0 || props.alpha > 1)) throw new ParseError('alpha= is 0 to 1');
@@ -603,27 +626,27 @@ function parseMusicCommand(c: Cmd): OpBody {
   const { need, visual } = c;
   const a = c.a;
   const action = need(0, '"play", "stop", "pause" or "resume"');
-  if (action !== 'play' && action !== 'stop' && action !== 'pause' && action !== 'resume') throw new ParseError('Use: music play <name> [loop] [fade n], music stop [fade n], music pause [fade n] or music resume [fade n]');
+  if (action !== 'play' && action !== 'stop' && action !== 'pause' && action !== 'resume') throw new ParseError('Use: music play <name> [loop] [fade 2s], music stop [fade 2s], music pause [fade 2s] or music resume [fade 2s]');
   const fi = a.indexOf('fade');
-  const fade = fi >= 0 ? num(a[fi + 1], 'fade duration') : 0;
+  const fade = fi >= 0 ? durArg(a[fi + 1], 'a fade duration') : 0;
   const rest = fi >= 0 ? [...a.slice(0, fi), ...a.slice(fi + 2)] : a;
   if (action !== 'play') {
-    if (rest.length > 1) throw new ParseError(`Unexpected "${rest[1]}" in music ${action} (use: music ${action} [fade seconds])`);
+    if (rest.length > 1) throw new ParseError(`Unexpected "${rest[1]}" in music ${action} (use: music ${action} [fade <duration>])`);
     return visual({ op: 'music', action, name: null, loop: false, fade });
   }
   const name = need(1, 'a track name');
-  if (rest.length > 3 || (rest[2] !== undefined && rest[2] !== 'loop')) throw new ParseError(`Unexpected "${rest[2] === 'loop' ? rest[3] : rest[2]}" in music play (use: music play <name> [loop] [fade seconds])`);
+  if (rest.length > 3 || (rest[2] !== undefined && rest[2] !== 'loop')) throw new ParseError(`Unexpected "${rest[2] === 'loop' ? rest[3] : rest[2]}" in music play (use: music play <name> [loop] [fade <duration>])`);
   return visual({ op: 'music', action, name, loop: rest[2] === 'loop', fade });
 }
 
 function parseSoundCommand(c: Cmd): OpBody {
   const { need, visual } = c;
   const a = c.a;
-  const usage = 'Use: sound play <name> [duck], sound loop <name> [fade n] or sound stop [<name>] [fade n]';
+  const usage = 'Use: sound play <name> [duck], sound loop <name> [fade 1s] or sound stop [<name>] [fade 1s]';
   const action = need(0, '"play", "loop" or "stop"');
   if (action !== 'play' && action !== 'loop' && action !== 'stop') throw new ParseError(usage);
   const fi = a.indexOf('fade');
-  const fade = fi >= 0 ? num(a[fi + 1], 'fade duration') : 0;
+  const fade = fi >= 0 ? durArg(a[fi + 1], 'a fade duration') : 0;
   const rest = a.slice(1).filter((t, i) => !(fi >= 1 && (i + 1 === fi || i + 1 === fi + 1)));
   const duck = action === 'play' && rest.includes('duck');
   const names = rest.filter(t => t !== 'duck');
@@ -648,8 +671,8 @@ function parseMovieCommand(c: Cmd): OpBody {
 function parseWaitCommand(c: Cmd): OpBody {
   const { extra, visual } = c;
   const a = c.a;
-  const dur = num(a[0], 'seconds');
-  extra(1, 'use: wait <seconds>');
+  const dur = durArg(a[0], 'a duration');
+  extra(1, 'use: wait <duration>, like wait 1s');
   return visual({ op: 'wait', dur });
 }
 
@@ -790,7 +813,19 @@ class FileParser {
   private exprOf(ln: RawLine, s: string): Expr | null {
     try { return parseExpr(s); } catch (e) { this.err(ln, e instanceof ExprError ? e.message : String(e)); return null; }
   }
-
+  /** A `{pause=…}` tag in a line of text takes a duration with its unit (`{pause=0.5s}`); without one it would show as text. */
+  private checkPauses(ln: RawLine, text: string) {
+    for (const p of text.matchAll(/\{pause=([^{}]*)\}/g)) if (durationOf(p[1]) === null) this.err(ln, isBareNumber(p[1]) ? `${unitMessage(p[1])} in {pause=${p[1]}s}` : `{pause=} takes a duration like {pause=0.5s}`);
+  }
+  /** A menu's `timeout`: a duration (`8s`, `500ms`), or an expression in brackets with the unit after it (`(8 - difficulty)s`). In seconds. */
+  private timeoutOf(ln: RawLine, s: string): Expr | null {
+    const d = durationOf(s);
+    if (d !== null) return { t: 'num', v: d } as Expr;
+    const m = /^(\(.*\))(ms|s)$/.exec(s);
+    if (m) return this.exprOf(ln, m[2] === 'ms' ? `${m[1]} / 1000` : m[1]);
+    this.err(ln, isBareNumber(s) ? unitMessage(s) : `timeout takes a duration: timeout 8s, or an expression in brackets with its unit, like timeout (8 - difficulty)s`);
+    return null;
+  }
 
   private parseBlock(indent: number): { nodes: Node[]; endLine: number } {
     const nodes: Node[] = [];
@@ -974,20 +1009,22 @@ class FileParser {
     return def;
   }
 
-  /** The body of a `choreography name:` block: lines `<seconds> <target>: <step>` (the step is a tween, a wait or a preset, as in a transform). */
+  /** The body of a `choreography name:` block: lines `<time> <target>: <step>` (`0.6s alice: hop`) (the step is a tween, a wait or a preset, as in a transform). */
   private parseChoreography(header: RawLine, name: string): ChoreographyDef {
     const def: ChoreographyDef = { name, src: this.src(header), lines: [] };
     const first = this.lines[this.i];
     if (!first || first.indent <= header.indent) { this.err(header, 'Expected an indented block after this line'); return def; }
     while (this.i < this.lines.length && this.lines[this.i].indent >= first.indent) {
       const l = this.lines[this.i++];
-      if (l.indent > first.indent) { this.err(l, 'Unexpected indentation (a choreography line is <seconds> <target>: <step>)'); continue; }
+      if (l.indent > first.indent) { this.err(l, 'Unexpected indentation (a choreography line is <time> <target>: <step>)'); continue; }
       const m = RE_CHOREO_LINE.exec(l.text);
-      if (!m) { this.err(l, 'Use: <seconds> <character, picture or camera>: <step>   (for example: 0.6 alice: hop)'); continue; }
+      if (!m) { this.err(l, 'Use: <time> <character, picture or camera>: <step>   (for example: 0.6s alice: hop)'); continue; }
+      const at = durationOf(m[1]);
+      if (at === null) { this.err(l, unitMessage(m[1])); continue; }
       let step: ReturnType<typeof parseTransformLine>;
       try { step = parseTransformLine(m[3], this.src(l)); } catch (e) { this.err(l, e instanceof Error ? e.message : String(e)); continue; }
       if (!('kind' in step) || (step.kind !== 'tween' && step.kind !== 'wait' && step.kind !== 'preset')) { this.err(l, 'A choreography step is a tween, wait or preset (no parallel, if, pick or repeat: give two actors two lines)'); continue; }
-      def.lines.push({ at: Number(m[1]), target: m[2], step, src: this.src(l) } as ChoreographyLine);
+      def.lines.push({ at, target: m[2], step, src: this.src(l) } as ChoreographyLine);
     }
     return def;
   }
@@ -1004,12 +1041,14 @@ class FileParser {
     const def: TransformDef = { name, src: this.src(header), params, steps: [], repeat: null };
     if (autoText) {
       const am = RE_TRANSFORM_AUTO.exec(autoText.trim());
-      if (!am) this.err(header, 'Use: transform name every <seconds>[..<seconds>] [while <condition>]:  (or while <condition>: alone)');
+      if (!am) this.err(header, 'Use: transform name every <duration>[..<duration>] [while <condition>]:  (like every 3s..6s, or while <condition>: alone)');
       else {
         const auto: AutoDef = {};
-        if (am[1] !== undefined) {
-          const lo = Number(am[1]), hi = am[2] === undefined ? lo : Number(am[2]);
-          if (!(lo > 0) || hi < lo) this.err(header, 'every needs seconds above 0, and the second number of a range cannot be smaller than the first');
+        const unitless = [am[1], am[2]].find(t => t !== undefined && durationOf(t) === null);
+        if (unitless !== undefined) this.err(header, unitMessage(unitless));
+        else if (am[1] !== undefined) {
+          const lo = durationOf(am[1])!, hi = am[2] === undefined ? lo : durationOf(am[2])!;
+          if (!(lo > 0) || hi < lo) this.err(header, 'every needs a duration above 0, and the second one of a range cannot be shorter than the first');
           else auto.every = am[2] === undefined ? lo : { min: lo, max: hi };
         }
         if (am[3] !== undefined) {
@@ -1163,7 +1202,7 @@ class FileParser {
       const options: Extract<Node, { k: 'menu' }>['options'] = [];
       if (!first || first.indent <= ln.indent) { this.err(ln, 'Expected options after "menu:"'); return null; }
       const optIndent = first.indent;
-      const seconds = m[4] !== undefined ? this.exprOf(ln, m[4]) ?? { t: 'num', v: 0 } as Expr : null;
+      const seconds = m[4] !== undefined ? this.timeoutOf(ln, m[4].trim()) ?? { t: 'num', v: 0 } as Expr : null;
       let timeout: Extract<Node, { k: 'menu' }>['timeout'] = null, lateOptions = false;
       while (this.i < this.lines.length && this.lines[this.i].indent >= optIndent) {
         const ol = this.lines[this.i];
@@ -1231,10 +1270,12 @@ class FileParser {
         text += `\n${unescapeText(c[1])}`;
         this.i++;
       }
+      this.checkPauses(ln, text);
       return { k: 'op', src: this.src(ln), body: { op: 'say', who: null, text, id: m[3] ?? null, ...(m[2] ? { look: m[2] } : {}) } };
     }
     if ((m = RE_SAY.exec(t))) {
       this.warnLeak(ln, m[2]);
+      this.checkPauses(ln, m[2]);
       return { k: 'op', src: this.src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[4] ?? null, ...(m[3] ? { look: m[3] } : {}) } };
     }
     if ((m = RE_SET.exec(t))) {

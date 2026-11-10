@@ -19,7 +19,7 @@ test('no warning when the spot is free, chosen, or the overlap is meant', () => 
   assert.deepEqual(run('show al at left\nshow bo'), []);
   assert.deepEqual(run('show al\nshow bo at right'), []);
   assert.deepEqual(run('show al\nhide al\nshow bo'), []);
-  assert.deepEqual(run('show al\nmove al to left 0.5\nshow bo'), []);
+  assert.deepEqual(run('show al\nmove al to left 0.5s\nshow bo'), []);
   assert.deepEqual(run('show al\nscene bg_room\nshow bo'), []);
   assert.deepEqual(run('show al\nshow bo behind=al'), []);
   assert.deepEqual(run('show al\nshow bo order=back'), []);
@@ -28,7 +28,7 @@ test('no warning when the spot is free, chosen, or the overlap is meant', () => 
 });
 
 test('a character moved onto center is stood on too', () => {
-  assert.deepEqual(run('show al at left\nmove al to center 0.5\nshow bo'), [7]);
+  assert.deepEqual(run('show al at left\nmove al to center 0.5s\nshow bo'), [7]);
 });
 
 test('paths: flagged only when every path leaves someone at center', () => {

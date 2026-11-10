@@ -42,7 +42,7 @@ export interface ScriptStats {
 
 const TOP = '(top level)', NARRATOR = '(narration)';
 
-/** The text with tags (`{b}`, `{pause=1}`) taken out; a `[variable]` or keyed plural becomes one word. */
+/** The text with tags (`{b}`, `{pause=1s}`) taken out; a `[variable]` or keyed plural becomes one word. */
 export function plainText(text: string): string {
   const shown = parseRich(text).map(s => (s.kind === 'text' ? s.text : ' ')).join('');
   return shown.replace(/\[[^\][]*\]/g, 'x');

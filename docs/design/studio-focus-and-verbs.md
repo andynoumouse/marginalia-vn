@@ -42,7 +42,7 @@ previous / next buttons move it between keys), so the pose fields and the stage 
   parameter is twenty clicks and one Esc, as in Cubism.
 - **Bind to parameter…** (part focus): the palette shows which parameters can be picked; a pick binds the chosen part or parts to it. It ends
   after one pick (hold Shift to keep going).
-- **Copy keys from…** (part focus, and the keyform's parameter): the tree or the Keyed by list picks the source; Mirror is a checkbox beside the verb.
+- **Copy keys from…** (part focus, and the keyform's parameter): the tree or the Keyed by list picks the source; Mirror is a checkbox beside the verb (built as two: **mirror poses** and **reverse range**, since an arm lift wants the first alone and a look to the side both).
 
 While a pick is on, a line over the stage says what it waits for ("Bind to… pick a part. Esc cancels."), the cursor changes, and a plain click
 on the stage chooses nothing else. A verb with an obvious target needs no pick: **Unbind** and **Remove key** act on the row they sit on.

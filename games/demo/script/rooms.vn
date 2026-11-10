@@ -36,18 +36,18 @@ label look_in_bag:
   return
 
 label hub:
-  scene bg_library dissolve 0.8
+  scene bg_library dissolve 0.8s
   hud on status keep
   if visits == 0:
-    show iris smile at center fade 0.4
+    show iris smile at center fade 0.4s
     if unlocked.explorer:
       iris: You're back! You've explored every corner before, so take your time. #nt37
     iris: Go wherever you like, [name]. Click a place on the map. Each room shows off something different. #v3al
   else:
-    show iris neutral at center fade 0.3
+    show iris neutral at center fade 0.3s
     iris: Where to next? #xalc
   show screen library_map
-  hide iris fade 0.2
+  hide iris fade 0.2s
   if screen == "stacks":
     jump stacks
   elif screen == "desk":
@@ -67,22 +67,22 @@ label hub:
 # Text tags, camera, filters, flash, animations.
 label stacks:
   set visits += 1
-  scene bg_reading_room fade 0.6
-  show iris smile at center fade 0.4
+  scene bg_reading_room fade 0.6s
+  show iris smile at center fade 0.4s
   animate iris breathe loop
   iris: Welcome to the stacks. Text can be {i}italic{/i}, {b}bold{/b}, {color=#ff9f7c}coloured{/color}, {size=1.4}big{/size}, {wave}wavy{/wave} or {shake}nervous{/shake}. #j9xf
   iris: It can wait for a click{wait} in the middle of a line, and move on by itself.{nw} #pcxj
-  camera zoom 1.6 at center y=0.35 1.2 ease=out
+  camera zoom 1.6 at center y=0.35 1.2s ease=out
   iris: A camera can lean in on a detail... #oahw
-  camera pan right 1
-  camera reset 0.8
-  filter sepia 0.8 1
+  camera pan right 1s
+  camera reset 0.8s
+  filter sepia 0.8 1s
   iris: ...and a filter can make the room feel like an old photograph. #bfa5
-  filter off 1
-  flash #ffffff 0.5
+  filter off 1s
+  flash #ffffff 0.5s
   sound play thunder
-  iris: A lightning flash! {pause=0.5}Did you hear the thunder? #xa9b
-  shake iris 0.4 strength=8
+  iris: A lightning flash! {pause=0.5s}Did you hear the thunder? #xa9b
+  shake iris 0.4s strength=8
   animate iris stop
   iris: Sorry. I'm jumpy in storms. #r76w
   jump hub
@@ -90,14 +90,14 @@ label stacks:
 # Lists, items, an inventory screen, random, and a parameterised call.
 label desk:
   set visits += 1
-  scene bg_library fade 0.5
-  show iris neutral at center fade 0.3
+  scene bg_library fade 0.5s
+  show iris neutral at center fade 0.3s
   iris: The front desk. We lend out books, and the engine keeps a list of what you borrow. #wf0s
   call borrow("novel")
   call borrow("atlas")
   call borrow("novel")
   set pick_of_the_day = pick("novel", "atlas")
-  iris: My recommendation today is the {i}[pick_of_the_day]{/i}. {pause=0.3}Chosen at random, but the same every time you replay this save. #javx
+  iris: My recommendation today is the {i}[pick_of_the_day]{/i}. {pause=0.3s}Chosen at random, but the same every time you replay this save. #javx
   if not contains(bag, "key"):
     iris: One more thing: here's the key to the archive. Don't lose it. #hing
     set bag += "key"
@@ -127,29 +127,29 @@ screen inventory:
 # Two characters and their draw order, timed choice, disabled option with a reason, persistent flags.
 label archive:
   set visits += 1
-  scene bg_reading_room fade 0.5
-  filter night 0.6 1
-  show iris neutral at center fade 0.3
+  scene bg_reading_room fade 0.5s
+  filter night 0.6 1s
+  show iris neutral at center fade 0.3s
   iris: The archive. Closed to the public. #j1hm
-  move iris to 0.43 0.5 ease=out
-  show theo neutral at 0.57 behind=iris fade 0.4
+  move iris to 0.43 0.5s ease=out
+  show theo neutral at 0.57 behind=iris fade 0.4s
   theo: Closed to everyone but the archivist, Iris. That's me. Theo. #aphh
   show theo smile order=front
   iris: Theo keeps the archive. Mind the step, he likes to stand in front. #akt4
-  menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" #g4mt timeout 8:
+  menu "Iris eyes the door. A dusty box sits on the shelf, and the lights flicker!" #g4mt timeout 8s:
     "Open the box" #ugk2 if archive_open == 1 else "You need the brass key." #u9yu:
-      iris: It's a stack of rain-stained postcards. {pause=0.4}Take one. #yyoc
-      image show postcard bg/cg_window_seat at 960,500 anchor=center scale=0.35 fade 0.4
+      iris: It's a stack of rain-stained postcards. {pause=0.4s}Take one. #yyoc
+      image show postcard bg/cg_window_seat at 960,500 anchor=center scale=0.35 fade 0.4s
       iris: Postcards from people who waited out the rain here. #h4c7
-      image hide postcard fade 0.4
+      image hide postcard fade 0.4s
       unlock lamp_room
       set persistent.secrets += 1
     "Hold the lamp steady" #jr0t:
       iris: Thank you. The light steadies. #pdk0
     on timeout:
-      flash #000000 0.4
-      iris: Too slow! The lamp went out. {pause=0.4}Never mind, it comes back. #cud0
-  filter off 1
+      flash #000000 0.4s
+      iris: Too slow! The lamp went out. {pause=0.4s}Never mind, it comes back. #cud0
+  filter off 1s
   if persistent.secrets >= 1:
     set found = persistent.secrets
     iris: You have found [found] [found:secret|secrets] here, over all your visits. #iibz
@@ -158,7 +158,7 @@ label archive:
 # Full-screen narration pages.
 label board:
   set visits += 1
-  scene bg_reading_room fade 0.5
+  scene bg_reading_room fade 0.5s
   nvl on
   "Notice board." #j3kf
   "Lost: one green umbrella. Found: three odd socks." #dqlc

@@ -32,17 +32,28 @@ export const goUp = (s: FocusState, to: 'part' | 'param'): FocusState => (to ===
 export interface Crumb { text: string; /** where a click goes; null: not a button */ up: 'part' | 'param' | null }
 export interface Breadcrumb { crumbs: Crumb[]; /** After the crumbs: whether a key is at the value. */ status: string }
 
-/** The line over the stage and above the right column. `keyed`: is there a key of the part at the value (null: not asked, a parameter or part focus). */
-export function breadcrumb(s: FocusState, controlName: string, valueText: string, keyed: boolean | null): Breadcrumb {
+/**
+ * The line above the right column. `keyed`: is there a key of what the gizmo poses at the value (null: not asked, or the gizmo poses nothing
+ * bound there). `poser`: what the gizmo poses when that is not the part itself, the bone it sits on (poseTarget).
+ */
+export function breadcrumb(s: FocusState, controlName: string, valueText: string, keyed: boolean | null, poser: string | null = null): Breadcrumb {
   const kind = focusKind(s);
   if (kind === 'none') return { crumbs: [], status: '' };
   if (kind === 'param') return { crumbs: [{ text: controlName, up: null }], status: '' };
   if (kind === 'part') return { crumbs: [{ text: s.part!, up: null }], status: '' };
+  const status = [keyed === null ? '' : keyed ? 'key' : 'no key here: a drag adds one', poser !== null && poser !== s.part ? `the gizmo poses ${poser}, the bone ${s.part} sits on` : ''];
   return {
     crumbs: [{ text: s.part!, up: 'part' }, { text: controlName, up: 'param' }, { text: `@ ${valueText}`, up: null }],
-    status: keyed === null ? '' : keyed ? 'key' : 'no key here: a drag adds one',
+    status: status.filter(Boolean).join(' · '),
   };
 }
+
+/**
+ * What the gizmo (Move, Rotate, Scale) poses in Model mode for a chosen part that sits on `bone`: the part itself when the active parameter
+ * moves it by a pose of its own (eyes keyed alone, as in Live2D Cubism), else the bone, whose keyform the part follows (and which is where the
+ * gizmo stands when nothing is bound, so a drag can say what to bind). A part on no bone is posed itself.
+ */
+export const poseTarget = (part: string, bone: string | null, partBound: boolean): string => (partBound || bone === null ? part : bone);
 
 export type PickVerb = 'bindParts' | 'bindToParam' | 'copyKeys';
 

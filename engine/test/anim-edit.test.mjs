@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   addKey, setKey, deleteKey, setDur, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset,
   uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, saveLook,
-  sampleChannel, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, setAuto, autoFields, autoFromFields,
+  sampleChannel, restEnds, secondsOf, progressOf, timeLabel, retimeAnim, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, setAuto, autoFields, autoFromFields,
 } from '../../dist/engine/src/index.js';
 
 const wave = { dur: 1.2, keys: [{ t: 0.2, rot: 7 }, { t: 0.8, rot: 4 }] };
@@ -59,6 +59,18 @@ test('animation names: new, duplicate, rename, delete', () => {
   assert.equal(renameAnim({ a: wave, b: wave }, 'a', 'b'), null);
   assert.equal(renameAnim({ a: wave }, 'a', ' '), null);
   assert.deepEqual(Object.keys(deleteAnim({ a: wave, b: wave }, 'a')), ['b']);
+});
+
+test('restEnds names the ends where a keyed channel sits at rest without a key (SA-5)', () => {
+  const one = { keys: [{ t: 0, part: 'arm_r', rot: 45 }] };
+  assert.deepEqual(restEnds(one, 'rot', 'arm_r'), [1], 'a single key at 0 eases back to rest by 1');
+  assert.deepEqual(restEnds(one, 'x', 'arm_r'), [], 'an unkeyed channel has no ends to show');
+  assert.deepEqual(restEnds(one, 'rot', null), [], 'the body is not the part');
+  assert.deepEqual(restEnds({ keys: [{ t: 0.5, rot: 3 }] }, 'rot', null), [0, 1]);
+  assert.deepEqual(restEnds({ keys: [{ t: 0, rot: 3 }, { t: 1, rot: 3 }] }, 'rot', null), [], 'keys at both ends hold');
+  const s = sampleChannel(one, 'rot', 'arm_r', 4);
+  assert.equal(s[0], 45);
+  assert.equal(s[4], 0, 'the curve agrees');
 });
 
 test('sampleChannel follows the animation and returns to 0 at the ends', () => {
@@ -120,7 +132,7 @@ test('setTopLevelProperty writes keys on one line, like a hand-written rig.json'
   assert.equal(out, [
     '{', '  "idle": "bob",', '  "animations": {', '    "wave": {', '      "dur": 1.2,', '      "keys": [',
     '        { "t": 0.2, "rot": 7, "ease": "out" },', '        { "part": "face", "t": 0.5, "x": -0.01 }', '      ]', '    },',
-    '    "none": {', '      "keys": []', '    }', '  }', '}', ''].join('\n'));
+    '    "none": { "keys": [] }', '  }', '}', ''].join('\n'));
   assert.deepEqual(JSON.parse(out).animations, anims);
 });
 
@@ -274,7 +286,9 @@ test('writeRigText adds, renames and deletes animations in the layout of the fil
 test('writeRigText adds and removes top-level properties, and skips an empty object the file lacks', () => {
   const plain = '{\n  "idle": "bob"\n}\n';
   assert.equal(writeRigText(plain, [{ key: 'animations', value: {} }, { key: 'pivots', value: {} }, { key: 'speak', value: null }]), plain);
-  assert.equal(writeRigText(plain, [{ key: 'pivots', value: { a: [1, 2] } }]), '{\n  "idle": "bob",\n  "pivots": {\n    "a": [1, 2]\n  }\n}\n');
+  assert.equal(writeRigText(plain, [{ key: 'pivots', value: { a: [1, 2] } }]), '{\n  "idle": "bob",\n  "pivots": { "a": [1, 2] }\n}\n', 'a short object is one line, as written by hand');
+  const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`part${i}`, [100 + i, 200 + i]]));
+  assert.match(writeRigText(plain, [{ key: 'pivots', value: many }]), /"pivots": \{\n {4}"part0": \[100, 200\],\n/, 'a long one is spread out, one entry a line');
   assert.equal(writeRigText(plain, [{ key: 'idle', value: null }, { key: 'blink', value: true }]), '{\n  "blink": true\n}\n');
   const noSpeak = writeRigText(rigText, [{ key: 'speak', value: null }]);
   assert.equal(noSpeak, rigText.replace('  "speak": { "variants": ["open", "neutral"], "rate": 7 },\n', ''));
@@ -332,4 +346,53 @@ test('saveLook stores every slot, none for an empty one, and refuses a blank nam
   assert.deepEqual(looks, { a: { top: 'tee' } });
   assert.equal(saveLook(looks, '', { top: 'x' }), null);
   assert.equal(saveLook(looks, 'b', {}), null);
+});
+
+test('key times: fractions stored, seconds shown and typed (time-units.md part 2)', () => {
+  assert.equal(secondsOf(0.25, 1.1), 0.275);
+  assert.equal(timeLabel(0.25, 1.1), '0.28 s');
+  assert.equal(timeLabel(0, 2), '0 s');
+  assert.equal(progressOf(0.55, 1.1), 0.5);
+  assert.equal(progressOf(5, 2), 1, 'past the end: the end');
+  assert.equal(progressOf(-1, 2), 0);
+  assert.equal(progressOf(1, 0), 0, 'a zero length does not divide by zero');
+});
+
+test('retimeAnim keeps every key at its second; shortening drops the keys past the new end', () => {
+  const def = { dur: 1, keys: [{ t: 0.25, rot: 3 }, { t: 1, rot: 0 }], params: { lean: [{ t: 0.5, v: 1 }] }, frames: [{ slot: 'eyes', keys: [{ t: 0, frame: 'open' }, { t: 0.8, frame: 'shut' }] }, { slot: 'walk', frames: ['a', 'b'], fps: 12 }] };
+  const longer = retimeAnim(def, 1, 2);
+  assert.equal(longer.dropped, 0);
+  assert.equal(longer.def.dur, 2);
+  assert.deepEqual(longer.def.keys.map(k => k.t), [0.125, 0.5], 'same seconds, half the fraction');
+  assert.deepEqual(longer.def.params.lean.map(k => k.t), [0.25]);
+  assert.deepEqual(longer.def.frames[0].keys.map(k => k.t), [0, 0.4]);
+  assert.deepEqual(longer.def.frames[1], def.frames[1], 'a clip is timed in seconds already');
+  const shorter = retimeAnim(def, 1, 0.5);
+  assert.deepEqual(shorter.def.keys.map(k => k.t), [0.5], 'the key at 1 s is past 0.5 s');
+  assert.equal(shorter.dropped, 2, 'the channel key at 1 s and the frame key at 0.8 s go; the parameter key at 0.5 s is exactly the end and stays');
+  assert.deepEqual(shorter.def.params.lean.map(k => k.t), [1]);
+  assert.deepEqual(def.keys.map(k => k.t), [0.25, 1], 'the input is left alone');
+});
+
+test('writeRigText keeps a skinned mesh one line per vertex when its weights change (SR-20)', () => {
+  const robo = readFileSync(new URL('../../games/demo/assets/char/robo/rig.json', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const data = JSON.parse(robo), mesh = data.deformers.findIndex(d => d.mesh?.weights);
+  // One vertex's weight changes: one line of the file changes, nothing else moves.
+  const one = structuredClone(data.deformers);
+  const v = Object.keys(one[mesh].mesh.weights)[0];
+  one[mesh].mesh.weights[v] = { ...one[mesh].mesh.weights[v], arm_l: 0.5, forearm_l: 0.5 };
+  const a = writeRigText(robo, [{ key: 'deformers', value: one }]);
+  assert.deepEqual(JSON.parse(a).deformers, one);
+  assert.equal(changedLines(robo, a)?.length, 1, 'one weight edit is a one-line diff');
+  // A bone leaves every vertex (what removing a bone does): still one line per vertex, the line count unchanged.
+  const gone = structuredClone(data.deformers);
+  for (const w of Object.values(gone[mesh].mesh.weights)) { delete w.forearm_l; w.arm_l = 1; }
+  const b = writeRigText(robo, [{ key: 'deformers', value: gone }]);
+  assert.deepEqual(JSON.parse(b).deformers, gone);
+  assert.notEqual(changedLines(robo, b), null, 'the line count is unchanged: each vertex keeps its one line');
+  assert.match(b, /\n {10}"24": \{ "arm_l": 1 \},\n/);
+  // A new short object is written on one line, as by hand; a long one is still spread out.
+  const added = structuredClone(data.deformers);
+  added[mesh].mesh.weights['999'] = { arm_l: 0.25, forearm_l: 0.75 };
+  assert.match(writeRigText(robo, [{ key: 'deformers', value: added }]), /"999": \{ "arm_l": 0\.25, "forearm_l": 0\.75 \}/);
 });

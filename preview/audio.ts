@@ -98,12 +98,13 @@ export class AudioSystem {
   }
 
   /**
-   * Load every sound effect in the background, one at a time while the browser is idle (they are short), the
-   * `first` ones before the rest. Music is not included: it is large and is loaded when it starts.
+   * Load these sound effects in the background, one at a time while the browser is idle: the ones that play with no
+   * warning (text blips, screen hover sounds). Sounds the script plays come through the lookahead (prefetch()), and
+   * anything else loads when it first plays: a big game's sound/ folder decoded whole would not fit in memory.
    */
-  prefetchSounds(first: string[] = []) {
+  prefetchSounds(names: string[] = []) {
     const run = ++this.prefetching;
-    const names = [...new Set([...first, ...[...this.files.keys()].filter(k => k.startsWith('sound/')).map(k => k.slice(6))])];
+    names = [...new Set(names)];
     const idle = (fn: () => void) => (typeof requestIdleCallback === 'function' ? requestIdleCallback(fn) : setTimeout(fn, 50));
     const next = () => {
       const name = names.shift();

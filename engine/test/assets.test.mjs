@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attachPreloads, compile, opAssets, Runtime, NullRenderer, assetContext, bgKey, rigLayers, spriteKeys, checkAssets, stateAssets, successors } from '../../dist/engine/src/index.js';
+import { attachPreloads, uncuedSounds, compile, opAssets, Runtime, NullRenderer, assetContext, bgKey, rigLayers, spriteKeys, checkAssets, stateAssets, successors } from '../../dist/engine/src/index.js';
 
 const rig = {
   width: 500, height: 700,
@@ -244,4 +244,12 @@ test('a flat character with a rig.json keeps its image per pose and gets its own
   const msgs = checkAssets(p, { files: flatFiles, rigs: { bo: flat } }).map(d => d.message);
   assert.equal(msgs.length, 1);
   assert.match(msgs[0], /no animation "wobble"/);
+});
+
+test('uncuedSounds: screen hover sounds and the achievement toast sound, not what the script plays', () => {
+  const p = compile([{ file: 'a.vn', text: 'screen s:\n  button a at 0,0 size 5,5 "A" hover sound "tick"\n  hotspot b at 9,9 size 5,5 "B" hover sound "tick"\n  button c at 0,9 size 5,5 "C"\nlabel start:\n  sound play door\n  show screen s\n' }]);
+  assert.deepEqual(uncuedSounds(p), ['tick']);
+  assert.deepEqual(uncuedSounds(p, { achievementToast: { sound: 'chime' } }), ['chime', 'tick']);
+  assert.deepEqual(uncuedSounds(p, { achievementToast: 'bad' }), ['tick']);
+  assert.deepEqual(uncuedSounds(compile([{ file: 'a.vn', text: 'label start:\n  end' }]), null), []);
 });

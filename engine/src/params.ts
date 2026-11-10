@@ -293,7 +293,15 @@ export interface DeformerDef { id: string; part?: string; members?: string[]; bo
  * A free mesh in place of a lattice (see docs/design/free-mesh.md): `verts` are rest positions [x0, y0, x1, y1, ...] in the part's own pixels,
  * `tris` index triples wound consistently; keyform `pts` index the vertices. `detail` is only the generator's hint for Regenerate.
  */
-export interface DeformerMesh { verts: number[]; tris: number[]; detail?: string }
+export interface DeformerMesh { verts: number[]; tris: number[]; detail?: string; weights?: MeshWeights; defaultBone?: string }
+/**
+ * Bone weights of a free mesh (docs/design/skinning.md): vertex number to { bone: weight }. A vertex not listed binds to the mesh's
+ * `defaultBone`. Read as relative, normalized per vertex; a mesh with `weights` is skinned.
+ */
+export type MeshWeights = Record<string, Record<string, number>>;
+
+/** The most bones that may pull one vertex. */
+export const MAX_INFLUENCES = 4;
 
 /** The most vertices a free mesh may have. */
 export const MESH_MAX_VERTS = 500;
@@ -394,6 +402,8 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
   const defs = new Map<string, ParamDef>();
   if (Array.isArray(data.parameters)) for (const p of data.parameters as ParamDef[]) if (p && typeof p.id === 'string') defs.set(p.id, p);
   const ids = new Set<string>(), onPart = new Map<string, string>(), inGroup = new Map<string, string>();
+  const skinned = new Set<string>(); // parts whose mesh has weights: the weights decide where their points go, not the bone they sit on
+  for (const d of data.deformers as DeformerDef[]) if (d && typeof d.part === 'string' && d.mesh && typeof d.mesh === 'object' && d.mesh.weights !== undefined) skinned.add(d.part);
   (data.deformers as DeformerDef[]).forEach((d, i) => {
     const at = `deformers[${i}]`;
     if (!d || typeof d !== 'object') { problem(`${at}: not a deformer`, 'deformers'); return; }
@@ -403,7 +413,7 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
     ids.add(d.id);
     if (d.members !== undefined) {
       if (d.part !== undefined) problem(`${where}: has both part and members; a deformer warps one part or a group, not both`, d.id);
-      checkMembers(d, where, parts, bones, framed, inGroup, boneOf, problem, shapes);
+      checkMembers(d, where, parts, bones, framed, inGroup, boneOf, problem, shapes, skinned);
     } else if (typeof d.part !== 'string' || !parts.has(d.part)) problem(`${where}.part: ${typeof d.part === 'string' && bones.has(d.part) ? `"${d.part}" is a bone, a deformer needs a part (or list parts in members)` : d.part === undefined ? 'needs a part, or members for a group warp' : `no part named "${String(d.part)}"`}`, d.id);
     else {
       const other = onPart.get(d.part);
@@ -418,7 +428,7 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
       if (d.grid !== undefined) problem(`${where}: has both grid and mesh; a deformer is a lattice or a free mesh, not both`, d.id);
       if (d.members !== undefined) problem(`${where}.mesh: a group warp (members) is a lattice; a free mesh warps one part`, d.id);
       const size = typeof d.part === 'string' ? boxes.get(d.part) : undefined;
-      n = checkMesh(d.mesh, `${where}.mesh`, d.id, size, problem);
+      n = checkMesh(d.mesh, `${where}.mesh`, d.id, size, problem, bones);
       outside = 'the mesh';
     } else n = deformerPoints({ grid: validGrid(d.grid) ? d.grid : undefined });
     if (!Array.isArray(d.keyforms)) { problem(`${where}.keyforms: needs a list`, d.id); return; }
@@ -430,12 +440,13 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
  * Problems in a free mesh; returns its vertex count (0 when `verts` is unusable). `size` is the part's image [width, height] when
  * known: no vertex may lie further than MESH_BOX_MARGIN outside it.
  */
-function checkMesh(mesh: unknown, where: string, at: string, size: readonly [number, number] | undefined, problem: (message: string, at: string) => void): number {
+function checkMesh(mesh: unknown, where: string, at: string, size: readonly [number, number] | undefined, problem: (message: string, at: string) => void, bones: ReadonlySet<string> = new Set()): number {
   if (!mesh || typeof mesh !== 'object' || Array.isArray(mesh)) { problem(`${where}: needs { verts, tris }`, at); return 0; }
   const { verts, tris } = mesh as DeformerMesh;
   if (!Array.isArray(verts) || verts.length % 2 !== 0 || !verts.every(isNum)) { problem(`${where}.verts: needs a list of x, y numbers, two per vertex`, at); return 0; }
   const n = verts.length / 2;
   if (n > MESH_MAX_VERTS) problem(`${where}.verts: ${n} vertices, at most ${MESH_MAX_VERTS}`, at);
+  checkSkin(mesh as DeformerMesh, n, where, at, bones, problem);
   if (size) {
     const bad = verts.findIndex((v, i) => v < -MESH_BOX_MARGIN || v > size[i % 2] + MESH_BOX_MARGIN);
     if (bad >= 0) problem(`${where}.verts: vertex ${bad >> 1} lies more than ${MESH_BOX_MARGIN} pixels outside the part's image (${size[0]} x ${size[1]})`, at);
@@ -454,11 +465,44 @@ function checkMesh(mesh: unknown, where: string, at: string, size: readonly [num
   return n;
 }
 
+/** Problems in a mesh's `weights` and `defaultBone` (n is the vertex count). */
+function checkSkin(mesh: DeformerMesh, n: number, where: string, at: string, bones: ReadonlySet<string>, problem: (message: string, at: string) => void): void {
+  const known = (b: string) => bones.has(b);
+  const list = () => [...bones].join(', ') || 'no bones';
+  if (mesh.defaultBone !== undefined && (typeof mesh.defaultBone !== 'string' || !known(mesh.defaultBone))) problem(`${where}.defaultBone: no bone named "${String(mesh.defaultBone)}" (bones: ${list()})`, at);
+  const w = mesh.weights;
+  if (w === undefined) return;
+  if (!w || typeof w !== 'object' || Array.isArray(w)) { problem(`${where}.weights: needs { "<vertex>": { "<bone>": weight } }`, at); return; }
+  for (const [k, v] of Object.entries(w)) {
+    const vertex = `${where}.weights.${k}`;
+    if (!/^(0|[1-9]\d*)$/.test(k) || Number(k) >= n) { problem(`${vertex}: not a vertex (use a whole number from 0 to ${n - 1})`, at); continue; }
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { problem(`${vertex}: needs { "<bone>": weight }`, at); continue; }
+    const entries = Object.entries(v);
+    if (!entries.length) { problem(`${vertex}: is empty (leave the vertex out to bind it to defaultBone)`, at); continue; }
+    let sum = 0, ok = true;
+    for (const [bone, x] of entries) {
+      if (!known(bone)) { problem(`${vertex}: no bone named "${bone}" (bones: ${list()})`, at); ok = false; }
+      if (!(typeof x === 'number' && Number.isFinite(x) && x > 0)) { problem(`${vertex}.${bone}: a weight is a number above 0`, at); ok = false; } else sum += x;
+    }
+    if (entries.length > MAX_INFLUENCES) problem(`${vertex}: ${entries.length} bones, at most ${MAX_INFLUENCES} may pull one vertex`, at);
+    else if (ok && Math.abs(sum - 1) > 0.01) problem(`${vertex}: weights add up to ${Math.round(sum * 1000) / 1000}, not 1 (they are normalized when read)`, at);
+  }
+}
+
 /**
  * The `members` and `box` of a group warp: image parts or shape parts that exist (once each, in one group at most), no frame tracks
  * on image parts, ideally on one bone. The default box is the union of the image members' boxes, so a group of shapes only needs one.
  */
-function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: Set<string>, framed: Set<string>, inGroup: Map<string, string>, boneOf: ReadonlyMap<string, string>, problem: (message: string, at: string) => void, shapes: ReadonlySet<string> = new Set()): void {
+/**
+ * The bones a group warp's members sit on ('' for none), in member order, leaving out skinned meshes (their weights place their points).
+ * More than one, and a bone that turns relative to another skews the group's lattice: the rig check warns, and the studio says so when it
+ * makes such a group.
+ */
+export function groupBones(members: Iterable<string>, boneOf: (m: string) => string | undefined, skinned: (m: string) => boolean = () => false): string[] {
+  return [...new Set([...members].filter(m => !skinned(m)).map(m => boneOf(m) ?? ''))];
+}
+
+function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: Set<string>, framed: Set<string>, inGroup: Map<string, string>, boneOf: ReadonlyMap<string, string>, problem: (message: string, at: string) => void, shapes: ReadonlySet<string> = new Set(), skinned: ReadonlySet<string> = new Set()): void {
   const members = d.members;
   if (!Array.isArray(members) || !members.length) { problem(`${where}.members: needs a list of one or more part names`, d.id); return; }
   const seen = new Set<string>();
@@ -472,8 +516,8 @@ function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: 
     if (parts.has(m) && framed.has(m)) problem(`${where}.members: "${m}" has a frame track in an animation; a warped part cannot swap frames`, d.id);
   }
   if (d.box === undefined && seen.size && ![...seen].some(m => parts.has(m))) problem(`${where}.box: a group of shapes only has no image box to take; give a box [x, y, width, height] in pixels of the PSD canvas`, d.id);
-  const onBones = new Set([...seen].map(m => boneOf.get(m) ?? ''));
-  if (onBones.size > 1) problem(`${where}.members: the parts sit on different bones (${[...onBones].map(b => b || 'none').join(', ')}); the group lattice moves them in each part's own space, so a bone that turns relative to the others skews the warp`, d.id);
+  const onBones = groupBones(seen, m => boneOf.get(m), m => skinned.has(m));
+  if (onBones.length > 1) problem(`${where}.members: the parts sit on different bones (${onBones.map(b => b || 'none').join(', ')}); the group lattice moves them in each part's own space, so a bone that turns relative to the others skews the warp`, d.id);
   if (d.box !== undefined && !(Array.isArray(d.box) && d.box.length === 4 && d.box.every(isNum) && d.box[2] > 0 && d.box[3] > 0)) problem(`${where}.box: use [x, y, width, height] in pixels of the PSD canvas, width and height above 0`, d.id);
 }
 

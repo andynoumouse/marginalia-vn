@@ -1,13 +1,13 @@
 # robo.vn - a layered character with a bone rig: robo.psd has +folders for the head and both arms (each forearm in a
 # folder of its own), so rig.json hangs the hand on the forearm, the forearm on the arm and the arm on the spine.
 # Nothing jumps here: put the cursor on the `label robo_demo:` line and use Preview from cursor (Ctrl+Enter).
-# Open the character in the animation studio (Animate in the Files panel) and switch to Rig mode to see the bones.
+# Open the character in the animation studio (Animate in the Files panel) and switch to Model mode to see the bones.
 
 define robo "Robo" color=#7cc4ff
 
 label robo_demo:
-  scene bg_park_evening fade 0.5
-  show robo cheerful at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show robo cheerful at center fade 0.4s
   robo: Hello! I am drawn in a PSD with +folders, so I have bones: a spine, a neck, a head, and two arms with a forearm each. #uggm
   animate robo wave
   robo: Waving moves the arm, and the forearm swings on top of it, because it hangs from the arm. #oxcf
@@ -23,4 +23,4 @@ label robo_demo:
   robo: Parameters drive the arm and the head from sliders; a pose is a saved set of them. #gljn
   animate robo lookaround
   robo: And an animation can key them: this one only turns the head, with no keys on a bone. #fza3
-  hide robo fade 0.4
+  hide robo fade 0.4s

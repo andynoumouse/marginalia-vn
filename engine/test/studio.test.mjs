@@ -230,14 +230,18 @@ test('projects screen: recent rows with engine, missing and shared-id marks; Rem
 
     await app.evaluate(({ shell }) => { globalThis.revealed = []; shell.showItemInFolder = f => { globalThis.revealed.push(f); }; });
     await win.click(`#list li:nth-child(1) [data-action=reveal]`);
+    // A missing row says why it does not open (ST-3), then Remove takes it off the list.
+    await win.click('#list li:nth-child(3) button.title');
+    assert.match(await win.textContent('#error'), /not there any more/);
     await win.click(`#list li:nth-child(3) [data-action=remove]`);
     await win.waitForFunction(() => document.querySelectorAll('#list li').length === 2);
     assert.deepEqual(await app.evaluate(() => globalThis.revealed), [older]);
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(s.userData, 'recent-projects.json'), 'utf8')).map(r => r.folder), [older, newer]);
 
-    // A newer game: Cancel stays on the screen and starts nothing.
+    // A newer game, opened with the keyboard (the title is a button: ST-3): Cancel stays on the screen and starts nothing.
     await answerNotices(app, [0]);
-    await win.click('#list li:nth-child(2)');
+    await win.focus('#list li:nth-child(2) button.title');
+    await win.keyboard.press('Enter');
     await screenReady(win);
     assert.match((await app.evaluate(() => globalThis.notices))[0], /newer Marginalia Studio/);
     assert.match(win.url(), /^file:.*projects\.html$/);
@@ -318,13 +322,17 @@ test('New Project without git on PATH: the option is off, the project has no npm
     await win.fill('#newTitle', 'Night: Train?');
     assert.equal(await win.inputValue('#newName'), 'Night Train');
     assert.equal(await win.locator('#newTemplate input:checked').getAttribute('value'), 'blank', 'the default card is checked');
+    // The stage select follows the card: Portrait sets it, the next card puts the default back (ST-2).
+    await win.click('#newTemplate label:has(input[value="portrait"])');
+    assert.equal(await win.inputValue('#newStage'), '1080x1920');
     await win.click('#newTemplate label:has(input[value="branching"])');
-    await win.selectOption('#newStage', '1080x1920');
+    assert.equal(await win.inputValue('#newStage'), '1920x1080');
+    await win.selectOption('#newStage', '1280x720'); // a size of the player's own (the branching template is landscape-only)
     await win.click('#newCreate');
     await editorReady(win);
     const folder = path.join(parent, 'Night Train');
     const game = JSON.parse(fs.readFileSync(path.join(folder, 'game.json'), 'utf8'));
-    assert.deepEqual([game.title, game.id, game.engine, game.stage], ['Night: Train?', 'night-train', engineMinor, { width: 1080, height: 1920 }]);
+    assert.deepEqual([game.title, game.id, game.engine, game.stage], ['Night: Train?', 'night-train', engineMinor, { width: 1280, height: 720 }]);
     assert.equal(game.achievements.length, 3, 'the chosen card is the template');
     assert.ok(fs.existsSync(path.join(folder, 'assets', 'char', 'ren', 'neutral.png')), 'its sprites come from the pool');
     assert.ok(!fs.existsSync(path.join(folder, 'package.json')));
@@ -343,6 +351,13 @@ test('New Project without git on PATH: the option is off, the project has no npm
     await win.fill('#newTitle', 'Night Train');
     await win.click('#newCreate');
     await win.waitForFunction(() => /not empty/.test(document.getElementById('newError').textContent));
+    // An unusable Location is refused in the dialog, not in the console (ST-1): a file, and a folder that is not there.
+    await win.fill('#newParent', path.join(s.userData, 'settings.json'));
+    await win.click('#newCreate');
+    await win.waitForFunction(() => /is a file, not a folder/.test(document.getElementById('newError').textContent));
+    await win.fill('#newParent', path.join(s.tmp, 'no', 'such', 'place'));
+    await win.click('#newCreate');
+    await win.waitForFunction(() => /does not exist/.test(document.getElementById('newError').textContent));
     await win.click('#newCancel');
 
     await win.click('#openDemo');

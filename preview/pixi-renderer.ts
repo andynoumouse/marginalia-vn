@@ -5,8 +5,8 @@
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
 import { Application, Assets, Color, ColorMatrixFilter, type ColorMatrix, Container, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, Rectangle, RenderTexture, Sprite, Texture } from 'pixi.js';
-import { AnimPlayer, overscanZoom, CAMERA_TARGET, mouthOpen, lerpRgb, mulRgb, rgbNumber, flashMatrix, imageBytes, type Resident, sampleLattice, unwarpMeshPoint, warpFreeMesh, warpMeshPoints, type DeformerMesh, applyDisplacement, deformerGrid, deformerPoints, evalDeformer, isGroupDeformer, memberMeshGrid, paramsKey, restLattice, unionLatticeBox, unwarpPoint, warpMemberMesh, type DeformerDef, type KeyformDef, type ParamDef, BONE_REST, evalPointKeyforms, maskChain, maskView, normalizeMasks, writeShapes, MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, bendShapeByGroup, shapeBentByGroup, type MaskDef, type MaskPoint, type ShapeDef, addOffset, displayValues, evalAll, addPhysicsParams, restStates, stepPhysics, windVelocity, type FxEnv, type WorldWind, type ChainStates, type PhysicsOff, lerpParams, autoAnimations, startAuto, stepAuto, everyBounds, reactionTarget, startReaction, stepReaction, type Value, type ReactionDef, resolveParams, anchorOffset, type AnimDef, bgKey, easing, EASES, focusLevels, raisedSpeaker, revealShapes, shakeOffset, maskKey, pixelBlock, lerp, NO_OFFSET, resolveAnim, type Resolved, partsUnder, type GizmoTarget, rigLayers, showLooks, scaleOffset, spriteKeys, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
-import { FX, type Actor, type Fx, type GroupWarp, type MaskNode } from './pixi-actor.js';
+import { AnimPlayer, overscanZoom, CAMERA_TARGET, mouthOpen, lerpRgb, mulRgb, rgbNumber, flashMatrix, imageBytes, type Resident, sampleLattice, unwarpMeshPoint, warpFreeMesh, warpMeshPoints, type DeformerMesh, applyDisplacement, deformerGrid, deformerPoints, evalDeformer, isGroupDeformer, memberMeshGrid, paramsKey, restLattice, unionLatticeBox, unwarpPoint, warpMemberMesh, type DeformerDef, type KeyformDef, type ParamDef, BONE_REST, compileSkin, isSkinned, skinPoints, evalPointKeyforms, maskChain, maskView, normalizeMasks, writeShapes, MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, bendShapeByGroup, shapeBentByGroup, type MaskDef, type MaskPoint, type ShapeDef, addOffset, displayValues, evalAll, addPhysicsParams, restStates, stepPhysics, windVelocity, type FxEnv, type WorldWind, type ChainStates, type PhysicsOff, lerpParams, autoAnimations, startAuto, stepAuto, everyBounds, reactionTarget, startReaction, stepReaction, type Value, type ReactionDef, resolveParams, anchorOffset, type AnimDef, bgKey, easing, EASES, focusLevels, raisedSpeaker, revealShapes, shakeOffset, maskKey, pixelBlock, lerp, NO_OFFSET, resolveAnim, type Resolved, partsUnder, type GizmoTarget, rigLayers, showLooks, scaleOffset, spriteKeys, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
+import { FX, applyM, type Actor, type Fx, type GroupWarp, type MaskNode } from './pixi-actor.js';
 import { PictureLayer } from './picture-layer.js';
 import { applyFlash } from './flash-filter.js';
 import { Bursts } from './bursts.js';
@@ -209,7 +209,7 @@ export class PixiRenderer extends StageRenderer {
   }
   /** The story's variables (and unlocked./persistent. names) as a snapshot for the conditions of automatic animations and reactions; the game shell sets it. */
   scriptVars: () => Record<string, Value> = () => ({});
-  /** False while the studio's Animate mode shows the animation under edit: automatic animations are suspended then. */
+  /** False while the studio is open: automatic animations are suspended (Animate mode shows the animation under edit, Model mode a character being rigged). */
   autoRuns = true;
   /**
    * Automatic animations (rig.json `auto`) and reactions: run the scheduler, start and stop what it says, and lay the slot
@@ -352,7 +352,24 @@ export class PixiRenderer extends StageRenderer {
   studioShapes(char: string): { name: string; outlines: [number, number][][] }[] { return this.queries.studioShapes(char); }
   studioMaskDelta(char: string, shape: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioMaskDelta(char, shape, from, to); }
   studioPartBox(char: string, part: string): { x: number; y: number; w: number; h: number } | null { return this.queries.studioPartBox(char, part); }
+  studioPartOutline(char: string, part: string): [[number, number], [number, number]][] | null { return this.queries.studioPartOutline(char, part); }
+  /** For a bone of `char`: the parts that move with it (its own and its child bones'), its child bones, and its tip as a stage pixel. Null for a name that is not a bone. */
+  studioBoneInfo(char: string, bone: string): { parts: string[]; children: string[]; tip: [number, number] | null } | null {
+    const a = this.actors.get(char), data = this.files.rigs[char]?.rig, bones = data?.bones;
+    if (!a || !bones || !Object.hasOwn(bones, bone) || a.parts.has(bone)) return null;
+    const onBone = Object.fromEntries(Object.entries(data?.parts ?? {}).map(([p, d]) => [p, d?.bone]));
+    const tip = bones[bone].tip;
+    return { parts: partsUnder(bones, onBone, bone), children: Object.keys(bones).filter(b => bones[b].parent === bone), tip: Array.isArray(tip) ? this.studioBonePoint(char, bone, tip as [number, number]) : null };
+  }
   studioCanvasPoint(char: string, p: [number, number]): [number, number] | null { return this.queries.studioCanvasPoint(char, p); }
+  studioCanvasToStage(char: string, p: [number, number]): [number, number] | null { return this.queries.studioCanvasToStage(char, p); }
+  /** A point at rest in canvas pixels (a bone's tip) where `bone` has carried it in the pose on show, as a stage pixel. */
+  studioBonePoint(char: string, bone: string, p: [number, number]): [number, number] | null {
+    const a = this.actors.get(char), rig = this.files.rigs[char];
+    if (!a || !rig) return null;
+    const m = this.placedBones.get(a)?.bones[bone] ?? BONE_REST, l = applyM(m, p[0] - (rig.width ?? 0) / 2, p[1] - (rig.height ?? 0)), g = a.body.toGlobal({ x: l[0], y: l[1] });
+    return [g.x, g.y];
+  }
   studioTarget(char: string, name: string, offsets?: ReadonlyMap<string, Offset>): (GizmoTarget & { ox: number; oy: number; unit: number }) | null { return this.queries.studioTarget(char, name, offsets); }
   studioSkeleton(char: string): { name: string; at: [number, number]; from?: [number, number] }[] { return this.queries.studioSkeleton(char); }
   studioSpace(char: string): { toStage(p: [number, number]): [number, number]; fromStage(p: [number, number]): [number, number] } | null { return this.queries.studioSpace(char); }
@@ -387,14 +404,19 @@ export class PixiRenderer extends StageRenderer {
     for (const [part, w] of a.warps) {
       if (w.def) w.def = deformers.find(d => !isGroupDeformer(d) && d.part === part) ?? w.def;
       w.key = null;
+      // The weights of a skinned mesh may have changed (or the skin come or gone): compile them again; the shaped vertices are worked out below.
+      const mesh = w.tris ? w.def?.mesh : undefined;
+      if (mesh && isSkinned(mesh)) w.skin = { skin: compileSkin(mesh, mesh.verts.length >> 1), shaped: w.skin?.shaped ?? Float32Array.from(w.rest), version: (w.skin?.version ?? 0) + 1, key: null };
+      else if (mesh) w.skin = null;
     }
     for (const g of a.groups.values()) { g.def = deformers.find(d => d.id === g.def.id) ?? g.def; g.key = null; }
+    this.posePartsOf(a, a.partPose); // a part that became skinned (or stopped being) is placed differently
     this.applyWarps(a, a.warpValues);
   }
   /** The studio's panel values (what it poses with) and how the page asks for a repaint; automatic animations and reactions read them in the studio. */
   studioValues: Record<string, number> | null = null;
   studioRefresh: (() => void) | null = null;
-  /** The studio's working copy of `animations`, `reactions` and `poses`, and its test variables, replaces the character's own (Model mode runs them). */
+  /** The studio's working copy of `animations`, `reactions` and `poses`, and its test variables, replaces the character's own (Model mode runs the reactions). */
   studioAuto(char: string, animations: Record<string, AnimDef>, reactions: ReactionDef[], poses: Record<string, Record<string, number>>, vars: Record<string, Value>) {
     const rig = this.files.rigs[char];
     if (!rig) return;
@@ -416,7 +438,7 @@ export class PixiRenderer extends StageRenderer {
     const defs = this.files.rigs[char]?.rig?.parameters;
     // The panel's values with the animation's tracks over them (but not over a slider the animator is holding): the game's evaluation.
     this.studioValues = panel?.values ?? null;
-    this.autoRuns = name === null; // Animate mode shows the animation under edit alone
+    this.autoRuns = false; // Animate mode shows the animation under edit alone, and Model mode a character at rest (reactions still hold their poses)
     const shown = defs?.length ? displayValues(defs, panel?.values ?? {}, null, t, panel?.hold ?? []) : null;
     if (shown && name === null) { const layer = this.reactionLayer(a, resolveParams(defs, panel?.values ?? {})); if (layer) Object.assign(shown, layer); }
     if (shown && r.params) for (const [id, v] of Object.entries(r.params(t))) if (!panel?.hold.includes(id) && Object.hasOwn(shown, id)) shown[id] = v;
@@ -609,14 +631,41 @@ export class PixiRenderer extends StageRenderer {
       const buf = w.mesh.geometry.getBuffer('aPosition');
       if (w.tris) {
         const gp = w.group;
-        warpFreeMesh(w.rest, w.def ? evalDeformer(w.def, values) : null, gp ? { box: gp.box, sample: (u, v) => sampleLattice(gp.disp, deformerGrid(gp.def), u, v) } : null, w.origin, FX(), buf.data as Float32Array);
-        buf.update();
+        // A skinned part is shaped into a private buffer; applySkins moves that by the bones into the one that is drawn.
+        warpFreeMesh(w.rest, w.def ? evalDeformer(w.def, values) : null, gp ? { box: gp.box, sample: (u, v) => sampleLattice(gp.disp, deformerGrid(gp.def), u, v) } : null, w.origin, FX(), w.skin ? w.skin.shaped : buf.data as Float32Array);
+        if (w.skin) w.skin.version++; else buf.update();
         continue;
       }
       warpMemberMesh(w.rest, w.grid, w.def ? { grid: deformerGrid(w.def), disp: evalDeformer(w.def, values) } : null, w.group ? { box: w.group.box, grid: deformerGrid(w.group.def), disp: w.group.disp } : null, w.origin, FX(), buf.data as Float32Array);
       buf.update();
     }
+    this.applySkins(a);
     this.applyMasks(a, values);
+  }
+  /** What posePartsOf last placed per actor: the bones' world matrices and the own key of each skinned part (docs/design/skinning.md). */
+  private placedBones = new WeakMap<Actor, { bones: ReturnType<typeof placeRig>['bones']; keys: ReturnType<typeof placeRig>['keys'] }>();
+  /**
+   * Move the skinned parts' shaped vertices by the bones into the buffers that are drawn, each only when its shaped vertices, its own key
+   * or a bone it reads changed. The masks that follow a part whose skin changed are drawn again (they read that buffer).
+   */
+  private applySkins(a: Actor) {
+    const placed = this.placedBones.get(a);
+    if (!placed) return;
+    let changed = false;
+    for (const [name, w] of a.warps) {
+      const s = w.skin;
+      if (!s) continue;
+      const mx = (m: { a: number; b: number; c: number; d: number; tx: number; ty: number } | undefined) => (m ? `${m.a},${m.b},${m.c},${m.d},${m.tx},${m.ty}` : '-');
+      const key = `${s.version}#${mx(placed.keys[name])}#${s.skin.bones.map(b => mx(placed.bones[b])).join('|')}`;
+      if (key === s.key) continue;
+      s.key = key;
+      const buf = w.mesh.geometry.getBuffer('aPosition');
+      skinPoints(s.skin, s.shaped, [w.mesh.x, w.mesh.y], placed.bones, buf.data as Float32Array, placed.keys[name]);
+      buf.update();
+      for (const m of a.masks) if (m.frame === name) m.key = null;
+      changed = true;
+    }
+    if (changed) this.applyMasks(a, a.warpValues);
   }
   // ---- masks (rig.json `masks`, engine/src/masks.ts) ----
   private outlines = new WeakMap<Texture, MaskPoint[][]>();
@@ -825,7 +874,7 @@ export class PixiRenderer extends StageRenderer {
       if (!(mesh instanceof Mesh) || !(def || inGroup)) continue;
       const free = def?.mesh ? def.mesh : null, grid: [number, number] = free ? [0, 0] : memberMeshGrid(def ? deformerGrid(def) : null, inGroup);
       // The mesh sits at the part's box in the actor's space (the canvas shifted to its bottom middle): add that shift back for canvas pixels.
-      a.warps.set(name, { mesh, def, group: null, grid, rest: free ? Float32Array.from(free.verts) : restLattice(mesh.texture.width, mesh.texture.height, grid), tris: free ? Uint32Array.from(free.tris) : null, origin: [mesh.x + (rigData?.width ?? 0) / 2, mesh.y + (rigData?.height ?? 0)], key: null });
+      a.warps.set(name, { mesh, def, group: null, grid, rest: free ? Float32Array.from(free.verts) : restLattice(mesh.texture.width, mesh.texture.height, grid), tris: free ? Uint32Array.from(free.tris) : null, origin: [mesh.x + (rigData?.width ?? 0) / 2, mesh.y + (rigData?.height ?? 0)], key: null, skin: free && isSkinned(free) ? { skin: compileSkin(free, free.verts.length >> 1), shaped: Float32Array.from(free.verts), version: 0, key: null } : null });
     }
     // A group warp's box is its own, or the union of its members' image boxes on the canvas; one with no member on stage has nothing to bend.
     for (const d of defs) {
@@ -848,11 +897,14 @@ export class PixiRenderer extends StageRenderer {
     a.partPose = o;
     const g = rigGeometry(this.files, a);
     // A name that is a bone (and no part) moves the bone and what hangs on it; a part name moves just that part.
-    const placed = placeRig(g.bones, g.parts, new Map([...o].filter(([name]) => a.parts.has(name) || Object.hasOwn(g.bones, name))), g.pivotOf, [0, 0], g.unit), m = placed.parts;
+    const skinned = new Set([...a.warps].filter(([, w]) => w.skin).map(([name]) => name));
+    const placed = placeRig(g.bones, g.parts, new Map([...o].filter(([name]) => a.parts.has(name) || Object.hasOwn(g.bones, name))), g.pivotOf, [0, 0], g.unit, skinned), m = placed.parts;
     for (const [name, c] of a.parts) {
       const t = m[name];
       c.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.tx, t.ty));
     }
+    this.placedBones.set(a, { bones: placed.bones, keys: placed.keys });
+    this.applySkins(a);
     for (const [bone, h] of a.holders) { const t = bone ? placed.bones[bone] ?? BONE_REST : BONE_REST; h.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.tx, t.ty)); }
     this.dimParts(a);
   }
@@ -990,6 +1042,21 @@ export class PixiRenderer extends StageRenderer {
   }
 
   /** The characters on stage back to front, for browser tests: where each is drawn (stage pixels) and how lit it is. */
+  /** Each part of `char` as a box [x, y, w, h] in stage pixels, as it is drawn now (a skinned mesh as bent): a dev hook, `vnParts`, for tests. */
+  partBounds(char: string): Record<string, [number, number, number, number]> {
+    const a = this.actors.get(char), out: Record<string, [number, number, number, number]> = {};
+    if (!a) return out;
+    for (const [name, c] of a.parts) {
+      const sp = c.children[0];
+      if (sp) { const r = sp.getBounds(); out[name] = [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)]; }
+    }
+    // The stencils too, keyed mask:<shape>: the box of the points each was drawn at (in the space it hangs in, so a bent follower differs from its rest).
+    for (const m of a.masks) {
+      const pts = m.drawn.flatMap(d => Array.from(d)), xs = pts.filter((_, i) => i % 2 === 0), ys = pts.filter((_, i) => i % 2 === 1);
+      if (xs.length) out[`mask:${m.def.shape ?? m.def.part}`] = [Math.round(Math.min(...xs)), Math.round(Math.min(...ys)), Math.round(Math.max(...xs) - Math.min(...xs)), Math.round(Math.max(...ys) - Math.min(...ys))];
+    }
+    return out;
+  }
   stageSnapshot() {
     return [...this.actors.values()].filter(a => a.node.parent === this.spriteLayer)
       .sort((a, b) => a.node.zIndex - b.node.zIndex)

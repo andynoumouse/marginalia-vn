@@ -14,21 +14,21 @@ define alice "Alice" color=#ff6fa5      # character; optional style (see look-an
 set trust = 0                           # top-level lines run once before the story starts
 label start:                            # entry point is "start" (or the first label)
   scene bg_park fade 0.5                # transitions: cut | fade | dissolve | wipe <left|right|up|down> | iris | blinds | pixelate; dissolve mask=<image in assets/transitions>
-  music play theme loop  /  music stop fade 1  /  music pause  /  music resume
-  show alice smile at left fade 0.3     # look(s), at left|center|right|0-1|a game.json position, slot=variant overrides
+  music play theme loop  /  music stop fade 1s  /  music pause  /  music resume
+  show alice smile at left fade 0.3s     # look(s), at left|center|right|0-1|a game.json position, slot=variant overrides
   show alice smile at 0.35 y=0.02 scale=1.1 flip=on   # place without a slide (the animation studio's Place row writes it)
   show bob at right behind=alice  /  show alice order=front|back   # draw order (else the order of first show, newest in front)
-  move alice to right 0.6 ease=out      # ease: linear | in | out | inout | back | bounce | elastic ; add `nowait` to run in background
-  move alice scale=1.2 rot=-5 y=-0.03 0.4   # size, tilt, lift, alpha=, flip=on|off, anchor=feet|center|head|0.5,0.3 (the pivot)
-  shake alice 0.3 strength=6   hop alice 0.25   wait 0.5   sound play door duck   # duck: the music dips under it
-  sound loop rain fade 2  /  sound stop rain fade 3   # looping ambience on its own channel (`sound stop` alone ends all)
+  move alice to right 0.6s ease=out      # ease: linear | in | out | inout | back | bounce | elastic ; add `nowait` to run in background
+  move alice scale=1.2 rot=-5 y=-0.03 0.4s   # size, tilt, lift, alpha=, flip=on|off, anchor=feet|center|head|0.5,0.3 (the pivot)
+  shake alice 0.3s strength=6   hop alice 0.25s   wait 0.5s   sound play door duck   # duck: the music dips under it
+  sound loop rain fade 2s  /  sound stop rain fade 3s   # looping ambience on its own channel (`sound stop` alone ends all)
   movie play opening noskip                           # a fullscreen cutscene, assets/movie/opening.webm|mp4 (loop: repeats until skipped)
   animate alice breathe loop  /  animate alice nod  /  animate alice stop   # breathe bob sway nod shiver pulse bounce hop shake, or a rig.json animation; part=hair moves one part
   animate robo pose=happy  /  animate robo look_x=0.6 mouth=0.8 over 0.4   # tween a rig's parameters or a pose (show robo pose=happy sets one)
   flash [#ffffff] [0.4]                 # screen flash that fades out
-  tint #203060 0.4 1.5  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
+  tint #203060 0.4 1.5s  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
   focus off  /  focus on                 # speaker focus (game.json "speakerFocus" dims who is not speaking): off for a group scene
-  image show letter cg/letter at 960,540 anchor=center fade 0.4  /  image move letter to 960,300 0.5  /  image hide letter   # overlay pictures: assets/ path, stage pixels, layer=-1 behind characters, fixed, keep; a file in assets/movie plays as a looping video
+  image show letter cg/letter at 960,540 anchor=center fade 0.4s  /  image move letter to 960,300 0.5s  /  image hide letter   # overlay pictures: assets/ path, stage pixels, layer=-1 behind characters, fixed, keep; a file in assets/movie plays as a looping video
   camera zoom 1.5 at left y=0.4 0.8 ease=out  /  camera pan right 1  /  camera reset 0.5   # zoom about a point, slide it, reset; resets on `scene`
   weather rain|snow|petals|embers [0.6] [1]  /  weather off      # falling particles: intensity 0-1, fade-in seconds
   wind right|left [0.5] [gusts=0.4] [1]  /  wind off   # blows on physics chains (hair, ribbons): strength 0-2, gustiness 0-1, build-up seconds
@@ -41,7 +41,7 @@ label start:                            # entry point is "start" (or the first l
 ## Dialogue and text
 
 ```
-  alice: Hello.{pause=0.4} [name]        # {i}{/i} {b}{/b} {pause=s}, [variable]
+  alice: Hello.{pause=0.4s} [name]        # {i}{/i} {b}{/b} {pause=s}, [variable]
   alice: {color=#ff6fa5}Pink{/color}, {size=1.5}big{/size}, {wave}wavy{/wave}, {shake}shaky{/shake}, {ruby=kan}漢{/ruby}
   alice: Wait for it...{wait} there.{nw}   # {wait} stops until a click; {nw} goes on without one
   "Narration line."

@@ -7,40 +7,40 @@ define you "You" color=#7cc4ff
 set trust = 0
 
 label start:
-  scene bg_park_evening fade 0.5
+  scene bg_park_evening fade 0.5s
   music play evening_theme loop
 
   "The park was nearly empty. Only one bench was occupied." #joce
 
-  show alice neutral at center fade 0.4
-  alice: You're late. {pause=0.4}I almost left. #omn9
+  show alice neutral at center fade 0.4s
+  alice: You're late. {pause=0.4s}I almost left. #omn9
 
   menu:
     "Sorry, I got lost." #qw64:
       set trust += 1
       show alice smile
-      hop alice 0.25
+      hop alice 0.25s
       alice: Lost? In your own neighborhood? #rubn
       jump bench_talk
 
     "You didn't have to wait." #kv6y:
       show alice annoyed
-      shake alice 0.3 strength=6
+      shake alice 0.3s strength=6
       alice: Don't flatter yourself. #a3f7
       jump bench_talk
 
 label bench_talk:
-  wait 0.5
+  wait 0.5s
   if trust >= 1:
     alice: Fine. Sit down. I'll forgive you this once. #j30k
   else:
     alice: Sit. We need to talk anyway. #kx0c
 
-  move alice to left 0.6 ease=out
+  move alice to left 0.6s ease=out
   you: So, what did you want to say? #eamr
-  hide alice fade 0.3
+  hide alice fade 0.3s
   "The evening light faded as the conversation went on." #n80q
-  scene bg_park_night dissolve 1.2
+  scene bg_park_night dissolve 1.2s
   "Later, the park lights flickered on, and the bench was empty." #bt59
   menu:
     "Walk into town." #q7ln:

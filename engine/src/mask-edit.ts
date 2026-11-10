@@ -1,4 +1,4 @@
-// Editing mask shapes (rig.json shape parts and `clip` links, see masks.ts): the pure half of the animation studio's Mask section.
+// Editing mask shapes (rig.json shape parts and `clip` links, see masks.ts): the pure half of the animation studio's Clip sub-block and Mask tool.
 // Nothing here draws or touches the DOM; the studio feeds it picks from the lists and points dragged on the stage, and keeps the
 // result as its working copy.
 //
@@ -11,7 +11,7 @@ import { MASK_MAX_POINTS, MASK_MAX_SHAPES, MASK_MIN_POINTS, type MaskPoint, type
 
 /** A part's image box in canvas pixels. */
 export interface CanvasBox { x: number; y: number; w: number; h: number }
-/** What the Mask section edits: shape parts by name, clipped part to the shape or part it is clipped to, and the deformers that list shapes as members. */
+/** What the Clip sub-block edits: shape parts by name, clipped part to the shape or part it is clipped to, and the deformers that list shapes as members. */
 export interface ShapeSet { shapes: Record<string, ShapeDef>; clips: Record<string, string>; deformers: DeformerDef[] }
 /** The names a shape must not take: image parts and bones (the shapes themselves are in the set). */
 export interface ShapeNames { parts: Iterable<string>; bones: Iterable<string> }
@@ -176,14 +176,6 @@ export function addToGroup(deformers: readonly DeformerDef[], group: string, nam
   });
 }
 
-/** What the Mask section says about the chosen row in a few words, for the section header. */
-export function shapeSummary(set: Pick<ShapeSet, 'shapes' | 'clips'>, chosen: string | null): string {
-  if (chosen !== null && Object.hasOwn(set.shapes, chosen)) { const n = clippedBy(set, chosen).length; return `shape, ${set.shapes[chosen].polygon.length} points${n ? `, clips ${n}` : ''}`; }
-  if (chosen !== null && Object.hasOwn(set.clips, chosen)) return `to ${set.clips[chosen]}`;
-  const n = Object.keys(set.shapes).length;
-  return n ? `${n} shape${n === 1 ? '' : 's'}` : 'none';
-}
-
 // ---- the points of a polygon ----
 
 /** Anything with a drawn polygon (a ShapeDef, or a MaskDef of the renderer's list) and keyforms that reshape it. */
@@ -216,14 +208,34 @@ function shiftKeyforms(kfs: DeformerKeyform[] | undefined, from: number, by: 1 |
   return kfs.map(k => ({ ...k, ...(k.keys ? { keys: k.keys.map(put) } : {}), ...(k.forms ? { forms: k.forms.map(put) } : {}) }));
 }
 
-/** `def` with a new point `p` inserted before point `at` (`at` = the point count appends); the keyforms' point numbers follow. The same object at the point cap. */
+/**
+ * `def` with a new point `p` inserted before point `at` (`at` = the point count appends); the keyforms' point numbers follow. In each keyform
+ * the new point moves as the edge it was put on does: its displacement is its two neighbours' mixed by how far along the edge it sits, so a
+ * point added to a keyed shape (the closed lid of a blink) stays on that edge at every key instead of staying at rest. The same object at the
+ * point cap.
+ */
 export function insertPolygonPoint<T extends PolygonHolder>(def: T, at: number, p: MaskPoint): T {
   const poly = def.polygon;
   if (!poly || poly.length >= MASK_MAX_POINTS || !Number.isInteger(at) || at < 0 || at > poly.length || !p.every(Number.isFinite)) return def;
-  const next = [...poly.slice(0, at), [round(p[0]), round(p[1])] as MaskPoint, ...poly.slice(at)];
-  const keyforms = shiftKeyforms(def.keyforms, at, 1);
+  const q: MaskPoint = [round(p[0]), round(p[1])];
+  const next = [...poly.slice(0, at), q, ...poly.slice(at)];
+  // The edge it lands on runs from the point before it to the one after it (the first point again when it is appended), in the old numbering.
+  const n = poly.length, prev = (at - 1 + n) % n, after = at % n, a = poly[prev], b = poly[after];
+  const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / len2)) : 0.5;
+  const fill = <K extends { pts?: WarpPoints }>(old: K, shifted: K): K => {
+    const d0 = old.pts?.[String(prev)] ?? [0, 0], d1 = old.pts?.[String(after)] ?? [0, 0];
+    const d: [number, number] = [mix(d0[0], d1[0], t), mix(d0[1], d1[1], t)];
+    return d[0] === 0 && d[1] === 0 ? shifted : { ...shifted, pts: { ...shifted.pts, [String(at)]: d } };
+  };
+  const keyforms = def.keyforms ? shiftKeyforms(def.keyforms, at, 1)!.map((k, i) => {
+    const o = def.keyforms![i];
+    return { ...k, ...(k.keys ? { keys: k.keys.map((x, j) => fill(o.keys![j], x)) } : {}), ...(k.forms ? { forms: k.forms.map((x, j) => fill(o.forms![j], x)) } : {}) };
+  }) : undefined;
   return { ...def, polygon: next, ...(keyforms ? { keyforms } : {}) };
 }
+/** `a` to `b` by `t`, to six decimals (keyform displacements are stage fractions). */
+const mix = (a: number, b: number, t: number): number => Math.round((a + (b - a) * t) * 1e6) / 1e6 + 0;
 
 /** `def` without polygon point `i`; null (nothing changes) when the shape would be left with fewer than three points. */
 export function removePolygonPoint<T extends PolygonHolder>(def: T, i: number): T | null {

@@ -24,7 +24,7 @@ test('anchorOffset: zero at the feet, relative to the feet otherwise', () => {
 });
 
 test('show and move parse anchor= in any order; a move with only anchor= is valid', () => {
-  const p = compile(script('show al at left anchor=center scale=1.2\n  move al anchor=0.5,0.3 rot=15 0.4\n  move al anchor=head'));
+  const p = compile(script('show al at left anchor=center scale=1.2\n  move al anchor=0.5,0.3 rot=15 0.4s\n  move al anchor=head'));
   assert.deepEqual(errors(p), []);
   const sh = p.ops.find(o => o.op === 'show'), mv = p.ops.filter(o => o.op === 'move');
   assert.deepEqual(sh.anchor, [0.5, 0.5]);
@@ -45,7 +45,7 @@ test('runtime: fresh sprites stand on their feet, show keeps the anchor unless g
   assert.deepEqual(await run('show al anchor=center'), [0.5, 0.5]);
   assert.deepEqual(await run('show al anchor=center\n  show al at left'), [0.5, 0.5]);
   assert.deepEqual(await run('show al anchor=center\n  show al anchor=feet'), [0.5, 1]);
-  assert.deepEqual(await run('show al\n  move al rot=15 anchor=head 0.4'), [0.5, 0.1]);
+  assert.deepEqual(await run('show al\n  move al rot=15 anchor=head 0.4s'), [0.5, 0.1]);
   const rt = new Runtime(compile(script('show al anchor=top')), new NullRenderer());
   await rt.start();
   rt.state.sprites[0].anchor[0] = 0; // the state owns its array: the compiled op is not shared

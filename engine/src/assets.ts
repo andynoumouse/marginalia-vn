@@ -561,6 +561,19 @@ export function successors(program: Program): number[][] {
  * become tasks, nearest first. They are asked for as soon as such an op runs, so on any path an asset is requested
  * almost `lookahead` lines before its first use.
  */
+/**
+ * Sounds that play with no script line ahead of them, so the lookahead never sees them coming: a screen button's
+ * hover or click sound, and game.json's achievementToast sound. Names as `sound <name>` takes them; files may be missing.
+ */
+export function uncuedSounds(program: Program, game: unknown = null): string[] {
+  const out = new Set<string>();
+  for (const def of Object.values(program.screens ?? {})) walkNodes(def.body, n => { if (isClickable(n) && n.fx.sound) out.add(n.fx.sound); });
+  const toast = game && typeof game === 'object' ? (game as Record<string, unknown>).achievementToast : null;
+  const sound = toast && typeof toast === 'object' ? (toast as Record<string, unknown>).sound : null;
+  if (typeof sound === 'string' && sound) out.add(sound);
+  return [...out].sort();
+}
+
 export function attachPreloads(program: Program, index: AssetIndex, opts: { gallery?: string[]; lookahead?: number } = {}): Preload {
   const ctx = assetContext(index);
   const lookahead = opts.lookahead ?? PRELOAD_LINES;

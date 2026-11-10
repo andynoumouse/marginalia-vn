@@ -45,6 +45,26 @@ export function locateInMesh(verts: ArrayLike<number>, tris: ArrayLike<number>, 
 }
 
 /**
+ * locateInMesh, but a point outside the mesh is put on the nearest triangle (the one it lies least far outside of), its weights clamped
+ * onto it and renormalized. Null for a mesh without a triangle that has area.
+ */
+export function locateClamped(verts: ArrayLike<number>, tris: ArrayLike<number>, x: number, y: number): { tri: number; u: number; v: number; w: number } | null {
+  const hit = locateInMesh(verts, tris, x, y);
+  if (hit) return hit;
+  let best = -Infinity, tri = -1, u = 0, v = 0, w = 0;
+  for (let t = 0; t + 2 < tris.length; t += 3) {
+    const b = bary(verts, tris[t], tris[t + 1], tris[t + 2], x, y);
+    if (!b) continue;
+    const low = Math.min(b[0], b[1], b[2]);
+    if (low > best) { best = low; tri = t / 3; [u, v, w] = b; }
+  }
+  if (tri < 0) return null;
+  u = Math.max(0, u); v = Math.max(0, v); w = Math.max(0, w);
+  const sum = u + v + w;
+  return { tri, u: u / sum, v: v / sum, w: w / sum };
+}
+
+/**
  * Where the point (x, y) on the deformed mesh lies on the undeformed art: the rest position of whatever `deformedVerts` draws
  * there. Null outside the mesh. The mesh counterpart of `unwarpPoint`.
  */
@@ -61,22 +81,9 @@ export function unwarpMeshPoint(restVerts: ArrayLike<number>, deformedVerts: Arr
  * does at the box edge. [0, 0] for a mesh without usable triangles. The counterpart of `sampleLattice`.
  */
 export function sampleMesh(disp: ArrayLike<number>, restVerts: ArrayLike<number>, tris: ArrayLike<number>, x: number, y: number): [number, number] {
-  const hit = locateInMesh(restVerts, tris, x, y);
-  let tri = -1, u = 0, v = 0, w = 0;
-  if (hit) ({ tri, u, v, w } = hit);
-  else {
-    let best = -Infinity;
-    for (let t = 0; t + 2 < tris.length; t += 3) {
-      const b = bary(restVerts, tris[t], tris[t + 1], tris[t + 2], x, y);
-      if (!b) continue;
-      const low = Math.min(b[0], b[1], b[2]);
-      if (low > best) { best = low; tri = t / 3; [u, v, w] = b; }
-    }
-    if (tri < 0) return [0, 0];
-    u = Math.max(0, u); v = Math.max(0, v); w = Math.max(0, w);
-    const sum = u + v + w;
-    u /= sum; v /= sum; w /= sum;
-  }
+  const at = locateClamped(restVerts, tris, x, y);
+  if (!at) return [0, 0];
+  const { tri, u, v, w } = at;
   const a = tris[tri * 3], b = tris[tri * 3 + 1], c = tris[tri * 3 + 2];
   return [(disp[a * 2] ?? 0) * u + (disp[b * 2] ?? 0) * v + (disp[c * 2] ?? 0) * w, (disp[a * 2 + 1] ?? 0) * u + (disp[b * 2 + 1] ?? 0) * v + (disp[c * 2 + 1] ?? 0) * w];
 }

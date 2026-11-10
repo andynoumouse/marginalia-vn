@@ -27,8 +27,7 @@ export class AssetLoader {
   private running = 0;                              // preload tasks in flight
   private waiting = 0;                              // waits in progress (the loading bar is shown while any is slow)
   private barTimer = 0;
-  private barDone = 0;
-  private barTotal = 0;
+  private waits = new Set<{ total: number; done: number }>(); // the waits in progress: the bar is their sum
 
   /** `bar` is the loading bar element; its first child is the fill. `skipping` says whether skip mode is on (the lookahead goes wider). */
   constructor(private bar: HTMLElement, private hooks: LoaderHooks, private skipping: () => boolean) {}
@@ -49,17 +48,27 @@ export class AssetLoader {
     const todo = this.pending([...new Set(keys)]);
     if (!todo.length) return Promise.resolve();
     const { bar } = this;
-    this.barTotal += todo.length;
+    // Each wait counts its own files, and only while it lasts: a file that finishes after its wait gave up (HOLD_MAX_MS), or one
+    // that two waits share, cannot push the bar past 100 % any more (UX round PX-3).
+    const wait = { total: todo.length, done: 0 };
+    this.waits.add(wait);
     if (++this.waiting === 1) this.barTimer = window.setTimeout(() => { bar.dataset.show = 'true'; }, LOADING_BAR_MS);
-    const draw = () => { (bar.firstElementChild as HTMLElement).style.width = `${(this.barDone / this.barTotal) * 100}%`; };
-    const all = Promise.all(todo.map(k => this.fetch(k).then(() => { this.barDone++; draw(); })));
+    const draw = () => {
+      let total = 0, done = 0;
+      for (const w of this.waits) { total += w.total; done += w.done; }
+      const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+      (bar.firstElementChild as HTMLElement).style.width = `${pct}%`;
+      bar.setAttribute('aria-valuenow', String(pct));
+    };
+    draw();
+    const all = Promise.all(todo.map(k => this.fetch(k).then(() => { if (this.waits.has(wait)) { wait.done++; draw(); } })));
     let cap = 0;
     return Promise.race([all, new Promise<void>(r => { cap = window.setTimeout(r, HOLD_MAX_MS); })]).then(() => {
       clearTimeout(cap);
+      this.waits.delete(wait);
       if (--this.waiting === 0) {
         clearTimeout(this.barTimer);
         bar.dataset.show = 'false';
-        this.barDone = this.barTotal = 0;
       }
     });
   }

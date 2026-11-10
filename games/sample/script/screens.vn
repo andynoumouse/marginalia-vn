@@ -32,8 +32,8 @@ screen inventory:
   cancel
 
 label screens_demo:
-  scene bg_park_evening fade 0.5
-  show alice neutral at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show alice neutral at center fade 0.4s
   alice: Let's look at the map. #kx4y
 
 label town_loop:
@@ -84,8 +84,8 @@ screen status:
 label hud_demo:
   set coins = 3
   set hint = ""
-  scene bg_park_evening fade 0.5
-  show alice neutral at center fade 0.4
+  scene bg_park_evening fade 0.5s
+  show alice neutral at center fade 0.4s
   hud on status
   alice: The status strip stays up while we talk. Click Purse any time. #lb2d
   alice: The story picks up where it left off. #yr7m
@@ -130,7 +130,7 @@ screen layout_demo:
   cancel
 
 label layout_demo:
-  scene bg_park_evening fade 0.5
+  scene bg_park_evening fade 0.5s
   show screen layout_demo as picked
   alice: You chose [picked]. #rtfg
   end
