@@ -5,6 +5,8 @@
 import { FORM_FIELDS, type FormValue, type KeyformDef, type ParamDef } from './params.js';
 import { writeForm, type KeySpot } from './keyform-edit.js';
 import type { BindDriver } from './param-bind.js';
+import { paramById } from './params.js';
+import { round5 } from './util.js';
 
 export interface CopyOptions {
   /** Mirror the poses sideways: x moves and rotations change sign. Scale and opacity stay. */
@@ -15,16 +17,13 @@ export interface CopyOptions {
 
 export interface CopyEnd { target: string; driver: BindDriver }
 
-const DECIMALS = 1e5;
-const clean = (n: number): number => Math.round(n * DECIMALS) / DECIMALS + 0;
-const defOf = (defs: readonly ParamDef[], id: string): ParamDef | undefined => defs.find(d => d.id === id);
 
 /** A value of parameter `from` as the matching value of `to`: the same when they are one parameter, else side by side of the default (min, default and max line up). */
 export function mapValue(from: ParamDef, to: ParamDef, v: number, reverse = false): number {
   const w = reverse ? from.min + from.max - v : v; // reflect across the middle of the range
   const line = (a: number, b: number, c: number, d: number) => (b === a ? c : c + ((w - a) / (b - a)) * (d - c));
   const out = from.id === to.id ? w : w <= from.default ? line(from.min, from.default, to.min, to.default) : line(from.default, from.max, to.default, to.max);
-  return clean(Math.min(to.max, Math.max(to.min, out)));
+  return round5(Math.min(to.max, Math.max(to.min, out)));
 }
 
 const flipForm = (f: FormValue, flip: boolean): FormValue => {
@@ -52,7 +51,7 @@ export function copyKeys(kfs: readonly KeyformDef[], defs: readonly ParamDef[], 
   const flip = !!opt.flip, reverse = !!opt.reverse;
   let made: KeyformDef;
   if (isPad(to.driver) && isPad(from.driver) && src.grid && src.forms && src.params) {
-    const sx = defOf(defs, src.params[0]), sy = defOf(defs, src.params[1]), dx = defOf(defs, to.driver.params[0]), dy = defOf(defs, to.driver.params[1]);
+    const sx = paramById(defs, src.params[0]), sy = paramById(defs, src.params[1]), dx = paramById(defs, to.driver.params[0]), dy = paramById(defs, to.driver.params[1]);
     if (!sx || !sy || !dx || !dy || dx === dy) return same;
     if (from.target === to.target && from.driver.params[0] === to.driver.params[0] && from.driver.params[1] === to.driver.params[1] && !flip && !reverse) return same;
     const xs = src.grid.x, ys = src.grid.y, cells: { x: number; y: number; f: FormValue }[] = [];
@@ -62,7 +61,7 @@ export function copyKeys(kfs: readonly KeyformDef[], defs: readonly ParamDef[], 
     for (const c of cells) forms[gy.indexOf(c.y) * gx.length + gx.indexOf(c.x)] = c.f;
     made = { target: to.target, params: [dx.id, dy.id], grid: { x: gx, y: gy }, forms };
   } else if (!isPad(to.driver) && !isPad(from.driver) && src.keys) {
-    const sd = defOf(defs, src.param!), dd = defOf(defs, to.driver.param);
+    const sd = paramById(defs, src.param!), dd = paramById(defs, to.driver.param);
     if (!sd || !dd) return same;
     if (from.target === to.target && sd.id === dd.id && !flip && !reverse) return same;
     const byAt = new Map<number, FormValue>();

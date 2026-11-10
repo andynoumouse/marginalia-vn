@@ -4,9 +4,10 @@
 
 import { keepPreviewDevice } from './preview-device.js';
 import {
-  COMMAND_WORDS, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, getCompletions, insideScreen, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
-  BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest, OwnSaves,
+  formatHover, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, formatRig, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
+  BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest, OwnSaves, SAVE_BASE_HEADER, textHash,
 } from '../engine/src/index.js';
+import { ConflictBar } from './conflict.js';
 import { AssetViewer } from './asset-viewer.js';
 import { AnimStudio, type Mode } from './anim-studio.js';
 import { manifestHost } from './studio-host.js';
@@ -18,14 +19,17 @@ import { BuildDialog, langQuery, playtestQuery } from './build-dialog.js';
 import { ThemeDialog } from './theme-dialog.js';
 import { GitPanel } from './git-dialog.js';
 import { OutlineView } from './outline-view.js';
+import { anyModalOpen } from './modal.js';
 import { Palette } from './palette.js';
 import { updateGameSchema } from './json-schemas.js';
-import { initPreviewLink, previewFromCursor, previewScreen, showPreviewLine, toggleFollow, toggleVars } from './preview-link.js';
+import { initPreviewLink, noteTyping, previewFromCursor, previewScreen, showPreviewLine, toggleFollow, toggleVars } from './preview-link.js';
 import { hidePreviewPane, initPreviewPane, narrowWindow, showPreviewPane } from './preview-pane.js';
 import { applyEdits, registerColors, registerRename } from './rename.js';
 import { buildCommands, NEW_FOLDER, NEW_PICK, paletteModes, type CommandHost } from './commands.js';
 import { collapsedDirs, initSidebar, renderSidebarAssets, renderSidebarFiles, sbFilter, setAssets, setSidebar, SIDEBAR_KEY, sidebarEl, toast, toastError, type Project } from './sidebar.js';
-import { $, errorCount, files, GAME, GAME_URI, isDirty, norm, NOT_IN_DEMO, openTabs, postPreview, projectFiles, recentFiles, rigName, S, scripts, setStatus, themeFileName, themeSheetName, type FileState } from './state.js';
+import { followPointer } from './pointer.js';
+import { fixKey, quickFixes, registerLanguage } from './monaco-language.js';
+import { $, errorCount, files, GAME,GAME_URI, isDirty, norm, NOT_IN_DEMO, openTabs, postPreview, projectFiles, recentFiles, rigName, S, scripts, setStatus, themeFileName, themeSheetName, type FileState } from './state.js';
 
 declare const require: any;
 declare const monaco: any;
@@ -39,9 +43,6 @@ window.addEventListener('unhandledrejection', e => {
 const tabsEl = $('tabs'), problemsEl = $('problems');
 const preview = $<HTMLIFrameElement>('preview');
 
-/** The "did you mean" names of the current markers, by fixKey(). */
-const quickFixes = new Map<string, string[]>();
-const fixKey = (uri: { toString(): string }, line: number, message: string) => `${uri.toString()}|${line}|${message}`;
 const GAME_TEMPLATE = `{
   "title": "Untitled",
   "titleScreen": {
@@ -73,159 +74,6 @@ function loadMonaco(): Promise<void> {
   });
 }
 
-// ---- language: highlighting, indentation, completions ----
-function registerLanguage() {
-  monaco.languages.register({ id: 'vn' });
-  registerLanguageConfig();
-  registerTokenizer();
-  defineTheme();
-  registerCompletions();
-  registerQuickFixes();
-}
-
-/** Comments, brackets, auto-closing pairs and the indent after a line that ends in a colon. */
-function registerLanguageConfig() {
-  monaco.languages.setLanguageConfiguration('vn', {
-    comments: { lineComment: '#' },
-    brackets: [['{', '}'], ['[', ']'], ['(', ')']],
-    autoClosingPairs: [{ open: '"', close: '"' }, { open: '{', close: '}' }, { open: '[', close: ']' }, { open: '(', close: ')' }],
-    onEnterRules: [{
-      beforeText: /^\s*(label\s+\w+\s*(\([^()]*\))?\s*:|menu\s*:|if\s.+:|elif\s.+:|else\s*:|".*"[^:]*:)\s*$/,
-      action: { indentAction: monaco.languages.IndentAction.Indent },
-    }],
-  });
-}
-
-/** Syntax colouring: dialogue, quoted menu options and command lines. */
-function registerTokenizer() {
-  monaco.languages.setMonarchTokensProvider('vn', {
-    // Every statement word comes from the parser; the rest start the elements of a screen block.
-    keywords: [...COMMAND_WORDS, 'hotspot', 'button', 'text', 'each', 'scroll', 'row', 'column', 'grid', 'cancel'],
-    modifiers: ['at', 'fade', 'to', 'loop', 'nowait', 'play', 'stop', 'on', 'off', 'clear', 'cut', 'dissolve', 'wipe', 'iris', 'blinds', 'pixelate', 'pan', 'zoom', 'reset',
-      'left', 'right', 'center', 'up', 'down', 'size', 'poly', 'ellipse', 'mask', 'step', 'cursor', 'enabled', 'anchor', 'margin', 'padding', 'gap', 'align', 'cell', 'as', 'and', 'or', 'not', 'true', 'false', 'screen'],
-    tokenizer: {
-      root: [
-        [/^\s*#.*$/, 'comment'],
-        [/^(\s*)(label)(\s+)([A-Za-z_]\w*)/, ['', 'keyword', '', 'type.identifier']],
-        [/^(\s*)([A-Za-z_]\w*)(:)(?=\s)/, ['', 'type', 'delimiter'], '@dialogue'],
-        [/^\s*(?=")/, '', '@quoted'],
-        [/^\s*(?=[A-Za-z_])/, '', '@command'],
-        [/\s+/, ''],
-      ],
-      dialogue: [
-        [/\s#[A-Za-z0-9]{4,8}(?=\s*$)/, 'meta.id'],
-        [/\{[^}]*\}/, 'tag'],
-        [/\[[A-Za-z_]\w*\]/, 'variable'],
-        [/[^{\[\s]+/, 'string'],
-        [/\s+/, 'string'],
-        [/./, 'string'],
-        [/$/, '', '@pop'],
-      ],
-      quoted: [
-        [/"(?:[^"\\]|\\.)*"/, 'string'],
-        [/\s#[A-Za-z0-9]{4,8}(?=\s*:?\s*$)/, 'meta.id'],
-        [/\bif\b/, 'keyword'],
-        [/[0-9]+(\.[0-9]+)?(?:ms|s)?/, 'number'],
-        [/[A-Za-z_]\w*/, 'identifier'],
-        [/[<>=!+\-*\/%():]+/, 'delimiter'],
-        [/\s+/, ''],
-        [/$/, '', '@pop'],
-      ],
-      command: [
-        [/[A-Za-z_]\w*(?==)/, 'attribute.name'],
-        [/[A-Za-z_]\w*/, { cases: { '@keywords': 'keyword', '@modifiers': 'keyword.other', '@default': 'identifier' } }],
-        [/#[0-9a-fA-F]{3,8}/, 'number.hex'],
-        [/[0-9]+(\.[0-9]+)?(?:ms|s)?/, 'number'],
-        [/"(?:[^"\\]|\\.)*"/, 'string'],
-        [/[<>=!+\-*\/%():]+/, 'delimiter'],
-        [/\s+/, ''],
-        [/$/, '', '@pop'],
-      ],
-    },
-  });
-}
-
-function defineTheme() {
-  monaco.editor.defineTheme('vn-dark', {
-    base: 'vs-dark', inherit: true,
-    rules: [
-      { token: 'comment', foreground: '6b7385', fontStyle: 'italic' },
-      { token: 'meta.id', foreground: '4a5163' },
-      { token: 'type', foreground: '5fd1c3', fontStyle: 'bold' },
-      { token: 'type.identifier', foreground: '5fd1c3' },
-      { token: 'keyword', foreground: '9db8ff' },
-      { token: 'keyword.other', foreground: 'c1a6ff' },
-      { token: 'string', foreground: 'e3d9b4' },
-      { token: 'tag', foreground: 'e8b64c' },
-      { token: 'variable', foreground: 'f0a1c0' },
-      { token: 'number', foreground: 'b5e08f' },
-      { token: 'number.hex', foreground: 'b5e08f' },
-      { token: 'attribute.name', foreground: '8fc7e8' },
-    ],
-    colors: { 'editor.background': '#0e1117', 'editor.lineHighlightBackground': '#171b2380' },
-  });
-}
-
-/** Ctrl+Space and the trigger characters: the engine's completions for the line, with paths replacing everything typed since the quote. */
-function registerCompletions() {
-  const K = monaco.languages.CompletionItemKind;
-  const kinds: Record<string, number> = {
-    command: K.Keyword, keyword: K.EnumMember, character: K.Class, label: K.Reference, variable: K.Variable, asset: K.Value,
-  };
-  monaco.languages.registerCompletionItemProvider('vn', {
-    triggerCharacters: [' ', '{', '[', ':'],
-    provideCompletionItems(model: any, position: any) {
-      const prefix = model.getValueInRange({
-        startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: position.column,
-      });
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber, endLineNumber: position.lineNumber,
-        startColumn: word.startColumn, endColumn: word.endColumn,
-      };
-      const typed = /[^\s"=]*$/.exec(prefix)![0].length;
-      const pathRange = { ...range, startColumn: position.column - typed };
-      // A typed `{` was closed by the editor: a text tag brings its own `}`, so it takes the one that is waiting after the cursor.
-      const closed = model.getValueInRange({ ...range, startColumn: position.column, endColumn: position.column + 1 }) === '}';
-      const tagRange = { ...range, endColumn: range.endColumn + 1 };
-      const above = model.getLinesContent().slice(Math.max(0, position.lineNumber - 13), position.lineNumber - 1);
-      const inScreen = insideScreen(model.getLinesContent().slice(0, position.lineNumber - 1), /^\s/.test(prefix));
-      return {
-        suggestions: getCompletions(S.program, prefix, liveRigs(), above, inScreen, S.projectAssets.files).map((s, i) => ({
-          label: s.label,
-          kind: kinds[s.kind] ?? K.Text,
-          detail: s.detail,
-          insertText: s.insertText ?? s.label,
-          insertTextRules: s.insertText?.includes('$0') ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet : undefined,
-          sortText: String(i).padStart(3, '0'),
-          range: s.path ? pathRange : closed && s.insertText?.includes('}') ? tagRange : range, // a path holds `/` and `.`, which end a word: replace everything typed since the quote, space or `=`
-        })),
-      };
-    },
-  });
-}
-
-function registerQuickFixes() {
-  // Quick fixes (Ctrl+.) for the markers with a "did you mean": replace the unknown word with a close name.
-  monaco.languages.registerCodeActionProvider('vn', {
-    provideCodeActions(model: any, _range: any, context: any) {
-      const actions = (context.markers as any[]).flatMap(m => {
-        const options = quickFixes.get(fixKey(model.uri, m.startLineNumber, m.message)) ?? [];
-        return options.map((o, i) => ({
-          title: `Change to "${o}"`,
-          kind: 'quickfix',
-          diagnostics: [m],
-          isPreferred: i === 0,
-          edit: { edits: [{ resource: model.uri, versionId: model.getVersionId(), textEdit: {
-            range: { startLineNumber: m.startLineNumber, endLineNumber: m.endLineNumber, startColumn: m.startColumn, endColumn: m.endColumn },
-            text: o,
-          } }] },
-        }));
-      });
-      return { actions, dispose() {} };
-    },
-  });
-}
 
 
 // ---- files, tabs, diagnostics ----
@@ -289,7 +137,8 @@ function renderTabs() {
     b.type = 'button';
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', String(name === S.active));
-    b.textContent = isDirty(f) ? `${name} •` : name;
+    b.textContent = f.conflict !== undefined ? `${name} ⚠` : isDirty(f) ? `${name} •` : name;
+    if (f.conflict !== undefined) b.title = `${name} changed outside the editor while you had unsaved edits: choose in the bar over the editor`;
     b.addEventListener('click', () => activate(name));
     const x = document.createElement('button');
     x.type = 'button';
@@ -305,6 +154,7 @@ function renderTabs() {
   setTabStops();
   revealSelectedTab();
   renderSidebarFiles();
+  conflictBar?.show(files.get(S.active) ?? null); // the conflict bar belongs to the tab on show
 }
 
 // One Tab stop for the strip (UX round EL-6): the tab last focused (else the selected one) is tabbable, Left, Right, Home and End
@@ -488,6 +338,9 @@ function updateProblemCount() {
   problemsEl.title = 'Problems in all files, rig.json checks included (the preview header counts the script and game.json only)';
 }
 
+/** The bar over the editor for a file that changed outside it while it had unsaved edits (editor/conflict.ts); made at setup. */
+let conflictBar: ConflictBar;
+
 // Counted so syncFromDisk can tell that a save landed while its GET was in flight (its text is then older than the model's).
 let saving = 0, saveEpoch = 0;
 /** Scripts this tab just saved: their reload event brings nothing new here, so it skips the /api/project round trip. */
@@ -513,6 +366,7 @@ function saveSettled(f: FileState) {
 
 async function saveNow(f: FileState) {
   if (f.model.isDisposed()) return; // the file was deleted while its save waited its turn
+  if (f.conflict !== undefined) return; // changed outside meanwhile: nothing is written until the author chooses in the conflict bar
   const text: string = f.model.getValue(); // read when its turn comes, so a queued save writes the latest text
   if (norm(text) === norm(f.saved)) { saveSettled(f); return; }
   if (f.kind !== 'script' && f.kind !== 'themecss') {
@@ -527,8 +381,14 @@ async function saveNow(f: FileState) {
       : f.kind === 'themecss' ? `/api/theme?name=${encodeURIComponent(f.char ?? '')}&ext=css`
       : `/api/script?file=${encodeURIComponent(f.name)}`;
     const r = await fetch(url, {
-      method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain' }, body: text, signal: AbortSignal.timeout(SAVE_TIMEOUT),
+      // The version this save started from: the server refuses it (409) when the file on disk is no longer that one (UX round EL-18).
+      method: 'PUT', headers: { 'X-VN-Editor': '1', 'Content-Type': 'text/plain', [SAVE_BASE_HEADER]: textHash(f.saved) }, body: text, signal: AbortSignal.timeout(SAVE_TIMEOUT),
     });
+    if (r.status === 409) {
+      const disk = ((await r.json().catch(() => null)) as { text?: unknown } | null)?.text;
+      enterConflict(f, typeof disk === 'string' ? disk : '');
+      return;
+    }
     if (!r.ok) throw new Error(`the dev server answered ${r.status}`);
     f.saved = text;
     if (f.kind === 'script') ownSaves.saved(`script/${f.name}`, performance.now());
@@ -566,7 +426,8 @@ function addFile(name: string, text: string, kind: FileState['kind'] = 'script',
   const f: FileState = { name, kind, char, model, saved: text, timer: 0 };
   files.set(name, f);
   openTabs.push(name);
-  model.onDidChangeContent(() => {
+  model.onDidChangeContent((e: { isFlush?: boolean }) => {
+    noteTyping(e); // Follow preview leaves the view alone while the author types
     // Scripts recompile; game.json changes re-run the asset checks (blip voices, skins).
     clearTimeout(compileTimer);
     compileTimer = window.setTimeout(recompile, kind === 'script' ? 150 : 400);
@@ -665,7 +526,58 @@ function adoptDisk(f: FileState, text: string) {
   if (view) S.editor.restoreViewState(view);
 }
 
-// Pick up edits made outside the editor (for example in VS Code) when the file is not dirty here.
+/**
+ * A tab whose file on disk is now `text`: a clean tab takes it; one with unsaved edits keeps them and goes into conflict, unless
+ * the disk already holds what the tab has. True when anything changed.
+ */
+function followDisk(f: FileState, text: string): boolean {
+  if (norm(text) === norm(f.saved) && f.conflict === undefined) return false;
+  const local = norm(f.model.getValue());
+  if (local === norm(text)) { f.saved = text; f.conflict = undefined; saveSettled(f); conflictBar.show(files.get(S.active) ?? null); return true; } // the same text: nothing to choose
+  if (local === norm(f.saved) && f.conflict === undefined) { adoptDisk(f, text); return true; }
+  if (f.conflict !== undefined && norm(f.conflict) === norm(text)) return false;
+  enterConflict(f, text);
+  return true;
+}
+
+/** `f` changed on disk (to `disk`) while it had unsaved edits: keep them, stop saving it, and ask (editor/conflict.ts). */
+function enterConflict(f: FileState, disk: string) {
+  const first = f.conflict === undefined;
+  f.conflict = disk;
+  clearTimeout(f.timer);
+  clearTimeout(f.retry);
+  f.failed = undefined;
+  if (first) toastError(`${f.name} changed outside the editor while you had unsaved edits. Nothing is saved until you choose in the bar over the editor.`);
+  setStatus(`not saved: ${f.name} changed outside the editor`);
+  conflictBar.show(files.get(S.active) ?? null);
+  renderTabs();
+}
+
+/** Keep mine: the tab's text is saved over the outside version, on purpose (its base is now that version). */
+function keepMine(f: FileState) {
+  if (f.conflict === undefined) return;
+  f.saved = f.conflict;
+  f.conflict = undefined;
+  conflictBar.show(files.get(S.active) ?? null);
+  void save(f);
+}
+
+/** Take theirs: the version on disk goes into the tab as one edit, so Ctrl+Z brings the author's text back (and saves it over). */
+function takeTheirs(f: FileState) {
+  if (f.conflict === undefined) return;
+  const disk = f.conflict;
+  f.saved = disk;
+  f.conflict = undefined;
+  const m = f.model;
+  m.pushStackElement();
+  m.pushEditOperations([], [{ range: m.getFullModelRange(), text: disk }], () => null);
+  m.pushStackElement();
+  conflictBar.show(files.get(S.active) ?? null);
+  setStatus(`${f.name}: took the version on disk (Ctrl+Z brings yours back)`);
+  renderTabs();
+}
+
+// Pick up edits made outside the editor (for example in VS Code): a clean tab takes them, one with unsaved edits asks (followDisk).
 async function syncFromDisk() {
   let proj: Project;
   const epoch = saveEpoch;
@@ -679,10 +591,7 @@ async function syncFromDisk() {
   for (const s of list) {
     const f = files.get(s.file);
     if (!f) { addFile(s.file, s.text); changed = true; continue; }
-    if (norm(s.text) === norm(f.saved)) continue;
-    if (norm(f.model.getValue()) !== norm(f.saved)) continue; // unsaved local edits win
-    adoptDisk(f, s.text);
-    changed = true;
+    if (followDisk(f, s.text)) changed = true;
   }
   // A script deleted or renamed outside the editor (git pull, another editor) closes with its tab; unsaved edits keep it.
   const onDisk = new Set(proj.scripts.map(s => s.file));
@@ -696,21 +605,15 @@ async function syncFromDisk() {
   // Open rig.json tabs follow the disk the same way (they are never opened here: see openRig).
   for (const [char, text] of Object.entries(proj.rigTexts ?? {})) {
     const f = files.get(rigName(char));
-    if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    adoptDisk(f, text);
-    changed = true;
+    if (f && followDisk(f, text)) changed = true;
   }
   for (const [theme, text] of Object.entries(proj.themeTexts ?? {})) {
     const f = files.get(themeFileName(theme));
-    if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    adoptDisk(f, text);
-    changed = true;
+    if (f && followDisk(f, text)) changed = true;
   }
   for (const [theme, text] of Object.entries(proj.themeSheets ?? {})) {
     const f = files.get(themeSheetName(theme));
-    if (!f || norm(text) === norm(f.saved) || norm(f.model.getValue()) !== norm(f.saved)) continue;
-    adoptDisk(f, text);
-    changed = true;
+    if (f && followDisk(f, text)) changed = true;
   }
   if (changed) { recompile(); renderTabs(); }
 }
@@ -742,15 +645,10 @@ function setupSplitter() {
     split.setPointerCapture(e.pointerId);
     split.classList.add('drag');
     preview.style.pointerEvents = 'none';
-    const move = (ev: PointerEvent) => setRight(window.innerWidth - ev.clientX);
-    const up = () => {
+    followPointer(split, ev => setRight(window.innerWidth - ev.clientX), () => {
       split.classList.remove('drag');
       preview.style.pointerEvents = '';
-      split.removeEventListener('pointermove', move);
-      split.removeEventListener('pointerup', up);
-    };
-    split.addEventListener('pointermove', move);
-    split.addEventListener('pointerup', up);
+    });
   });
 }
 
@@ -848,7 +746,7 @@ function openRig(char: string) {
   const manifest = S.projectAssets.rigs[char];
   if (!manifest) { setStatus(`${char} has no sprite.json (convert its PSD first)`); return; }
   const onDisk = S.projectAssets.rigTexts[char];
-  const f = addFile(name, onDisk ?? `${JSON.stringify(rigSkeleton(manifest), null, 2)}\n`, 'rig', char);
+  const f = addFile(name, onDisk ?? formatRig(rigSkeleton(manifest)), 'rig', char);
   if (onDisk === undefined) { f.saved = ''; setStatus(`${name} is new: Ctrl+S saves the generated skeleton`); }
   recompile();
   activate(name);
@@ -891,7 +789,7 @@ function updateRigFromArt() {
   let data;
   try { data = JSON.parse(f.model.getValue()); } catch { setStatus(`${f.name} has errors; fix them first`); return; }
   const { rig, added, missing, bonesAdded } = mergeRig(data, manifest);
-  if (added.length) f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text: `${JSON.stringify(rig, null, 2)}\n` }], () => null);
+  if (added.length) f.model.pushEditOperations([], [{ range: f.model.getFullModelRange(), text: formatRig(rig) }], () => null);
   setStatus([added.length ? `added to order: ${added.join(', ')}` : 'order already has every part',
     bonesAdded.length ? `new bones from PSD folders: ${bonesAdded.join(', ')}` : '',
     missing.length ? `no longer in the art: ${missing.join(', ')}` : ''].filter(Boolean).join('; '));
@@ -961,7 +859,10 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
 function studioRefAtCursor(): { char: string; name?: string } | null {
   const pos = S.editor.getPosition();
   if (files.get(S.active)?.kind !== 'script' || !pos) return null;
-  const line = S.editor.getModel().getLineContent(pos.lineNumber);
+  return studioRefOf(S.editor.getModel().getLineContent(pos.lineNumber));
+}
+/** What a script line opens in the studio: an `animate` line's character and animation, or a `show` line's rigged character. */
+function studioRefOf(line: string): { char: string; name?: string } | null {
   const ref = animateRef(line);
   if (ref) return ref;
   const show = /^\s*show\s+([A-Za-z_]\w*)/.exec(line);
@@ -979,7 +880,7 @@ function openAnimationAtCursor() {
 
 /**
  * Put values for top-level properties of the rig.json tab (what the studio edits) in as one undo step.
- * Only what changed is rewritten (`writeRigText`); the rest of the file keeps its layout.
+ * The file is written in its one layout (`writeRigText`, `formatRig`), so an edit changes only its own lines.
  */
 function writeRigProperties(f: FileState, writes: RigWrite[]): boolean {
   const text = f.model.getValue();
@@ -1153,10 +1054,29 @@ function setupPalette() {
   S.editor.onDidChangeCursorPosition(checkStudioLine);
   S.editor.onDidChangeModel(checkStudioLine);
   S.editor.addAction({ id: 'vn.openInStudio', label: 'Open in Animation Studio (F12)', precondition: 'vnStudioLine', contextMenuGroupId: 'navigation', contextMenuOrder: 1.1, run: () => openAnimationAtCursor() });
+  // A hover on such a line links to the studio too (ES-2): the link puts the cursor on the line and opens it, as F12 would.
+  monaco.editor.registerCommand('vn.openStudioAtLine', (_accessor: unknown, line: number) => {
+    S.editor.setPosition({ lineNumber: line, column: 1 });
+    openAnimationAtCursor();
+  });
+  monaco.languages.registerHoverProvider('vn', {
+    provideHover: (model: { getLineContent(n: number): string }, position: { lineNumber: number; column: number }) => {
+      if (files.get(S.active)?.kind !== 'script') return null;
+      const line = model.getLineContent(position.lineNumber);
+      // `[gold:,2]`, `[coins:a coin|coins]`: what the format shows, before the studio link a show/animate line has
+      const fmt = formatHover(line, position.column - 1, sourceLanguage(openGame() as { language?: unknown } | null));
+      if (fmt) return { range: new monaco.Range(position.lineNumber, fmt.from + 1, position.lineNumber, fmt.to + 1), contents: [{ value: fmt.text }] };
+      const ref = studioRefOf(line);
+      if (!ref || !S.projectAssets.rigs[ref.char]) return null;
+      const what = ref.name ? `${ref.char}'s ${ref.name}` : ref.char;
+      return { contents: [{ value: `[Open ${what} in the animation studio](command:vn.openStudioAtLine?${encodeURIComponent(JSON.stringify([position.lineNumber]))}) (F12)`, isTrusted: true }] };
+    },
+  });
   S.palette = new Palette($('left'), paletteModes(host, commands), () => S.editor.focus());
   S.help = new HelpDialog(document.body);
   S.assetViewer = new AssetViewer(document.body);
   S.animStudio = new AnimStudio(document.body);
+  conflictBar = new ConflictBar($('left'), $('work'), { keepMine, takeTheirs });
   S.outlineView = new OutlineView(document.body, goToLine);
   S.voiceDialog = new VoiceDialog(document.body, {
     rows: () => { recompile(); return stringRows(S.program); },
@@ -1242,7 +1162,7 @@ function setupGlobalKeys() {
   // shortcuts), including inside the preview, which is same-origin. Ctrl+P is the palette (type > for commands); Ctrl+S saves the
   // open file; F1 is help; Alt+1/2/3 focus the editor, the preview and the Files panel.
   const panes = { Digit1: 'editor', Digit2: 'preview', Digit3: 'files' } as const;
-  const modalOpen = () => S.palette.isOpen || S.help.isOpen || S.assetViewer.isOpen || S.animStudio.isOpen || S.translations.isOpen || S.voiceDialog.isOpen || S.buildDialog.isOpen || S.themeDialog.isOpen || S.gitPanel.isOpen;
+  const modalOpen = () => S.palette.isOpen || S.animStudio.isOpen || anyModalOpen();
   const onKey = (e: KeyboardEvent) => {
     const pane = e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey ? panes[e.code as keyof typeof panes] : undefined;
     if (pane && !modalOpen()) {
@@ -1283,7 +1203,7 @@ async function boot() {
     setStatus('Monaco missing');
     return;
   }
-  registerLanguage();
+  registerLanguage({ liveRigs });
   registerRename();
   registerColors();
   createEditor();

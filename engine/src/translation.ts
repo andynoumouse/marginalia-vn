@@ -14,7 +14,7 @@ export interface StringRow {
   kind: StringKind;
   /** The speaking character (say lines only). */
   who: string | null;
-  /** Where the string is in the script; absent for strings from screens, items and other declarations. */
+  /** Where the string is in the script; absent for menu labels (and for screen and item strings of a program without `stringSrc`). */
   file?: string;
   line?: number;
   /** The label the string sits under. */
@@ -22,7 +22,7 @@ export interface StringRow {
 }
 
 /** Every string of `program` in script order (strings outside the op stream, such as screen texts, come last). */
-export function stringRows(program: Pick<Program, 'ops' | 'labels' | 'strings'>): StringRow[] {
+export function stringRows(program: Pick<Program, 'ops' | 'labels' | 'strings' | 'stringSrc'>): StringRow[] {
   const starts = Object.entries(program.labels).sort((a, b) => a[1] - b[1]);
   const rows: StringRow[] = [];
   const seen = new Set<string>();
@@ -46,7 +46,11 @@ export function stringRows(program: Pick<Program, 'ops' | 'labels' | 'strings'>)
       }
     }
   });
-  for (const id of Object.keys(program.strings)) if (!seen.has(id)) rows.push({ id, source: program.strings[id], kind: 'other', who: null });
+  for (const id of Object.keys(program.strings)) {
+    if (seen.has(id)) continue;
+    const at = program.stringSrc?.[id];
+    rows.push({ id, source: program.strings[id], kind: 'other', who: null, ...(at ? { file: at.file, line: at.line } : {}) });
+  }
   return rows;
 }
 
@@ -76,6 +80,13 @@ export function translationStatus(rows: Pick<StringRow, 'id'>[], table: StringTa
     missing,
     unused: Object.keys(table).filter(id => !ids.has(id) && !id.startsWith('ui.')),
   };
+}
+
+/** The table and its source snapshot without the entries that match no string (`unused` above); the inputs are left alone. */
+export function dropUnused(rows: Pick<StringRow, 'id'>[], table: StringTable, snapshot: SourceSnapshot = {}): { table: StringTable; snapshot: SourceSnapshot; removed: string[] } {
+  const removed = new Set(translationStatus(rows, table).unused);
+  const keep = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([id]) => !removed.has(id)));
+  return { table: keep(table), snapshot: keep(snapshot), removed: [...removed] };
 }
 
 /**

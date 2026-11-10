@@ -199,7 +199,7 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
     prefix: '@', title: 'Go to label', placeholder: 'Go to label',
     items: q => {
       const labels = scripts().flatMap(f => (f.model.getLinesContent() as string[]).flatMap((text, i) => {
-        const m = /^\s*label\s+([A-Za-z_]\w*)\s*(?:\([^()]*\))?\s*:/.exec(text);
+        const m = /^\s*label\s+([\p{L}_][\p{L}\p{N}\p{M}_]*)\s*(?:\([^()]*\))?\s*:/u.exec(text);
         return m ? [{ name: m[1], file: f.name, line: i + 1 }] : [];
       }));
       return rank(labels, q, l => l.name).map(({ entry: l, hits }) => ({

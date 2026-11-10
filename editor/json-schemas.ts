@@ -403,6 +403,10 @@ function themeSchemas() {
 interface RigSchemaContext { manifest: RigManifest; slots: RigManifest['parts']; variants: (slot: string) => string[]; everyVariant: string[]; boneNames: string[] }
 
 const str = (description: string, examples: string[]) => ({ type: 'string', description, examples });
+/** An `ease` field: a named curve or `bezier(x1,y1,x2,y2)` (checkRig checks the numbers). */
+const ease = (description?: string) => ({
+  type: 'string', anyOf: [{ enum: EASE_NAMES }, { pattern: '^(cubic-)?bezier\\([^()]*\\)$' }], ...(description ? { description } : {}),
+});
 
 const rigOrder = ({ manifest }: RigSchemaContext) => (
   {
@@ -476,7 +480,7 @@ const rigModel = ({ boneNames }: RigSchemaContext) => ({
       required: ['id'],
       properties: {
         id: { type: 'string' }, min: { type: 'number' }, max: { type: 'number' }, default: { type: 'number' },
-        group: { type: 'string', description: 'One of "categories".' }, ease: { type: 'string', enum: EASE_NAMES },
+        group: { type: 'string', description: 'One of "categories".' }, ease: ease(),
       },
     },
   },
@@ -523,7 +527,7 @@ const rigReactions = ({ manifest }: RigSchemaContext) => (
         when: { type: 'string', description: "A condition in the script's expression language: story variables, speaking, always, param.<id> (a parameter's base value)." },
         pose: str('The pose to hold (one of "poses").', Object.keys(manifest.rig?.poses ?? {})),
         over: { type: 'number', minimum: 0, description: 'Seconds the move into the pose takes (default 0.4).' },
-        ease: { type: 'string', enum: EASE_NAMES, description: 'Easing of that move.' },
+        ease: ease('Easing of that move.'),
       },
     },
   }
@@ -561,7 +565,7 @@ const rigAnimations = ({ manifest }: RigSchemaContext) => (
         params: {
           type: 'object',
           description: 'Parameter tracks: a parameter id to its keys { t, v, ease }.',
-          additionalProperties: { type: 'array', items: { type: 'object', required: ['t', 'v'], properties: { t: { type: 'number', minimum: 0, maximum: 1 }, v: { type: 'number' }, ease: { type: 'string', enum: EASE_NAMES } } } },
+          additionalProperties: { type: 'array', items: { type: 'object', required: ['t', 'v'], properties: { t: { type: 'number', minimum: 0, maximum: 1 }, v: { type: 'number' }, ease: ease() } } },
         },
         frames: { type: 'array', description: 'Frame tracks: a slot swapped between variants as the animation runs.', items: { type: 'object', required: ['slot'], properties: { slot: { type: 'string' } } } },
         physicsOff: { description: 'While it plays, the physics chains are bypassed: true for all, or the listed chain ids.', oneOf: [{ type: 'boolean' }, { type: 'array', items: { type: 'string' } }] },
@@ -580,7 +584,7 @@ const rigAnimations = ({ manifest }: RigSchemaContext) => (
               scale: { type: 'number', description: 'Added to the size: 0.05 is 5% bigger.' },
               opacity: { type: 'number', minimum: 0, description: 'A factor on the alpha: 1 as drawn, 0 gone. Rests at 1 (not 0) at both ends.' },
               rot: { type: 'number', description: 'Tilt in degrees, clockwise.' },
-              ease: { type: 'string', enum: EASE_NAMES, description: 'Easing of the way to this key (default inout).' },
+              ease: ease('Easing of the way to this key (default inout).'),
             },
           },
         },

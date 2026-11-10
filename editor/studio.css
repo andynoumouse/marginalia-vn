@@ -10,6 +10,11 @@
 /* The animation studio: header; three columns (what you work on, the stage and time, properties as collapsible sections); a status line. docs/design/studio-ux.md */
 #animStudio { position: fixed; inset: 0; z-index: 50; background: var(--panel); display: flex; }
 #animStudio[hidden] { display: none; }
+/* The timeline folded to its transport row: the stage takes its room. */
+#animStudio .as-body[data-fold~="timeline"] .as-tlwrap { display: none; }
+#animStudio .as-tlfold { margin-left: auto; padding: 2px 8px; min-width: 24px; min-height: 24px; }
+/* A control that needs a choice first (a part, a key) is left out until there is one, rather than shown blank and disabled. */
+#animStudio .as-off { display: none !important; }
 #animStudio .as-card { flex: 1; min-width: 0; display: flex; flex-direction: column; outline: none; overflow: auto; background: var(--panel); }
 #animStudio .as-card > * { flex-shrink: 0; }
 #animStudio .as-body { flex: 1 1 auto; min-height: 0; position: relative; display: grid; grid-template-columns: var(--as-left, 300px) minmax(0, 1fr) var(--as-right, 340px); }
@@ -34,16 +39,21 @@
 #animStudio[data-mode="animate"] .ab { display: none; }
 /* The left column: the Parameters block (up to --as-split of the height, then it scrolls) over the Parts tree (the rest, scrolling); two grips resize them. */
 #animStudio .as-grip { position: absolute; z-index: 2; background: transparent; touch-action: none; }
-#animStudio .as-grip:is(:hover, :focus-visible, :active) { background: var(--accent); opacity: .6; outline: none; }
-#animStudio :is(.as-grip-v, .as-grip-r) { top: 0; bottom: 0; left: calc(var(--as-left, 300px) - 3px); width: 6px; cursor: col-resize; }
-#animStudio .as-grip-r { left: auto; right: calc(var(--as-right, 340px) - 3px); }
+/* The column grips take a press 12 px wide (ES-19), mostly on the stage's side so the columns' scrollbars stay clickable; the line drawn on
+   hover is 4 px, on the column's edge. */
+#animStudio .as-grip:is(:hover, :focus-visible, :active) { opacity: .6; outline: none; }
+#animStudio :is(.as-grip-v, .as-grip-r) { top: 0; bottom: 0; left: calc(var(--as-left, 300px) - 2px); width: 12px; cursor: col-resize; }
+#animStudio .as-grip-v:is(:hover, :focus-visible, :active) { background: linear-gradient(to right, var(--accent) 0 4px, transparent 4px); }
+#animStudio .as-grip-r { left: auto; right: calc(var(--as-right, 340px) - 2px); }
+#animStudio .as-grip-r:is(:hover, :focus-visible, :active) { background: linear-gradient(to left, var(--accent) 0 4px, transparent 4px); }
 /* A folded side column is a thin rail with a button that brings it back. */
 #animStudio .as-rail { position: absolute; top: 0; bottom: 0; z-index: 1; width: 24px; padding: 0; border: 0; border-radius: 0; background: color-mix(in srgb, var(--text) 7%, var(--panel)); color: var(--muted); }
 #animStudio .as-rail:hover { color: var(--text); }
 #animStudio .as-rail[hidden] { display: none; }
 #animStudio .as-rail-left { left: 0; border-right: 1px solid var(--line); }
 #animStudio .as-rail-right { right: 0; border-left: 1px solid var(--line); }
-#animStudio .as-grip-h { position: relative; flex: none; height: 6px; margin: -3px 0; cursor: row-resize; }
+#animStudio .as-grip-h { position: relative; flex: none; height: 10px; margin: -5px 0; cursor: row-resize; }
+#animStudio .as-grip-h:is(:hover, :focus-visible, :active) { background: linear-gradient(transparent 3px, var(--accent) 3px 7px, transparent 7px); }
 @media (min-width: 901px) {
   #animStudio .as-side { overflow: hidden; }
   #animStudio .as-side > :not(.as-cols) { flex: none; }
@@ -84,6 +94,9 @@
 /* The status line: one line whatever it says (the rest is in its tooltip), so it never moves the stage. */
 #animStudio .as-note { padding: 6px 12px; color: var(--muted); font-size: 12px; height: 28px; box-sizing: border-box; flex: none; border-top: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #animStudio .as-note:empty::before { content: attr(data-hint); }
+/* Close is waiting for a second press: the button says it discards, the note stands out (ES-15). */
+#animStudio .close.as-discard { color: var(--bad); border-color: var(--bad); }
+#animStudio .as-note.as-note-warn { color: var(--warn); font-weight: 600; }
 /* The animation picker and the look (left column). */
 #animStudio .as-picker { display: flex; align-items: center; gap: 6px; padding: 10px 10px 6px; }
 #animStudio .as-picker label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 12px; }
@@ -100,6 +113,9 @@
 #animStudio .as-look-save-row input { flex: 1; min-width: 0; font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
 #animStudio button:disabled { opacity: .45; cursor: default; }
 #animStudio button.primary:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+/* Every text field is themed (the While condition, a pose's name and the bone's Name had the browser's grey fill; ES-19). */
+#animStudio :is(input[type="text"], input:not([type]), input[type="search"], textarea) { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+#animStudio :is(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
 #animStudio input[type="number"] { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; width: 70px; }
 #animStudio .as-dur { width: 64px !important; }
 #animStudio select { font: inherit; color: inherit; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
@@ -111,7 +127,7 @@
 #animStudio .as-sect > h3:has(> .as-sect-head[aria-expanded="true"]) { border-bottom: 1px solid var(--line); }
 #animStudio .as-sect > h3 > .as-sect-head { flex: 1 1 auto; width: auto; min-width: 0; }
 /* The grab button of a section head: drag it (or Alt+arrows) to move the section; engine/src/dock.ts, editor/dock-ui.ts */
-#animStudio .as-sect-grab { flex: none; width: 22px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--muted); cursor: grab; touch-action: none; line-height: 1; }
+#animStudio .as-sect-grab { order: -1; flex: none; width: 22px; padding: 0; border: 0; border-radius: 0; background: none; color: var(--muted); cursor: grab; touch-action: none; line-height: 1; }
 #animStudio .as-sect-grab:hover { color: var(--text); background: color-mix(in srgb, var(--text) 7%, transparent); }
 #animStudio .as-sect-grab[hidden] { display: none; }
 #animStudio .as-sect.dock-dragging { opacity: .5; }
@@ -172,7 +188,7 @@
 #animStudio .as-row.as-extra { border-color: var(--accent); border-style: dashed; } /* a row added with Ctrl-click (a set) */
 #animStudio .as-row.as-hidden { opacity: .5; }
 #animStudio .as-row.as-stagehidden { opacity: .5; text-decoration: line-through; }
-#animStudio .as-eye { flex: none; width: 18px; height: 18px; padding: 0; line-height: 1; font-size: 10px; border-radius: 3px; background: none; }
+#animStudio .as-eye { flex: none; width: 24px; height: 24px; padding: 0; line-height: 1; font-size: 10px; border-radius: 3px; background: none; }
 #animStudio .as-eye[aria-checked="false"] { border-color: var(--line); }
 #animStudio .as-showall { margin: 2px 0 4px; }
 #animStudio .as-tree img, #animStudio .as-thumb { width: 22px; height: 22px; flex: none; object-fit: contain; border-radius: 3px;
@@ -315,6 +331,8 @@
 #animStudio .as-slider { flex: 1 1 120px; min-width: 80px; accent-color: var(--accent); }
 #animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 96px; text-align: right; white-space: nowrap; }
 #animStudio .as-tlwrap { max-height: 38vh; overflow-y: auto; background: var(--ink); border-top: 1px solid var(--line); }
+/* A short window keeps more of its height for the stage: the timeline scrolls sooner (ES-4; ▾ in the transport folds it away). */
+@media (max-height: 700px) and (min-width: 901px) { #animStudio .as-tlwrap { max-height: 26vh; } }
 #animStudio .as-ruler { display: block; width: 100%; position: sticky; top: 0; z-index: 1; background: var(--ink); border-bottom: 1px solid var(--line); pointer-events: none; } /* the times stay in view while the lanes scroll */
 #animStudio .tl-fold { cursor: copy; } #animStudio .tl-label.tl-flabel { font-weight: 400; fill: var(--muted); pointer-events: none; } /* a channel with no key: a thin row */
 #animStudio .as-timeline { display: block; width: 100%; background: var(--ink); cursor: col-resize; touch-action: none; user-select: none; }
@@ -411,15 +429,17 @@
 #animStudio .ap-pad:focus-visible { outline: 2px solid var(--accent); }
 #animStudio .ap-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--accent); border: 2px solid var(--text); pointer-events: none; }
 #animStudio .ap-btns { grid-area: btn; display: flex; flex-wrap: wrap; gap: 4px; }
-/* Narrow panel: the controls follow the panel's width, not the window's. A slider row becomes two lines (name, value and buttons over the slider); a pad row puts its buttons beside the name and the pad beside its grid buttons. */
+/* Narrow panel: the controls follow the panel's width, not the window's. A slider row stays one line (ES-10): a shorter name, the slider,
+   a narrower value and the ◆; the chosen row's ↺ and ✕ join that line instead of taking one of their own. A pad row puts its buttons beside
+   the name and the pad beside its grid buttons. */
 #animStudio .ap { container: ap / inline-size; }
 #animStudio .ap-body { overflow-x: hidden; }
 @container ap (max-width: 340px) {
-  #animStudio .ap-row, #animStudio .ap-model .ap-row.ap-active { grid-template-columns: minmax(0, 1fr) 52px auto; row-gap: 0; } /* the key button's column is explicit, so the slider's 1 / -1 reaches the same edge on an active and an inactive row */
-  #animStudio .ap-row > label { grid-row: 1; grid-column: 1; }
-  #animStudio .ap-row > .ap-num { grid-row: 1; grid-column: 2; }
-  #animStudio .ap-row > button { grid-row: 1; }
-  #animStudio .ap-row > .ap-track { grid-row: 2; grid-column: 1 / -1; padding-bottom: 7px; }
+  #animStudio .ap-row { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto; gap: 3px; }
+  #animStudio .ap-model .ap-row.ap-active { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto auto auto; }
+  #animStudio .ap-model .ap-row.ap-active .ap-tools { display: contents; }
+  #animStudio .ap-num { width: 44px; }
+  #animStudio :is(.ap-key, .ap-reset, .ap-del-btn) { padding: 3px 5px; }
   #animStudio .ap-padrow { grid-template-columns: 112px minmax(0, 1fr); grid-template-areas: "l btn" "pad axes"; }
   #animStudio .ap-padrow .ap-btns { flex-wrap: wrap; justify-content: flex-end; }
   #animStudio .ap-axes { align-self: end; }
@@ -429,13 +449,24 @@
 #animStudio .ap-nokey .ap-key-all { display: none; }
 #animStudio[data-mode="model"] .ap-keyedit { display: none; }
 /* Narrow windows: the columns stack in reading order (picker, parts, stage, timeline, sections) and the workspace scrolls. */
+/* A small window keeps three columns but gives the stage more of its width: the side columns stop near their least widths (ES-4). */
 @media (max-width: 1100px) {
-  #animStudio .as-body { grid-template-columns: var(--as-left, 300px) minmax(0, 1fr) min(var(--as-right, 340px), 300px); }
-  #animStudio .as-grip-r { right: calc(min(var(--as-right, 340px), 300px) - 3px); }
+  #animStudio .as-body { grid-template-columns: min(var(--as-left, 300px), 240px) minmax(0, 1fr) min(var(--as-right, 340px), 280px); }
+  #animStudio .as-grip-v { left: calc(min(var(--as-left, 300px), 240px) - 2px); }
+  #animStudio .as-grip-r { right: calc(min(var(--as-right, 340px), 280px) - 2px); }
 }
 @media (max-width: 900px) {
   #animStudio .as-body { grid-template-columns: 1fr; flex: none; }
-  #animStudio .as-side { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  /* The left column comes apart so the stage is above the fold (studio-ux.md, Narrow windows; ES-4): the picker and its Automatic line,
+     then the stage and timeline, then Look, Poses, Parameters and Parts, then the right column. */
+  #animStudio .as-side { display: contents; }
+  #animStudio .as-side > :is(.as-looks, .as-cols) { order: 2; }
+  #animStudio .as-main { order: 1; }
+  #animStudio .as-inspect { order: 3; }
+  #animStudio .as-side > .as-looks { border-top: 1px solid var(--line); }
+  /* At full width the Automatic line fits on one line: its fields keep their size instead of stretching. */
+  #animStudio .as-automatic.as-prow .as-ctl > label > input[type="number"] { flex: none; width: 64px; }
+  #animStudio .as-automatic.as-prow .as-ctl > label > .as-while { flex: none; width: 220px; }
   #animStudio .as-tree { max-height: 30vh; overflow-y: auto; }
   #animStudio .as-main > .as-stage { flex: none; height: 36vh; }
   #animStudio .as-inspect { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
@@ -509,7 +540,7 @@
 #animStudio .ab-key[aria-pressed="true"], #animStudio .ab-aff[aria-pressed="true"] { color: var(--warn); border-color: var(--warn); }
 #animStudio .ab-crumbbtn { padding: 1px 6px; }
 #animStudio .ab-crumbword { font-weight: 600; }
-#animStudio .ab-prev, #animStudio .ab-next { padding: 0 6px; }
+#animStudio .ab-prev, #animStudio .ab-next { padding: 0 6px; min-width: 24px; min-height: 24px; } /* 24 px targets (WCAG 2.2; SR-23) */
 #animStudio .ab-formtext { flex: 1 1 200px; min-width: 0; font-size: 12px; }
 #animStudio .ab-form input[type="number"] { width: 76px; }
 #animStudio .as-bindrow { display: flex; align-items: center; gap: 4px; }
@@ -519,7 +550,7 @@
 #animStudio .ab-pickhow { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 #animStudio .ab-picker[hidden] { display: none; }
 #animStudio .ab-pickhead { display: flex; justify-content: space-between; align-items: center; }
-#animStudio .ab-picklist { list-style: none; margin: 0; padding: 0; max-height: 14em; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+#animStudio .ab-picklist { list-style: none; margin: 0; padding: 0; max-height: min(28em, 55vh); overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 #animStudio .ab-picklist label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 #animStudio .ab-pickbtns { display: flex; gap: 6px; }
 #animStudio .aw-active { flex: 1 1 200px; min-width: 0; font-size: 12px; color: var(--muted); }

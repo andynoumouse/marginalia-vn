@@ -4,12 +4,13 @@
 // the parts of the working copy that can name one (`ParamDoc`), return a changed copy and leave their input alone. A refusal
 // is `{ error }` with a sentence for the author; scripts are not in the document, so their `animate` lines are not followed.
 
-import { EASE_NAMES } from './anim.js';
+import { easeProblem, isEaseSpec } from './anim.js';
 import type { Anims } from './anim-edit.js';
 import type { ShapeDef } from './masks.js';
 import type { RigPhysicsChain } from './physics-rig.js';
 import { controlGroups, OTHER } from './param-tracks.js';
 import type { DeformerDef, KeyformDef, PadDef, ParamDef, PoseDef } from './params.js';
+import { round5, plural, freeName } from './util.js';
 
 /** What can name a parameter: the working copy's parameter section and everything that refers to one. */
 export interface ParamDoc {
@@ -30,18 +31,10 @@ export type ParamEdit = { doc: ParamDoc; note: string; id?: string } | { error: 
 /** What a parameter or pad id may be: the same words a script's `animate robo id=0.5` and a `pose=` name take. */
 export const PARAM_ID = /^[A-Za-z_]\w*$/;
 const EPS = 1e-9;
-const round5 = (n: number) => Math.round(n * 1e5) / 1e5 + 0;
 
 /** `base`, else `base2`, `base3`... the first not in `taken`. */
-export function uniqueParamId(taken: Iterable<string>, base = 'param'): string {
-  const used = new Set(taken);
-  if (!used.has(base)) return base;
-  let n = 2;
-  while (used.has(`${base}${n}`)) n++;
-  return `${base}${n}`;
-}
+export const uniqueParamId = (taken: Iterable<string>, base = 'param'): string => freeName(taken, base);
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // ---- renaming ----
 
@@ -159,7 +152,7 @@ export function updateParam(doc: ParamDoc, id: string, patch: ParamPatch): Param
   if (!(min < max)) return { error: 'The minimum must be less than the maximum.' };
   if (patch.default !== undefined && (patch.default < min || patch.default > max)) return { error: `The default must lie between ${min} and ${max}.` };
   const dflt = patch.default ?? Math.min(max, Math.max(min, def.default));
-  if (patch.ease !== undefined && patch.ease !== null && patch.ease !== '' && !EASE_NAMES.includes(patch.ease)) return { error: `Unknown ease "${patch.ease}" (${EASE_NAMES.join(', ')}).` };
+  if (patch.ease !== undefined && patch.ease !== null && patch.ease !== '' && !isEaseSpec(patch.ease)) return { error: `${easeProblem(patch.ease)}.` };
   const ranged = min !== def.min || max !== def.max;
   if (ranged) {
     const fitted = fitIn(out, name, min, max);

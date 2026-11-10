@@ -107,6 +107,86 @@ Ranked by harm, how many testers hit it, and how much of the studio it touches. 
    - the transport row overflows at 1024 px and at phone width (SA-7);
    - in narrow layouts the wheel zooms the stage instead of scrolling the page (SA-6).
 
+## After the Fix-first list: the S3s
+
+The S3s and the first round's ES findings still open are worked through in batches. Already closed by the items above or by later work:
+SR-13, SR-20, SR-21, SD-8, SD-10, SD-11, SD-16, SA-16, SA-17, the JSON half of SR-22 (the Physics chains are fields now), ES-5 and ES-7.
+
+- **A. What the studio says (done 2026-11-10).**
+  - A status note goes once the mode, tool, focus, animation or working copy moves on, unless the action that moved it wrote its own
+    (`keepNote`; SR-15, SD-15, SA-12).
+  - Same pivot for…, reparenting a bone, New bone, Remove skin and the lattice Mirror say what they did. New bone puts the cursor in its
+    Name field, and Same pivot for… is off with nothing chosen and has a title line.
+  - The first-screen and empty-state texts agree ("on the stage or in the Parts tree", "+ in Parameters"), with the Mask hint aware of
+    the tool (SR-14, SD-9).
+  - Animate's Properties leaves out the playhead and key fields until a part or a key is chosen (ES-9).
+  - K keys the previewed drags and Shift+K turns Auto-key on or off; Play's tooltip names Space (SA-20).
+  - A bone renames on Enter or when its Name field is left, as a parameter does (SR-24); rig-json.md's New pad text matches the form.
+- **B. Stage input (done 2026-11-10).**
+  - A press right after a tool key typed on the stage waits for the editor's answer and then goes on with the new tool (SR-12).
+  - With Rotate a drag that starts anywhere inside the ring turns the subject, and a click there still chooses; the ring also takes a press
+    a few pixels outside its line (`ringAround`, `RING_OUTSIDE`; SR-17, SD-12).
+  - In Model a scrubbed slider lands on a key near it, else on its step (`snapToTicks`; SR-18).
+  - A key dragged on the timeline moves by how far the pointer went, so a sideways drag keeps its value (channel and parameter keys; SA-13).
+  - A Warp drag between keys says it added a key; a mask's breadcrumb no longer promises one, since a mask drag moves the rest outline (SD-7).
+- **C. Layout and sizes (done 2026-11-10).**
+  - The stage shows the whole character while an animation plays, and dims all but the chosen part again on pause (ES-13).
+  - The stage view remembers what it fits (the stage, the character, or nothing after a zoom or pan) and fits it again when its box
+    changes; Model fits the character, Animate the stage, so Model opens at about 51 % instead of 32 % and its lattice handles are larger
+    (ES-20, SD-17).
+  - In a narrow column a parameter row is one line, the chosen row's ↺ and ✕ included (ES-10).
+  - Every text field is themed, the tree's eye buttons and the Keys ‹ › are 24 px (ES-19, SR-23).
+  - At 900 px and below the picker comes first, then the stage and timeline, then Look, Poses, Parameters and Parts (stage at y=313 in a
+    700 px window, was 916), and the tree no longer scrolls the whole card to its chosen row on opening (ES-4).
+  - The timeline folds to its transport row (▾ at the row's end, kept with the layout).
+  - Also: the Parameters section is rebuilt on a mode switch, so Model no longer says "Add them in Model mode" (SR-14), and the Parameter
+    key row hides its fields until a key is chosen (ES-9).
+  - Left of these: a three-column window as small as 1000x600 still has a small stage (ES-4), the column grips are 6 px wide (ES-19).
+- **D. Keyboard and screen readers (done 2026-11-10).**
+  - The Parts tree is one Tab stop (a roving tabindex on its rows); H on a row hides or shows it, Left and Right fold and open a bone, so
+    the eye and fold buttons leave the Tab order (SA-19).
+  - What a screen reader gets (SA-11): the timeline is a labelled group whose keys are buttons, not an image; the scrub slider says
+    "0.50 seconds of 1.10"; a fold button is named for what it does; At the playhead, Key and Parameter key are named groups; a section's
+    heading reads its title before the Move button; moving a section is said in the status line (`dockMoveNote`).
+  - Alt+Right from the left column still opens the second left column (the dock design), but the move is now announced, with where the
+    next Alt+Right goes (ES-21).
+  - While Close waits for a second press, the button reads "Discard and close" and the note stands out (ES-15).
+  - SA-14 did not reproduce: a section dropped in the empty part of a column goes to its end, with the drop line shown.
+  - Left: the tree is still a list of buttons, not an ARIA tree with levels.
+- **E. Tool details (done 2026-11-10).**
+  - Alt-click takes the bone of the part on show at that spot instead of stepping the click cycle on, and says which bone it chose or that
+    the part has none (SR-7).
+  - The Bind parts… list is in the Parts tree's order and taller (SR-19).
+  - The studio opens on the animation it was last on for that character, else the first one that does not start by itself, not a 0.12 s
+    automatic blink (SA-15, ES-14).
+  - Mirror in Weights asks for the partners of side-less bones in one dialog with a choice of bones, starting at a guess from numbered
+    names (`guessPartner`: hair_0_0 with hair_4_0) (SD-13).
+  - A mesh margin below 2 px is taken as 2 (a margin of 0 made 197 vertices where Medium makes 23), and the field says the mesh stays inside
+    the image, which is why 10 and 40 gave the same mesh (SD-14). No preview before Generate yet.
+  - Frames from this slot asks, when the frames end before the animation, whether to loop them, spread them over Length or play once (SA-18).
+  - The Pose row and At the playhead say their units under the fields; the Pivot row says PSD px (SR-16).
+  - A physics chain added from a preset names the preset's parameters this rig lacks (SR-22).
+  - Also fixed: two browser tests that the Model fit of batch C broke (a click spot on a bone dot, a zoom aimed on the whole-stage fit).
+- **F. Docs (done 2026-11-10).**
+  - The PSD converter makes a group's and a variant's name a script name the way it already named a part's PNG ("Group 1" is `Group_1`,
+    "Layer 3" in it `Layer_3`), says so in the Output, and skips a name with no usable letters; art-pipeline.md has a Names section with the
+    rules (ES-8).
+  - rig-json.md's list of the right column's sections matches the build, and says how to move them; studio-ux.md marks its layout sketches
+    as the first build and its palette proposal as built (SA-21).
+  - skinning.md's line on Mina's hair says what it is now.
+
+With batch F every batch is done. The leftovers, done after it (2026-11-10):
+
+- A hover on an `animate` or `show` line of a rigged character links to the studio, and the Files panel starts with Themes folded, so the
+  Characters list sits higher (ES-2).
+- At 1100 px and below the side columns stop at 240 and 280 px, and a window under 700 px tall gives the timeline less height: at 1000x600
+  the stage is 456x185, was 376x204 (ES-4). Still short at 600 px tall; folding the timeline gives it about 150 px more.
+- The column grips take a press 12 px wide, mostly on the stage's side so the columns' scrollbars stay clickable (ES-19).
+- Pointing at (or tabbing into) the Mesh row draws the mesh Generate would make, dashed over the part, and it follows the detail and
+  margin (SD-14).
+- Screen reader support (SA-11 and the ARIA parts of batch D) is out of scope for the editor and the studio, the author decided; what batch D
+  built stays.
+
 ## Themes more than one tester hit
 
 - **Focus and keys** (item 1): SA-1, 3, 4, 16, 17; SD-2, 3, 8; SR-2, 9, 13, 21.
@@ -140,9 +220,10 @@ Ranked by harm, how many testers hit it, and how much of the studio it touches. 
 - **Mirror in Copy keys (SR-11).** Keep the face-style flip of the range, add a values-only mirror, or offer both.
 - **Seconds or fractions for key times (ES-7)** and **undo that switches to what it changed (ES-5)**, both still open from the first round.
 - **Apply rewrites rig.json's formatting (SR-20).** A mesh's weights go from one line per vertex to three, so one edit is a 375-line diff.
-  *Fixed 2026-11-10:* `writeRigText` keeps the text of every unchanged list item as well as every unchanged property, and short flat
-  objects are written on one line as by hand. Removing `forearm_l` from the demo's robo is now a diff of 2 added and 15 removed lines.
-  The Apply note no longer says "Ctrl+S saves": the editor saves the file at once.
+  *Fixed 2026-11-10,* first by keeping the text of unchanged parts. Then, since rig.json is mostly written by the editor, it was
+  replaced by one fixed layout that every writer uses (`formatRig`): short objects such as a vertex's weights on one line, number lists
+  on one line. The repository's rigs were rewritten in it once, and from then on an edit changes only its own lines. A layout made by
+  hand is not kept. The Apply note no longer says "Ctrl+S saves": the editor saves the file at once.
 
 ## What held up
 

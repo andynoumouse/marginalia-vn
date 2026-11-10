@@ -11,7 +11,7 @@
 //    `reactions`: poses the character holds while a condition is true.
 // project-data.mjs attaches the file to the manifest as `rig`, so renderer, preloads and checks all see it.
 
-import { EASE_NAMES, isBezier, KEY_CHANNELS, type AnimDef } from './anim.js';
+import { isBezier, KEY_CHANNELS, rigEaseProblem, type AnimDef } from './anim.js';
 import type { RigManifest, RigPart } from './assets.js';
 import { boneCycles, type BoneDef } from './bones.js';
 import { DEFAULT_REACTION_OVER, everyBounds, parseCondition, type ReactionDef } from './auto-anim.js';
@@ -192,7 +192,8 @@ function checkReactions(data: RigData, paramIds: Set<string>, vars: readonly str
     checkCondition(x.when, 'reactions', `${where}.when`, paramIds, vars, problem);
     if (typeof x.pose !== 'string' || !Object.hasOwn(data.poses ?? {}, x.pose)) problem(`${where}.pose: no pose "${String(x.pose)}" (poses: ${Object.keys(data.poses ?? {}).join(', ') || 'none'})`, 'reactions');
     if (x.over !== undefined && !(typeof x.over === 'number' && x.over >= 0)) problem(`${where}.over: seconds, 0 or more (default ${DEFAULT_REACTION_OVER})`, 'reactions');
-    if (x.ease !== undefined && !EASE_NAMES.includes(x.ease as string)) problem(`${where}.ease: unknown ease "${String(x.ease)}" (${EASE_NAMES.join(', ')})`, 'reactions');
+    const bad = x.ease !== undefined ? rigEaseProblem(x.ease) : null;
+    if (bad) problem(`${where}.ease: ${bad}`, 'reactions');
   });
 }
 
@@ -268,7 +269,8 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
       if (!k || typeof k !== 'object') { problem(`${at}: not a key`, name); return; }
       if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(data.bones ?? {}, k.part)) problem(`${at}: no part or bone named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name);
       if (!(k.t >= 0 && k.t <= 1)) problem(`${at}: t must be a number from 0 to 1`, name);
-      if (k.ease !== undefined && !EASE_NAMES.includes(k.ease)) problem(`${at}: unknown ease "${k.ease}" (${EASE_NAMES.join(', ')})`, name);
+      const bad = k.ease !== undefined ? rigEaseProblem(k.ease) : null;
+      if (bad) problem(`${at}: ${bad}`, name);
       const channels = KEY_CHANNELS.filter(c => k[c] !== undefined);
       for (const c of channels) if (!Number.isFinite(k[c])) problem(`${at}: ${c} must be a number`, name);
       for (const key of Object.keys(k)) if (key !== 't' && key !== 'ease' && key !== 'part' && !(KEY_CHANNELS as readonly string[]).includes(key)) problem(`${at}: unknown channel "${key}" (${KEY_CHANNELS.join(', ')})`, name);
@@ -290,7 +292,8 @@ function checkTracks(name: string, tracks: Record<string, unknown>, defs: RigDat
       if (typeof k.t !== 'number' || !(k.t >= 0 && k.t <= 1)) problem(`${at}[${i}]: t must be a number from 0 to 1`, name);
       if (typeof k.v !== 'number' || !Number.isFinite(k.v)) problem(`${at}[${i}]: v must be a number`, name);
       else if (def && (k.v < def.min || k.v > def.max)) problem(`${at}[${i}]: ${k.v} lies outside "${id}" (${def.min} to ${def.max})`, name);
-      if (k.ease !== undefined && !EASE_NAMES.includes(k.ease as string)) problem(`${at}[${i}]: unknown ease "${String(k.ease)}" (${EASE_NAMES.join(', ')})`, name);
+      const bad = k.ease !== undefined ? rigEaseProblem(k.ease) : null;
+      if (bad) problem(`${at}[${i}]: ${bad}`, name);
       if (k.bezier !== undefined && !isBezier(k.bezier)) problem(`${at}[${i}]: bezier needs [x1, y1, x2, y2], numbers, with x1 and x2 from 0 to 1`, name);
       for (const key of Object.keys(k)) if (key !== 't' && key !== 'v' && key !== 'ease' && key !== 'bezier') problem(`${at}[${i}]: unknown field "${key}" (t, v, ease, bezier)`, name);
     });

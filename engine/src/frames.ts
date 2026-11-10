@@ -5,14 +5,13 @@
 // A frame is a variant name or `none` (the slot is hidden). The frame shown is a function of the animation's time, so
 // a jump (instant mode, skip, the studio's scrubber) lands on the right frame with no state to keep.
 
-import { clamp01 } from './util.js';
+import { clamp01, round4, SAME_TIME } from './util.js';
 
 export interface FrameKey { t: number; frame: string }
 export interface FrameTrackDef { slot: string; keys?: FrameKey[]; frames?: string[]; fps?: number; loop?: boolean }
 
 export const DEFAULT_FPS = 12;
 
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 /** The tracks of an animation's `frames` that are usable (an object with a slot name), in order. */
 export const frameTracks = (frames: unknown): FrameTrackDef[] =>
@@ -84,12 +83,24 @@ export function frameBlocks(track: FrameTrackDef): FrameBlock[] {
   return keys.map((k, i) => ({ index: i, from: k.t, to: i + 1 < keys.length ? keys[i + 1].t : 1, frame: k.frame }));
 }
 
-/** A track of every variant in order, `fps` frames a second, for an animation `dur` seconds long (what "frames from this slot" fills). Frames past the end are dropped. */
-export function framesFromSlot(slot: string, variants: string[], fps: number, dur: number): FrameTrackDef {
-  const step = 1 / (Math.max(1, fps) * dur), keys: FrameKey[] = [];
-  variants.forEach((frame, i) => { if (i * step < 1) keys.push({ t: round4(i * step), frame }); });
+/**
+ * How "frames from this slot" fills the animation (SA-18): `once` plays the variants in order at `fps` and holds the last (frames past the end
+ * are dropped), `loop` repeats them at `fps` until the animation ends, `spread` gives each the same share of the whole animation (no fps).
+ */
+export type FrameFill = 'once' | 'loop' | 'spread';
+
+/** A track of every variant in order for an animation `dur` seconds long (what "frames from this slot" fills), as `fill` says. */
+export function framesFromSlot(slot: string, variants: string[], fps: number, dur: number, fill: FrameFill = 'once'): FrameTrackDef {
+  const keys: FrameKey[] = [];
+  if (!variants.length) return { slot, keys };
+  const step = fill === 'spread' ? 1 / variants.length : 1 / (Math.max(1, fps) * dur);
+  const count = fill === 'loop' ? Math.ceil(1 / step - 1e-9) : variants.length;
+  for (let i = 0; i < count && i * step < 1 - 1e-9; i++) keys.push({ t: round4(i * step), frame: variants[i % variants.length] });
   return { slot, keys };
 }
+
+/** How long the variants take at `fps`, as a share of an animation `dur` seconds long (1 or more: they fill it). */
+export const slotShare = (variants: number, fps: number, dur: number): number => variants / (Math.max(1, fps) * dur);
 
 /** `track` with key `index` moved to `t` (the keys re-sort), and where that key ended up. */
 export function retimeFrameAt(track: FrameTrackDef, index: number, t: number): { track: FrameTrackDef; index: number } {
@@ -110,7 +121,7 @@ export function duplicateFrame(track: FrameTrackDef, index: number, t?: number):
   if (!keys[index]) return track;
   const next = keys[index + 1]?.t ?? 1;
   const at = round4(clamp01(t ?? (keys[index].t + next) / 2));
-  if (keys.some(k => Math.abs(k.t - at) < 0.0005)) return track;
+  if (keys.some(k => Math.abs(k.t - at) < SAME_TIME)) return track;
   keys.push({ ...keys[index], t: at });
   keys.sort((a, b) => a.t - b.t);
   return { ...track, keys };
@@ -138,7 +149,7 @@ export function reorderFrame(track: FrameTrackDef, from: number, to: number): Fr
 
 /** `track` with a key added at `t` showing `frame` (replacing one within 0.0005). */
 export function addFrameKey(track: FrameTrackDef, t: number, frame: string): FrameTrackDef {
-  const at = round4(clamp01(t)), keys = (track.keys ?? []).filter(k => Math.abs(k.t - at) >= 0.0005);
+  const at = round4(clamp01(t)), keys = (track.keys ?? []).filter(k => Math.abs(k.t - at) >= SAME_TIME);
   keys.push({ t: at, frame });
   keys.sort((a, b) => a.t - b.t);
   return { ...track, keys };

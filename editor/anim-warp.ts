@@ -8,7 +8,7 @@
 // (preview/studio-gizmo.ts). The studio keeps the working copy; this works through `WarpHost`.
 
 import {
-  isSkinned, groupBones, addMeshEdge, addMeshVertex, deleteMeshVertex, flipMeshEdge, hasKeyforms, moveMeshVertex, removeMeshEdge, setMeshGeometry, mirrorMeshWarp, smoothMeshWarp, transformMeshPoints, addDeformer, addGroupDeformer, averageDisplacement, generateMesh, MESH_DETAIL_STEPS, MESH_MAX_VERTS, meshReplaces, meshUsable, setPartMesh, cleanSelection, combineSelection, deformerById, deformerGrid, deformerOf, deformerPoints, deformersOfPart, DEFORMER_MAX_GRID, invertSelection, mirrorWarp,
+  isSkinned, groupBones, addMeshEdge, addMeshVertex, deleteMeshVertex, flipMeshEdge, hasKeyforms, moveMeshVertex, removeMeshEdge, setMeshGeometry, mirrorMeshWarp, smoothMeshWarp, transformMeshPoints, addDeformer, addGroupDeformer, averageDisplacement, generateMesh, MESH_DETAIL_STEPS, MESH_MAX_VERTS, meshReplaces, meshUsable, setPartMesh, cleanSelection, combineSelection, deformerById, deformerGrid, warpKeyAt, deformerOf, deformerPoints, deformersOfPart, DEFORMER_MAX_GRID, invertSelection, mirrorWarp,
   moveWarpPoints, removeDeformerById, replaceDeformer, resizeWarp, setMembers, setWarpOwn, smoothWarp, softWeights, transformWarpPoints, warpAllPoints, warpColumn,
   warpKeyValues, warpPreset, warpRow, warpBar, WARP_CURVES, WARP_DEFAULT_FALLOFF, WARP_PRESETS,
   type DeformerDef, type DeformState, type GeneratedMesh, type MeshEditResult, type MeshGeo, type MeshDetail, type ParamDef, type PartBox, type WarpCurve, type WarpFalloff, type WarpPreset,
@@ -24,6 +24,8 @@ export interface WarpDrag { put(deformers: DeformerDef[]): void; end(): void }
 export interface WarpHost {
   /** The chosen row of the tree. */
   part(): string | null;
+  /** Show the mesh Generate would make on the stage (vertices in the part's image pixels), or nothing (SD-14). */
+  previewMesh(p: { part: string; verts: number[]; tris: number[] } | null): void;
   /** The warp is keyed to the parameter active in the Parameters section (null while none or a pad is). */
   activeParam(): string | null;
   /** Is the name a part (a bone has no image to warp)? */
@@ -136,7 +138,7 @@ export class WarpPanel {
       <div class="aw-clipissues"></div>
       <div class="aw-meshgen"><span class="as-pivot-name">Mesh</span>
         <label>Detail <select class="aw-detail" aria-label="How finely the mesh follows the art"></select></label>
-        <label>margin <input type="number" class="aw-margin" min="0" step="1" placeholder="auto" aria-label="How far the mesh reaches past the opaque pixels, in image pixels"></label>
+        <label title="How far the mesh reaches past the opaque pixels, in image pixels (at least 2). The mesh stays inside the image, so a margin wider than the space around the art changes nothing.">margin <input type="number" class="aw-margin" min="2" step="1" placeholder="auto" aria-label="How far the mesh reaches past the opaque pixels, in image pixels, at least 2; it stays inside the image"></label>
         <span class="aw-vcount" role="status"></span>
         <button type="button" class="aw-genbtn"></button>
         <span class="as-pivot-hint aw-genhint"></span></div>
@@ -199,6 +201,14 @@ export class WarpPanel {
     this.q<HTMLSelectElement>('.aw-detail').value = this.detail;
     this.q<HTMLSelectElement>('.aw-detail').addEventListener('change', e => { this.detail = (e.target as HTMLSelectElement).value as MeshDetail; this.show(); });
     this.q<HTMLInputElement>('.aw-margin').addEventListener('change', () => this.show());
+    this.q<HTMLInputElement>('.aw-margin').addEventListener('input', () => this.show()); // the preview follows the typing
+    // While the pointer or the focus is on the Mesh row, the stage shows the mesh Generate would make (SD-14).
+    const gen = this.q<HTMLElement>('.aw-meshgen');
+    const preview = (on: boolean) => { this.previewing = on; this.sendPreview(); };
+    gen.addEventListener('pointerenter', () => preview(true));
+    gen.addEventListener('pointerleave', () => preview(gen.contains(document.activeElement)));
+    gen.addEventListener('focusin', () => preview(true));
+    gen.addEventListener('focusout', e => preview(gen.contains(e.relatedTarget as Node | null) || gen.matches(':hover')));
     this.q('.aw-genbtn').addEventListener('click', () => void this.generate());
     const tools = this.q('.aw-topotools');
     tools.innerHTML = TOPO_TOOLS.map(t => iconButton({ icon: t.icon, label: t.label, title: `${t.label}: ${t.hint}`, className: 'aw-tt', data: { tool: t.id }, pressed: false })).join('');
@@ -351,6 +361,16 @@ export class WarpPanel {
   }
 
   // ---- the free mesh ----
+  private previewing = false;
+  private previewSent = '';
+  /** The mesh preview to the stage: the generated mesh of the chosen part while the Mesh row is pointed at or focused, else none. */
+  private sendPreview() {
+    const part = this.previewing ? this.part() : null, mesh = part ? this.generated(part) : null;
+    const key = part && mesh ? `${part}|${this.gen?.key}` : '';
+    if (key === this.previewSent) return;
+    this.previewSent = key;
+    this.host.previewMesh(part && mesh ? { part, verts: mesh.verts, tris: mesh.tris } : null);
+  }
   /** The margin typed (pixels), undefined for the generator's own. */
   private margin(): number | undefined {
     const v = this.q<HTMLInputElement>('.aw-margin').value.trim();
@@ -477,7 +497,8 @@ export class WarpPanel {
     const def = this.def(), param = this.active();
     if (!def || !param) return;
     if (!def.mesh) {
-      this.change(d => mirrorWarp(d, param, this.value(), from, only), only ? 'The partners of the chosen points already mirror them.' : from === 'left' ? 'The right half already mirrors the left.' : 'The left half already mirrors the right.');
+      this.change(d => mirrorWarp(d, param, this.value(), from, only), only ? 'The partners of the chosen points already mirror them.' : from === 'left' ? 'The right half already mirrors the left.' : 'The left half already mirrors the right.',
+        only ? `Mirrored ${only.length} chosen points onto their partners.` : `Mirrored the ${from} half of the lattice onto the ${from === 'left' ? 'right' : 'left'}.`);
       return;
     }
     const px = this.pixels.get(def.id);
@@ -486,15 +507,16 @@ export class WarpPanel {
     const lost = r.unpaired.length ? ` ${r.unpaired.length} vertices have no partner across the middle and were left alone (${r.unpaired.slice(0, 8).join(', ')}${r.unpaired.length > 8 ? ', …' : ''}).` : '';
     if (r.def === def) { this.host.note('The partners already mirror them.' + lost); return; }
     this.host.set(replaceDeformer(this.host.deformers(), r.def));
-    if (lost) this.host.note(lost.trim());
+    this.host.note(`Mirrored ${only ? 'the chosen vertices onto their partners' : `the ${from} half of the mesh onto the ${from === 'left' ? 'right' : 'left'}`}.${lost}`);
   }
-  /** Run `fn` on the chosen part's deformer as one undo step; `same` is the note when it changes nothing. */
-  private change(fn: (def: DeformerDef) => DeformerDef, same: string) {
+  /** Run `fn` on the chosen part's deformer as one undo step; `same` is the note when it changes nothing, `done` when it does. */
+  private change(fn: (def: DeformerDef) => DeformerDef, same: string, done?: string) {
     const def = this.def(), param = this.active();
     if (!def || !param) return;
     const next = fn(def);
     if (next === def) { this.host.note(same); return; }
     this.host.set(replaceDeformer(this.host.deformers(), next));
+    if (done) this.host.note(done);
   }
   /** Keyforms' Reset: the chosen points go back to rest in the keyform at the slider's value (one undo step). */
   resetChosen() {
@@ -548,8 +570,14 @@ export class WarpPanel {
     }
     const d = this.dragging;
     if (!d) return;
-    d.drag.put(replaceDeformer(this.host.deformers(), moveWarpPoints(d.base, d.param, d.value, d.weights, delta)));
-    if (phase === 'end') { this.dragging = null; d.drag.end(); }
+    const next = moveWarpPoints(d.base, d.param, d.value, d.weights, delta);
+    d.drag.put(replaceDeformer(this.host.deformers(), next));
+    if (phase === 'end') {
+      this.dragging = null;
+      d.drag.end();
+      // A drag between keys makes a key there: say so, as the gizmo's line does for a pose (SD-7).
+      if (next !== d.base && warpKeyAt(d.base, d.param, d.value) === null) this.host.note(`Added a key of ${d.param.id} at ${Math.round(d.value * 1000) / 1000} to ${d.base.id}: the drag was between keys. Ctrl+Z takes it back.`);
+    }
   }
 
   // ---- topology of a free mesh ----
@@ -647,7 +675,7 @@ export class WarpPanel {
     this.param = this.host.activeParam();
     const seed = this.groupSeed(), isGroup = !!def && Array.isArray(def.members), own = part ? deformerOf(ds, part) : undefined;
     const shape = this.shape(), set = this.host.setParts();
-    const none = !chosen ? 'Choose a part in the tree to give it a warp, or to edit the one it has.'
+    const none = !chosen ? 'Choose a part (on the stage or in the Parts tree) to give it a warp, or to edit the one it has.'
       : set && !def ? `The ${set.length} parts share no group warp: Add group warp makes one lattice over them (a part's own warp is edited with that part chosen alone).`
       : set ? ''
       : shape && !def ? `${shape} is a mask shape: it has no warp of its own. A group warp bends it when it is one of its members (tick it there), or make it follow a part (Properties, Clip: follows).`
@@ -680,11 +708,13 @@ export class WarpPanel {
       if (!this.alphas.has(part)) void this.fetchAlpha(part);
       q<HTMLSelectElement>('.aw-detail').value = this.detail;
       q<HTMLElement>('.aw-vcount').textContent = n === null ? (this.noAlpha.has(part) ? 'image unreadable' : 'reading the image…') : `${n} vertices (at most ${MESH_MAX_VERTS})`;
+      q<HTMLElement>('.aw-vcount').title = 'Point at this row to see the mesh on the stage';
       const btn = q<HTMLButtonElement>('.aw-genbtn'), replacing = !!own && !own.mesh;
       btn.textContent = own?.mesh ? 'Regenerate mesh' : replacing ? 'Replace lattice with mesh' : 'Generate mesh';
       btn.disabled = mesh !== null && !meshUsable(mesh);
       q<HTMLElement>('.aw-genhint').textContent = own?.mesh ? 'Regenerating changes the vertices, so the mesh\'s keyforms are dropped (after asking).' : replacing ? 'Replaces the lattice and drops its keyforms (after asking).' : 'A triangle mesh that follows the part\'s outline, for a shape a lattice cannot bend, or to bend the part with bones (the Weights tool, B).';
     }
+    this.sendPreview(); // a new detail, margin or part redraws the preview
     q<HTMLElement>('.aw-grid').hidden = !def;
     // A free mesh has no lattice to resize: its summary shows in place of the grid size; the rest edits its vertices as it edits lattice points.
     q<HTMLElement>('.aw-gridname').textContent = meshed ? 'Mesh' : 'Lattice';

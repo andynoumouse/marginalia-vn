@@ -5,16 +5,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { encodePng, RGBA } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'games', 'demo', 'assets', 'bg');
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  return Buffer.concat([len, body, crc]);
-};
 const rect = (x, y, w, h) => (px, py) => px >= x && px < x + w && py >= y && py < y + h;
 const ellipse = (cx, cy, rx, ry) => (px, py) => ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1;
 const circle = (cx, cy, r) => ellipse(cx, cy, r, r);
@@ -48,9 +42,7 @@ function paint(W, H, layers, background) {
       raw[y * (1 + W * 4) + 4 + x * 4] = 255;
     }
   }
-  const head = Buffer.alloc(13); head.writeUInt32BE(W, 0); head.writeUInt32BE(H, 4); head.set([8, 6, 0, 0, 0], 8);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head),
-    chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  return encodePng(W, H, raw, RGBA);
 }
 
 const wood = [92, 58, 38], woodDark = [60, 38, 26], woodLight = [124, 84, 54], brass = [214, 172, 84], iron = [46, 46, 54];

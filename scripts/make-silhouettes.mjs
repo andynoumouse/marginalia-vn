@@ -4,17 +4,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { encodePng, RGBA } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'assets', 'char');
 const W = 540, H = 1080;
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  return Buffer.concat([len, body, crc]);
-};
 
 // Signed distance (negative inside) to the shape: a head circle over a rounded torso that runs off the bottom edge.
 function dist(x, y) {
@@ -37,9 +31,7 @@ function png(color) {
     }
     rows.push(row);
   }
-  const head = Buffer.alloc(13); head.writeUInt32BE(W, 0); head.writeUInt32BE(H, 4); head.set([8, 6, 0, 0, 0], 8);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head),
-    chunk('IDAT', zlib.deflateSync(Buffer.concat(rows), { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  return encodePng(W, H, rows, RGBA);
 }
 
 // The colours match the template scripts' `define ... color=`.

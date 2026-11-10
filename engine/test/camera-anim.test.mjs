@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AnimPlayer, applyToState, compile, emptyState, ANIMS } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const animate = (over = {}) => ({ op: 'animate', char: 'camera', name: 'shake', dur: null, loop: true, strength: 1, part: null, ...over });
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const prog = text => compile([{ file: 't.vn', text }]);
 
 test('AnimPlayer: a loop runs on and replaces the previous loop, a one-shot calls done and returns to rest, stop ends loops', () => {

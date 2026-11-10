@@ -1,35 +1,20 @@
 // The dev server's file routes (rename/move, delete, replace) on a throwaway copy of the sample project.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { root, startDevServer } from './helpers.mjs';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 let project, server, base;
-
-const freePort = () => new Promise(resolve => {
-  const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
-});
 
 before(async () => {
   project = mkdtempSync(path.join(tmpdir(), 'vn-files-'));
   for (const d of ['script', 'assets', 'masters']) cpSync(path.join(root, 'games', 'sample', d), path.join(project, d), { recursive: true });
   cpSync(path.join(root, 'games', 'sample', 'game.json'), path.join(project, 'game.json'));
-  const port = await freePort();
-  base = `http://localhost:${port}`;
-  server = spawn(process.execPath, ['preview/dev-server.mjs', '--no-build', '--no-art'], {
-    cwd: root, env: { ...process.env, PORT: String(port), VN_PROJECT: project }, stdio: 'ignore',
-  });
-  for (let i = 0; ; i++) {
-    try { if ((await fetch(`${base}/api/project`)).ok) break; } catch { /* not listening yet */ }
-    if (i > 100) throw new Error('dev server did not start');
-    await new Promise(r => setTimeout(r, 100));
-  }
+  ({ origin: base, server } = await startDevServer({ env: { VN_PROJECT: project }, ready: '/api/project' }));
 });
 
 after(() => {
@@ -206,4 +191,19 @@ test('a reload event names every file changed in its batch, as project paths', a
     req.destroy();
     rmSync(at('script/extra_events.vn'), { force: true });
   }
+});
+
+test('a save based on an older version of the file is refused with what is on disk; one with no base is not checked (EL-18)', async () => {
+  const { textHash } = await import('../../dist/engine/src/index.js');
+  const file = path.join(project, 'script', 'park.vn'), first = readFileSync(file, 'utf8');
+  const put = (text, baseText) => fetch(`${base}/api/script?file=park.vn`, { method: 'PUT', headers: { ...editor, ...(baseText !== undefined ? { 'X-VN-Base': textHash(baseText) } : {}) }, body: text });
+  assert.equal((await put(first + '# mine\n', first)).status, 200, 'based on what is on disk: written');
+  const now = readFileSync(file, 'utf8');
+  writeFileSync(file, now + '# theirs\n'); // an edit outside the editor
+  const r = await put(now + '# mine again\n', now);
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).text, now + '# theirs\n', 'the answer carries the text on disk');
+  assert.equal(readFileSync(file, 'utf8'), now + '# theirs\n', 'and the outside edit is kept');
+  assert.equal((await put('x\n')).status, 200, 'no base: not checked');
+  writeFileSync(file, first);
 });

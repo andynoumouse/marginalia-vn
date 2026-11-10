@@ -8,43 +8,24 @@
 import { FUNCTIONS } from './expr.js';
 import { ACHIEVEMENT_TOAST_SCREEN, ACHIEVEMENTS_SCREEN, CHAPTERS_SCREEN, GALLERY_SCREEN, HISTORY_SCREEN, MUSIC_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, TITLE_SCREEN, VIEWER_SCREEN, shellVars } from './screens.js';
 import type { ProjectFile, RenameResult, TextEdit } from './refactor.js';
+import { commentStart, maskStrings, quotedRanges } from './script-lex.js';
 
 /** A place a variable name appears: 1-based line, 0-based column of the name and its length. `scope` is null for a global, else the label or loop that declares it. */
 export interface VarRef { file: string; line: number; col: number; length: number; name: string; persistent: boolean; scope: string | null }
 
-const ID = '[A-Za-z_][A-Za-z0-9_]*';
-const NAME = new RegExp(`^${ID}$`);
+// A variable name in any alphabet (names.ts); every pattern built from it takes the u flag.
+const ID = String.raw`[\p{L}_][\p{L}\p{N}\p{M}_]*`;
+const uRe = (src: string, flags = '') => new RegExp(src, `${flags}u`);
+const NAME = uRe(`^${ID}$`);
 const KEYWORDS = new Set(['and', 'or', 'not', 'true', 'false']);
 const RESERVED = new Set([...KEYWORDS, ...Object.keys(FUNCTIONS), 'persistent', 'unlocked', 'screen']);
 const SHELL_VARS = new Set([TITLE_SCREEN, OPTIONS_SCREEN, SAVES_SCREEN, HISTORY_SCREEN, GALLERY_SCREEN, VIEWER_SCREEN, MUSIC_SCREEN, CHAPTERS_SCREEN, ACHIEVEMENTS_SCREEN, ACHIEVEMENT_TOAST_SCREEN].flatMap(shellVars));
 // an element line, or a clause continuation line (`if` ones are scanned like a story `if`) of one
 const ELEMENT = /^\s*(?:(?:image|hotspot|button|tab|radio|toggle|select|state|text|slider|bar|panel|each|scroll|row|column|grid)\b|on\s+(?:click|focus|blur)\s+set\b|enabled\b)/;
 
-/** The line with the inside of every "string" blanked (same length), so words in text are never taken for syntax. */
-function mask(line: string): string {
-  let out = '', quote = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (quote && c === '\\') { out += '  '; i++; continue; }
-    if (c === '"') { quote = !quote; out += c; continue; }
-    out += quote ? ' ' : c;
-  }
-  return out;
-}
+const quoted = quotedRanges;
 
-/** The [from, to) ranges inside "quotes". */
-function quoted(line: string): [number, number][] {
-  const out: [number, number][] = [];
-  let start = -1;
-  for (let i = 0; i < line.length; i++) {
-    if (start >= 0 && line[i] === '\\') { i++; continue; }
-    if (line[i] !== '"') continue;
-    if (start < 0) start = i + 1; else { out.push([start, i]); start = -1; }
-  }
-  return out;
-}
-
-const SAY = new RegExp(`^\\s*${ID}:[ \\t]+`);
+const SAY = uRe(`^\\s*${ID}:[ \\t]+`);
 /** The [from, to) ranges of a line's shown text: everything after `who:` on a dialogue line, else its "quoted" strings. */
 function textSpans(line: string): [number, number][] {
   const say = SAY.exec(line);
@@ -61,7 +42,7 @@ function exprRefs(raw: string, from: number, to: number, add: Add) {
     if (c === '"' || c === "'") { i++; while (i < to && raw[i] !== c) i += raw[i] === '\\' ? 2 : 1; i++; continue; }
     if (c === '#') return;
     if (/[0-9]/.test(c)) { while (i < to && /[0-9.]/.test(raw[i])) i++; continue; }
-    const m = new RegExp(`^(${ID})(?:\\.(${ID}))?`).exec(raw.slice(i, to));
+    const m = uRe(`^(${ID})(?:\\.(${ID}))?`).exec(raw.slice(i, to));
     if (!m) { i++; continue; }
     const [all, head, tail] = m;
     if (/^\s*\(/.test(raw.slice(i + all.length, to))) { i += all.length; continue; }
@@ -73,7 +54,7 @@ function exprRefs(raw: string, from: number, to: number, add: Add) {
 
 /** `[name]`, `[name.field]` and `[persistent.name]` in a piece of text. */
 function textRefs(raw: string, from: number, to: number, add: Add) {
-  const re = new RegExp(`\\[(${ID})(?:\\.(${ID}))?(?::[^\\]\\[]+)?\\]`, 'g');
+  const re = uRe(`\\[(${ID})(?:\\.(${ID}))?(?::[^\\]\\[]+)?\\]`, 'g');
   const text = raw.slice(from, to);
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m[1] === 'persistent' && m[2]) add(from + m.index + 1 + 'persistent.'.length, m[2], true);
@@ -108,8 +89,8 @@ class FileScanner {
     const indent = /^ */.exec(raw)![0].length;
     while (stack.length && indent <= stack[stack.length - 1].indent) stack.pop()!.end = no - 1;
     if (this.screenIndent !== null && indent <= this.screenIndent) this.screenIndent = null;
-    const m = mask(raw);
-    const hash = m.indexOf('#');
+    const m = maskStrings(raw);
+    const hash = commentStart(m);
     const end = hash >= 0 ? hash : raw.length;
     const add: Add = (col, name, persistent, how) => {
       refs.push({ file, line: no, col, name, persistent, outer: how === 'outer' });
@@ -142,8 +123,8 @@ class FileScanner {
   private labelDef(c: LineCtx): boolean {
     const { m, add } = c;
     let r: RegExpExecArray | null;
-    if ((r = new RegExp(`^(\\s*label\\s+${ID}\\s*\\()([^()]*)\\)\\s*:`).exec(m))) {
-      const ps = new RegExp(ID, 'g');
+    if ((r = uRe(`^(\\s*label\\s+${ID}\\s*\\()([^()]*)\\)\\s*:`).exec(m))) {
+      const ps = uRe(ID, 'g');
       for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index, p[0], false, 'param');
       return true;
     }
@@ -159,7 +140,7 @@ class FileScanner {
   private assign(c: LineCtx): boolean {
     const { raw, m, end, add } = c;
     let r: RegExpExecArray | null;
-    if ((r = new RegExp(`^(\\s*set\\s+)(persistent\\.)?(${ID})\\s*(?:=|\\+=|-=|\\*=|\\/=)\\s*`).exec(m))) {
+    if ((r = uRe(`^(\\s*set\\s+)(persistent\\.)?(${ID})\\s*(?:=|\\+=|-=|\\*=|\\/=)\\s*`).exec(m))) {
       add(r[1].length + (r[2]?.length ?? 0), r[3], !!r[2]);
       exprRefs(raw, r[0].length, end, add);
       return true;
@@ -177,21 +158,21 @@ class FileScanner {
   private callLine(c: LineCtx): boolean {
     const { raw, m, end, add } = c;
     let r: RegExpExecArray | null;
-    if ((r = new RegExp(`^\\s*call\\s+${ID}\\s*\\(`).exec(m))) { exprRefs(raw, r[0].length, end, add); return true; }
+    if ((r = uRe(`^\\s*call\\s+${ID}\\s*\\(`).exec(m))) { exprRefs(raw, r[0].length, end, add); return true; }
     return false;
   }
 
   private inputLine(c: LineCtx): boolean {
     const { m, add, strings } = c;
     let r: RegExpExecArray | null;
-    if ((r = new RegExp(`^(\\s*input\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); strings(); return true; }
+    if ((r = uRe(`^(\\s*input\\s+)(${ID})`).exec(m))) { add(r[1].length, r[2], false); strings(); return true; }
     return false;
   }
 
   private showScreen(c: LineCtx): boolean {
     const { raw, m, end, add } = c;
     let r: RegExpExecArray | null;
-    if ((r = new RegExp(`^(\\s*show\\s+screen\\s+${ID})(?:(\\s*\\()(.*)\\))?(?:(\\s+as\\s+)(${ID}))?`).exec(m.slice(0, end)))) {
+    if ((r = uRe(`^(\\s*show\\s+screen\\s+${ID})(?:(\\s*\\()(.*)\\))?(?:(\\s+as\\s+)(${ID}))?`).exec(m.slice(0, end)))) {
       let at = r[1].length;
       if (r[3] !== undefined) { // the arguments
         exprRefs(raw, at + r[2].length, at + r[2].length + r[3].length, add);
@@ -212,8 +193,8 @@ class FileScanner {
       stack.push(this.screenScope);
       scopes.push(this.screenScope);
       this.screenIndent = indent;
-      if ((r = new RegExp(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter (an inout one too) is local to its screen, like a label's
-        const ps = new RegExp(`(?:\\binout\\s+)?(${ID})`, 'g');
+      if ((r = uRe(`^(\\s*screen\\s+${ID}\\s*\\()([^()]*)\\)\\s*:?`).exec(m))) { // a parameter (an inout one too) is local to its screen, like a label's
+        const ps = uRe(`(?:\\binout\\s+)?(${ID})`, 'g');
         for (let p = ps.exec(r[2]); p; p = ps.exec(r[2])) add(r[1].length + p.index + p[0].length - p[1].length, p[1], false, 'param');
       }
       return true;
@@ -256,19 +237,19 @@ class FileScanner {
       const clauses = Math.min(cuts[0]?.index ?? Infinity, setAt < 0 ? Infinity : setAt);
       strings(clauses === Infinity ? undefined : clauses);
       // local state: a declaration, the state a toggle, radio or tab is bound to, and the states an "on ... set" changes (with the value it computes)
-      if ((r = new RegExp(`^(\\s*state\\s+)(${ID})\\s*=\\s*`).exec(m))) {
+      if ((r = uRe(`^(\\s*state\\s+)(${ID})\\s*=\\s*`).exec(m))) {
         add(r[1].length, r[2], false);
         this.screenScope?.names.add(r[2]);
         exprRefs(raw, r[0].length, end, add);
       }
-      if ((r = new RegExp(`^\\s*(?:toggle\\s+${ID}\\s+|(?:radio|tab)\\s+${ID}\\s+)(${ID})`).exec(m))) add(r[0].length - r[1].length, r[1], false);
-      const sets = [...m.matchAll(new RegExp(`\\bon\\s+(?:click|focus|blur)\\s+set\\s+(${ID})\\s*=\\s*`, 'g'))];
+      if ((r = uRe(`^\\s*(?:toggle\\s+${ID}\\s+|(?:radio|tab)\\s+${ID}\\s+)(${ID})`).exec(m))) add(r[0].length - r[1].length, r[1], false);
+      const sets = [...m.matchAll(uRe(`\\bon\\s+(?:click|focus|blur)\\s+set\\s+(${ID})\\s*=\\s*`, 'g'))];
       sets.forEach((st, k) => {
         add(st.index! + st[0].indexOf(st[1], st[0].indexOf('set') + 3), st[1], false);
         const stop = [...(sets[k + 1] ? [sets[k + 1].index!] : []), ...cuts.map(c => c.index!).filter(c => c > st.index!)];
         exprRefs(raw, st.index! + st[0].length, stop.length ? Math.min(...stop) : end, add);
       });
-      if ((r = new RegExp(`^(\\s*each\\s+)(${ID})(\\s+as\\s+)(${ID})`).exec(m))) {
+      if ((r = uRe(`^(\\s*each\\s+)(${ID})(\\s+as\\s+)(${ID})`).exec(m))) {
         add(r[1].length, r[2], false, 'outer');
         add(r[1].length + r[2].length + r[3].length, r[4], false, 'each');
       }
@@ -348,7 +329,24 @@ export function renameVariable(files: ProjectFile[], target: VarRef, to: string)
     if (hit) return { ok: false, error: `"${to}" is a local name where "${target.name}" is used` };
   }
   const edits = mine.map(r => ({ file: r.file, line: r.line, col: r.col, length: r.length, text: to }));
-  return { ok: true, edits: [...edits, ...localeEdits(files, mine, target, to)] };
+  return { ok: true, edits: [...edits, ...localeEdits(files, mine, target, to), ...(target.scope ? [] : gameJsonEdits(files, target, to))] };
+}
+
+/**
+ * `[name]` in game.json's strings. Its `labels` replace the stock screens' words, and those are filled in with the story's
+ * variables ("The end, [player]"); a local never reaches them.
+ */
+function gameJsonEdits(files: ProjectFile[], target: VarRef, to: string): TextEdit[] {
+  const game = files.find(f => f.name === 'game.json');
+  if (!game) return [];
+  const out: TextEdit[] = [];
+  game.text.split(/\r?\n/).forEach((raw, i) => {
+    textRefs(raw, 0, raw.length, (col, name, persistent) => {
+      if (name !== target.name || persistent !== target.persistent || !quoted(raw).some(([a, b]) => col >= a && col < b)) return;
+      out.push({ file: game.name, line: i + 1, col, length: name.length, text: to });
+    });
+  });
+  return out;
 }
 
 /** True for `locale/<lang>.json` and the `locale/<lang>.src` source snapshots (translation.ts), which quote the same text. */
@@ -369,7 +367,7 @@ function localeEdits(files: ProjectFile[], mine: { file: string; line: number; c
     if (id && textSpans(raw).some(([a, b]) => r.col >= a && r.col < b)) ids.add(id[1]);
   }
   if (!ids.size) return [];
-  const ref = new RegExp(`\\[${target.persistent ? 'persistent\\.' : ''}(${target.name})(?=[\\].:])`, 'g');
+  const ref = uRe(`\\[${target.persistent ? 'persistent\\.' : ''}(${target.name})(?=[\\].:])`, 'g');
   const out: TextEdit[] = [];
   for (const f of locales) {
     f.text.split(/\r?\n/).forEach((raw, i) => {

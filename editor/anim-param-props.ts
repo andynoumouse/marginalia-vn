@@ -5,7 +5,7 @@
 // filled in place afterwards, so Tab after a changed field goes on to the next one although the studio redraws.
 
 import { EASE_NAMES, OTHER, rangeLine, type PadDef, type PadPatch, type ParamDef, type ParamPatch } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, pickEase, showEase } from './anim-dom.js';
 
 export type ParamPropsView =
   | { kind: 'slider'; def: ParamDef; /** The pad this parameter is an axis of. */ pad: string | null }
@@ -82,7 +82,7 @@ export class ParamProps {
     name.addEventListener('change', rename);
     name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rename(); } });
     q<HTMLSelectElement>('.apm-cat').addEventListener('change', e => send({ group: (e.target as HTMLSelectElement).value }));
-    q<HTMLSelectElement>('.apm-ease').addEventListener('change', e => send({ ease: (e.target as HTMLSelectElement).value }));
+    q<HTMLSelectElement>('.apm-ease').addEventListener('change', async e => { const ease = await pickEase(e.target as HTMLSelectElement); if (ease !== null) send({ ease }); });
     for (const [cls, field] of [['.apm-min', 'min'], ['.apm-max', 'max'], ['.apm-default', 'default']] as const) {
       const input = q<HTMLInputElement>(cls);
       input.addEventListener('change', () => {
@@ -149,7 +149,8 @@ export class ParamProps {
       put(q<HTMLInputElement>('.apm-min'), shown4(d.min));
       put(q<HTMLInputElement>('.apm-max'), shown4(d.max));
       put(q<HTMLInputElement>('.apm-default'), shown4(d.default));
-      put(q<HTMLSelectElement>('.apm-ease'), d.ease ?? '');
+      const easeSel = q<HTMLSelectElement>('.apm-ease');
+      if (fresh || document.activeElement !== easeSel) showEase(easeSel, d.ease ?? '');
       for (const [cls, what] of [['.apm-name', 'Name'], ['.apm-cat', 'Category'], ['.apm-min', 'Minimum'], ['.apm-max', 'Maximum'], ['.apm-default', 'Default'], ['.apm-ease', 'Ease']]) q(cls).setAttribute('aria-label', `${what} of ${d.id}`);
       const del = q<HTMLButtonElement>('.apm-delete');
       del.title = `Delete ${d.id} and the keyforms, pose values and tracks that use it`;

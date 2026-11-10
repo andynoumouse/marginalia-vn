@@ -10,6 +10,7 @@ import type { ShapeDef } from './masks.js';
 import type { RigPhysicsChain } from './physics-rig.js';
 import type { DeformerDef, KeyformDef } from './params.js';
 import { boundBones, removeBoneWeights, renameWeightBone } from './skin-edit.js';
+import { plural } from './util.js';
 
 /** What can name a bone: the working copy's bones and everything that refers to one. */
 export interface BoneDoc {
@@ -28,7 +29,6 @@ export type BoneEdit = { doc: BoneDoc; note: string; name: string } | { error: s
 /** What a bone may be called: letters, digits, _ and -, starting with a letter or _ (a word a script's `animate ... part=<name>` can say). */
 export const BONE_NAME = /^[A-Za-z_][\w-]*$/;
 
-const plural = (n: number, word: string, words = `${word}s`) => `${n} ${n === 1 ? word : words}`;
 
 /**
  * Bone `from` renamed to `to` (trimmed) everywhere in `doc`; `partNames` are the image parts' names, which a bone may not take (nor a

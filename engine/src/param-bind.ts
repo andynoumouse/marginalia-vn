@@ -16,6 +16,8 @@ import type { DeformerDef, DeformerKeyform, KeyformDef, PadDef, ParamDef } from 
 import type { ShapeDef } from './masks.js';
 import { isPadSpot, isRestForm, keyformDrivers, snapSpot, type KeyDriver, type KeySpot } from './keyform-edit.js';
 import { deformerById, deformerOf, groupOf, replaceDeformer } from './warp-edit.js';
+import { paramById } from './params.js';
+import { round5 } from './util.js';
 
 /** What the author picked: a parameter (a slider, or one axis of a pad) or a pad's two parameters (its grid). */
 export type BindDriver = KeyDriver;
@@ -26,20 +28,17 @@ export const PAD_SIZES = [2, 3, 5] as const;
 export type PadSize = (typeof PAD_SIZES)[number];
 export const DEFAULT_PAD_SIZE: PadSize = 3;
 
-const DECIMALS = 1e5;
-const clean = (n: number): number => Math.round(n * DECIMALS) / DECIMALS + 0;
-const defOf = (defs: readonly ParamDef[], id: string): ParamDef | undefined => defs.find(d => d.id === id);
 
 /** The values a slider is bound at: its minimum, default and maximum (the default is the minimum or the maximum for some, so two lines). */
-export const sliderLines = (d: ParamDef): number[] => [...new Set([d.min, d.default, d.max].map(clean))].sort((a, b) => a - b);
+export const sliderLines = (d: ParamDef): number[] => [...new Set([d.min, d.default, d.max].map(round5))].sort((a, b) => a - b);
 
 /** The ascending values one pad axis is bound at: 2 = the ends, 3 = the ends and the default, 5 = and halfway between each two of those. */
 export function axisLines(d: ParamDef, size: number): number[] {
-  if (size <= 2) return [...new Set([d.min, d.max].map(clean))].sort((a, b) => a - b);
+  if (size <= 2) return [...new Set([d.min, d.max].map(round5))].sort((a, b) => a - b);
   const base = sliderLines(d);
   if (size < 5) return base;
   const out = new Set(base);
-  for (let i = 1; i < base.length; i++) out.add(clean((base[i - 1] + base[i]) / 2));
+  for (let i = 1; i < base.length; i++) out.add(round5((base[i - 1] + base[i]) / 2));
   return [...out].sort((a, b) => a - b);
 }
 
@@ -60,12 +59,12 @@ export function bindPose(kfs: readonly KeyformDef[], defs: readonly ParamDef[], 
   const same = { keyforms: kfs as KeyformDef[], bound: false };
   if (isBound(kfs, target, driver)) return same;
   if ('params' in driver) {
-    const xd = defOf(defs, driver.params[0]), yd = defOf(defs, driver.params[1]);
+    const xd = paramById(defs, driver.params[0]), yd = paramById(defs, driver.params[1]);
     if (!xd || !yd || xd === yd) return same;
     const x = axisLines(xd, size), y = axisLines(yd, size);
     return { keyforms: [...structuredClone(kfs) as KeyformDef[], { target, params: [xd.id, yd.id], grid: { x, y }, forms: Array.from({ length: x.length * y.length }, () => ({})) }], bound: true };
   }
-  const d = defOf(defs, driver.param);
+  const d = paramById(defs, driver.param);
   if (!d) return same;
   return { keyforms: [...structuredClone(kfs) as KeyformDef[], { target, param: d.id, keys: sliderLines(d).map(at => ({ at })) }], bound: true };
 }
@@ -92,7 +91,7 @@ export function removeKey(kfs: readonly KeyformDef[], defs: readonly ParamDef[],
     kf.forms![at] = {};
     return { keyforms: next, removed: true };
   }
-  const d = defOf(defs, s.param)!, j = kf.keys!.findIndex(k => k.at === s.value);
+  const d = paramById(defs, s.param)!, j = kf.keys!.findIndex(k => k.at === s.value);
   if (j < 0) return same;
   if (Math.abs(s.value - d.default) < 1e-9) {
     if (isRestForm(kf.keys![j])) return same;
@@ -108,7 +107,7 @@ const keyformOf = (kfs: readonly DeformerKeyform[] | undefined, param: string): 
 
 /** The deformer of `part` (or the one named `id`, a group warp the part is in) bound to a parameter: its keys at the minimum, default and maximum, no point moved. Nothing changes when there is no warp, it is bound, or the parameter is unknown. */
 export function bindDeformer(deformers: readonly DeformerDef[], defs: readonly ParamDef[], part: string, param: string, id?: string): { deformers: DeformerDef[]; bound: boolean } {
-  const def = id !== undefined ? deformerById(deformers, id) : deformerOf(deformers, part), d = defOf(defs, param);
+  const def = id !== undefined ? deformerById(deformers, id) : deformerOf(deformers, part), d = paramById(defs, param);
   if (!def || !d || keyformOf(def.keyforms, param)) return { deformers: deformers as DeformerDef[], bound: false };
   return { deformers: replaceDeformer(deformers, { ...def, keyforms: [...(def.keyforms ?? []), { param, keys: restKeys(d) }] }), bound: true };
 }
@@ -122,7 +121,7 @@ export function unbindDeformer(deformers: readonly DeformerDef[], part: string, 
 
 /** The polygon of shape `name` bound to a parameter, as a warp is. */
 export function bindMask(shapes: Readonly<Record<string, ShapeDef>>, defs: readonly ParamDef[], name: string, param: string): { shapes: Record<string, ShapeDef>; bound: boolean } {
-  const m = shapes[name], d = defOf(defs, param);
+  const m = shapes[name], d = paramById(defs, param);
   if (!m || !d || keyformOf(m.keyforms, param)) return { shapes: shapes as Record<string, ShapeDef>, bound: false };
   return { shapes: { ...shapes, [name]: { ...m, keyforms: [...(m.keyforms ?? []), { param, keys: restKeys(d) }] } }, bound: true };
 }
@@ -224,13 +223,13 @@ export const PAD_PREFIX = 'pad:';
 export function driverOf(control: string, defs: readonly ParamDef[], pads: readonly PadDef[]): BindDriver | null {
   if (control.startsWith(PAD_PREFIX)) {
     const pad = pads.find(p => p.id === control.slice(PAD_PREFIX.length));
-    return pad && defOf(defs, pad.x) && defOf(defs, pad.y) ? { params: [pad.x, pad.y] } : null;
+    return pad && paramById(defs, pad.x) && paramById(defs, pad.y) ? { params: [pad.x, pad.y] } : null;
   }
-  return defOf(defs, control) ? { param: control } : null;
+  return paramById(defs, control) ? { param: control } : null;
 }
 
 /** The control key of a driver: the pad that has those two parameters, else (for a parameter) its own id; null when none is in the rig. */
 export function controlOf(driver: BindDriver, defs: readonly ParamDef[], pads: readonly PadDef[]): string | null {
   if ('params' in driver) { const pad = pads.find(p => p.x === driver.params[0] && p.y === driver.params[1]); return pad ? `${PAD_PREFIX}${pad.id}` : null; }
-  return defOf(defs, driver.param) ? driver.param : null;
+  return paramById(defs, driver.param) ? driver.param : null;
 }

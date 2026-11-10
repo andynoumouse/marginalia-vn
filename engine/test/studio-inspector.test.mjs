@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toolBar, modeLabel, weightsBar, warpBar, gizmoLine, choiceCue, brushStep, focusHeader, propBlocks, subOpenKey, PROP_BLOCK_IDS } from '../../dist/engine/src/index.js';
+import { toolBar, modeLabel, weightsBar, warpBar, gizmoLine, gizmoLock, choiceCue, brushStep, focusHeader, propBlocks, subOpenKey, PROP_BLOCK_IDS, keepNote } from '../../dist/engine/src/index.js';
 
 test('the bar shows one panel per tool: Move, Rotate and Scale share the gizmo line', () => {
   for (const t of ['move', 'rotate', 'scale']) assert.equal(toolBar(t), 'gizmo');
@@ -51,7 +51,23 @@ test('the gizmo line says what the gizmo poses and whether a drag writes', () =>
   assert.equal(gizmoLine({ mode: 'model', chosen: 'torso', subject: 'spine', param: 'breathe', bound: false, other: ['warp'] }),
     "poses spine, the bone torso sits on · spine is not bound to breathe: D keys torso's warp");
   assert.equal(gizmoLine({ mode: 'model', chosen: 'head', subject: 'head', param: 'head_x', bound: true }), 'poses head · a drag writes its keyform of head_x');
-  assert.match(gizmoLine({ mode: 'model', chosen: 'head', subject: 'head', param: 'blink', bound: false }), /head is not bound to blink: a drag writes nothing \(Bind parts…, or ◆ on blink's row, binds it\)$/);
+  assert.match(gizmoLine({ mode: 'model', chosen: 'head', subject: 'head', param: 'blink', bound: false }), /head is not bound to blink: nothing to drag until it is \(Bind parts…, or ◆ on blink's row, binds it\)$/);
+});
+
+test('the gizmo is locked exactly when a drag would be thrown away at the release', () => {
+  const model = o => gizmoLock({ mode: 'model', chosen: 'head', subject: 'head', param: 'head_x', bound: true, hasParams: true, ...o });
+  assert.equal(model({}), null, 'bound to the active parameter: a drag writes its keyform');
+  assert.equal(model({ param: null }), 'noParam');
+  assert.equal(model({ param: null, hasParams: false }), 'noParams');
+  assert.equal(model({ bound: false }), 'unbound');
+  assert.equal(model({ bound: false, other: ['warp'] }), 'unbound', 'bound by its warp only: the gizmo poses nothing there');
+  assert.equal(model({ bound: false, setBound: true }), null, 'a Ctrl-clicked part is bound: the drag writes that one');
+  assert.equal(model({ chosen: null, subject: null }), null, 'nothing chosen: no gizmo to lock');
+  const animate = o => gizmoLock({ mode: 'animate', chosen: 'head', subject: 'head', anim: { name: 'nod', preset: false }, autoKey: true, ...o });
+  assert.equal(animate({}), null);
+  assert.equal(animate({ autoKey: false }), null, 'Auto-key off: the drag waits for Key');
+  assert.equal(animate({ anim: null }), 'noAnim');
+  assert.equal(animate({ anim: { name: 'idle', preset: true } }), 'preset');
 });
 
 test('with no parameter active the gizmo line names the ways to bind, since a click on an unbound parameter drops the part', () => {
@@ -429,4 +445,13 @@ test('choiceCue tells a part on a bone from its bone (studio-choice-cue.md)', ()
   assert.deepEqual(choiceCue({ chosen: 'face', target: 'face', bone: false, carries: 0 }), { outline: 'part', tag: null }, 'a part on no bone: nothing to tell apart');
   assert.deepEqual(choiceCue({ chosen: 'face', target: null, bone: false, carries: 0 }), { outline: 'part', tag: null });
   assert.deepEqual(choiceCue({ chosen: null, target: null, bone: false, carries: 0 }), { outline: null, tag: null });
+});
+
+test('a status note goes once the context moves on, unless the action that moved it wrote a new note (SR-15, SD-15, SA-12)', () => {
+  const seen = { ctx: 'animate|move|arm_r||wave|3', text: 'Keyed arm_r at the playhead (0 s).' };
+  assert.equal(keepNote(seen, { ...seen }), true, 'nothing moved on: the note stays');
+  assert.equal(keepNote(seen, { ...seen, ctx: 'animate|move|||wave|3' }), false, 'the whole character chosen: the key note is stale');
+  assert.equal(keepNote(seen, { ...seen, ctx: 'animate|move|arm_r||wave|4' }), false, 'an edit with no note of its own (a key dragged, Length changed)');
+  assert.equal(keepNote(seen, { ctx: 'model|move|bone||null|4', text: 'Added the bone bone: type its name, then Enter.' }), true, 'the action wrote its own note');
+  assert.equal(keepNote({ ctx: 'a', text: '' }, { ctx: 'b', text: '' }), false, 'an empty note has nothing to keep (the hint shows)');
 });

@@ -19,6 +19,7 @@
 //   default <id>   cancel [keep]   textbox off   state <name> = <expr>
 
 import { DEFAULT_STAGE, type StageSize } from './stage.js';
+import { maskStrings } from './script-lex.js';
 import { AnimSyntaxError, animProblem, parseEnter, parseExit, parseLoop, type ElementAnim } from './screen-anim.js';
 import { CYCLE_SETTINGS, type Bind, SLIDER_SETTINGS, LAYOUT_ANCHORS, HUD_EVENTS, SHELL_ACTIONS, FRAME_EDGES, DEFAULT_SLICE, type FrameEdge, type ShellAction, type HoverFx, type LayoutAnchor, type FocusHints, type HudEvent, type HudHandlers, type LayoutAlign, type LayoutKind, type Shape, type Sides } from './screens.js';
 
@@ -40,9 +41,10 @@ export function startsWithClause(t: string): boolean {
 /** Lines of an element that carry a localizable string (the label or text), as ids.ts and the parser see them. */
 export const RE_ELEMENT = /^(hotspot|button|tab|radio|toggle|select|text)[ \t]/;
 const RE_ID = /^#[A-Za-z0-9]{4,8}$/;
-const NAME = /^[A-Za-z_]\w*$/;
+// States, element ids, labels and loop variables live only in scripts: names in any alphabet (names.ts).
+const NAME = /^[\p{L}_][\p{L}\p{N}\p{M}_]*$/u;
 /** An element id: a name, or `entry.suffix` (inside an `each`, `slot.rename` stands for that entry's own second button). */
-const ELEMENT_ID = /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)?$/;
+const ELEMENT_ID = /^[\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?$/u;
 const TINT = /^(#[0-9a-f]{3,8}|[a-z]+|(?:rgb|hsl)a?\([\d.,%/-]+\))$/i;
 const unescapeText = (s: string) => s.replace(/\\(["\\n])/g, (_, c: string) => (c === 'n' ? '\n' : c));
 
@@ -57,13 +59,10 @@ export interface ElementLine { head: string; cond: string | null; enabled: strin
 export function splitElementLine(t: string): ElementLine {
   type Key = 'if' | 'enabled' | 'enter' | 'exit' | 'loop' | HudEvent;
   const cuts: { at: number; key: Key; skip: number }[] = [];
-  let quoted = false;
-  for (let i = 0; i < t.length; i++) {
-    const c = t[i];
-    if (quoted) { if (c === '\\') i++; else if (c === '"') quoted = false; continue; }
-    if (c === '"') { quoted = true; continue; }
-    if (i > 0 && /\s/.test(t[i - 1])) {
-      const m = /^(?:(if|enabled)|on[ \t]+(click|focus|blur)[ \t]+set|on[ \t]+(enter|exit)|(loop)(?=[ \t]+(?:pulse|bob|sway|breathe|shiver|glow)\b))[ \t]+/.exec(t.slice(i));
+  const code = maskStrings(t); // clause words inside "quotes" are text
+  for (let i = 1; i < code.length; i++) {
+    if (/\s/.test(code[i - 1])) {
+      const m = /^(?:(if|enabled)|on[ \t]+(click|focus|blur)[ \t]+set|on[ \t]+(enter|exit)|(loop)(?=[ \t]+(?:pulse|bob|sway|breathe|shiver|glow)\b))[ \t]+/.exec(code.slice(i));
       if (m) cuts.push({ at: i, key: (m[1] ?? m[2] ?? m[3] ?? m[4]) as Key, skip: m[0].length });
     }
   }
@@ -82,7 +81,7 @@ export function splitElementLine(t: string): ElementLine {
       }
     }
     else {
-      const m = /^([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S[\s\S]*)$/.exec(part);
+      const m = /^([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*=(?!=)[ \t]*(\S[\s\S]*)$/u.exec(part);
       if (!m) throw new ElementSyntaxError(`on ${c.key} set needs a state and a value: on ${c.key} set <state> = <expr>`);
       if (out.sets[c.key]) throw new ElementSyntaxError(`on ${c.key} set appears twice`);
       out.sets[c.key] = { name: m[1], expr: m[2] };
@@ -306,7 +305,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
   let bind: Bind | undefined, idAt = -1;
   for (let i = 0; i < toks.length; i++) {
     const w = toks[i];
-    if (role && role !== 'toggle' && id && !bind && /^[A-Za-z_]\w*=/.test(w)) {
+    if (role && role !== 'toggle' && id && !bind && /^[\p{L}_][\p{L}\p{N}\p{M}_]*=/u.test(w)) {
       const eq = w.indexOf('='), raw = w.slice(eq + 1);
       if (raw === '') throw new ElementSyntaxError(`Use: ${role} <id> <state>=<word> at x,y "Label" (the word is one value: a number, true, false or text)`);
       bind = { role, name: w.slice(0, eq), value: raw === 'true' ? true : raw === 'false' ? false : /^-?\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : raw };
@@ -315,7 +314,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
     else if (w === 'at') at = pair(toks[++i], '"at"');
     else if (id && (kind === 'hotspot' || kind === 'button') && w === 'action') {
       const name = toks[++i] ?? '';
-      const dyn = kind === 'button' ? /^\[([A-Za-z_][\w.]*)\]$/.exec(name) : null;
+      const dyn = kind === 'button' ? /^\[([\p{L}_][\p{L}\p{N}\p{M}_.]*)\]$/u.exec(name) : null;
       if (dyn) { actVar = dyn[1]; continue; }
       if (!(SHELL_ACTIONS as readonly string[]).includes(name)) throw new ElementSyntaxError(`Unknown action "${name}" (actions: ${SHELL_ACTIONS.join(', ')}): action <name>`);
       act = name as ShellAction;
@@ -342,7 +341,7 @@ function parseElementBody(t: string, inLayout: boolean, stage: StageSize): Parse
     else if (kind === 'text' && w === 'fit') fit = true;
     else if (kind === 'text' && w === 'color') {
       color = toks[++i] ?? '';
-      if (!TINT.test(color) && !/^\[[A-Za-z_][\w.]*\]$/.test(color)) throw new ElementSyntaxError('color needs a color without spaces, like #ff6688, gold or rgba(255,100,100,.9), or [variable] holding one');
+      if (!TINT.test(color) && !/^\[[\p{L}_][\p{L}\p{N}\p{M}_.]*\]$/u.test(color)) throw new ElementSyntaxError('color needs a color without spaces, like #ff6688, gold or rgba(255,100,100,.9), or [variable] holding one');
     }
     else if (w === 'cursor' && kind === 'hotspot') { cursor = toks[++i] ?? ''; if (!/^[\w-]+$/.test(cursor)) throw new ElementSyntaxError('cursor needs a CSS cursor name like pointer or help'); }
     else if (id && (kind === 'hotspot' || kind === 'button') && w === 'on') {
@@ -556,7 +555,7 @@ export function parseLayoutHeader(t: string, inLayout: boolean): LayoutHeader | 
     if (w === 'at') out.at = pair(toks[++i], '"at"');
     else if (w === 'anchor') {
       const a = toks[++i] ?? '';
-      const dyn = /^\[([A-Za-z_]\w*)\]$/.exec(a);
+      const dyn = /^\[([\p{L}_][\p{L}\p{N}\p{M}_]*)\]$/u.exec(a);
       if (dyn) out.anchorVar = dyn[1];
       else if (!(LAYOUT_ANCHORS as readonly string[]).includes(a)) throw new ElementSyntaxError(`anchor needs one of: ${LAYOUT_ANCHORS.join(', ')}, or [variable] holding one`);
       else out.anchor = a as LayoutAnchor;

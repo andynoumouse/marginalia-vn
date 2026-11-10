@@ -3,10 +3,8 @@
 
 import { tracksAt, type AnimDef, type ParamKey, type ParamTracks } from './anim.js';
 import { clampParam, type PadDef, type ParamDef, type PoseDef } from './params.js';
-import { clamp01 } from './util.js';
+import { byTime, clamp01, round4, SAME_TIME } from './util.js';
 
-const round4 = (n: number) => Math.round(n * 10000) / 10000;
-const sortKeys = (keys: ParamKey[]) => [...keys].sort((a, b) => a.t - b.t);
 
 /** The parameters `def` has tracks for, in order of first appearance. */
 export const trackIds = (def: AnimDef): string[] => Object.keys(def.params ?? {}).filter(id => Array.isArray(def.params![id]) && def.params![id].length);
@@ -24,10 +22,10 @@ function withTrack(def: AnimDef, id: string, keys: ParamKey[]): AnimDef {
 export function addParamKey(def: AnimDef, id: string, key: ParamKey): { def: AnimDef; index: number } {
   const add: ParamKey = { ...key, t: round4(clamp01(key.t)), v: round4(key.v) };
   const keys = [...paramKeys(def, id)];
-  const same = keys.findIndex(k => Math.abs(k.t - add.t) < 0.0005);
+  const same = keys.findIndex(k => Math.abs(k.t - add.t) < SAME_TIME);
   if (same >= 0) keys[same] = { ...keys[same], ...add, t: keys[same].t };
   else keys.push(add);
-  const sorted = sortKeys(keys);
+  const sorted = byTime(keys);
   return { def: withTrack(def, id, sorted), index: sorted.indexOf(same >= 0 ? keys[same] : add) };
 }
 
@@ -41,7 +39,7 @@ export function setParamKey(def: AnimDef, id: string, index: number, patch: Part
   next.t = round4(clamp01(next.t));
   next.v = round4(next.v);
   keys[index] = next;
-  const sorted = sortKeys(keys);
+  const sorted = byTime(keys);
   return { def: withTrack(def, id, sorted), index: sorted.indexOf(next) };
 }
 

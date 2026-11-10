@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  frameOf, framesAt, expandFrames, framesNeeded, framesFromSlot, frameBlocks, retimeFrame, duplicateFrame, reorderFrame, setFrame, deleteFrame, addFrameKey, asKeys,
+  frameOf, framesAt, expandFrames, framesNeeded, framesFromSlot, slotShare, frameBlocks, retimeFrame, duplicateFrame, reorderFrame, setFrame, deleteFrame, addFrameKey, asKeys,
   resolveAnim, checkRig, liveOverrides, withFrameTrack, trackOfSlot,
 } from '../../dist/engine/src/index.js';
 
@@ -93,4 +93,15 @@ test('withFrameTrack replaces in place, adds, and drops an emptied list', () => 
   assert.equal('frames' in withFrameTrack({ keys: [], frames: [{ slot: 'a' }] }, 'a', null), false);
   assert.equal(trackOfSlot(def, 'b').slot, 'b');
   assert.equal(def.frames.length, 2);
+});
+
+test('frames from a slot that end before the animation: loop them, spread them, or play once (SA-18)', () => {
+  const v = ['open', 'smile', 'neutral'];
+  assert.equal(slotShare(3, 12, 1), 0.25, 'three frames at 12 fps take a quarter of a 1 s animation');
+  assert.deepEqual(framesFromSlot('mouth', v, 12, 1).keys.map(k => k.frame), v, 'once: each one time, the last holds');
+  const loop = framesFromSlot('mouth', v, 12, 1, 'loop').keys;
+  assert.equal(loop.length, 12, 'loop: 12 blocks fill the second');
+  assert.deepEqual(loop.slice(0, 4).map(k => k.frame), ['open', 'smile', 'neutral', 'open']);
+  assert.ok(loop.every(k => k.t < 1));
+  assert.deepEqual(framesFromSlot('mouth', v, 12, 1, 'spread').keys, [{ t: 0, frame: 'open' }, { t: 0.3333, frame: 'smile' }, { t: 0.6667, frame: 'neutral' }], 'spread: a third each');
 });

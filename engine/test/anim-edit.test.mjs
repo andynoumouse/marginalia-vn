@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   addKey, setKey, deleteKey, setDur, uniqueName, newAnim, duplicateAnim, renameAnim, deleteAnim, bakePreset,
   uniqueBoneName, addBone, setBonePivot, setBoneParent, setPartBone, deleteBone, boneRows, saveLook,
-  sampleChannel, restEnds, secondsOf, progressOf, timeLabel, retimeAnim, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, textChange, setAuto, autoFields, autoFromFields,
+  sampleChannel, restEnds, secondsOf, progressOf, timeLabel, retimeAnim, animParts, keysOf, animOffset, ANIM_NAMES, setTopLevelProperty, applyEdit, psdToStage, stageToPsd, setPivot, setPivots, showLine, removeTopLevelProperty, writeRigText, formatRig, textChange, setAuto, autoFields, autoFromFields,
 } from '../../dist/engine/src/index.js';
 
 const wave = { dur: 1.2, keys: [{ t: 0.2, rot: 7 }, { t: 0.8, rot: 4 }] };
@@ -242,45 +242,32 @@ test('writeRigText leaves an unchanged rig exactly as written', () => {
   assert.equal(writeRigText(mina, [{ key: 'animations', value: data.animations }, { key: 'pivots', value: data.pivots }]), mina);
 });
 
-test('writeRigText rewrites only the animation that changed', () => {
+test('writeRigText writes the file in the one layout of formatRig, and that layout is stable', () => {
   const anims = structuredClone(rigData.animations);
   anims.wave.keys[1].rot = -6;
-  const out = writeRigText(rigText, [{ key: 'animations', value: anims }, { key: 'pivots', value: rigData.pivots }]);
-  assert.deepEqual(changedLines(rigText, out), [14]);
-  assert.equal(out.split('\n')[14], '        { "t": 0.5, "rot": -6 }');
-  assert.deepEqual(JSON.parse(out).animations, anims);
-  // a changed one-line animation is written anew; the one before it keeps its text
-  anims.giggle.dur = 0.7;
-  const out2 = writeRigText(rigText, [{ key: 'animations', value: anims }]);
-  assert.ok(out2.includes('    "giggle": { "dur": 0.7, "keys": [{ "t": 0.15, "y": -0.015 }] }\n'), out2);
+  const out = writeRigText(rigText, [{ key: 'animations', value: anims }]);
+  assert.equal(out, formatRig({ ...rigData, animations: anims }), 'a change writes the whole file in the one layout');
+  assert.equal(formatRig(JSON.parse(out)), out, 'formatting what it wrote gives the same text');
+  assert.equal(formatRig({ a: 1 }, '\r\n'), '{\r\n  "a": 1\r\n}\r\n', 'the line ending is kept');
+  assert.ok(writeRigText(rigText.replace(/\n/g, '\r\n'), [{ key: 'animations', value: anims }]).includes('\r\n'));
 });
 
-test('writeRigText keeps a one-line pivots on one line when a pivot changes, is added or removed', () => {
-  const moved = writeRigText(rigText, [{ key: 'pivots', value: { ...rigData.pivots, head: [271, 380] } }]);
-  assert.deepEqual(changedLines(rigText, moved), [3]);
-  assert.equal(moved.split('\n')[3], '    "hair_back": [270, 380], "head": [271, 380], "face": [270, 380]');
-  const added = writeRigText(rigText, [{ key: 'pivots', value: { ...rigData.pivots, eyes: [1, 2] } }]);
-  assert.equal(added.split('\n')[3], '    "hair_back": [270, 380], "head": [270, 380], "face": [270, 380], "eyes": [1, 2]');
-  const { head, ...rest } = rigData.pivots;
-  const removed = writeRigText(rigText, [{ key: 'pivots', value: rest }]);
-  assert.equal(removed.split('\n')[3], '    "hair_back": [270, 380], "face": [270, 380]');
-  assert.deepEqual(JSON.parse(removed).pivots, rest);
-  const { hair_back, ...rest2 } = rigData.pivots;
-  assert.equal(writeRigText(rigText, [{ key: 'pivots', value: rest2 }]).split('\n')[3], '    "head": [270, 380], "face": [270, 380]');
-});
-
-test('writeRigText adds, renames and deletes animations in the layout of the file', () => {
-  const anims = { ...rigData.animations, nod: { dur: 1, keys: [{ t: 0.5, y: 0.01 }] } };
-  const added = writeRigText(rigText, [{ key: 'animations', value: anims }]);
-  assert.ok(added.endsWith([
-    '    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] },',
-    '    "nod": {', '      "dur": 1,', '      "keys": [', '        { "t": 0.5, "y": 0.01 }', '      ]', '    }', '  }', '}', ''].join('\n')), added);
-  const renamed = writeRigText(rigText, [{ key: 'animations', value: { greet: rigData.animations.wave, giggle: rigData.animations.giggle } }]);
-  assert.deepEqual(Object.keys(JSON.parse(renamed).animations), ['greet', 'giggle']);
-  assert.ok(renamed.includes('  "animations": {\n    "greet": {\n      "dur": 1.2,'), renamed);
-  assert.ok(renamed.includes('\n    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] }\n'));
-  const deleted = writeRigText(rigText, [{ key: 'animations', value: { giggle: rigData.animations.giggle } }]);
-  assert.ok(deleted.includes('  "animations": {\n    "giggle": { "dur": 0.6, "keys": [{ "t": 0.15, "y": -0.015 }] }\n  }\n}\n'), deleted);
+test('once a file is in the layout, an edit changes only its own lines', () => {
+  const text = formatRig(rigData);
+  // a key of an animation
+  const anims = structuredClone(rigData.animations);
+  anims.wave.keys[1].rot = -6;
+  const keyEdit = writeRigText(text, [{ key: 'animations', value: anims }]);
+  assert.equal(changedLines(text, keyEdit)?.length, 1);
+  assert.match(keyEdit, /\n {8}\{ "t": 0\.5, "rot": -6 \}\n/);
+  // a pivot
+  assert.equal(changedLines(text, writeRigText(text, [{ key: 'pivots', value: { ...rigData.pivots, head: [271, 380] } }]))?.length, 1);
+  // an animation added: only lines are added
+  const added = writeRigText(text, [{ key: 'animations', value: { ...rigData.animations, nod: { dur: 1, keys: [{ t: 0.5, y: 0.01 }] } } }]);
+  const before = text.split('\n'), after = added.split('\n');
+  assert.ok(before.filter(l => !after.includes(l)).length <= 1, 'at most the line before it changes (its comma)');
+  // and removed again: the text it started from
+  assert.equal(writeRigText(added, [{ key: 'animations', value: rigData.animations }]), text);
 });
 
 test('writeRigText adds and removes top-level properties, and skips an empty object the file lacks', () => {
@@ -374,25 +361,22 @@ test('retimeAnim keeps every key at its second; shortening drops the keys past t
   assert.deepEqual(def.keys.map(k => k.t), [0.25, 1], 'the input is left alone');
 });
 
-test('writeRigText keeps a skinned mesh one line per vertex when its weights change (SR-20)', () => {
+test('a skinned mesh stays one line per vertex, so a weight edit or a removed bone is a small diff (SR-20)', () => {
   const robo = readFileSync(new URL('../../games/demo/assets/char/robo/rig.json', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const data = JSON.parse(robo), mesh = data.deformers.findIndex(d => d.mesh?.weights);
-  // One vertex's weight changes: one line of the file changes, nothing else moves.
+  const data = JSON.parse(robo), mesh = data.deformers.findIndex(d => d.mesh?.weights), text = formatRig(data);
+  assert.match(text, /\n {10}"24": \{ "arm_l": 0\.7833, "forearm_l": 0\.2167 \},\n/, 'a vertex\'s weights on one line');
+  assert.match(text, /"verts": \[0, 0, 29, 0, /, 'a list of numbers on one line');
+  // One vertex's weight changes: one line changes.
   const one = structuredClone(data.deformers);
   const v = Object.keys(one[mesh].mesh.weights)[0];
-  one[mesh].mesh.weights[v] = { ...one[mesh].mesh.weights[v], arm_l: 0.5, forearm_l: 0.5 };
-  const a = writeRigText(robo, [{ key: 'deformers', value: one }]);
-  assert.deepEqual(JSON.parse(a).deformers, one);
-  assert.equal(changedLines(robo, a)?.length, 1, 'one weight edit is a one-line diff');
-  // A bone leaves every vertex (what removing a bone does): still one line per vertex, the line count unchanged.
+  one[mesh].mesh.weights[v] = { arm_l: 0.5, forearm_l: 0.5 };
+  assert.equal(changedLines(text, writeRigText(text, [{ key: 'deformers', value: one }]))?.length, 1);
+  // A bone leaves every vertex: each vertex keeps its one line, the line count stays.
   const gone = structuredClone(data.deformers);
   for (const w of Object.values(gone[mesh].mesh.weights)) { delete w.forearm_l; w.arm_l = 1; }
-  const b = writeRigText(robo, [{ key: 'deformers', value: gone }]);
-  assert.deepEqual(JSON.parse(b).deformers, gone);
-  assert.notEqual(changedLines(robo, b), null, 'the line count is unchanged: each vertex keeps its one line');
-  assert.match(b, /\n {10}"24": \{ "arm_l": 1 \},\n/);
-  // A new short object is written on one line, as by hand; a long one is still spread out.
-  const added = structuredClone(data.deformers);
-  added[mesh].mesh.weights['999'] = { arm_l: 0.25, forearm_l: 0.75 };
-  assert.match(writeRigText(robo, [{ key: 'deformers', value: added }]), /"999": \{ "arm_l": 0\.25, "forearm_l": 0\.75 \}/);
+  assert.notEqual(changedLines(text, writeRigText(text, [{ key: 'deformers', value: gone }])), null);
+  // A deformer added after the others: they keep their lines.
+  const added = writeRigText(text, [{ key: 'deformers', value: [...data.deformers, { id: 'new_mesh', part: 'face', mesh: { verts: [0, 0, 1, 0, 0, 1], tris: [0, 1, 2] } }] }]);
+  const before = text.split('\n'), after = added.split('\n');
+  assert.ok(before.filter(l => !after.includes(l)).length <= 1, 'at most the line before it changes (its comma)');
 });

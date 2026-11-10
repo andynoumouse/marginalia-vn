@@ -3,7 +3,7 @@
 
 import { CHECK_TITLES, type BuildFinding, type BuildLanguages, type CheckId, type CheckLevel } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 
 export interface BuildHost {
   /** Show a script line in the editor. */
@@ -72,10 +72,7 @@ export class BuildDialog {
   private returnFocus: (() => void) | null = null;
 
   constructor(host: HTMLElement, private readonly h: BuildHost) {
-    this.root = document.createElement('div');
-    this.root.id = 'build';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root, q } = mountModal(host, 'build', `
       <div class="bd-card" role="dialog" aria-modal="true" aria-label="Build">
         <header><strong>Build</strong><span class="hint">Esc to close. The checks read the saved project.</span>
           <button type="button" class="close" aria-label="Close build">Close</button></header>
@@ -100,9 +97,8 @@ export class BuildDialog {
           <button type="button" class="primary bd-go" disabled>Build</button>
         </div>
         <div class="bd-result" role="status" hidden></div>
-      </div>`;
-    host.append(this.root);
-    const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
+      </div>`, () => this.close());
+    this.root = root;
     this.targetSel = q('.bd-target'); this.folder = q('.bd-folder'); this.folderNote = q('.bd-note'); this.summary = q('.bd-summary');
     this.rows = q('.bd-rows'); this.langBox = q('.bd-langs'); this.ackLabel = q('.bd-ack'); this.ack = q('.bd-ack-box'); this.buildBtn = q('.bd-go');
     this.rerun = q('.bd-rerun'); this.result = q('.bd-result'); this.bot = q('.bd-bot');
@@ -113,10 +109,6 @@ export class BuildDialog {
     });
     // Outside the Studio there is no Electron runtime to copy: the npm folder downloads its own.
     if (!h.portable) this.targetSel.querySelector('option[value=portable]')!.remove();
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    q('.close').addEventListener('click', () => this.close());
-    this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
-    trapModal(this.root, () => this.close());
     this.targetSel.addEventListener('change', () => { if (!this.folderEdited) this.folder.value = defaultFolder(this.target); this.update(); });
     this.folder.addEventListener('input', () => { this.folderEdited = true; this.update(); });
     this.ack.addEventListener('change', () => this.update());

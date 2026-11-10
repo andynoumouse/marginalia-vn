@@ -5,6 +5,8 @@ import { NO_OFFSET, keyframeParts, type AnimDef, type KeyDef, type Offset } from
 import { addKey } from './anim-edit.js';
 import { BONE_REST, boneCycles, composeBones, partsUnder, resolvePivots, type BoneDef, type Box, type Matrix, type PlacedPart } from './bones.js';
 import type { GizmoAxis, GizmoPoint, GizmoTool } from './gizmo.js';
+import { round4 } from './util.js';
+import { isPoint, segmentDistance } from './geometry.js';
 
 /** The rig as the renderer lays it out: bones, the parts (boxes in the same space as the pivots), and the part pivots by part name. */
 export interface RigGeometry {
@@ -32,7 +34,6 @@ export interface GizmoTarget {
 }
 
 const mid = (b: Box): GizmoPoint => [b.x + b.w / 2, b.y + b.h / 2];
-const isPoint = (p: unknown): p is GizmoPoint => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
 
 /** The target for `name` (a part, else a bone) posed with `offsets` (by part or bone name); null when the rig has no such name. */
 export function gizmoTarget(g: RigGeometry, offsets: ReadonlyMap<string, Offset>, name: string): GizmoTarget | null {
@@ -68,7 +69,6 @@ export const offsetDelta = (a: Offset, b: Offset): Offset => ({ dx: b.dx - a.dx,
 export const sumOffset = (a: Offset, b: Offset): Offset => ({ dx: a.dx + b.dx, dy: a.dy + b.dy, sx: a.sx + b.sx, sy: a.sy + b.sy, rot: a.rot + b.rot });
 export const isNoOffset = (o: Offset): boolean => o.dx === 0 && o.dy === 0 && o.sx === 0 && o.sy === 0 && o.rot === 0;
 
-const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
 
 /** The value of each key channel of `def` for `name` at progress `t` (the animation's own, no parameters). */
 export function keyedOffset(def: AnimDef, name: string, t: number): Offset {
@@ -108,11 +108,18 @@ export function gizmoHandles(tool: GizmoTool, f: GizmoFrameScreen, len = GIZMO_L
   ];
 }
 
-const segDist = (p: GizmoPoint, a: GizmoPoint, b: GizmoPoint): number => {
-  const vx = b[0] - a[0], vy = b[1] - a[1], l2 = vx * vx + vy * vy;
-  const t = l2 ? Math.min(1, Math.max(0, ((p[0] - a[0]) * vx + (p[1] - a[1]) * vy) / l2)) : 0;
-  return Math.hypot(p[0] - (a[0] + vx * t), p[1] - (a[1] + vy * t));
-};
+const segDist = (p: GizmoPoint, a: GizmoPoint, b: GizmoPoint): number => segmentDistance(p[0], p[1], a[0], a[1], b[0], b[1]);
+
+/** Extra reach of the rotate ring outside its line, in screen px: a press that just misses the ring outwards still turns (SD-12). */
+export const RING_OUTSIDE = 4;
+
+/**
+ * The rotate ring when `p` is inside it (not on its line): with the Rotate tool a drag that starts anywhere inside turns the subject, as in
+ * Spine and Cubism, while a click without a drag still chooses what is under the pointer (SR-17).
+ */
+export function ringAround(handles: GizmoHandle[], p: GizmoPoint): GizmoHandle | null {
+  return handles.find(h => h.kind === 'ring' && Math.hypot(p[0] - h.at[0], p[1] - h.at[1]) < h.radius) ?? null;
+}
 
 /** The handle under screen point `p` (the tips and the middle first, then the shafts and the ring), or null. */
 export function pickHandle(handles: GizmoHandle[], p: GizmoPoint, tol = 6): GizmoHandle | null {
@@ -122,7 +129,7 @@ export function pickHandle(handles: GizmoHandle[], p: GizmoPoint, tol = 6): Gizm
   const centre = handles.find(h => h.kind === 'box' && h.axis === 'free' && near(h));
   if (centre) return centre;
   for (const h of handles) {
-    if (h.kind === 'ring' && Math.abs(Math.hypot(p[0] - h.at[0], p[1] - h.at[1]) - h.radius) <= tol) return h;
+    if (h.kind === 'ring') { const d = Math.hypot(p[0] - h.at[0], p[1] - h.at[1]) - h.radius; if (d >= -tol && d <= tol + RING_OUTSIDE) return h; }
     if (h.kind === 'arrow' && h.to && segDist(p, h.to, h.at) <= tol) return h;
     if (h.kind === 'box' && h.to && h.axis !== 'free' && segDist(p, h.to, h.at) <= tol) return h;
   }

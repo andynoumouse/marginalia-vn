@@ -2,7 +2,8 @@
 // Wheel zooms at the cursor, dragging pans, Fit / Start recentre, the search box finds labels (Enter: next match).
 
 import { backEdgeLanes, centerOn, fitView, searchOutline, zoomAt, type Outline, type OutlineEdge, type OutlineNode, type ViewState } from '../engine/src/index.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
+import { followPointer } from './pointer.js';
 
 const NODE_W = 176, NODE_H = 54, GAP_X = 140, GAP_Y = 22, PAD = 24;
 const NS = 'http://www.w3.org/2000/svg';
@@ -32,10 +33,7 @@ export class OutlineView {
   private dragged = false;
 
   constructor(host: HTMLElement, private goTo: (file: string, line: number) => void) {
-    this.root = document.createElement('div');
-    this.root.id = 'outline';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root } = mountModal(host, 'outline', `
       <div class="outline-card" role="dialog" aria-modal="true" aria-label="Story outline">
         <header><strong>Story outline</strong>
           <input type="search" class="ol-search" placeholder="Find label or choice (/)" aria-label="Find a label or choice text">
@@ -50,8 +48,8 @@ export class OutlineView {
           <button type="button" class="close" aria-label="Close outline">Close</button></header>
         <div class="outline-body" tabindex="-1"></div>
         <footer class="ol-info" aria-live="polite">Hover a label or an arrow for details.</footer>
-      </div>`;
-    host.append(this.root);
+      </div>`, () => this.close(), { escape: false });
+    this.root = root;
     this.body = this.root.querySelector('.outline-body')!;
     this.search = this.root.querySelector('.ol-search')!;
     this.count = this.root.querySelector('.ol-count')!;
@@ -65,10 +63,7 @@ export class OutlineView {
     canvas.append(defs, this.stage);
     this.body.append(canvas);
 
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    this.root.querySelector('.close')!.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => this.onKey(e));
-    trapModal(this.root, () => this.close());
     this.root.querySelector('.ol-tools')!.addEventListener('click', e => {
       const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
       if (act) this.act(act);
@@ -183,14 +178,10 @@ export class OutlineView {
       this.body.classList.add('panning');
       this.setView({ ...v0, x: v0.x + m.clientX - sx, y: v0.y + m.clientY - sy });
     };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+    followPointer(window, move, () => {
       this.body.classList.remove('panning');
       setTimeout(() => { this.dragged = false; }); // after the click that ends a drag
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    });
   }
 
   private runSearch() {

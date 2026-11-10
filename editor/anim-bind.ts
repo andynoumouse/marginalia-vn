@@ -10,7 +10,7 @@
 
 import { EASE_NAMES, PAD_SIZES, type Breadcrumb, type BindKind, type FocusHeaderView, type FormOpId, type FullForm, type FormValue, type PadSize, type PickVerb } from '../engine/src/index.js';
 import { ContextMenu } from './context-menu.js';
-import { el, layoutRows } from './anim-dom.js';
+import { el, layoutRows, pickEase, showEase } from './anim-dom.js';
 import { Popover } from './studio-popover.js';
 
 export type FormField = keyof FormValue;
@@ -82,6 +82,8 @@ type HeaderVerb = PickVerb;
 
 const shown = (v: number) => String(Math.round(v * 1000) / 1000);
 const shown4 = (v: number) => String(Math.round(v * 1e4) / 1e4);
+/** The units of the pose fields, said under them rather than only on hover (SR-16); Animate's "At the playhead" fields share them. */
+export const UNITS = 'x, y: fractions of the stage · rot: degrees · sx, sy: added to 1 (0 is as drawn) · opacity: 0 to 1';
 const FORM_INPUTS: { field: FormField; label: string; step: string; title: string }[] = [
   { field: 'dx', label: 'x', step: '0.005', title: 'Sideways move, as a fraction of the stage' },
   { field: 'dy', label: 'y', step: '0.005', title: 'Vertical move, as a fraction of the stage' },
@@ -149,7 +151,8 @@ export class BindPanel {
       <div class="ab-grid"><label class="ab-size">Grid on a pad <select aria-label="Grid of a pad's keys when a part is bound to it">${PAD_SIZES.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label></div>
       <div class="ab-form"><span class="as-pivot-name">Pose</span><span class="ab-formtext"></span>
         ${FORM_INPUTS.map(f => `<label title="${f.title}">${f.label} <input type="number" data-bf="${f.field}" step="${f.step}"${f.field === 'opacity' ? ' min="0"' : ''}></label>`).join('')}
-        <label class="ab-easelabel" title="How the slider moves from the key before this one to this key (linear: straight)">ease <select class="ab-ease" aria-label="Curve into this key from the previous one">${EASE_NAMES.map(n => `<option value="${n}">${n}</option>`).join('')}</select></label></div>
+        <label class="ab-easelabel" title="How the slider moves from the key before this one to this key (linear: straight)">ease <select class="ab-ease" aria-label="Curve into this key from the previous one">${EASE_NAMES.map(n => `<option value="${n}">${n}</option>`).join('')}</select></label>
+        <span class="as-pivot-hint ab-units">${UNITS}</span></div>
       <div class="ab-points"></div>
       <div class="ab-ops" role="group" aria-label="This key's pose">${OPS.map(o => `<button type="button" class="${o.cls}" data-op="${o.id}"></button>`).join('')}</div>`;
     layoutRows(this.root);
@@ -206,7 +209,7 @@ export class BindPanel {
       const ops = (this.host.view().header?.formOps ?? []).filter(o => o.id !== 'resetForm');
       (this.menu ??= new ContextMenu(this.header.closest<HTMLElement>('#animStudio') ?? document.body)).open(e, more, ops.map(o => ({ label: o.label, title: o.title, disabled: !o.enabled, run: () => this.host.formOp(o.id) })));
     });
-    q<HTMLSelectElement>('.ab-ease').addEventListener('change', e => this.host.setEase((e.target as HTMLSelectElement).value));
+    q<HTMLSelectElement>('.ab-ease').addEventListener('change', async e => { const ease = await pickEase(e.target as HTMLSelectElement); if (ease !== null) this.host.setEase(ease); });
   }
 
   /** Draw again from the studio's state. A part of the block whose content did not change is left as it is, so a focused button keeps focus. */
@@ -263,7 +266,7 @@ export class BindPanel {
     }
     const easeSel = this.formRow.querySelector<HTMLSelectElement>('.ab-ease')!, hasEase = v.form.ease !== undefined && v.form.ease !== null;
     this.formRow.querySelector<HTMLElement>('.ab-easelabel')!.hidden = !fields || !hasEase; // only a pose's slider key reaches its pose along a curve
-    if (hasEase) easeSel.value = v.form.ease!;
+    if (hasEase) showEase(easeSel, v.form.ease!);
   }
 
   /** The focus header: the words and their ▾ lists, then the action row. */

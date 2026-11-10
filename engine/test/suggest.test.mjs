@@ -23,6 +23,7 @@ test('wordSpan finds a whole word outside quotes', () => {
   assert.deepEqual(wordSpan('jump endx  # endx', 'endx'), [5, 9]);
   assert.deepEqual(wordSpan('  mnia: "mnia is here" mnia', 'mnia'), [2, 6]);
   assert.deepEqual(wordSpan('  "mnia" mnia', 'mnia'), [9, 13]);
+  assert.deepEqual(wordSpan('  "a\\\\" mnia "mnia"', 'mnia'), [8, 12]); // an escaped backslash does not escape the closing quote
   assert.equal(wordSpan('show alice_b', 'alice'), null); // part of a longer name
   assert.equal(wordSpan('show bob', 'alice'), null);
 });
@@ -73,11 +74,11 @@ test('syntax slips say what to write, and the rest of the block still reads (UX 
     '4 error: A # comment goes on a line of its own, not after "else...:"',
   ]);
   assert.deepEqual(msgs(run(['label start:', '  menu "Pick #1": # hm', '    "A":', '      "a"'])), ['2 error: A # comment goes on a line of its own, not after "menu...:"']);
-  // a label name with a character outside a-z, digits and _ (a Finnish name, say), the block still read
-  assert.deepEqual(msgs(run(['label start:', '  jump a', 'label päivä_1:', '  "Hei."', 'label 2b:', '  "x"', 'label:'])), [
-    '3 error: Label names use the letters a-z, digits and _, and do not start with a digit: "päivä_1" has "ä"',
-    '5 error: Label names use the letters a-z, digits and _, and do not start with a digit: "2b" has "2"',
+  // a label name in another alphabet is a name (EL-11); one starting with a digit or holding a dash is not, and the block is still read
+  assert.deepEqual(msgs(run(['label start:', '  jump a', 'label päivä_1:', '  "Hei."', 'label 2b:', '  "x"', 'label:', 'label a-b:', '  "y"'])), [
+    '5 error: Label names use letters, digits and _, and do not start with a digit: "2b" has "2"',
     '7 error: Use: label <name>:  or  label <name>(<parameters>):',
+    '8 error: Label names use letters, digits and _, and do not start with a digit: "a-b" has "-"',
     '2 error: Unknown label "a"', // the link step comes after the parse; the blocks under the bad names raised nothing of their own
   ]);
   // habits from other languages, and `set` that is not name = value

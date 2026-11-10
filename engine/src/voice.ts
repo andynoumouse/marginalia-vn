@@ -1,4 +1,8 @@
 import { csvCell, type StringRow } from './translation.js';
+import { AUDIO_EXTS, AUDIO_FILE, extAlternatives } from './asset-kinds.js';
+
+/** A take in voice/: the file name without its extension in group 1. */
+const VOICE_TAKE = new RegExp(`^voice/([^/]+)\\.(?:${extAlternatives(AUDIO_EXTS)})$`, 'i');
 
 /**
  * A recording's name is its file name under `assets/voice/` without the audio extension: `ab12` for the default take, `ab12.fi` for
@@ -49,7 +53,7 @@ export interface BuildLanguages {
 /** Whether an asset (path under assets/) ships: only voice files in a language left out of `voice` are dropped. */
 export function shipsAsset(file: string, voice: string[] | undefined, source: string): boolean {
   if (!voice) return true;
-  const m = /^voice\/([^/]+)\.(?:ogg|mp3|wav|m4a|flac|opus)$/i.exec(file);
+  const m = VOICE_TAKE.exec(file);
   return !m || voice.includes(splitVoiceName(m[1]).lang ?? source);
 }
 
@@ -72,7 +76,7 @@ export function buildLanguages(
 export function voiceLanguages(files: string[], source: string): string[] {
   const out = new Set<string>();
   for (const f of files) {
-    const m = /^voice\/([^/]+)\.(?:ogg|mp3|wav|m4a|flac|opus)$/i.exec(f);
+    const m = VOICE_TAKE.exec(f);
     if (m) out.add(splitVoiceName(m[1]).lang ?? source);
   }
   return [...out].sort();
@@ -215,7 +219,6 @@ export function voiceRows(rows: StringRow[], lang: string | null, recordings: Re
   return { rows: out, total, voiced, outdated };
 }
 
-const AUDIO_EXT = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 
 /**
  * Sorts dropped file names into the lines they are recordings of for `lang`: a file already named `<id>.<ext>` (default take) or
@@ -229,7 +232,7 @@ export function matchVoiceDrops(files: string[], lang: string | null, ids: Itera
   const rest: string[] = [];
   for (const file of files) {
     const base = file.split(/[\/]/).pop() ?? '';
-    const name = AUDIO_EXT.test(base) ? base.replace(AUDIO_EXT, '') : '';
+    const name = AUDIO_FILE.test(base) ? base.replace(AUDIO_FILE, '') : '';
     const { id, lang: l } = splitVoiceName(name);
     if (name && l === lang && known.has(id) && !taken.has(name)) { taken.add(name); matched.push({ name, file }); } else rest.push(file);
   }

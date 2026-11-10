@@ -10,6 +10,8 @@ import type { LocalSets, ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import { withFix } from './suggest.js';
 import { ElementSyntaxError, startsWithClause, parseEachHeader, parseElementLine, parseLayoutHeader, parsePanelHeader, parseScrollHeader } from './screen-syntax.js';
+import { isScriptName, mixedAlphabets } from './names.js';
+import { endsInString, withoutComment } from './script-lex.js';
 import { TRANSITIONS, UNRESOLVED, type CharacterDef, type Diagnostic, type ItemDef, type OpBody, type Src, type Transition, type VisualBody } from './types.js';
 
 // Line shapes shared with the id tool (ids.ts).
@@ -22,8 +24,9 @@ export const RE_INPUT_ID = /[ \t]#([A-Za-z0-9]{4,8})$/;
 // `"Text" [#id] [if cond [else "Reason" [#id]]]:`; with an `else` an option whose condition fails is shown disabled, with the reason.
 export const RE_OPT = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?(?:[ \t]+if[ \t]+(.+?)(?:[ \t]+else[ \t]+"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?)?[ \t]*:$/;
 
-const RE_LABEL = /^label[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:$/;
-const RE_CALL = /^call[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\((.*)\))?[ \t]*(?:#.*)?$/;
+// Labels, variables, screens and parameters take letters of any alphabet (names.ts); the classes are written out, with the u flag.
+const RE_LABEL = /^label[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:$/u;
+const RE_CALL = /^call[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*(?:\((.*)\))?[ \t]*(?:#.*)?$/u;
 const RESERVED_WORDS = ['true', 'false', 'and', 'or', 'not'];
 /** What each block opener looks like, for a line that starts with one but is not written right (see FileParser.slip). */
 const OPENER_USAGE: Record<string, string> = {
@@ -35,16 +38,6 @@ const OPENER_USAGE: Record<string, string> = {
   transform: 'Use: transform <name>:  or  transform <name>(<parameters>):',
   choreography: 'Use: choreography <name>:',
 };
-/** The line without a trailing `# comment`: a # with a space before and after it, outside quotes (`#ff6fa5` and `#ab12` are a colour and an id). */
-function withoutComment(t: string): string {
-  let quoted = false;
-  for (let i = 0; i < t.length; i++) {
-    if (t[i] === '\\') i++;
-    else if (t[i] === '"') quoted = !quoted;
-    else if (t[i] === '#' && !quoted && i > 0 && /\s/.test(t[i - 1]) && (i + 1 === t.length || /\s/.test(t[i + 1]))) return t.slice(0, i).trimEnd();
-  }
-  return t;
-}
 // `menu ["Prompt" [#id]] [timeout <seconds>]:`
 export const RE_MENU = /^menu(?:[ \t]+"((?:[^"\\]|\\.)+)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?(?:[ \t]+style=(\w+))?(?:[ \t]+timeout[ \t]+(.+?))?[ \t]*:$/;
 const RE_ON_TIMEOUT = /^on[ \t]+timeout[ \t]*:$/;
@@ -52,13 +45,13 @@ const RE_TRANSFORM = /^transform[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*
 const RE_CHOREO = /^choreography[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:$/;
 const RE_CHOREO_LINE = /^((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?)[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*:[ \t]*(\S.*)$/;
 const RE_TRANSFORM_AUTO = /^(?:every[ \t]+((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?)(?:\.\.((?:\d+(?:\.\d+)?|\.\d+)(?:ms|s)?))?)?(?:[ \t]*while[ \t]+(.+))?$/;
-const RE_SCREEN = /^screen[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:?$/;
-const RE_SHOW_SCREEN = /^show[ \t]+screen[ \t]+([A-Za-z_]\w*)[ \t]*(?:\((.*)\))?(?:[ \t]+as[ \t]+([A-Za-z_]\w*))?[ \t]*(?:#.*)?$/;
+const RE_SCREEN = /^screen[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*(?:\(([^()]*)\))?[ \t]*:?$/u;
+const RE_SHOW_SCREEN = /^show[ \t]+screen[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*(?:\((.*)\))?(?:[ \t]+as[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*))?[ \t]*(?:#.*)?$/u;
 export const RE_DEFINE_ITEM = /^define[ \t]+item[ \t]+[A-Za-z_]\w*(?=[ \t]|$)/;
 const RE_IF = /^if[ \t]+(.+?)[ \t]*:$/;
 const RE_ELIF = /^elif[ \t]+(.+?)[ \t]*:$/;
 const RE_ELSE = /^else[ \t]*:$/;
-const RE_SET = /^set[ \t]+((?:persistent\.)?[A-Za-z_][A-Za-z0-9_]*)[ \t]*(=|\+=|-=|\*=|\/=)[ \t]*(.+)$/;
+const RE_SET = /^set[ \t]+((?:persistent\.)?[\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*(=|\+=|-=|\*=|\/=)[ \t]*(.+)$/u;
 
 export type Node =
   | { k: 'op'; src: Src; body: OpBody }
@@ -549,8 +542,7 @@ function parseFilterCommand(c: Cmd): OpBody {
 
 function parseHudCommand(c: Cmd): OpBody {
   const a = c.a;
-  const word = /^[A-Za-z_]\w*$/;
-  if ((a[0] !== 'on' && a[0] !== 'off') || !word.test(a[1] ?? '') || a.length > (a[0] === 'on' && a[2] === 'keep' ? 3 : 2)) throw new ParseError('Use: hud on <screen> [keep]  or  hud off <screen>');
+  if ((a[0] !== 'on' && a[0] !== 'off') || !isScriptName(a[1] ?? '') || a.length > (a[0] === 'on' && a[2] === 'keep' ? 3 : 2)) throw new ParseError('Use: hud on <screen> [keep]  or  hud off <screen>');
   return { op: 'hud', mode: a[0], name: a[1], keep: a[2] === 'keep' };
 }
 
@@ -718,7 +710,7 @@ function parseInputCommand(c: Cmd): OpBody {
   const { need } = c;
   const a = c.a;
   const name = need(0, 'a variable name');
-  if (!/^[A-Za-z_]\w*$/.test(name)) throw new ParseError('Use: input <variable> "Prompt" [default="Name"] [max=16]');
+  if (!isScriptName(name)) throw new ParseError('Use: input <variable> "Prompt" [default="Name"] [max=16]');
   let prompt = '', def = '', max = 24, id: string | null = null;
   for (const t of a.slice(1)) {
     if (/^#[A-Za-z0-9]{4,8}$/.test(t)) { id = t.slice(1); continue; }
@@ -801,7 +793,8 @@ class FileParser {
       const no = idx + 1;
       if (/^\s*$/.test(raw) || /^\s*#/.test(raw)) return;
       if (/^ *\t/.test(raw)) { this.diags.push({ file: this.file, line: no, severity: 'error', message: 'Use spaces for indentation, not tabs' }); return; }
-      this.lines.push({ no, indent: raw.length - raw.trimStart().length, text: raw.trim() });
+      // NFC: a name typed as a + combining ring and one typed as å are the same name (an editor or a paste may give either).
+      this.lines.push({ no, indent: raw.length - raw.trimStart().length, text: raw.trim().normalize('NFC') });
     });
     const top = this.parseBlock(0);
     return { file: this.file, nodes: top.nodes, characters: this.characters, items: this.items, screens: this.screens, transforms: this.transforms, choreographies: this.choreographies };
@@ -809,6 +802,11 @@ class FileParser {
 
   private err(ln: RawLine, message: string) { this.diags.push({ file: this.file, line: ln.no, severity: 'error', message }); }
   private warn(ln: RawLine, message: string) { this.diags.push({ file: this.file, line: ln.no, severity: 'warning', message }); }
+  /** A name that mixes letters of alphabets that look alike (a Latin a and a Cyrillic а) is almost always a slip: say so. */
+  private lookalikes(ln: RawLine, name: string, what: string) {
+    const mixed = mixedAlphabets(name);
+    if (mixed) this.warn(ln, `The ${what} name "${name}" mixes ${mixed.join(' and ')} letters, which look alike: retype it in one alphabet`);
+  }
   private src(ln: RawLine): Src { return { file: this.file, line: ln.no }; }
   private exprOf(ln: RawLine, s: string): Expr | null {
     try { return parseExpr(s); } catch (e) { this.err(ln, e instanceof ExprError ? e.message : String(e)); return null; }
@@ -896,7 +894,7 @@ class FileParser {
         }
         if (word === 'state') {
           if (inEach || inLayout || !RE_SCREEN.test(header.text)) throw new ElementSyntaxError('"state" belongs directly in the screen, not inside each, row, column, grid or an element');
-          const m = /^state[ \t]+([A-Za-z_]\w*)[ \t]*=(?!=)[ \t]*(\S.*)$/.exec(l.text);
+          const m = /^state[ \t]+([\p{L}_][\p{L}\p{N}\p{M}_]*)[ \t]*=(?!=)[ \t]*(\S.*)$/u.exec(l.text);
           if (!m) throw new ElementSyntaxError('Use: state <name> = <value or expression>');
           if (RESERVED_WORDS.includes(m[1])) throw new ElementSyntaxError(`"${m[1]}" is not a valid state name`);
           if (def.params?.includes(m[1])) throw new ElementSyntaxError(`"${m[1]}" is already a parameter of this screen`);
@@ -1001,7 +999,7 @@ class FileParser {
     const inout: string[] = [];
     const params = written.map(s => { const m = /^inout[ \t]+(\S.*)$/.exec(s); if (m) inout.push(m[1].trim()); return m ? m[1].trim() : s; });
     for (const [idx, p] of params.entries()) {
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p) || RESERVED_WORDS.includes(p)) this.err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
+      if (!isScriptName(p) || RESERVED_WORDS.includes(p)) this.err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
       else if (params.indexOf(p) !== idx) this.err(ln, `Parameter "${p}" is listed twice`);
     }
     const def: ScreenDef = { name, src: this.src(ln), body: [], default: null, cancel: false, ...(params.length ? { params } : {}), ...(inout.length ? { inout } : {}) };
@@ -1148,9 +1146,9 @@ class FileParser {
     if (word === 'label') {
       const name = /^label[ \t]+([^\s(:]+)/.exec(withoutComment(t))?.[1];
       if (!name) { this.err(ln, OPENER_USAGE.label); return { node: null }; }
-      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-        const bad = [...name].find((c, i) => !(i ? /\w/ : /[A-Za-z_]/).test(c))!;
-        this.err(ln, `Label names use the letters a-z, digits and _, and do not start with a digit: "${name}" has "${bad}"`);
+      if (!isScriptName(name)) {
+        const bad = [...name].find((c, i) => !(i ? /[\p{L}\p{N}\p{M}_]/u : /[\p{L}_]/u).test(c))!;
+        this.err(ln, `Label names use letters, digits and _, and do not start with a digit: "${name}" has "${bad}"`);
         if (withoutComment(t).endsWith(':')) this.parseChild(ln); // its block is read, not reported as stray indentation
         return { node: null };
       }
@@ -1189,9 +1187,10 @@ class FileParser {
 
     if ((m = RE_LABEL.exec(t))) {
       if (this.depth > 0) this.err(ln, 'Labels must be at the top level');
+      this.lookalikes(ln, m[1], 'label');
       const params = (m[2] ?? '').split(',').map(s => s.trim()).filter((s, idx, all) => s !== '' || all.length > 1);
       for (const [idx, p] of params.entries()) {
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(p) || RESERVED_WORDS.includes(p)) this.err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
+        if (!isScriptName(p) || RESERVED_WORDS.includes(p)) this.err(ln, `"${p}" is not a valid parameter name (letters, digits and _)`);
         else if (params.indexOf(p) !== idx) this.err(ln, `Parameter "${p}" is listed twice`);
       }
       return { k: 'label', src: this.src(ln), name: m[1], params, body: this.parseChild(ln).nodes };
@@ -1279,6 +1278,7 @@ class FileParser {
       return { k: 'op', src: this.src(ln), body: { op: 'say', who: m[1], text: unescapeText(m[2]), id: m[4] ?? null, ...(m[3] ? { look: m[3] } : {}) } };
     }
     if ((m = RE_SET.exec(t))) {
+      this.lookalikes(ln, m[1].replace(/^persistent\./, ''), 'variable');
       const e = this.exprOf(ln, m[3]);
       if (!e) return null;
       return { k: 'op', src: this.src(ln), body: { op: 'set', name: m[1], assign: m[2] as '=', expr: e } };
@@ -1327,8 +1327,7 @@ class FileParser {
     }
     if (t.startsWith('"')) {
       // Not narration and not an option: say so, not `Unknown command "The rain falls."` (a missing or doubled closing quote).
-      const quotes = t.replace(/\\./g, '').split('"').length - 1;
-      this.err(ln, quotes % 2 === 1 ? 'Missing or extra quote: narration is "text" with one closing quote' : 'Narration is one "quoted text" per line, then an optional style= and #id');
+      this.err(ln, endsInString(t) ?'Missing or extra quote: narration is "text" with one closing quote' : 'Narration is one "quoted text" per line, then an optional style= and #id');
       return null;
     }
     try {

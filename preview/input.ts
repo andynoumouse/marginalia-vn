@@ -14,6 +14,22 @@ export type Action = Dir | 'confirm' | 'cancel' | 'tabPrev' | 'tabNext' | 'backs
 export interface Box { x: number; y: number; w: number; h: number }
 
 /**
+ * Calls `move` for each pointermove on `target` until the pointer is released or cancelled (a touch the browser takes
+ * over), then `end` with that last event. Ending on pointercancel too keeps a drag from staying half open.
+ */
+export function followPointer(target: EventTarget, move: (m: PointerEvent) => void, end?: (m: PointerEvent) => void): void {
+  const stop = (m: Event) => {
+    target.removeEventListener('pointermove', move as EventListener);
+    target.removeEventListener('pointerup', stop);
+    target.removeEventListener('pointercancel', stop);
+    end?.(m as PointerEvent);
+  };
+  target.addEventListener('pointermove', move as EventListener);
+  target.addEventListener('pointerup', stop);
+  target.addEventListener('pointercancel', stop);
+}
+
+/**
  * Focus `el` for a prompt or menu that just opened, unless the game sits in the editor and the player is not in it:
  * focusing inside a same-origin iframe pulls focus out of the editor, and every edit replays the preview to the cursor.
  */

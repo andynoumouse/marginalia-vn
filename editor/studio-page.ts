@@ -5,7 +5,7 @@
 // (preview/index.html in studio mode, `hosted`) gets its project from here by postMessage instead of from the dev server.
 
 import {
-  rigFile, scanFolder, standaloneChar, studioDocOf, studioWrites, writeRigText,
+  IMAGE_FILE, rigFile, scanFolder, standaloneChar, studioDocOf, studioWrites, writeRigText,
   type CharacterOption, type StandaloneChar, type StandaloneFile,
 } from '../engine/src/index.js';
 import { AnimStudio, type StageProject, type StudioHost } from './anim-studio.js';
@@ -13,7 +13,6 @@ import { bridgeStore, directoryPicker, directoryStore, studioBridge, type Charac
 import { manifestHost } from './studio-host.js';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 const MIME: Record<string, string> = { png: 'image/png', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg', avif: 'image/avif' };
 const aborted = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -41,7 +40,7 @@ function stageProject(c: StandaloneChar): StageProject {
 /** Read the character's files (its two JSON files and its images; a PSD or notes beside them stay unread) and open the studio on it. */
 async function openCharacter(store: CharacterStore, paths: string[], option: CharacterOption) {
   say(`Reading ${option.name}...`);
-  const wanted = paths.filter(p => p.startsWith(option.base) && (IMAGE.test(p) || p === `${option.base}sprite.json` || p === `${option.base}rig.json`));
+  const wanted = paths.filter(p => p.startsWith(option.base) && (IMAGE_FILE.test(p) || p === `${option.base}sprite.json` || p === `${option.base}rig.json`));
   const got = await Promise.all(wanted.map(async path => ({ path, ...(await store.read(path)) })));
   const texts = new Map<string, string>();
   for (const g of got) if (g.path.endsWith('.json')) texts.set(g.path, await g.bytes.text());
@@ -53,7 +52,7 @@ async function openCharacter(store: CharacterStore, paths: string[], option: Cha
   let data: unknown;
   try { data = JSON.parse(rigText); } catch (e) { say(`${rigPath} has errors (${message(e)}); fix it in a text editor first.`, true); return; }
   for (const url of urls.values()) URL.revokeObjectURL(url);
-  urls = new Map(got.filter(g => IMAGE.test(g.path)).map(g => [g.path.slice(option.base.length), URL.createObjectURL(new Blob([g.bytes], { type: MIME[g.path.split('.').pop()!.toLowerCase()] ?? '' }))]));
+  urls = new Map(got.filter(g => IMAGE_FILE.test(g.path)).map(g => [g.path.slice(option.base.length), URL.createObjectURL(new Blob([g.bytes], { type: MIME[g.path.split('.').pop()!.toLowerCase()] ?? '' }))]));
 
   const start = studioDocOf(data);
   const host: StudioHost = {

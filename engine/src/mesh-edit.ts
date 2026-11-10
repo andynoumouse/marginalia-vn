@@ -4,9 +4,10 @@
 
 import { MESH_MAX_VERTS, deformerPoints, type DeformerDef, type DeformerMesh, type MeshWeights, type ParamDef } from './params.js';
 import { resampleWeights } from './skin-edit.js';
-import { cleanSelection, deformerOf, ownDisplacement, setWarpOwn, type WarpVec } from './warp-edit.js';
+import { deformerOf, mirrorPoints, smoothPoints, transformPoints, type WarpVec } from './warp-edit.js';
 import { locateInMesh, meshAdjacency } from './mesh.js';
 import type { GeneratedMesh, MeshDetail } from './mesh-gen.js';
+import { nearestOnSegment } from './geometry.js';
 
 /** The detail steps in the order the studio offers them, with the labels it shows. */
 export const MESH_DETAIL_STEPS: readonly { id: MeshDetail; label: string }[] = [
@@ -78,36 +79,17 @@ export function meshMirrorPartners(verts: ArrayLike<number>, pixels: readonly [n
  */
 export function mirrorMeshWarp(def: DeformerDef, param: ParamDef, value: number, from: 'left' | 'right', pixels: readonly [number, number], only?: readonly number[]): { def: DeformerDef; unpaired: number[] } {
   if (!def.mesh) return { def, unpaired: [] };
-  const n = deformerPoints(def), own = ownDisplacement(def, param, value), partner = meshMirrorPartners(def.mesh.verts, pixels), mid = pixels[0] / 2;
-  const edits: [number, WarpVec][] = [], unpaired: number[] = [];
-  const onAxis = (p: number) => partner[p] === p;
-  if (only) {
-    for (const p of cleanSelection(only, n)) {
-      const q = partner[p];
-      if (q < 0) unpaired.push(p); else if (onAxis(p)) edits.push([p, [0, own[p * 2 + 1]]]); else edits.push([q, [-own[p * 2], own[p * 2 + 1]]]);
-    }
-  } else {
-    for (let p = 0; p < n; p++) {
-      const x = def.mesh.verts[p * 2];
-      if (!onAxis(p) && (from === 'left' ? x <= mid : x >= mid)) continue; // the source half (and its middle-ish vertices) stays
-      const q = partner[p];
-      if (q < 0) unpaired.push(p); else if (onAxis(p)) edits.push([p, [0, own[p * 2 + 1]]]); else edits.push([p, [-own[q * 2], own[q * 2 + 1]]]);
-    }
-  }
-  return { def: setWarpOwn(def, param, value, edits), unpaired };
+  const partner = meshMirrorPartners(def.mesh.verts, pixels), mid = pixels[0] / 2, verts = def.mesh.verts;
+  // Vertices just off the middle on the source side stay with it.
+  const overwritten = (p: number) => (from === 'left' ? verts[p * 2] > mid : verts[p * 2] < mid);
+  return mirrorPoints(def, param, value, deformerPoints(def), p => partner[p], overwritten, only);
 }
 
 /** Moves each vertex of the keyform at `value` `amount` (0-1) of the way to the average of the vertices it shares an edge with; with `only`, just those. */
 export function smoothMeshWarp(def: DeformerDef, param: ParamDef, value: number, amount = 0.5, only?: readonly number[]): DeformerDef {
   if (!def.mesh) return def;
-  const n = deformerPoints(def), own = ownDisplacement(def, param, value), adj = meshAdjacency(n, def.mesh.tris), edits: [number, WarpVec][] = [];
-  for (const p of only ? cleanSelection(only, n) : Array.from({ length: n }, (_, i) => i)) {
-    const around = adj[p];
-    if (!around.length) continue;
-    const avg = [0, 1].map(c => around.reduce((s, q) => s + own[q * 2 + c], 0) / around.length);
-    edits.push([p, [own[p * 2] + (avg[0] - own[p * 2]) * amount, own[p * 2 + 1] + (avg[1] - own[p * 2 + 1]) * amount]]);
-  }
-  return setWarpOwn(def, param, value, edits);
+  const n = deformerPoints(def), adj = meshAdjacency(n, def.mesh.tris);
+  return smoothPoints(def, param, value, n, p => adj[p], amount, only);
 }
 
 /**
@@ -120,17 +102,8 @@ export function transformMeshPoints(
   by: { scale?: number | WarpVec; rotate?: number; about?: 'selection' | 'lattice' },
 ): DeformerDef {
   if (!def.mesh) return def;
-  const n = deformerPoints(def), own = ownDisplacement(def, param, value), ok = cleanSelection(points, n), verts = def.mesh.verts;
-  if (!ok.length) return def;
-  const k: WarpVec = [pixels[0] > 0 ? box.w / pixels[0] : 0, pixels[1] > 0 ? box.h / pixels[1] : 0];
-  const [sx, sy] = typeof by.scale === 'number' ? [by.scale, by.scale] : by.scale ?? [1, 1], a = ((by.rotate ?? 0) * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
-  const rest = (p: number): WarpVec => [verts[p * 2] * k[0], verts[p * 2 + 1] * k[1]];
-  const at = (p: number): WarpVec => { const r = rest(p); return [r[0] + own[p * 2], r[1] + own[p * 2 + 1]]; };
-  const pivot: WarpVec = by.about === 'lattice' ? [box.w / 2, box.h / 2] : [0, 1].map(c => ok.reduce((s, p) => s + at(p)[c], 0) / ok.length) as WarpVec;
-  return setWarpOwn(def, param, value, ok.map(p => {
-    const [x, y] = at(p), dx = (x - pivot[0]) * sx, dy = (y - pivot[1]) * sy, r = rest(p);
-    return [p, [pivot[0] + dx * cos - dy * sin - r[0], pivot[1] + dx * sin + dy * cos - r[1]]] as [number, WarpVec];
-  }));
+  const verts = def.mesh.verts, k: WarpVec = [pixels[0] > 0 ? box.w / pixels[0] : 0, pixels[1] > 0 ? box.h / pixels[1] : 0];
+  return transformPoints(def, param, value, points, deformerPoints(def), p => [verts[p * 2] * k[0], verts[p * 2 + 1] * k[1]], box, by);
 }
 
 // ---- topology edits (docs/design/free-mesh.md, step 5) ----
@@ -208,10 +181,7 @@ function finish(verts: number[], tris: number[], changed: readonly number[]): Me
   return problem ? { error: problem } : { mesh: { verts, tris } };
 }
 
-const distToSegment = (px: number, py: number, ax: number, ay: number, bx: number, by: number): { d: number; t: number } => {
-  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
-  return { d: Math.hypot(px - (ax + dx * t), py - (ay + dy * t)), t };
-};
+const distToSegment = nearestOnSegment;
 
 /** The index of the triangle (not its offset) holding the directed edge a -> b, or -1. */
 function triWithEdge(tris: readonly number[], a: number, b: number): number {

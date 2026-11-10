@@ -2,33 +2,16 @@
 // studio. Not in the fast set (it needs a browser): `npm run test:dock`. Skipped without playwright-core or a Chrome/Edge.
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
-import { fileURLToPath } from 'node:url';
+import { launchBrowser, startDevServer } from './helpers.mjs';
 
-const root = fileURLToPath(new URL('../..', import.meta.url));
-let chromium;
-try { ({ chromium } = await import('playwright-core')); } catch { /* optional */ }
-
-const freePort = () => new Promise((resolve, reject) => {
-  const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }).on('error', reject);
-});
-
+const PAGE = '/editor/dock-sandbox.html';
 let server, browser, url, skip;
 before(async () => {
-  if (!chromium) { skip = 'playwright-core is not installed'; return; }
-  for (const opts of process.env.VN_BROWSER ? [{ executablePath: process.env.VN_BROWSER }] : [{ channel: 'msedge' }, { channel: 'chrome' }]) {
-    try { browser = await chromium.launch(opts); break; } catch { /* next */ }
-  }
-  if (!browser) { skip = 'no Chrome or Edge found (set VN_BROWSER)'; return; }
-  const port = await freePort();
-  url = `http://localhost:${port}/editor/dock-sandbox.html`;
-  server = spawn(process.execPath, ['preview/dev-server.mjs', '--studio-only', '--no-build'], { cwd: root, env: { ...process.env, PORT: String(port) }, stdio: 'ignore' });
-  for (let i = 0; ; i++) {
-    try { if ((await fetch(url)).ok) break; } catch { /* not listening yet */ }
-    if (i > 100) throw new Error('dev server did not start');
-    await new Promise(r => setTimeout(r, 100));
-  }
+  ({ browser, skip } = await launchBrowser());
+  if (!browser) return;
+  const started = await startDevServer({ args: ['--studio-only', '--no-build'], ready: PAGE });
+  server = started.server;
+  url = started.origin + PAGE;
 });
 after(async () => { await browser?.close(); server?.kill(); });
 

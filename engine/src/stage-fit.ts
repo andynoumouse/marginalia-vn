@@ -25,8 +25,15 @@ export function stageInsets(vw: number, vh: number, stage: StageSize, insets: In
   return { top: px(insets.top, barY), right: px(insets.right, barX), bottom: px(insets.bottom, barY), left: px(insets.left, barX) };
 }
 
-/** True when a touch device is held the wrong way for the stage (a landscape game in a portrait window, or the reverse). */
+/** Below this many CSS px on its short side, a stage fitted into a window held the wrong way is too small to play. */
+export const ROTATE_BELOW = 400;
+
+/**
+ * True when a touch device is held the wrong way for the stage (a landscape game in a portrait window, or the reverse) and
+ * the stage would be too small that way: a phone gets the cover, a tablet (a 1920x1080 stage is 768x432 on a 768x1024 one) plays.
+ */
 export function needsRotate(vw: number, vh: number, stage: StageSize, coarse: boolean): boolean {
   if (!coarse || stage.width === stage.height) return false;
-  return (stage.width > stage.height) !== (vw > vh) && vw !== vh;
+  if ((stage.width > stage.height) === (vw > vh) || vw === vh) return false;
+  return Math.min(stage.width, stage.height) * fitScale(vw, vh, stage) < ROTATE_BELOW;
 }

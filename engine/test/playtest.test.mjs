@@ -168,6 +168,36 @@ test('screens: every enabled element is an answer, `cancel` too; shell actions a
   assert.deepEqual(r.endings.map(e => e.route), [['map: a']]); // the cancel answer reaches the same end, so one route is kept
 });
 
+test('a room screen that loops back to itself: no endless loop, the locked door opens once the key is taken', () => {
+  const room = [
+    'screen room:',
+    '  hotspot shelf at 0,0 size 100,100 "Shelf"',
+    '  hotspot key ellipse at 200,0 size 50,50 "Key" if not has_key',
+    '  hotspot door at 400,0 size 100,300 "Door" enabled has_key',
+    'label start:',
+    '  set has_key = false',
+    'label room_loop:',
+    '  show screen room as spot',
+    '  if spot == "shelf":',
+    '    "Dusty books."',
+    '    jump room_loop',
+    '  elif spot == "key":',
+    '    set has_key = true',
+    '    "A brass key."',
+    '    jump room_loop',
+    '  "Out."',
+    '  end',
+  ];
+  const r = run(room.join('\n'));
+  assert.deepEqual(r.loops, []);
+  assert.deepEqual(r.unreachableLines, []);
+  assert.deepEqual(r.endings.map(e => e.route), [['room: key', 'room: door']]);
+  // without the key there is no way out: the room is a trap, not an ending
+  const trap = run(room.map(l => l.replace('set has_key = true', 'set has_key = false')).join('\n'));
+  assert.deepEqual(trap.endings, []);
+  assert.deepEqual(lines(trap), ['16-17']);
+});
+
 test('variables set but never read, and read but never set', () => {
   const r = run([
     'set seen = 0',

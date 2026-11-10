@@ -1074,7 +1074,9 @@
     "char": "red"
    }
   ],
-  "diagnostics": []
+  "diagnostics": [
+   "warning: Unknown character \"red\" (add a define line)"
+  ]
  },
  "flash #fff 1 2": {
   "ops": [],

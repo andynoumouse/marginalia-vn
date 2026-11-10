@@ -2,11 +2,9 @@
 // chapters, achievements, achievement toast): one DOM layer each, what it currently shows, and the action callbacks the
 // shell hooks in. `draw` puts a view into a slot once its images are loaded.
 
-import type { ScreenView, ViewItem } from '../engine/src/index.js';
+import { IMAGE_FILE, type ScreenView, type ViewItem } from '../engine/src/index.js';
 import { HudLayer } from './screen-ui.js';
 import { $ } from './stage-ui.js';
-
-export const IMAGE_FILE = /\.(png|webp|jpe?g|avif)$/i;
 
 /** The `key` of every image the screen views draw (what `ensure` loads). */
 export const imageKeys = (views: ScreenView[]) =>

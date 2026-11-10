@@ -50,7 +50,8 @@ Plan for playing an exported game on a touch device. Steps 1 and 2 are built, st
      `needsRotate` in `engine/src/stage-fit.ts`; the insets pad the stock text box only (the quick bar and title are the
      author's screens: left to do, with the touch-target work); `user-select: none` was not added (the stage already has it); no
      orientation lock (it needs fullscreen) and no `playsinline` yet (movies); the rotate cover shows only in an exported game, not
-     in the editor preview. Browser set skipped by the gate (4/5); not tried on a real phone.
+     in the editor preview, and only when the stage held the wrong way would be under 400 CSS px on its short side
+     (`ROTATE_BELOW`), so a tablet plays either way round and a phone gets the cover. Browser set skipped by the gate (4/5); not tried on a real phone.
 2. **Gestures.** (`engine/src/gesture.ts`)
    - Tap advances (as now). Swipe right: rollback. Swipe left: forward only if the line is fully shown (the same as a tap, so a
      stray swipe never skips text). Swipe up: history. Long press or two-finger tap: pause menu (replaces `contextmenu`, which

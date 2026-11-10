@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  vertexWeights, setBoneWeight, addBoneWeight, resetWeights, pruneWeights, smoothWeights, autoWeights, defaultBlend, boneBody, pairedBone, mirrorWeights,
+  vertexWeights, setBoneWeight, addBoneWeight, resetWeights, pruneWeights, smoothWeights, autoWeights, defaultBlend, boneBody, pairedBone, guessPartner, mirrorWeights,
   removeVertexWeights, addVertexWeights, resampleWeights, renameWeightBone, deleteWeightBone, meshMirrorPartners, addMeshVertex, deleteMeshVertex, setMeshGeometry,
   setPartMesh, checkDeformers, resolvePivots, checkRig,
 } from '../../dist/engine/src/index.js';
@@ -400,4 +400,13 @@ test('posedInfluences: the posed bones that move a skinned mesh, with those abov
   assert.deepEqual(posedInfluences({ weights: {} }, bones, { arm: { rot: 5 } }), [], 'no bone is bound');
   const loop = { a: { parent: 'b' }, b: { parent: 'a' } };
   assert.deepEqual(posedInfluences({ defaultBone: 'a' }, loop, { b: { rot: 1 } }), ['b'], 'a loop in the tree does not hang it');
+});
+
+test('guessPartner: a numbered family mirrors by place in its run of numbers (SD-13)', () => {
+  const hair = [0, 1, 2, 3, 4].flatMap(i => [0, 1, 2].map(j => `hair_${i}_${j}`));
+  assert.equal(guessPartner('hair_0_0', hair), 'hair_4_0');
+  assert.equal(guessPartner('hair_3_2', hair), 'hair_1_2');
+  assert.equal(guessPartner('hair_2_1', hair), 'hair_2_1', 'the middle strand is its own');
+  assert.equal(guessPartner('spine', ['spine', 'neck']), null, 'no number, no guess');
+  assert.equal(guessPartner('tail_1', ['tail_1', 'head']), null, 'no family');
 });

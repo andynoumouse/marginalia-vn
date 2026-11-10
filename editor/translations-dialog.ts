@@ -3,9 +3,10 @@
 // The list is virtual (virtual-list.ts): projects can have tens of thousands of strings, so only the rows in (and just around)
 // the viewport exist in the DOM.
 
-import { translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
+import { dropUnused, translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
+import { choiceAsk } from './ask.js';
 
 export interface TranslationsHost {
   /** The strings of the current scripts, in script order. */
@@ -39,6 +40,7 @@ export class TranslationsDialog {
   private readonly list: VirtualList<StringRow>;
   private readonly newLang: HTMLInputElement;
   private idsBar!: HTMLElement;
+  private prune!: HTMLButtonElement;
   private tables: Record<string, StringTable> = {};
   private snaps: Record<string, SourceSnapshot> = {}; // per language: the source text each translation was made against
   private snapSaves = new Map<string, number>();
@@ -51,10 +53,7 @@ export class TranslationsDialog {
   private returnFocus: (() => void) | null = null;
 
   constructor(host: HTMLElement, private readonly h: TranslationsHost) {
-    this.root = document.createElement('div');
-    this.root.id = 'translations';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root, q } = mountModal(host, 'translations', `
       <div class="tr-card" role="dialog" aria-modal="true" aria-label="Translations">
         <header><strong>Translations</strong><span class="hint">Esc to close. Edits are saved as you type.</span>
           <button type="button" class="close" aria-label="Close translations">Close</button></header>
@@ -68,17 +67,12 @@ export class TranslationsDialog {
           <button type="button" class="tr-csv" title="Download every string with its context and all translations as a spreadsheet for translators">Export CSV</button>
         </div>
         <div class="tr-ids" hidden><span class="tr-ids-msg"></span><button type="button" class="tr-ids-add">Add ids to all files</button></div>
-        <div class="tr-summary" role="status"></div>
+        <div class="tr-status"><div class="tr-summary" role="status"></div><button type="button" class="tr-prune" hidden title="Delete the entries whose id no line of the script has any more">Remove unused</button></div>
         <div class="tr-scroll"><div class="tr-spacer"></div></div>
-      </div>`;
-    host.append(this.root);
-    const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
+      </div>`, () => this.close());
+    this.root = root;
     this.langSel = q('.tr-lang'); this.filter = q('.tr-filter'); this.todo = q('.tr-todo'); this.changed = q('.tr-changed');
     this.summary = q('.tr-summary'); this.scroller = q('.tr-scroll'); this.newLang = q('.tr-new');
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    q('.close').addEventListener('click', () => this.close());
-    this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
-    trapModal(this.root, () => this.close());
     this.langSel.addEventListener('change', () => { this.lang = this.langSel.value; this.refilter(); });
     this.filter.addEventListener('input', () => { window.clearTimeout(this.filterTimer); this.filterTimer = window.setTimeout(() => this.refilter(), FILTER_DELAY); });
     this.todo.addEventListener('change', () => this.refilter());
@@ -86,6 +80,8 @@ export class TranslationsDialog {
     q('.tr-add').addEventListener('click', () => this.addLanguage());
     this.newLang.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.addLanguage(); } });
     q('.tr-csv').addEventListener('click', () => this.exportCsv());
+    this.prune = q('.tr-prune');
+    this.prune.addEventListener('click', () => void this.removeUnused());
     this.idsBar = q('.tr-ids');
     q('.tr-ids-add').addEventListener('click', () => {
       this.h.addIds();
@@ -180,6 +176,7 @@ export class TranslationsDialog {
     this.idsBar.querySelector('.tr-ids-msg')!.textContent = `${missing} ${missing === 1 ? 'line has' : 'lines have'} no id yet and can't be translated.`;
     const table = this.tables[this.lang];
     if (!table) {
+      this.prune.hidden = true;
       this.shown = [];
       this.list.set([]);
       this.summary.textContent = 'No translations yet: add a language code above to start one.';
@@ -201,6 +198,26 @@ export class TranslationsDialog {
       + (this.outdated.size ? ` · ${this.outdated.size} with changed source` : '')
       + (st.unused.length ? ` · ${st.unused.length} unused ${st.unused.length === 1 ? 'entry' : 'entries'} in locale/${this.lang}.json` : '')
       + (this.shown.length !== st.total ? ` · ${this.shown.length} shown` : '');
+    this.prune.hidden = !st.unused.length;
+  }
+
+  /** Delete the current language's entries that match no string, from the table and its snapshot, after asking. */
+  private async removeUnused() {
+    const lang = this.lang, table = this.tables[lang];
+    if (!table) return;
+    const { unused } = translationStatus(this.rows, table);
+    if (!unused.length) return;
+    const n = unused.length === 1 ? '1 entry' : `${unused.length} entries`;
+    const pick = await choiceAsk(`Remove ${n} from locale/${lang}.json whose id no line of the script has (${unused.slice(0, 5).map(id => `#${id}`).join(', ')}${unused.length > 5 ? ', ...' : ''})? `
+      + 'Their translations are deleted from the file, with no undo; a line that is given one of those ids back would need translating again.', ['Remove']);
+    if (pick !== 0 || this.tables[lang] !== table) return;
+    // In place: the rows on screen write their edits into this same table object.
+    const snap = this.snaps[lang] ??= {};
+    for (const id of dropUnused(this.rows, table, snap).removed) { delete table[id]; delete snap[id]; }
+    this.flush(lang);
+    this.flushSnap(lang);
+    if (lang === this.lang) this.refilter();
+    this.filter.focus(); // the button hides once nothing is left to remove
   }
 
   private rowEl(r: StringRow, table: StringTable) {

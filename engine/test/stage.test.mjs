@@ -4,11 +4,10 @@ import {
   compile, Runtime, NullRenderer, interpolate, resolveScreen, validateScreen, checkGame, stageSize, stageProblem, stageLabel, fxUnit,
   DEFAULT_STAGE, namedPositions, namedAnchors, ANIMS,
 } from '../../dist/engine/src/index.js';
+import { errors, warnings } from './helpers.mjs';
 
 const PORTRAIT = { width: 1080, height: 1920 };
 const build = (text, stage) => compile([{ file: 's.vn', text }], namedPositions(null), namedAnchors(null), stage);
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 const view = (p, name) => resolveScreen(p.screens[name], {}, { items: {}, stage: p.stage, text: (_id, raw, v) => interpolate(raw, v) });
 const boxes = (p, name) => view(p, name).parts.map(x => (x.id ? [x.id, x.bounds.x, x.bounds.y] : [x.kind, x.x, x.y]));
 

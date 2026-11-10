@@ -51,6 +51,10 @@ about as a zip.
 It needs a browser with module service workers and `CompressionStream`: a current Chrome, Edge, Safari or Firefox.
 Private windows may turn service workers off.
 
+It also needs a network connection. The service worker keeps projects, not the site: the engine, editor, Monaco and
+PixiJS are fetched each time, so offline the project list does not load and the editor and player fail. Work offline
+with Marginalia Studio, or with `vn dev` on a downloaded project.
+
 ## How it works
 
 - `online/sw.ts` (the service worker) serves each project under `p/<id>/`: the preview at `p/<id>/`, the editor at

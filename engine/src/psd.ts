@@ -16,6 +16,8 @@
 //                            layers are drawn like top-level layers
 // Blend modes apply inside a part; parts stack with normal blending. Layer effects (shadows, strokes) are not rendered.
 
+import { crc32 } from './zip.js';
+
 export const DEFAULT_PREFIX = '+';
 
 /** The ag-psd layer fields used here. */
@@ -35,6 +37,15 @@ export const parseName = (raw: string) => {
   return { name: name ?? '', aliases };
 };
 export const isIdent = (s: string) => /^[A-Za-z_]\w*$/.test(s);
+/**
+ * A group or layer name as scripts can say it: runs of anything but letters, digits and _ become one _ (Photoshop's "Group 1" is
+ * `Group_1`, "Layer 2 copy" `Layer_2_copy`), and a leading digit gets a _ before it. Empty when nothing usable is left (a name in another
+ * script); the caller warns and skips it (ES-8).
+ */
+export const scriptName = (raw: string): string => {
+  const s = raw.trim().replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+(?=.)|(?<=.)_+$/g, '');
+  return s === '_' ? '' : /^\d/.test(s) ? `_${s}` : s;
+};
 
 const skipped = (l: PsdLayer) => !!l.name?.startsWith('_');
 const isGroup = (l: PsdLayer): l is PsdLayer & { children: PsdLayer[] } => Array.isArray(l.children);
@@ -60,14 +71,16 @@ export function planCharacter(top: PsdLayer[], { prefix = DEFAULT_PREFIX, warn =
   const isFolder = (l: PsdLayer) => isGroup(l) && prefix !== '' && (l.name ?? '').trim().startsWith(prefix);
 
   const planSlot = (l: PsdLayer & { children: PsdLayer[] }): PlanEntry => {
-    const slot = l.name?.trim() ?? '';
-    if (!isIdent(slot)) warn(`slot "${slot}" is not a valid script name (letters, digits, _)`);
+    // Slot and variant names are said in scripts (show mina eyes=closed): one that is not a script name is made one, and the Output says so.
+    const raw = l.name?.trim() ?? '', slot = scriptName(raw);
+    if (slot !== raw) warn(`slot "${raw}" is called "${slot}" in scripts (letters, digits and _ only)`);
     const variants: { name: string; aliases: string[]; layer: PsdLayer }[] = [], seen = new Set<string>();
     let def: string | null = null;
     for (const v of [...l.children].reverse()) { // top-most first, so the top visible child is the default
       if (skipped(v)) continue;
-      const { name, aliases } = parseName(v.name ?? '');
-      if (!isIdent(name)) { warn(`variant "${v.name}" in "${slot}" is not a valid script name; skipped`); continue; }
+      const parsed = parseName(v.name ?? ''), name = scriptName(parsed.name), aliases = parsed.aliases.map(scriptName).filter(Boolean);
+      if (!name) { warn(`variant "${v.name}" in "${slot}" has no letters or digits a script can name; skipped`); continue; }
+      if (name !== parsed.name) warn(`variant "${parsed.name}" in "${slot}" is called "${name}" in scripts`);
       if (seen.has(name)) warn(`"${slot}" has two variants named "${name}"; using the upper one`);
       else { seen.add(name); variants.push({ name, aliases, layer: v }); }
       if (!v.hidden && def === null) def = name;
@@ -95,6 +108,7 @@ export function planCharacter(top: PsdLayer[], { prefix = DEFAULT_PREFIX, warn =
         plan.push({ type: 'part', name, layers: stack, ...group });
         continue;
       }
+      if (!scriptName(l.name ?? '')) { warn(`group "${l.name ?? ''}" has no letters or digits a script can name; skipped`); continue; }
       plan.push({ ...planSlot(l), ...group });
     }
   };
@@ -279,8 +293,6 @@ function trim(im: Image): Image | null {
 /** zlib-wrapped deflate (RFC 1950), as node's zlib.deflateSync and the browser's CompressionStream('deflate') write it. */
 export type Deflate = (data: Uint8Array) => Promise<Uint8Array>;
 
-const CRC = new Int32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c; });
-function crc32(buf: Uint8Array) { let c = -1; for (const b of buf) c = CRC[(c ^ b) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; }
 function chunk(type: string, data: Uint8Array): Uint8Array {
   const out = new Uint8Array(12 + data.length), view = new DataView(out.buffer);
   view.setUint32(0, data.length);

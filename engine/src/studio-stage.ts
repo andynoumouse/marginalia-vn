@@ -65,7 +65,7 @@ export const BRUSH_NAMES: Record<WeightsBrush, string> = { pick: 'Read weights',
 /** The status line with the Weights tool on: what a press does and the keys; the mode and the bone are the tool options bar's (studio-inspector.ts `modeLabel`). `leave` is the studio's own leaving key text (Esc close, Ctrl+S save). */
 export function weightsHint(brush: WeightsBrush, bone: string | null, hasMesh: boolean, leave: string): string {
   const out = 'B or Esc (nothing selected) back to Move · Ctrl+Z undo · ' + leave;
-  if (!hasMesh) return 'Click a part with a mesh on the stage, or choose it in the tree, to weight it to the bones · ' + out;
+  if (!hasMesh) return 'Click a part with a mesh on the stage, or choose it in the Parts tree, to weight it to the bones · ' + out;
   if (brush === 'pick') return 'Click a vertex to read its weights, Alt-click a part for its bone · ' + out;
   if (brush === 'select') return 'Drag a rectangle over the mesh (Shift adds, Shift-click toggles one), Esc clears · ' + out;
   return `Drag over the mesh to ${brush === 'smooth' ? 'blur the weights' : `${brush} ${bone ?? 'the active bone'}'s weight`}, one stroke is one undo step · [ ] radius, Shift strength · ` + out;

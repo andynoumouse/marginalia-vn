@@ -10,10 +10,9 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { freePort, root } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { _electron } = require('playwright-core');
 
 let electronExe = process.env.VN_STUDIO;
@@ -22,10 +21,6 @@ const skip = electronExe ? false : 'Electron is not installed (npm install) and 
 const engineVersion = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 const engineMinor = engineVersion.split('.').slice(0, 2).join('.');
 
-const freePort = () => new Promise((resolve, reject) => {
-  const probe = net.createServer().once('error', reject);
-  probe.listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
-});
 const portFree = port => new Promise(resolve => {
   const probe = net.createServer().once('error', () => resolve(false));
   probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)));
@@ -135,6 +130,33 @@ test('opens the editor on the project, on the stored port, with the Studio bridg
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle()), 'Evening in the Park - Marginalia Studio');
     // The project calls are for the projects screen only.
     await assert.rejects(win.evaluate(() => window.vnStudio.projects.list()), /Not allowed/);
+  } finally { await app.close(); }
+});
+
+test('a download (a translation CSV) is offered in the project folder', { skip, timeout: 120_000 }, async () => {
+  const s = await setup();
+  const { app, win } = await launch(s, { project: s.project });
+  try {
+    // Runs after the Studio's own will-download handler: it reads the dialog's default path, then saves without the dialog.
+    const saveTo = path.join(s.tmp, 'saved.csv');
+    await app.evaluate(({ session }, saveTo) => {
+      session.defaultSession.on('will-download', (_e, item) => {
+        globalThis.offered = item.getSaveDialogOptions().defaultPath;
+        item.setSavePath(saveTo);
+      });
+    }, saveTo);
+    await win.evaluate(() => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['id,text\n'], { type: 'text/csv' }));
+      a.download = 'strings.csv';
+      a.click();
+    });
+    const until = Date.now() + 20_000;
+    while (!(fs.existsSync(saveTo) && fs.readFileSync(saveTo, 'utf8') === 'id,text\n')) {
+      assert.ok(Date.now() < until, 'the download is saved');
+      await new Promise(r => setTimeout(r, 100));
+    }
+    assert.equal(await app.evaluate(() => globalThis.offered), path.join(s.project, 'strings.csv'));
   } finally { await app.close(); }
 });
 

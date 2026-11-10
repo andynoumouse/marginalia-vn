@@ -12,43 +12,21 @@
 //
 //   node scripts/measure-big-project.mjs [<count>...]    (default: 500 5000 20000)
 
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import net from 'node:net';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { launchBrowser, startDevServer } from '../engine/test/helpers.mjs';
 import { makeBigProject } from './make-big-project.mjs';
 
-const root = fileURLToPath(new URL('..', import.meta.url));
 const counts = process.argv.slice(2).map(Number);
 if (!counts.length) counts.push(500, 5000, 20000);
-const { chromium } = await import('playwright-core');
 
 const median = xs => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const freePort = () => new Promise((resolve, reject) => {
-  const s = net.createServer().listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); }).on('error', reject);
-});
-
-async function launch() {
-  const options = process.env.VN_BROWSER ? [{ executablePath: process.env.VN_BROWSER }] : [{ channel: 'msedge' }, { channel: 'chrome' }];
-  for (const o of options) try { return await chromium.launch(o); } catch { /* the next one */ }
-  throw new Error('no Chrome or Edge found (set VN_BROWSER)');
-}
 
 async function measure(browser, count) {
   const project = makeBigProject(count);
-  const port = await freePort(), base = `http://localhost:${port}`;
-  const server = spawn(process.execPath, ['preview/dev-server.mjs', '--no-build', '--no-art'], {
-    cwd: root, env: { ...process.env, PORT: String(port), VN_PROJECT: project }, stdio: 'ignore',
-  });
+  const { origin: base, server } = await startDevServer({ env: { VN_PROJECT: project }, tries: 200 }); // a big project takes a while to index
   try {
-    for (let i = 0; ; i++) {
-      try { if ((await fetch(base)).ok) break; } catch { /* not listening yet */ }
-      if (i > 200) throw new Error('dev server did not start');
-      await sleep(100);
-    }
-
     // The API from node.
     await (await fetch(`${base}/api/project`)).text();
     const apiTimes = [];
@@ -165,7 +143,8 @@ async function measure(browser, count) {
   }
 }
 
-const browser = await launch();
+const { browser, skip } = await launchBrowser();
+if (!browser) throw new Error(skip);
 const rows = [];
 try {
   for (const n of counts) {

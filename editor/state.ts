@@ -29,6 +29,9 @@ export interface FileState {
   name: string; kind: 'script' | 'game' | 'rig' | 'theme' | 'themecss'; char?: string; model: any; saved: string; timer: number;
   /** Why the last save failed, until one goes through; `tries` counts the failures and `retry` is the timer of the next attempt. */
   failed?: string; tries?: number; retry?: number;
+  /** The text on disk when the file changed outside the editor while this tab had unsaved edits (UX round EL-18): the tab is not
+   *  saved until the author chooses in the conflict bar (editor/conflict.ts). */
+  conflict?: string;
 }
 /** The open files by tab name. */
 export const files = new Map<string, FileState>();

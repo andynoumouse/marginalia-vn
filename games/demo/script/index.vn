@@ -24,6 +24,8 @@ set fx_b_label = ""
 set fx_b1 = ""
 set fx_b2 = ""
 set fx_b3 = ""
+# true on a card whose effect Reduce motion (Options) hides or stills: the panel says so.
+set fx_motion = false
 set fx_pa = 1
 set fx_pb = 1
 set fx_shown = 0
@@ -124,6 +126,7 @@ screen fx_panel(inout fx_pa, inout fx_pb):
   radio b3 fx_pb=3 at 1700,625 size 150,54 "[fx_b3]" #k1hd font 28 if fx_b3 != ""
   text at 1370,710 "Last fired:" #uk0w font 26 color #9aa6bd
   text at 1370,745 "{b}[fx_fired]{/b}" #muvo font 28 width 480 lines 3
+  text at 1370,822 "Reduce motion (Options) hides or stills this." #wda6 font 22 color #9aa6bd if fx_motion
   button fire at 1370,860 size 480,84 "Fire" #ivby hover scale 1.04
   button reset at 1370,960 size 230,64 "Reset" #ora5 hover scale 1.04
   button back at 1620,960 size 230,64 "Back" #isg5 hover scale 1.04
@@ -283,12 +286,7 @@ label index_loop:
 
 # Back from a card: the effects it left on go off by name (a `scene` alone left a glitch filter running), then the index backdrop.
 label fx_close:
-  filter off
-  tint off
-  weather off
-  gravity reset
-  camera reset
-  animate camera stop
+  # The scene below clears the filter, tint, weather, wind, gravity and camera; these are what a scene leaves alone.
   focus on
   nvl off
   hud off fx_coins_hud
@@ -331,6 +329,7 @@ label fx_open(heading, blurb):
   set fx_b1 = ""
   set fx_b2 = ""
   set fx_b3 = ""
+  set fx_motion = false
   set fx_pa = 1
   set fx_pb = 1
   set fx_shown = 0

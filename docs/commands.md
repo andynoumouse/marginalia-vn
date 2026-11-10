@@ -45,8 +45,11 @@ define item key "Brass key" image=ui/key.png
 ```
 
 ### label
-`label <name>:` marks an entry point for `jump` and `call`. Label names are unique across all scripts. A name uses the
-letters a-z (no accents: `paiva_1`, not `päivä_1`), digits and `_`, and does not start with a digit; the same goes for variable names.
+`label <name>:` marks an entry point for `jump` and `call`. Label names are unique across all scripts. A name uses letters
+of any alphabet (`päivä_1`, `体力`), digits and `_`, and does not start with a digit; the same goes for variables, screens and their
+`state`, and the parameters of labels and screens. A name that mixes letters of alphabets that look alike (a Latin `a` and a
+Cyrillic `а`) gets a warning. Names that are also file or rig names stay in the letters a-z: characters, poses, backgrounds,
+sounds, animations, parameters, bones, items and achievements.
 `label <name>(<param>, ...):` also declares parameters, filled by `call <name>(<arguments>)` (see "jump / call / return / end").
 
 ```
@@ -471,7 +474,7 @@ load shows the state the parts left (where they stood), as for any one-shot `ani
 ## Effects
 
 ### flash
-`flash [#color] [duration]` flashes the screen and fades it out (white, 0.4 s by default). `flash <char|picture> [#color] [duration]` flashes just that character or picture: it goes to the color and fades back (a hit, a magic effect). It is not kept in saves, and reduced motion drops it. A name that is neither a character nor a shown picture does nothing.
+`flash [#color] [duration]` flashes the screen and fades it out (white, 0.4 s by default). `flash <char|picture> [#color] [duration]` flashes just that character or picture: it goes to the color and fades back (a hit, a magic effect). It is not kept in saves, and reduced motion drops it. A name that is neither a character nor a picture shown somewhere in the scripts does nothing, and the editor warns about it.
 
 ```
 flash

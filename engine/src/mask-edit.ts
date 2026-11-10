@@ -8,6 +8,8 @@
 
 import type { DeformerDef, DeformerKeyform, WarpPoints } from './params.js';
 import { MASK_MAX_POINTS, MASK_MAX_SHAPES, MASK_MIN_POINTS, type MaskPoint, type ShapeDef } from './masks.js';
+import { nearestOnSegment, pointInPolygon, signedArea } from './geometry.js';
+import { freeName } from './util.js';
 
 /** A part's image box in canvas pixels. */
 export interface CanvasBox { x: number; y: number; w: number; h: number }
@@ -22,12 +24,7 @@ const round = (n: number): number => Math.round(n) + 0;
 const without = <T>(o: Record<string, T>, k: string): Record<string, T> => { const { [k]: _gone, ...rest } = o; return rest; };
 
 /** `base`, then `base_2`, `base_3` ... the first that is not in `taken`. */
-export function uniqueName(taken: Iterable<string>, base: string): string {
-  const set = new Set(taken);
-  let name = base;
-  for (let i = 2; set.has(name); i++) name = `${base}_${i}`;
-  return name;
-}
+export const uniqueName = (taken: Iterable<string>, base: string): string => freeName(taken, base, '_');
 /** Every name a shape would clash with: the shapes, image parts and bones. */
 const allNames = (set: ShapeSet, names: ShapeNames, except?: string): Set<string> => {
   const out = new Set<string>([...names.parts, ...names.bones, ...Object.keys(set.shapes)]);
@@ -250,10 +247,8 @@ export function nearestEdge(poly: readonly MaskPoint[], p: MaskPoint): { index: 
   if (poly.length < 2) return null;
   let best: { index: number; at: MaskPoint; dist: number } | null = null;
   for (let i = 0; i < poly.length; i++) {
-    const a = poly[i], b = poly[(i + 1) % poly.length], dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
-    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2)) : 0;
-    const at: MaskPoint = [a[0] + dx * t, a[1] + dy * t], dist = Math.hypot(p[0] - at[0], p[1] - at[1]);
-    if (!best || dist < best.dist) best = { index: i, at, dist };
+    const a = poly[i], b = poly[(i + 1) % poly.length], n = nearestOnSegment(p[0], p[1], a[0], a[1], b[0], b[1]);
+    if (!best || n.d < best.dist) best = { index: i, at: [n.x, n.y], dist: n.d };
   }
   return best;
 }
@@ -274,20 +269,9 @@ export const clipTargets = (parts: readonly string[], part: string): string[] =>
 export interface ShapeOutline { name: string; outlines: readonly (readonly MaskPoint[])[] }
 
 /** Whether `p` lies inside the closed polygon `poly` (even-odd rule). */
-export function pointInOutline(poly: readonly MaskPoint[], p: MaskPoint): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const a = poly[i], b = poly[j];
-    if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < ((b[0] - a[0]) * (p[1] - a[1])) / (b[1] - a[1]) + a[0]) inside = !inside;
-  }
-  return inside;
-}
+export const pointInOutline = (poly: readonly MaskPoint[], p: MaskPoint): boolean => pointInPolygon(poly, p[0], p[1]);
 
-const outlineArea = (poly: readonly MaskPoint[]): number => {
-  let a = 0;
-  for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; a += p[0] * q[1] - q[0] * p[1]; }
-  return Math.abs(a / 2);
-};
+const outlineArea = (poly: readonly MaskPoint[]): number => Math.abs(signedArea(poly));
 
 /** The shape whose outline passes within `tol` of `p` (the nearest one), or null. */
 export function shapeAtEdge(shapes: readonly ShapeOutline[], p: MaskPoint, tol: number): string | null {

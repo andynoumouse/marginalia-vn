@@ -91,6 +91,10 @@ export const easeProblem = (spec: string): string => /^(?:cubic-)?bezier\(/.test
   ? `Unknown ease "${spec}": a bezier is bezier(x1,y1,x2,y2) with four numbers and x1 and x2 from 0 to 1`
   : `Unknown ease "${spec}" (${EASE_NAMES.join(', ')}, or bezier(x1,y1,x2,y2))`;
 
+/** The same for an `ease` field in rig.json, after the field's path: `unknown ease "wobble" (linear, ...)`. */
+export const rigEaseProblem = (spec: unknown): string | null =>
+  typeof spec === 'string' && isEaseSpec(spec) ? null : easeProblem(String(spec)).replace(/^U/, 'u');
+
 /** The curve named `name` (or a `bezier(...)` spec); an unknown name gives the default curve. */
 export function easing(name: string | undefined): EaseFn {
   if (name !== undefined && Object.hasOwn(EASES, name)) return EASES[name];

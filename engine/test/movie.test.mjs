@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, checkAssets, assetContext, opAssets, getCompletions, assetRefs } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const parse = line => compile([{ file: 't.vn', text: `label start:\n  ${line}\n  end` }]);
 const movie = line => parse(line).ops.find(o => o.op === 'movie');
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 
 test('movie play parses', () => {
   assert.deepEqual([movie('movie play opening').name, movie('movie play opening').noskip], ['opening', false]);

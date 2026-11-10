@@ -1,11 +1,55 @@
 // Small DOM builders shared by the animation studio's modules.
 
+import { easeProblem, isEaseSpec } from '../engine/src/index.js';
+import { promptAsk } from './ask.js';
+
 const SVGNS = 'http://www.w3.org/2000/svg';
+/** The value of the "curve…" entry every ease select ends with: it asks for a `bezier(...)` (see pickEase). */
+const CURVE = '(curve)'; // never an ease name or a bezier(...)
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) {
   const e = Object.assign(document.createElement(tag), props);
   e.append(...kids);
   return e;
+}
+/**
+ * Show `value` in an ease select whose options are the named eases: a `bezier(...)` gets an option of its own (the one added
+ * last time goes), so the select shows the curve instead of a blank, and the select ends with a "curve…" entry for pickEase.
+ */
+export function showEase(sel: HTMLSelectElement, value: string) {
+  for (const o of sel.querySelectorAll('option[data-custom]')) if ((o as HTMLOptionElement).value !== value) o.remove();
+  let curve = sel.querySelector<HTMLOptionElement>('option[data-curve]');
+  if (!curve) {
+    curve = el('option', { value: CURVE, textContent: 'curve…', title: 'A curve of your own: bezier(x1,y1,x2,y2)' });
+    curve.dataset.curve = '';
+    sel.append(curve);
+  }
+  if (value && ![...sel.options].some(o => o.value === value)) {
+    const o = el('option', { value, textContent: value });
+    o.dataset.custom = '';
+    sel.insertBefore(o, curve);
+  }
+  sel.value = value;
+  sel.dataset.was = value;
+}
+
+/**
+ * The ease an ease select's change picks: its value, or for "curve…" a `bezier(...)` asked for (starting from the current one;
+ * a curve that is not valid is asked for again, saying why). Null when cancelled: the select shows its old value again.
+ */
+export async function pickEase(sel: HTMLSelectElement): Promise<string | null> {
+  if (sel.value !== CURVE) return sel.value;
+  const was = sel.dataset.was ?? '';
+  const help = 'A curve of your own, as in CSS: bezier(x1,y1,x2,y2), with x1 and x2 from 0 to 1 (a y outside 0 to 1 overshoots).';
+  let message = help, value = /^(?:cubic-)?bezier\(/.test(was) ? was : 'bezier(0.25,0.1,0.25,1)';
+  for (;;) {
+    const typed = await promptAsk(message, value, 'Use curve');
+    if (typed === null) { showEase(sel, was); return null; }
+    const spec = typed.replace(/\s+/g, '');
+    if (isEaseSpec(spec)) { showEase(sel, spec); return spec; }
+    message = `${easeProblem(spec)}.\n\n${help}`;
+    value = typed;
+  }
 }
 export function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string) {
   const e = document.createElementNS(SVGNS, tag);
@@ -37,4 +81,17 @@ export function layoutRows(root: ParentNode) {
     row.insertBefore(ctl, moved[0]);
     ctl.append(...moved);
   }
+}
+
+/**
+ * Bring `row` into view inside the nearest box of the studio's columns that scrolls, and nothing beyond it: `scrollIntoView` would also scroll
+ * the studio's card, which in a narrow window pushes the stage off the screen when the tree shows its chosen row (ES-4).
+ */
+export function scrollRowIntoBox(row: Element | null) {
+  let box = row?.parentElement ?? null;
+  while (box && !box.classList.contains('as-card') && !(box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  if (!row || !box || box.classList.contains('as-card')) return;
+  const r = row.getBoundingClientRect(), b = box.getBoundingClientRect();
+  if (r.top < b.top) box.scrollTop -= b.top - r.top;
+  else if (r.bottom > b.bottom) box.scrollTop += Math.min(r.bottom - b.bottom, r.top - b.top);
 }

@@ -4,16 +4,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { encodePng, RGBA } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'assets', 'ui');
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  return Buffer.concat([len, body, crc]);
-};
 const rect = (x, y, w, h) => (px, py) => px >= x && px < x + w && py >= y && py < y + h;
 const ellipse = (cx, cy, rx, ry) => (px, py) => ((px - cx) / rx) ** 2 + ((py - cy) / ry) ** 2 <= 1;
 const circle = (cx, cy, r) => ellipse(cx, cy, r, r);
@@ -36,9 +30,7 @@ function paint(W, H, layers, background) {
       raw.set([sum[0] / n, sum[1] / n, sum[2] / n, (sum[3] / 4) * 255].map(Math.round), y * (1 + W * 4) + 1 + x * 4);
     }
   }
-  const head = Buffer.alloc(13); head.writeUInt32BE(W, 0); head.writeUInt32BE(H, 4); head.set([8, 6, 0, 0, 0], 8);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head),
-    chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  return encodePng(W, H, raw, RGBA);
 }
 
 // The study. The desk, the window and the door sit exactly under the template's hotspots (script/start.vn).

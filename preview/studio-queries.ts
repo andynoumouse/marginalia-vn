@@ -161,6 +161,17 @@ export class StudioQueries {
     return unwarpMeshPoint(w.rest, w.mesh.geometry.getBuffer('aPosition').data as Float32Array, w.tris, l.x, l.y);
   }
   /**
+   * Points in `part`'s image pixels (x, y pairs, the unit of the alpha and of a generated mesh) as stage pixels, where the part is drawn now
+   * (its rest art: a warp's bend is not followed). Null when the part is not drawn. For the preview of a mesh before Generate (SD-14).
+   */
+  studioPartPoints(char: string, part: string, pts: readonly number[]): [number, number][] | null {
+    const sp = this.actors.get(char)?.parts.get(part)?.children[0] as (Sprite | MeshPlane) | undefined;
+    if (!sp || sp.texture === Texture.EMPTY) return null;
+    const ax = 'anchor' in sp ? sp.anchor.x * sp.texture.width : 0, ay = 'anchor' in sp ? sp.anchor.y * sp.texture.height : 0, out: [number, number][] = [];
+    for (let i = 0; i + 1 < pts.length; i += 2) { const g = sp.toGlobal({ x: pts[i] - ax, y: pts[i + 1] - ay }); out.push([g.x, g.y]); }
+    return out;
+  }
+  /**
    * The alpha channel of `part`'s image (one byte per pixel, rows top to bottom, `w` x `h` the texture size): what the mesh generator
    * reads. Null when the part is not drawn or its pixels cannot be read.
    */

@@ -7,6 +7,7 @@
 // offsets accumulate down the tree.
 
 import { NO_OFFSET, type Offset } from './anim.js';
+import { isPoint } from './geometry.js';
 
 /** `tip` is where a bone ends, [x, y] in canvas pixels like `pivot`: it moves nothing, it only shapes auto-weights (skin-edit.ts) and the studio's drawing. */
 export interface BoneDef { parent?: string; pivot?: [number, number]; tip?: [number, number] }
@@ -24,7 +25,6 @@ export const mulMatrix = (m: Matrix, n: Matrix): Matrix => ({
 });
 export const applyMatrix = (m: Matrix, x: number, y: number): [number, number] => [m.a * x + m.c * y + m.tx, m.b * x + m.d * y + m.ty];
 
-const isPoint = (p: unknown): p is [number, number] => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
 
 /** The bones whose `parent` chain loops back on itself, each loop listed once starting at its first bone in file order. */
 export function boneCycles(bones: Record<string, BoneDef>): string[][] {

@@ -105,6 +105,9 @@ The mode is not remembered across page loads; the sections' open and closed stat
 
 ## Layout
 
+These sketches are the layout as first built. Since then Poses and Parameters have moved to the left column, above the Parts tree, in
+both modes (see "Proposal: the parameter palette on the left" below), and sections can be moved between columns.
+
 ```
 Animate
 +---------------------------------------------------------------------------------------------------+
@@ -237,7 +240,7 @@ rig (no parameters, no frames) shows the section header with "none" and a line s
 
 None of these needs a tab or a mode.
 
-### Proposal: the parameter palette on the left (2026-11-07, not built)
+### Proposal: the parameter palette on the left (2026-11-07, built)
 
 **Why.** Model authoring is parameter first, as in Cubism, and Cubism keeps the Parameters palette on the left beside the part list, with the
 properties of the selection elsewhere. Here the palette sits in the right column's Parameters section, above Selection, Warp, Mask and

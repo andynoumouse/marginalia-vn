@@ -12,11 +12,12 @@
 // range, default, ease) are the right column's Parameter section (editor/anim-param-props.ts), shown when its name is clicked.
 
 import {
-  changedParams, controlGroups, displayValues, OTHER, paramKeys,
+  changedParams, controlGroups, displayValues, OTHER, paramKeys, snapToTicks,
   type AnimDef, type FormValue, type KeySpot, type KeyTick, type PadDef, type ParamDef, type PadSpec, type PoseDef,
 } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, scrollRowIntoBox } from './anim-dom.js';
 import { ContextMenu } from './context-menu.js';
+import { followPointer } from './pointer.js';
 
 export type Corner = { x: number; y: number; authored: boolean };
 export type FormField = keyof FormValue;
@@ -250,7 +251,7 @@ export class ParamPanel {
     this.host.chooseControl(prefix + id);
     this.build();
     this.host.created(prefix + id);
-    this.root.querySelector(`[data-ctl="${CSS.escape(prefix + id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    scrollRowIntoBox(this.root.querySelector(`[data-ctl="${CSS.escape(prefix + id)}"]`));
   }
 
   /** Rebuild the controls (once per opening, and whenever a parameter or pad was added, changed or deleted); hand-set values of what remains are kept. */
@@ -261,7 +262,7 @@ export class ParamPanel {
     for (const id of [...this.hold]) if (!defs.some(d => d.id === id)) this.hold.delete(id);
     this.body.replaceChildren();
     if (!defs.length) this.body.append(el('p', { className: 'as-pivot-hint', textContent: this.host.authoring()
-      ? "This character has no parameters yet. New parameter adds a slider and New pad a 2D control. Click a control's name to make it the active parameter, then pick the parts it moves on the stage or in the Parts tree."
+      ? "This character has no parameters yet. The + in this section's head adds one: New parameter makes a slider, New pad a 2D control. Click a control's name to make it the active parameter, then pick the parts it moves on the stage or in the Parts tree."
       : 'This character has no parameters. Add them in Model mode (or "parameters" to its rig.json); see docs/rig-json.md.' }));
     if (this.drafting) this.body.append(this.padDraft());
     const groups = controlGroups(defs, this.host.pads(), this.host.categories());
@@ -458,7 +459,13 @@ export class ParamPanel {
     const ticks = el('span', { className: 'ap-ticks' });
     const { key, reset, paint } = this.buttons([d.id], d.id, () => d.id);
     const input = (raw: string) => { const v = Number(raw); if (raw !== '' && Number.isFinite(v)) { this.pick(d.id); this.set(d.id, clamp(d, v)); this.commit(); } };
-    range.addEventListener('input', () => input(range.value));
+    // Model: a scrub lands on a key near it, else on the step (a typed number is taken as it is).
+    range.addEventListener('input', () => {
+      if (!this.host.authoring()) { input(range.value); return; }
+      const v = snapToTicks(Number(range.value), this.host.ticks(d.id).map(t => t.at), d.min, d.max, step(d));
+      range.value = String(v);
+      input(String(v));
+    });
     num.addEventListener('change', () => input(num.value));
     const label = el('label', { textContent: d.id, title: 'Make this the active parameter' });
     this.nameKeys(label, () => this.pick(d.id, undefined, true));
@@ -524,10 +531,7 @@ export class ParamPanel {
     area.addEventListener('pointerdown', e => {
       area.setPointerCapture(e.pointerId);
       at(e.clientX, e.clientY);
-      const move = (m: PointerEvent) => at(m.clientX, m.clientY);
-      const up = () => { area.removeEventListener('pointermove', move); area.removeEventListener('pointerup', up); };
-      area.addEventListener('pointermove', move);
-      area.addEventListener('pointerup', up);
+      followPointer(area, m => at(m.clientX, m.clientY));
     });
     area.addEventListener('keydown', e => {
       const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0, dy = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;

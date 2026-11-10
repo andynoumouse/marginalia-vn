@@ -99,6 +99,12 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Free meshes can be skinned to bones (bone weights in rig.json, painted with the studio\'s Weights tool), and Mina\'s hair is a skinned strand turned by physics.',
     'The animation studio shows key times in seconds and asks whether keys stretch when Length changes; undo and redo go to what they change; Apply keeps rig.json\'s own layout.',
   ],
+  '0.12': [
+    'rig.json is written in one fixed layout by every writer (the studio, the art update, new skeletons); a hand layout is no longer kept. Every ease in rig.json takes bezier(x1,y1,x2,y2).',
+    'Labels, variables, screens and their parameters take names in any alphabet; file and rig names stay ASCII.',
+    'Group and variant names from a PSD that scripts cannot say are made script names ("Group 1" becomes Group_1), as part names already were.',
+    'flash <name> warns when the name is neither a character nor a picture, and an .svg dropped on the Assets panel is refused.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

@@ -28,9 +28,9 @@ export function toolRowHtml(): string {
         title: 'Fit (F): fit the character in view (wheel zooms, middle-drag or Space+drag pans)' }),
     ]),
     group('as-gz-anim as-gz-end', 'Keying', [
-      iconButton({ icon: 'autokey', label: 'Auto-key', pressed: true, className: 'as-gz-auto',
-        title: 'Auto-key: a drag writes a key at the playhead; off, it only previews until you press Key' }),
-      iconButton({ icon: 'key', label: 'Key', className: 'as-gz-key', title: 'Key: write the previewed drags as keys at the playhead' }),
+      iconButton({ icon: 'autokey', label: 'Auto-key', key: 'Shift+K', pressed: true, className: 'as-gz-auto',
+        title: 'Auto-key (Shift+K): a drag writes a key at the playhead; off, it only previews until you press Key' }),
+      iconButton({ icon: 'key', label: 'Key', key: 'k', className: 'as-gz-key', title: 'Key (K): write the previewed drags as keys at the playhead' }),
     ]),
   ].join('');
 }

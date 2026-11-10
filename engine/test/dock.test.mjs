@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canDock, nudgePanel, defaultDock, dropTarget, fixDock, isDefaultDock, movePanel, panelsIn, readDock, resetDock, writeDock, zoneOf } from '../../dist/engine/src/index.js';
+import { canDock, nudgePanel, dockMoveNote, defaultDock, dropTarget, fixDock, isDefaultDock, movePanel, panelsIn, readDock, resetDock, writeDock, zoneOf } from '../../dist/engine/src/index.js';
 
 const spec = {
   zones: ['left', 'center', 'right'],
@@ -98,4 +98,14 @@ test('nudgePanel moves a panel one step with the keyboard, over panels that are 
   assert.deepEqual(nudgePanel(spec, d, 'warp', -1, 0).left, ['tree', 'warp', 'params'], 'the center is skipped: warp may not enter it');
   assert.equal(nudgePanel(spec, d, 'stage', -1, 0), d, 'the stage has nowhere to go');
   assert.equal(nudgePanel(spec, d, 'tree', -1, 0), d, 'nothing left of the first zone');
+});
+
+test('dockMoveNote says which section moved and where, for the status line (SA-11)', () => {
+  const title = id => ({ tree: 'Parts', params: 'Parameters', sel: 'Properties' })[id] ?? id, zone = z => `the ${z} column`;
+  const before = { left: ['params', 'tree'], right: ['sel'] };
+  assert.equal(dockMoveNote(before, { left: ['params'], right: ['sel', 'tree'] }, title, zone), 'Moved Parts to the right column.');
+  const swapped = { left: ['tree', 'params'], right: ['sel'] };
+  assert.equal(dockMoveNote(before, swapped, title, zone, 'params'), 'Moved Parameters to place 2 of 2 in the left column.', 'Alt+Down on Parameters');
+  assert.equal(dockMoveNote(before, swapped, title, zone, 'tree'), 'Moved Parts to place 1 of 2 in the left column.', 'Alt+Up on Parts: the same layout');
+  assert.equal(dockMoveNote(before, before, title, zone), null, 'nothing moved');
 });

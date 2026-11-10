@@ -183,6 +183,7 @@ test('checkRig: reactions', () => {
   assert.match(msgs({ ...rig, reactions: [{ when: '', pose: 'happy' }] }).join('|'), /needs a condition/);
   assert.match(msgs({ ...rig, reactions: [{ when: 'x', pose: 'happy', over: -1 }] }).join('|'), /over/);
   assert.match(msgs({ ...rig, reactions: [{ when: 'x', pose: 'happy', ease: 'wobble' }] }).join('|'), /unknown ease/);
+  assert.doesNotMatch(msgs({ ...rig, reactions: [{ when: 'x', pose: 'happy', ease: 'bezier(0.3,0,0.7,1)' }] }).join('|'), /ease/);
   assert.match(msgs({ ...rig, reactions: 'x' }).join('|'), /needs a list/);
 });
 

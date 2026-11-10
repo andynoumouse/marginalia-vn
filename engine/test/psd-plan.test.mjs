@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planCharacter, prefixFrom } from '../../tools/psd-plan.mjs';
+import { planCharacter, prefixFrom, scriptName } from '../../tools/psd-plan.mjs';
 
 const layer = (name, extra = {}) => ({ name, left: 0, top: 0, right: 1, bottom: 1, ...extra });
 const group = (name, children, extra = {}) => ({ name, children, ...extra });
@@ -45,8 +45,8 @@ test('psd plan: + folders nest, and hidden or _ folders are skipped', () => {
 test('psd plan: the prefix is configurable and "" turns folders off', () => {
   const top = [group('~shell', [layer('inner')])];
   assert.deepEqual(shape(plan(top, { prefix: '~' }).entries), ['part:inner']);
-  assert.deepEqual(shape(plan(top, { prefix: '+' }).entries), ['slot:~shell']);
-  assert.deepEqual(shape(plan([group('+x', [layer('a')])], { prefix: '' }).entries), ['slot:+x']);
+  assert.deepEqual(shape(plan(top, { prefix: '+' }).entries), ['slot:shell'], 'a slot, named as scripts can say it');
+  assert.deepEqual(shape(plan([group('+x', [layer('a')])], { prefix: '' }).entries), ['slot:x']);
 });
 
 test('psd plan: clipped layers join their base, also inside a folder', () => {
@@ -61,9 +61,9 @@ test('psd plan: two layers that write one image warn', () => {
   assert.match(warnings[0], /shading/);
 });
 
-test('psd plan: invalid or duplicate variant names warn and are skipped', () => {
+test('psd plan: a variant name scripts cannot say is renamed, a duplicate warns and is skipped', () => {
   const { entries, warnings } = plan([group('eyes', [layer('open'), layer('open'), layer('bad name!')])]);
-  assert.deepEqual(entries[0].variants.map(v => v.name), ['open']);
+  assert.deepEqual(entries[0].variants.map(v => v.name), ['bad_name', 'open']);
   assert.equal(warnings.length, 2);
 });
 
@@ -83,4 +83,19 @@ test('psd plan: a + folder names the group of what it holds, nested folders make
   assert.deepEqual(entries.map(e => [e.type === 'part' ? e.name : e.slot, e.group]), [
     ['body', undefined], ['face', 'head'], ['eyes', 'head'], ['brim', 'head/hat'], ['hand', 'arm/forearm'],
   ]);
+});
+
+test('psd plan: Photoshop default names become script names, so a "Group 1" keeps its layers (ES-8)', () => {
+  assert.equal(scriptName('Group 1'), 'Group_1');
+  assert.equal(scriptName('Layer 2 copy'), 'Layer_2_copy');
+  assert.equal(scriptName(' (eyes) '), 'eyes');
+  assert.equal(scriptName('1st'), '_1st');
+  assert.equal(scriptName('目'), '');
+  const { entries, warnings } = plan([group('Group 1', [layer('Layer 3')])]);
+  assert.deepEqual(entries.map(e => [e.slot, e.variants.map(v => v.name)]), [['Group_1', ['Layer_3']]], 'the slot and its variant, renamed');
+  assert.ok(warnings.some(w => /"Group 1" is called "Group_1"/.test(w)) && warnings.some(w => /"Layer 3" in "Group_1" is called "Layer_3"/.test(w)));
+  const odd = plan([group('目', [layer('a')]), group('eyes', [layer('閉'), layer('open')])]);
+  assert.deepEqual(shape(odd.entries), ['slot:eyes'], 'a group with no usable name is skipped');
+  assert.deepEqual(odd.entries[0].variants.map(v => v.name), ['open'], 'and so is such a variant');
+  assert.equal(odd.warnings.filter(w => /no letters or digits/.test(w)).length, 2);
 });

@@ -9,6 +9,9 @@
 // Coordinates are the image's own pixels, origin top-left, y down. Triangles are wound with a positive cross product
 // ((b - a) x (c - a) > 0 in these coordinates, i.e. clockwise on screen).
 
+import { traceLoops } from './contour.js';
+import { pointInPolygon, segmentDistance, signedArea } from './geometry.js';
+
 export type MeshDetail = 'low' | 'medium' | 'high' | 'veryhigh';
 
 export interface MeshGenOptions {
@@ -24,6 +27,8 @@ export interface GeneratedMesh {
   tris: number[];
 }
 
+/** The least margin a generated mesh has around the opaque pixels, in image pixels. */
+export const MIN_MARGIN = 2;
 export const MESH_MAX_VERTS = 500;
 
 /**
@@ -149,30 +154,8 @@ export function triangulate(pts: number[], segs: number[] = []): GeneratedMesh {
 const cross = (ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number =>
   (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 
-function polyArea(p: Pt[]): number {
-  let a = 0;
-  for (let i = 0; i < p.length; i++) {
-    const q = p[(i + 1) % p.length];
-    a += p[i][0] * q[1] - q[0] * p[i][1];
-  }
-  return a / 2;
-}
-
-function inPoly(p: Pt[], x: number, y: number): boolean {
-  let inside = false;
-  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
-    const [xi, yi] = p[i], [xj, yj] = p[j];
-    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-
-function segDist(px: number, py: number, a: Pt, b: Pt): number {
-  const dx = b[0] - a[0], dy = b[1] - a[1];
-  const l2 = dx * dx + dy * dy;
-  const t = l2 ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / l2)) : 0;
-  return Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy);
-}
+const polyArea = signedArea, inPoly = pointInPolygon;
+const segDist = (px: number, py: number, a: Pt, b: Pt): number => segmentDistance(px, py, a[0], a[1], b[0], b[1]);
 
 /** Douglas-Peucker on a closed loop, split at the point farthest from the first. */
 function simplifyClosed(p: Pt[], tol: number): Pt[] {
@@ -223,60 +206,6 @@ function edt(f: Float64Array, w: number, h: number): void {
   };
   for (let x = 0; x < w; x++) pass(h, i => f[i * w + x], (i, d) => { f[i * w + x] = d; });
   for (let y = 0; y < h; y++) pass(w, i => f[y * w + i], (i, d) => { f[y * w + i] = d; });
-}
-
-/**
- * Pixel-edge boundary loops of a mask. Each opaque cell contributes its boundary edges with the cell on the right of the
- * travel direction, so outer loops have positive shoelace area and holes negative. At a vertex shared by diagonal cells the
- * loop turns right, which keeps 4-connected regions apart.
- */
-function traceLoops(mask: Uint8Array, w: number, h: number): Pt[][] {
-  const vw = w + 1;
-  const from: number[] = [], to: number[] = [];
-  const outs = new Map<number, number[]>();
-  const add = (x0: number, y0: number, x1: number, y1: number) => {
-    const a = y0 * vw + x0;
-    from.push(a); to.push(y1 * vw + x1);
-    const l = outs.get(a);
-    if (l) l.push(from.length - 1); else outs.set(a, [from.length - 1]);
-  };
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    if (!mask[y * w + x]) continue;
-    if (y === 0 || !mask[(y - 1) * w + x]) add(x, y, x + 1, y);
-    if (x === w - 1 || !mask[y * w + x + 1]) add(x + 1, y, x + 1, y + 1);
-    if (y === h - 1 || !mask[(y + 1) * w + x]) add(x + 1, y + 1, x, y + 1);
-    if (x === 0 || !mask[y * w + x - 1]) add(x, y + 1, x, y);
-  }
-  const dirOf = (e: number): Pt => [Math.sign((to[e] % vw) - (from[e] % vw)), Math.sign(Math.floor(to[e] / vw) - Math.floor(from[e] / vw))];
-  const used = new Uint8Array(from.length);
-  const loops: Pt[][] = [];
-  for (let e0 = 0; e0 < from.length; e0++) {
-    if (used[e0]) continue;
-    const raw: Pt[] = [];
-    let e = e0;
-    do {
-      used[e] = 1;
-      raw.push([from[e] % vw, Math.floor(from[e] / vw)]);
-      const [dx, dy] = dirOf(e);
-      const cands = outs.get(to[e])!;
-      let next = cands[0];
-      if (cands.length > 1) {
-        const rank = (c: number) => {
-          const [cx, cy] = dirOf(c);
-          return cx === -dy && cy === dx ? 0 : cx === dx && cy === dy ? 1 : 2;
-        };
-        next = cands.reduce((a, b) => (rank(b) < rank(a) ? b : a));
-      }
-      e = next;
-    } while (e !== e0);
-    // Drop collinear vertices.
-    const loop = raw.filter((p, i) => {
-      const a = raw[(i + raw.length - 1) % raw.length], b = raw[(i + 1) % raw.length];
-      return cross(a[0], a[1], p[0], p[1], b[0], b[1]) !== 0;
-    });
-    if (loop.length >= 3) loops.push(loop);
-  }
-  return loops;
 }
 
 interface Island { outer: Pt[]; holes: Pt[][]; area: number }
@@ -392,7 +321,9 @@ export function generateMesh(
   }
   if (x1 < 0) return empty;
   const B = Math.max(x1 - x0 + 1, y1 - y0 + 1);
-  const margin = Math.max(0, opts.margin ?? Math.max(2, DEFAULT_MARGIN * B));
+  // At least MIN_MARGIN pixels: with none the outline follows every step of the pixel edge and makes far more vertices than any detail asks
+  // for (SD-14: legs at Medium went from 23 vertices to 197).
+  const margin = Math.max(MIN_MARGIN, opts.margin ?? DEFAULT_MARGIN * B);
 
   // Working grid: one cell per c x c pixels, opaque when any pixel in it is.
   const c = Math.max(1, Math.ceil(Math.max(width, height) / WORK_SIZE));

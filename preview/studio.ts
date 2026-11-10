@@ -19,13 +19,15 @@
 //   { type: 'studioMarks', on }                           rig inspection: the character at rest with a cross for every pivot, picking or not
 //   { type: 'studioPlace', on, x, y, scale, flip, anchor: [fx, fy] }        where the character stands; with `on` a drag on the stage moves it and
 //                                                         answers { type: 'studioPlaced', x, y } (stage fractions, as `show` takes them)
-//   { type: 'studioGizmo', tool, name, space, stage }     the bone gizmo (tool move / rotate / scale, or null for none), on the chosen part or bone, and the tool row's tool (the stage mode); see studio-gizmo.ts
+//   { type: 'studioGizmo', tool, name, space, stage, lock }   the bone gizmo (tool move / rotate / scale, or null for none), on the chosen part or bone, and the tool row's tool (the stage mode);
+//                                                         `lock`: a drag would be thrown away, so no handles are drawn; see studio-gizmo.ts
 //   { type: 'studioRig', parameters, keyforms }           the working copy of rig.json `parameters` and `keyforms` (Model mode writes keyforms): the pose is evaluated from them
 //   { type: 'studioExtra', extra }                        offsets by name laid over the pose (a drag that is not keyed yet); ends a drag
 //   { type: 'studioView', whole }                         fit the view to the character (or to the whole stage)
 //   { type: 'studioEscape' }                              Esc pressed in the studio's side columns with a deform tool on: the stage clears the tool's selection, or answers studioKey escape
 //   { type: 'studioDeformers', deformers }                the working copy of rig.json `deformers` (mesh warps); the character is shaped by it
 //   { type: 'studioWeights', id, bone, heat, children, tip, picked, brush, selected, mode }  the Weights tool (see studio-gizmo.ts; null id: no tool; mode: what a press does); a click on a vertex answers { type: 'studioWeightsPick', id, vertex }
+//   { type: 'studioMeshPreview', part, verts, tris }       the mesh Generate would make for the part (vertices in its image pixels), drawn dashed; null part: none
 //   { type: 'studioWarp', id, points, radius, curve, topo, anchor }     the Warp tool (topo: the topology tool of a free mesh, else null; anchor: the vertex an Add edge started from): draw the lattice of the deformer with that id, a part's or a group's (null id: no tool), `points` the selected ones,
 //                                                         `radius` (cells, 0 for none) and `curve` the soft selection's fade;
 //                                                         answers { type: 'studioWarpBox', id, w, h } (the lattice's size in animation units) and, for a
@@ -48,15 +50,16 @@
 //   { type: 'studioExportEnd', id }                       the export is over or cancelled: the stage returns to what it showed; answers { type: 'studioExportDone', id }
 
 import { exportBackground, stageMode, type ReactionDef, type Value, fitFrame, frameProgress, frameStep, movieProblem, newSprite, planMovie, psdToStage, resolveAnim, stageToPsd, unionBox, type AnimDef, type BoneDef, type Box, type DeformerDef, type DisplayState, type KeyformDef, type ShapeDef, type MoviePlan, type Offset, type ParamDef, type PivotFrame, type Pivots } from '../engine/src/index.js';
-import type { PixiRenderer } from './pixi-renderer.js';
+import type { StudioPixiRenderer } from './pixi-studio.js';
 import { H, stage, W } from './stage-ui.js';
 import { StageTools } from './studio-gizmo.js';
+import { followPointer } from './input.js';
 
 interface Drive { param?: string; bone?: string; channel: 'dx' | 'dy' | 'sx' | 'sy' | 'rot'; amp: number; hz: number }
 interface Run { name: string; dur: number; loop: boolean; part: string | null; start: number }
 /** A movie export under way: the plan, the piece of the stage drawn, and the next frame the editor may ask for. */
 interface Export { id: number; name: string; plan: MoviePlan; width: number; height: number; frame: Box; background: string | null; next: number }
-type Msg = { type?: string; shapes?: unknown; clips?: unknown; shape?: unknown; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; points?: unknown; radius?: unknown; curve?: unknown; tool?: unknown; topo?: unknown; space?: unknown; whole?: unknown; anims?: unknown; reactions?: unknown; poses?: unknown; vars?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown; heat?: unknown; brush?: unknown; children?: unknown; tip?: unknown; bone?: unknown; picked?: unknown; selected?: unknown; select?: unknown; mode?: unknown; stage?: unknown };
+type Msg = { type?: string; shapes?: unknown; clips?: unknown; shape?: unknown; chains?: unknown; drive?: unknown; file?: unknown; line?: unknown; on?: unknown; x?: unknown; y?: unknown; scale?: unknown; flip?: unknown; anchor?: unknown; pivots?: unknown; bones?: unknown; parts?: unknown; width?: unknown; height?: unknown; pose?: unknown; overrides?: unknown; values?: unknown; hold?: unknown; parameters?: unknown; keyforms?: unknown; extra?: unknown; deformers?: unknown; masks?: unknown; point?: unknown; points?: unknown; radius?: unknown; curve?: unknown; tool?: unknown; topo?: unknown; space?: unknown; whole?: unknown; anims?: unknown; reactions?: unknown; poses?: unknown; vars?: unknown; name?: unknown; t?: unknown; dur?: unknown; loop?: unknown; part?: unknown; id?: unknown; n?: unknown; fps?: unknown; loops?: unknown; leadIn?: unknown; framing?: unknown; background?: unknown; heat?: unknown; brush?: unknown; children?: unknown; tip?: unknown; bone?: unknown; picked?: unknown; selected?: unknown; select?: unknown; mode?: unknown; stage?: unknown; lock?: unknown; verts?: unknown; tris?: unknown };
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const num = (v: unknown, or: number) => (typeof v === 'number' && Number.isFinite(v) ? v : or);
@@ -100,7 +103,7 @@ export class Studio {
   private scene: DisplayState | null = null; // the stage at sceneLine, without this character
 
   /** `sceneAt` replays the project's scripts to a line (the page's current program, so a hot reload is followed). */
-  constructor(private renderer: PixiRenderer, readonly char: string, private sceneAt: (at: { file: string; line: number }) => Promise<DisplayState>) {
+  constructor(private renderer: StudioPixiRenderer, readonly char: string, private sceneAt: (at: { file: string; line: number }) => Promise<DisplayState>) {
     this.marker.style.cssText = 'position:absolute;width:0;height:0;pointer-events:none;z-index:30;display:none;transform:scale(var(--cross-scale,1));transform-origin:0 0'; // the viewport zoom must not grow it
     const bar = (css: string) => `<div style="position:absolute;background:#ff3b6b;box-shadow:0 0 0 2px #000;${css}"></div>`;
     this.marker.innerHTML = bar('left:-30px;top:-1.5px;width:60px;height:3px') + bar('left:-1.5px;top:-30px;width:3px;height:60px');
@@ -145,6 +148,7 @@ export class Studio {
     this.renderer.sync(state);
     if (this.size.width) this.renderer.studioPivots(this.char, this.pivots, this.bones, this.partBones); // the editor's working copy, not the file's
     this.render();
+    this.tools.refit(); // a view fitted to the character follows its art once it is there
     if (announce) window.parent.postMessage({ type: 'studioReady' }, location.origin);
   }
 
@@ -177,11 +181,7 @@ export class Studio {
       window.parent.postMessage({ type: 'studioPicked', part: this.pick, x, y, drag }, location.origin);
     };
     at(e, 'move');
-    const move = (m: PointerEvent) => at(m, 'move');
-    const up = (m: PointerEvent) => { stage.removeEventListener('pointermove', move); stage.removeEventListener('pointerup', up); stage.removeEventListener('pointercancel', up); at(m, 'end'); };
-    stage.addEventListener('pointermove', move);
-    stage.addEventListener('pointerup', up);
-    stage.addEventListener('pointercancel', up);
+    followPointer(stage, m => at(m, 'move'), m => at(m, 'end'));
   }
 
   private onDrag(e: PointerEvent) {
@@ -190,16 +190,13 @@ export class Studio {
     e.preventDefault();
     stage.setPointerCapture(e.pointerId);
     let lx = e.clientX, ly = e.clientY;
-    const move = (m: PointerEvent) => {
+    followPointer(stage, m => {
       const r = stage.getBoundingClientRect();
       this.place = { ...this.place, x: this.place.x + (m.clientX - lx) / r.width, y: this.place.y + (m.clientY - ly) / r.height };
       lx = m.clientX; ly = m.clientY;
       window.parent.postMessage({ type: 'studioPlaced', x: this.place.x, y: this.place.y }, location.origin);
       this.redraw();
-    };
-    const up = () => { stage.removeEventListener('pointermove', move); stage.removeEventListener('pointerup', up); };
-    stage.addEventListener('pointermove', move);
-    stage.addEventListener('pointerup', up);
+    });
   }
 
   private get frame(): PivotFrame { return { stageW: W, stageH: H, ...this.size }; }
@@ -321,6 +318,7 @@ export class Studio {
       case 'studioEscape': return this.tools.escape();
       case 'studioDeformers': return this.onDeformers(m);
       case 'studioWarp': return this.onWarp(m);
+      case 'studioMeshPreview': return this.tools.setMeshPreview(str(m.part) && Array.isArray(m.verts) && Array.isArray(m.tris) ? { part: str(m.part)!, verts: (m.verts as unknown[]).map(Number), tris: (m.tris as unknown[]).map(Number) } : null);
       case 'studioWeights': return this.onWeights(m);
       case 'studioMasks': return this.onMasks(m);
       case 'studioMask': return this.onMask(m);
@@ -367,12 +365,13 @@ export class Studio {
     if (!this.run) this.render();
   }
 
-  /** Hand the renderer the working copy of what runs by itself (see PixiRenderer.studioAuto). */
+  /** Hand the renderer the working copy of what runs by itself (see StudioPixiRenderer.studioAuto). */
   private pushAuto() { this.renderer.studioAuto(this.char, this.anims, this.reactions, this.poses, this.vars); }
 
   private onSeek(m: Msg) {
     const name = str(m.name);
     this.run = null;
+    this.showFocus();
     if (name) this.poseAt(name, num(m.t, 0), str(m.part));
   }
 
@@ -383,6 +382,7 @@ export class Studio {
     this.run = { name, dur: Math.max(0.05, num(m.dur, 1)), loop: m.loop === true, part: str(m.part), start: performance.now() };
     cancelAnimationFrame(this.tickId); // a Play over a Play, or right after a Pause, must not leave two frame chains
     this.tickId = requestAnimationFrame(this.tick);
+    this.showFocus();
   }
 
   private onPivots(m: Msg) {
@@ -397,8 +397,11 @@ export class Studio {
   }
 
   private onMarks(m: Msg) {
+    const was = this.marks;
     this.marks = m.on === true;
+    if (this.marks !== was) this.tools.fitFor(this.marks); // Model fits the character, Animate the stage
     this.run = null;
+    this.showFocus();
     this.showPick();
     this.redraw();
   }
@@ -406,6 +409,7 @@ export class Studio {
   private onPick(m: Msg) {
     this.pick = str(m.part);
     this.run = null;
+    this.showFocus();
     this.showPick();
     this.redraw();
   }
@@ -431,12 +435,13 @@ export class Studio {
 
   private onPause(m: Msg) {
     this.run = null;
+    this.showFocus();
   }
 
   private onGizmo(m: Msg) {
     const tool = m.tool === 'move' || m.tool === 'rotate' || m.tool === 'scale' ? m.tool : null;
     const stage = m.stage === 'move' || m.stage === 'rotate' || m.stage === 'scale' || m.stage === 'pivot' || m.stage === 'warp' || m.stage === 'weights' || m.stage === 'mask' ? m.stage : null;
-    this.tools.configure({ tool, name: str(m.name), space: m.space === 'world' ? 'world' : 'local', mode: stage ? stageMode(stage) : null });
+    this.tools.configure({ tool, name: str(m.name), space: m.space === 'world' ? 'world' : 'local', mode: stage ? stageMode(stage) : null, lock: m.lock === true });
   }
 
   private onRig(m: Msg) {
@@ -498,10 +503,15 @@ export class Studio {
     this.reply({ type: 'studioAlphaData', id: m.id, part, w: a?.w ?? 0, h: a?.h ?? 0, alpha: a?.alpha ?? null }, a ? [a.alpha.buffer] : []);
   }
 
+  /** The chosen part stands out by dimming the rest, but not while an animation plays: it is judged whole (ES-13). */
+  private showFocus() {
+    if (!this.exp) this.renderer.studioFocus(this.char, this.run ? null : this.focusPart, this.run ? [] : this.focusExtra);
+  }
+
   private onFocus(m: Msg) {
     this.focusPart = str(m.part);
     this.focusExtra = Array.isArray(m.extra) ? m.extra.filter((x): x is string => typeof x === 'string') : [];
-    if (!this.exp) this.renderer.studioFocus(this.char, this.focusPart, this.focusExtra);
+    this.showFocus();
     this.tools.setChosen(this.focusPart); // the stage outlines it and says whether it is the part or its bone
   }
 
@@ -612,7 +622,7 @@ export class Studio {
     const dt = (now - this.physicsAt) / 1000;
     this.physicsAt = now;
     this.poseAt(r.name, t, r.part, dt);
-    if (done) this.run = null;
+    if (done) { this.run = null; this.showFocus(); }
     window.parent.postMessage({ type: 'studioTime', t, playing: !done }, location.origin);
     if (!done) this.tickId = requestAnimationFrame(this.tick);
   };

@@ -57,9 +57,11 @@
   /* With gestures on (preview.ts) the page reads the stage's touches itself; lists that scroll opt back in. */
   html[data-gestures] #stage { touch-action: none; }
   html[data-gestures] #stage .sc-scroll, html[data-gestures] #stage .crash pre { touch-action: pan-x pan-y; }
-  /* A landscape game held upright (or the reverse): ask for the other way; the stage underneath is paused by the cover. */
-  #rotate { display: none; position: fixed; inset: 0; z-index: 70; background: #06080b; color: #e6e9ef; align-items: center;
-    justify-content: center; text-align: center; padding: 24px; font: 20px/1.4 system-ui, sans-serif; }
+  /* A landscape game held upright on a phone (or the reverse): ask for the other way; the stage underneath is paused by the
+     cover. A tablet, where the stage would still be big enough, is not covered (needsRotate). */
+  #rotate { display: none; position: fixed; inset: 0; z-index: 70; background: #06080b; color: #e6e9ef; flex-direction: column;
+    align-items: center; justify-content: center; gap: 20px; text-align: center; padding: 24px; font: 20px/1.4 system-ui, sans-serif; }
+  #rotate svg { width: 96px; height: 96px; }
   html[data-rotate] #rotate { display: flex; }
   #box { position: absolute; left: calc(160px + var(--safe-left, 0px)); right: calc(160px + var(--safe-right, 0px)); bottom: calc(56px + var(--safe-bottom, 0px)); min-height: 250px; padding: 44px 56px 36px;
     background: rgba(10,13,19,calc(.84 * var(--box-alpha, 1))); border: 2px solid color-mix(in srgb, var(--vn-line) 14%, transparent); border-radius: 8px; display: none; }
@@ -389,7 +391,14 @@
     <button id="diagBtn" type="button" data-errors="0" data-warns="0" title="Errors and warnings the preview found in the scripts it runs (the editor's count also includes game.json and rigs)">Problems: 0</button>
     <button id="debugBtn" type="button" title="Debug console: story variables, jump to a label, reset saved progress">Debug</button>
   </div>
-  <div id="rotate" role="alert" data-ui="rotate_device">Turn your device to play.</div>
+  <div id="rotate" role="alert">
+    <svg viewBox="0 0 96 96" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="30" y="14" width="36" height="60" rx="6"/><path d="M44 64h8"/>
+      <path d="M78 46a30 30 0 0 1-12 30"/><path d="M58 76h8v-8" transform="rotate(8 66 76)"/>
+      <path d="M18 50a30 30 0 0 1 12-30"/><path d="M38 20h-8v8" transform="rotate(8 30 20)"/>
+    </svg>
+    <span data-ui="rotate_device">Turn your device to play.</span>
+  </div>
   <div id="viewport">
     <div id="boot" role="status">Loading…</div>
     <div id="stage">

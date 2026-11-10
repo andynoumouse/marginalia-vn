@@ -20,7 +20,7 @@ test('a folder wins over the type, and PSDs go to masters', () => {
 });
 
 test('a folder of the engine takes its own kind of file only (UX round EP-6)', () => {
-  assert.deepEqual(planDrop('My Cool Sound.ogg', 'bg'), { error: 'My_Cool_Sound.ogg: bg/ takes images (png, webp, jpg, jpeg, avif, svg)' });
+  assert.deepEqual(planDrop('My Cool Sound.ogg', 'bg'), { error: 'My_Cool_Sound.ogg: bg/ takes images (png, webp, jpg, jpeg, avif)' });
   assert.ok(planDrop('hud2.png', 'music').error.startsWith('hud2.png: music/ takes sounds (ogg'));
   assert.ok(planDrop('test.ttf', 'ui').error.includes('ui/ takes images'));
   assert.ok(planDrop('hud2.png', 'sound').error.includes('sound/ takes sounds'));

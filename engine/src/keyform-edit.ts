@@ -15,6 +15,8 @@
 
 import type { Offset } from './anim.js';
 import { blend1D, blendGrid, combineForms, evalKeyform, FORM_FIELDS, REST_FORM, type FormValue, type FullForm, type KeyformDef, type ParamDef } from './params.js';
+import { clampParam, paramById } from './params.js';
+import { round5 } from './util.js';
 
 /** Where a keyform is written: a slider's value, or a pad's point (the `params` are the pad's x and y parameters). */
 export type KeySpot = { param: string; value: number } | { params: [string, string]; at: [number, number] };
@@ -23,16 +25,22 @@ export const isPadSpot = (s: KeySpot): s is PadSpot => 'params' in s;
 
 /** A slider value this close (as a fraction of the range) to a key edits that key; farther away it makes a new one. */
 export const KEY_SNAP = 0.02;
+/**
+ * Where a scrubbed slider lands in Model mode: on the nearest key within `reach` (a fraction of the range, wider than KEY_SNAP so a scrub
+ * catches it), else on the slider's own step, so a drag does not make a key at an odd value such as 0.53 by accident (SR-18).
+ */
+export function snapToTicks(v: number, ticks: readonly number[], min: number, max: number, step: number, reach = 0.04): number {
+  const span = max - min;
+  let best: number | null = null;
+  for (const t of ticks) if (Math.abs(t - v) <= reach * span && (best === null || Math.abs(t - v) < Math.abs(best - v))) best = t;
+  if (best !== null) return best;
+  return round5(Math.min(max, Math.max(min, min + Math.round((v - min) / step) * step)));
+}
 /** The most grid lines a pad keyform grows to on one axis. */
 export const GRID_MAX = 9;
 const EPS = 1e-9;
-const DECIMALS = 1e5;
-/** Stored numbers keep 5 decimals; `+ 0` turns -0 into 0. */
-const clean = (n: number): number => Math.round(n * DECIMALS) / DECIMALS + 0;
 
-const defOf = (defs: readonly ParamDef[], id: string): ParamDef | undefined => defs.find(d => d.id === id);
 const tol = (d: ParamDef): number => KEY_SNAP * (d.max - d.min);
-const clampTo = (d: ParamDef, v: number): number => Math.min(d.max, Math.max(d.min, Number.isFinite(v) ? v : d.default));
 const full = (f: FormValue): FullForm => combineForms([f]);
 
 /** True when the form has no effect (every field at its rest value). */
@@ -41,7 +49,7 @@ export const isRestForm = (f: FormValue | undefined): boolean => FORM_FIELDS.eve
 /** The form as it is stored: rounded, and only the fields that differ from rest. */
 function sparse(f: FormValue): FormValue {
   const out: FormValue = {};
-  for (const k of FORM_FIELDS) { const v = clean(f[k] ?? REST_FORM[k]); if (v !== REST_FORM[k]) out[k] = v; }
+  for (const k of FORM_FIELDS) { const v = round5(f[k] ?? REST_FORM[k]); if (v !== REST_FORM[k]) out[k] = v; }
   return out;
 }
 
@@ -71,21 +79,21 @@ function newGrid(target: string, params: [string, string], xd: ParamDef, yd: Par
  */
 export function snapSpot(kfs: readonly KeyformDef[], defs: readonly ParamDef[], target: string, spot: KeySpot): KeySpot | null {
   if (isPadSpot(spot)) {
-    const xd = defOf(defs, spot.params[0]), yd = defOf(defs, spot.params[1]);
+    const xd = paramById(defs, spot.params[0]), yd = paramById(defs, spot.params[1]);
     if (!xd || !yd || xd === yd) return null;
     const i = indexOfForm(kfs, target, spot);
     const xs = i >= 0 ? kfs[i].grid!.x : axisOf(xd), ys = i >= 0 ? kfs[i].grid!.y : axisOf(yd);
     if (!xs.length || !ys.length) return null;
-    return { params: [xd.id, yd.id], at: [xs[nearest(xs, clampTo(xd, spot.at[0]))], ys[nearest(ys, clampTo(yd, spot.at[1]))]] };
+    return { params: [xd.id, yd.id], at: [xs[nearest(xs, clampParam(xd, spot.at[0]))], ys[nearest(ys, clampParam(yd, spot.at[1]))]] };
   }
-  const d = defOf(defs, spot.param);
+  const d = paramById(defs, spot.param);
   if (!d) return null;
-  const v = clampTo(d, spot.value), i = indexOfForm(kfs, target, spot);
+  const v = clampParam(d, spot.value), i = indexOfForm(kfs, target, spot);
   const near = (at: number) => Math.abs(at - v) <= tol(d);
   let best: number | undefined;
   if (i >= 0) for (const k of kfs[i].keys!) if (near(k.at) && (best === undefined || Math.abs(k.at - v) < Math.abs(best - v))) best = k.at;
   if (best === undefined && near(d.default)) best = d.default;
-  return { param: d.id, value: best ?? clean(v) };
+  return { param: d.id, value: best ?? round5(v) };
 }
 
 /** The form stored at `spot` (after snapping): the key's, or the grid corner's. Null when there is no keyform there (or no key). */
@@ -125,12 +133,12 @@ export function writeForm(kfs: readonly KeyformDef[], defs: readonly ParamDef[],
   const next = structuredClone(kfs) as KeyformDef[], stored = sparse(form);
   if (isPadSpot(s)) {
     let i = indexOfForm(next, target, s);
-    if (i < 0) { next.push(newGrid(target, s.params, defOf(defs, s.params[0])!, defOf(defs, s.params[1])!)); i = next.length - 1; }
+    if (i < 0) { next.push(newGrid(target, s.params, paramById(defs, s.params[0])!, paramById(defs, s.params[1])!)); i = next.length - 1; }
     const g = next[i].grid!;
     next[i].forms![g.y.indexOf(s.at[1]) * g.x.length + g.x.indexOf(s.at[0])] = stored;
     return { keyforms: next, spot: s };
   }
-  const d = defOf(defs, s.param)!;
+  const d = paramById(defs, s.param)!;
   let i = indexOfForm(next, target, s);
   if (i < 0) { next.push({ target, param: s.param, keys: [] }); i = next.length - 1; }
   const keys = next[i].keys!;
@@ -215,14 +223,14 @@ export function padCorners(kfs: readonly KeyformDef[], params: readonly [string,
  * there already, the grid is at GRID_MAX or a parameter is unknown.
  */
 export function extendGrid(kfs: readonly KeyformDef[], defs: readonly ParamDef[], target: string, params: readonly [string, string], axis: 'x' | 'y', value: number): { keyforms: KeyformDef[]; added: boolean } {
-  const xd = defOf(defs, params[0]), yd = defOf(defs, params[1]), same = { keyforms: kfs as KeyformDef[], added: false };
+  const xd = paramById(defs, params[0]), yd = paramById(defs, params[1]), same = { keyforms: kfs as KeyformDef[], added: false };
   if (!xd || !yd || xd === yd) return same;
   const spot: PadSpot = { params: [xd.id, yd.id], at: [xd.default, yd.default] };
   const next = structuredClone(kfs) as KeyformDef[];
   let i = indexOfForm(next, target, spot);
   if (i < 0) { next.push(newGrid(target, spot.params, xd, yd)); i = next.length - 1; }
   const kf = next[i], g = kf.grid!, d = axis === 'x' ? xd : yd, lines = axis === 'x' ? g.x : g.y;
-  const at = clean(clampTo(d, value));
+  const at = round5(clampParam(d, value));
   if (lines.length >= GRID_MAX || lines.some(l => Math.abs(l - at) <= tol(d))) return same;
   const xs = axis === 'x' ? [...g.x, at].sort((a, b) => a - b) : g.x, ys = axis === 'y' ? [...g.y, at].sort((a, b) => a - b) : g.y;
   const old = kf.forms!, forms: FormValue[] = [];

@@ -5,8 +5,10 @@
  * its command takes. Character poses (`show alice smile`) are not followed: a pose names a layer as well as a file.
  */
 
-import { jsonStrings, maskStrings, type ProjectFile, type TextEdit } from './refactor.js';
+import { jsonStrings, type ProjectFile, type TextEdit } from './refactor.js';
+import { maskStrings, withoutComment } from './script-lex.js';
 import { movedPath } from './file-ops.js';
+import { AUDIO_FILE, IMAGE_FILE, MOVIE_FILE } from './asset-kinds.js';
 
 /**
  * How a mention names its file: `bg` a background name (`assets/bg/<name>`, or a path from assets/), `image` a path
@@ -17,9 +19,6 @@ export type AssetRefKind = 'bg' | 'image' | 'music' | 'sound' | 'movie' | 'ui';
 /** A mention of an asset: 1-based line, 0-based column and length of the name as written, and the key it resolves to. */
 export interface AssetRef { file: string; line: number; col: number; length: number; text: string; kind: AssetRefKind; key: string }
 
-const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
-const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
-const MOVIE = /\.(webm|mp4|m4v|ogv)$/i;
 const NAME = String.raw`[\w\-.\/]+(?=\s|$)`;
 const RE_SCENE = new RegExp(String.raw`^(\s*scene\s+)(${NAME})`);
 const RE_IMAGE_SHOW = new RegExp(String.raw`^(\s*image\s+show\s+[\w\-]+\s+)(${NAME})`);
@@ -37,7 +36,7 @@ const stemOf = (name: string, ext: RegExp) => name.replace(ext, '');
 function keyOf(kind: AssetRefKind, text: string, assetFiles?: Set<string>): string {
   switch (kind) {
     case 'bg': return assetFiles && !assetFiles.has(`bg/${text}`) && assetFiles.has(text) ? text : `bg/${text}`;
-    case 'image': return stemOf(stemOf(text, IMAGE), MOVIE);
+    case 'image': return stemOf(stemOf(text, IMAGE_FILE), MOVIE_FILE);
     default: return `${kind}/${text}`;
   }
 }
@@ -47,8 +46,7 @@ function scriptRefs(file: string, text: string, assetFiles?: Set<string>): Asset
   text.split(/\r?\n/).forEach((raw, i) => {
     const masked = maskStrings(raw);
     // Only the part before a trailing comment (ids like #ab12 and colors are not comments).
-    const hash = masked.search(/#(?![0-9a-z]{4,}\b)/);
-    const code = hash >= 0 ? masked.slice(0, hash) : masked;
+    const code = withoutComment(masked);
     const at = (col: number, name: string, kind: AssetRefKind) => {
       if (!name || /[\[\\"]/.test(name)) return; // `[variables]` are filled in while playing
       refs.push({ file, line: i + 1, col, length: name.length, text: name, kind, key: keyOf(kind, name, assetFiles) });
@@ -117,7 +115,7 @@ function gameRefs(file: string, text: string, assetFiles?: Set<string>): AssetRe
  * under assets/ (`bg/park.png`); without them a background name is taken to be in bg/.
  */
 export function assetRefs(files: ProjectFile[], assetFiles?: string[]): AssetRef[] {
-  const keys = assetFiles && new Set(assetFiles.map(f => stemOf(stemOf(stemOf(f, IMAGE), AUDIO), MOVIE)));
+  const keys = assetFiles && new Set(assetFiles.map(f => stemOf(stemOf(stemOf(f, IMAGE_FILE), AUDIO_FILE), MOVIE_FILE)));
   return files.flatMap(f => f.name.endsWith('.vn') ? scriptRefs(f.name, f.text, keys)
     : f.name === 'game.json' || f.name.endsWith('/game.json') || isThemeFile(f.name) ? gameRefs(f.name, f.text, keys) : []);
 }
@@ -149,14 +147,14 @@ export function renameAssetRefs(files: ProjectFile[], from: string, to: string, 
   const out: AssetRename = { edits: [], stranded: [] };
   if (!from.startsWith('assets/') || !to.startsWith('assets/')) return out;
   const rel = (p: string) => p.slice('assets/'.length);
-  const strip = (p: string) => isDir ? p : stemOf(stemOf(stemOf(p, IMAGE), AUDIO), MOVIE);
+  const strip = (p: string) => isDir ? p : stemOf(stemOf(stemOf(p, IMAGE_FILE), AUDIO_FILE), MOVIE_FILE);
   const a = strip(rel(from)), b = strip(rel(to));
   if (a === b) return out;
   for (const r of assetRefs(files, assetFiles)) {
     // A folder takes what is under it, not the file of the same name beside it (cg/set/ and cg/set.png).
     const moved = isDir ? (r.key.startsWith(`${a}/`) ? movedPath(r.key, a, b) : null) : r.key === a ? b : null;
     if (moved === null) continue;
-    const ext = r.kind === 'image' ? r.text.slice(stemOf(r.text, IMAGE).length) : '';
+    const ext = r.kind === 'image' ? r.text.slice(stemOf(r.text, IMAGE_FILE).length) : '';
     const name = nameFor(r.kind, moved, ext);
     if (name === null) out.stranded.push(r);
     else if (name !== r.text) out.edits.push({ file: r.file, line: r.line, col: r.col, length: r.length, text: name });

@@ -7,7 +7,7 @@
     "farleft": 0.12,
     "farright": 0.88
   },
-  "speakerFocus": true,
+  "speakerFocus": { "front": true },
   "titleScreen": {
     "background": "bg_library",
     "music": "evening_theme",

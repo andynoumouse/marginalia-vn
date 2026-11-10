@@ -156,3 +156,25 @@ export function nudgePanel(spec: DockSpec, layout: DockLayout, id: string, dx: n
   const rest = layout[from].filter(x => x !== id);
   return movePanel(spec, layout, id, from, rest.indexOf(other) + (dy < 0 ? 0 : 1));
 }
+
+/**
+ * What a move of a section did, for the status line (a live region; SA-11): the section that changed zone ("Moved Parts to the right
+ * column."), else `moved` when it moved (two neighbours that swap give the same layout whichever of them was moved: the caller knows), else
+ * the one that moved furthest within its zone ("Moved Parts to place 1 of 3 in the left column."); null when nothing moved.
+ */
+export function dockMoveNote(before: DockLayout, after: DockLayout, title: (id: string) => string, zoneName: (zone: string) => string, moved?: string): string | null {
+  const where = (l: DockLayout) => new Map(Object.entries(l).flatMap(([zone, ids]) => ids.map((id, i) => [id, { zone, i }] as const)));
+  const a = where(before), b = where(after);
+  let best: { id: string; by: number } | null = null;
+  for (const [id, to] of b) {
+    const from = a.get(id);
+    if (!from) continue;
+    if (from.zone !== to.zone) return `Moved ${title(id)} to ${zoneName(to.zone)}.`;
+    const by = Math.abs(from.i - to.i);
+    if (by > 0 && (!best || by > best.by)) best = { id, by };
+  }
+  if (!best) return null;
+  const pick = moved !== undefined && b.get(moved) && a.get(moved)?.i !== b.get(moved)!.i ? moved : best.id;
+  const to = b.get(pick)!;
+  return `Moved ${title(pick)} to place ${to.i + 1} of ${after[to.zone].length} in ${zoneName(to.zone)}.`;
+}

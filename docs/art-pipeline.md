@@ -41,6 +41,24 @@ _sketch                   names starting with _ (and hidden top-level layers) ar
   parts on it; pivots are left for you to place in the studio's Model mode.
 - Unknown poses and variants are reported in the preview's console.
 
+### Names
+
+Scripts name slots and variants (`show alice eyes=closed`), so those names are script names: letters, digits and `_`, not
+starting with a digit. Name groups and layers for what they are (`eyes`, `closed`), not Photoshop's defaults. When a name is not a
+script name the converter makes it one and says so in the Output panel:
+
+| In the PSD | In scripts |
+|---|---|
+| `Group 1` (a group: a slot) | `Group_1` |
+| `Layer 2 copy` (a variant in it) | `Layer_2_copy` |
+| `1st` | `_1st` |
+| `(eyes)` | `eyes` |
+| a name with no Latin letters or digits | skipped, with a warning |
+
+A part (a top-level layer) keeps its name in `sprite.json`; only its PNG file is named this way (`Layer 1` writes `Layer_1.png`).
+Two layers whose names give the same file name are reported, and the upper one wins. Names starting with `_` are skipped, as
+above, and so are hidden top-level layers.
+
 ## rig.json
 
 Z-order tweaks, looks and groups go in a hand-written `assets/char/<name>/rig.json` next to the generated

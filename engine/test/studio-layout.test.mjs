@@ -200,3 +200,11 @@ test('the rig strip shows in Model only, a fixed height folded and open, without
   assert.deepEqual(rigStrip('model', { tab: 'physics', open: true }, ['physics', 'place']), { shown: true, tabs: ['reactions'], tab: 'reactions', open: true, height: RIG_STRIP.open });
   assert.equal(rigStrip('model', { tab: 'physics', open: true }, ['physics', 'reactions']).shown, false, 'no tab left: no strip');
 });
+
+test('the timeline folds to its transport row, and the fold is kept with the layout', () => {
+  const folded = withCollapsed(NO_LAYOUT, 'timeline', true);
+  assert.deepEqual(folded.collapsed, { timeline: true });
+  assert.deepEqual(readLayout(JSON.stringify(folded)).collapsed, { timeline: true }, 'read back from storage');
+  assert.deepEqual(withCollapsed(folded, 'timeline', false), NO_LAYOUT, 'unfolded: nothing left to store');
+  assert.equal(readLayout('{"collapsed":{"timeline":"yes"}}'), NO_LAYOUT, 'only true folds');
+});

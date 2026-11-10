@@ -6,7 +6,7 @@
 // `TreeHost.state`) and hands every change back through the host.
 
 import { addBone, animParts, boneRows, partsUnder, saveLook, setBoneParent, setPartBone, uniqueBoneName, type AnimDef, type Bones, type Looks, type PartBones, type RigOutline, type SetView, type StudioMode } from '../engine/src/index.js';
-import { el } from './anim-dom.js';
+import { el, scrollRowIntoBox } from './anim-dom.js';
 
 export interface TreeState {
   char: string;
@@ -96,10 +96,20 @@ export class RigTree {
     else if (d.part !== undefined) this.host.choosePart(d.part || null, e.ctrlKey || e.metaKey, e.altKey);
   }
 
-  /** Up / Down / Home / End move between the rows of the tree; Left / Right (and Home / End) between a slot's variants. */
+  /**
+   * Up / Down / Home / End move between the rows of the tree; Left / Right (and Home / End) between a slot's variants. The tree is one Tab
+   * stop (SA-19): only one row is in the Tab order, the one the arrows left the focus on; on a row H hides or shows it on the stage, and on a
+   * bone Left folds the bones under it and Right opens them, so the eye and fold buttons need no Tab stops of their own.
+   */
   private key(e: KeyboardEvent) {
     const from = (e.target as Element).closest<HTMLButtonElement>('button');
     if (!from || !this.own(from) || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (from.classList.contains('as-row') && this.roots.tree.contains(from)) {
+      const name = from.dataset.part ?? '';
+      if (e.key.toLowerCase() === 'h' && name) { e.preventDefault(); e.stopPropagation(); this.host.toggleHidden(name, false); return; }
+      const fold = from.parentElement?.querySelector<HTMLButtonElement>(':scope > .as-bone-fold');
+      if (fold && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (fold.getAttribute('aria-expanded') === 'true') === (e.key === 'ArrowLeft')) { e.preventDefault(); fold.click(); this.focusRow(name); return; }
+    }
     const chip = from.classList.contains('as-variant');
     const list = chip ? [...from.parentElement!.querySelectorAll<HTMLButtonElement>('.as-variant')] : [...this.roots.tree.querySelectorAll<HTMLButtonElement>('.as-row')];
     const prev = chip ? 'ArrowLeft' : 'ArrowUp', next = chip ? 'ArrowRight' : 'ArrowDown';
@@ -107,7 +117,17 @@ export class RigTree {
     const to = e.key === prev ? i - 1 : e.key === next ? i + 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
     if (to === null || i < 0) return;
     e.preventDefault(); // also at the ends, so the arrow does not scroll the panel
-    list[to]?.focus();
+    const target = list[to];
+    if (!target) return;
+    if (!chip) for (const r of list) r.tabIndex = r === target ? 0 : -1;
+    target.focus();
+  }
+  /** Focus the row of `part` ('' the whole character), the tree's one Tab stop. */
+  private focusRow(part: string) {
+    const rows = [...this.roots.tree.querySelectorAll<HTMLButtonElement>('.as-row')], r = rows.find(x => x.dataset.part === part);
+    if (!r) return;
+    for (const x of rows) x.tabIndex = x === r ? 0 : -1;
+    r.focus();
   }
 
   show() {
@@ -162,6 +182,7 @@ export class RigTree {
       b.setAttribute('aria-label', `${name} shown on the stage`);
       b.setAttribute('role', 'checkbox');
       b.setAttribute('aria-checked', String(!off));
+      b.tabIndex = -1; // H on the row does the same from the keyboard
       return b;
     };
     const onBone = Object.fromEntries(Object.entries(partBones).map(([p, d]) => [p, d?.bone]));
@@ -202,6 +223,7 @@ export class RigTree {
       const next = setBoneParent(bones, name, parent);
       if (!next) { host.note(`${name} cannot hang from ${parent}: that would be a loop.`); return; }
       host.change({ bones: next });
+      host.note(parent ? `${name} now hangs from ${parent}: it follows ${parent}'s motion.` : `${name} is a top bone now.`);
     };
     const dropTarget = (target: HTMLElement, parent: string | null) => {
       target.addEventListener('dragover', e => { if (e.dataTransfer?.types.includes('text/x-bone')) { e.preventDefault(); target.classList.add('as-drop'); } });
@@ -237,6 +259,8 @@ export class RigTree {
         const fold = el('button', { type: 'button', className: 'as-bone-fold', title: shut ? `Show the bones under ${name}` : `Hide the bones under ${name}` }, shut ? '▸' : '▾');
         fold.dataset.fold = name;
         fold.setAttribute('aria-expanded', String(!shut));
+        fold.setAttribute('aria-label', shut ? `Show the bones under ${name}` : `Hide the bones under ${name}`);
+        fold.tabIndex = -1; // Left and Right on the bone's row do the same from the keyboard
         fold.addEventListener('click', () => { if (shut) this.collapsed.delete(name); else this.collapsed.add(name); this.drawn = ''; this.show(); });
         item.append(fold);
       }
@@ -255,8 +279,13 @@ export class RigTree {
       const add = el('button', { type: 'button', className: 'as-bone-new', title: 'A bone with no image, under the chosen bone (or at the top)' }, 'New bone');
       add.addEventListener('click', () => {
         const name = uniqueBoneName(bones, 'bone');
-        const next = addBone(bones, name, host.selIsBone(s.part) ? s.part : null);
-        if (next) host.change({ bones: next, part: name });
+        const under = host.selIsBone(s.part) ? s.part : null, next = addBone(bones, name, under);
+        if (!next) return;
+        host.change({ bones: next, part: name });
+        host.note(`Added the bone ${name}${under ? ` under ${under}` : ''}: type its name, then Enter. Q places its pivot; Under changes its parent.`);
+        // The new bone's Name field takes the typing at once (the change redrew Transform).
+        const field = roots.transform.querySelector<HTMLInputElement>('.as-bone-name');
+        if (field) { field.focus(); field.select(); }
       });
       roots.tree.append(add);
     }
@@ -339,11 +368,9 @@ export class RigTree {
         name.value = chosen;
         name.dataset.boneName = chosen;
         name.setAttribute('aria-label', `Name of the bone ${chosen}`);
-        const rename = () => { if (name.value.trim() !== chosen) host.renameBone(chosen, name.value); };
-        name.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); rename(); } });
-        const renameBtn = el('button', { type: 'button', className: 'as-bone-rename', title: `Give ${chosen} this name: its children, the parts and shapes on it, keyforms, animation keys, physics chains and skinned meshes follow` }, 'Rename');
-        renameBtn.addEventListener('click', rename);
-        detail.append(el('div', { className: 'as-bone-label' }, el('label', { title: `Rename ${chosen}` }, 'Name ', name), renameBtn));
+        // As a parameter's name: Enter or leaving the field renames (SR-24).
+        name.addEventListener('change', () => { if (name.value.trim() !== chosen) host.renameBone(chosen, name.value); });
+        detail.append(el('div', { className: 'as-bone-label' }, el('label', { title: `Rename ${chosen} (Enter): its children, the parts and shapes on it, keyforms, animation keys, physics chains and skinned meshes follow` }, 'Name ', name)));
         detail.append(boneSelect(`Parent of ${chosen}`, 'Under', bones[chosen]?.parent ?? null, [chosen, ...kids], parent => reparent(chosen, parent), chosen));
       }
     }
@@ -381,7 +408,11 @@ export class RigTree {
     }
 
     if (active) this.all().flatMap(r => [...r.querySelectorAll<HTMLElement>('button, select, input')]).find(b => JSON.stringify(b.dataset) === active)?.focus({ preventScroll: true });
-    if (this.scrolledTo !== s.part) roots.tree.querySelector<HTMLElement>('.as-row[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+    // One Tab stop for the tree: the row with the focus, else the chosen one, else the first.
+    const rows = [...roots.tree.querySelectorAll<HTMLButtonElement>('.as-row')];
+    const stop = rows.find(r => r === document.activeElement) ?? rows.find(r => r.getAttribute('aria-pressed') === 'true') ?? rows[0];
+    for (const r of rows) r.tabIndex = r === stop ? 0 : -1;
+    if (this.scrolledTo !== s.part) scrollRowIntoBox(roots.tree.querySelector('.as-row[aria-pressed="true"]'));
     this.scrolledTo = s.part;
   }
 }

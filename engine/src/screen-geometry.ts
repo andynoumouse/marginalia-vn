@@ -1,6 +1,7 @@
 // Shape geometry of custom screens: bounds, centres, hit tests, translation and directional focus. Pure; re-exported by screens.ts.
 
 import type { Point, Shape, StageRect } from './screens.js';
+import { pointInPolygon } from './geometry.js';
 
 export function shapeBounds(s: Shape): StageRect {
   if (s.k !== 'poly') return { x: s.x, y: s.y, w: s.w, h: s.h };
@@ -24,15 +25,8 @@ export function shapeCenter(s: Shape): Point {
   return [b.x + b.w / 2, b.y + b.h / 2];
 }
 
-/** Ray casting; points on an edge count as inside only by luck, which is fine for a mouse. */
-export function pointInPolygon(points: Point[], x: number, y: number): boolean {
-  let inside = false;
-  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-    const [xi, yi] = points[i], [xj, yj] = points[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
+// Ray casting; points on an edge count as inside only by luck, which is fine for a mouse.
+export { pointInPolygon };
 
 export const pointInRect = (r: StageRect, x: number, y: number) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 export function pointInEllipse(r: StageRect, x: number, y: number): boolean {

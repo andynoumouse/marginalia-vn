@@ -57,6 +57,42 @@ export function choiceAsk(message: string, choices: string[]): Promise<number | 
   });
 }
 
+/**
+ * Ask for a choice from `options` for each of `rows` in one dialog (a select per row, starting at its `value`): the answers by row name, or
+ * null when cancelled. The Weights Mirror uses it for the partner of each bone whose name says no side (SD-13).
+ */
+export function pairsAsk(message: string, rows: { name: string; value: string }[], options: string[], ok = 'OK'): Promise<Record<string, string> | null> {
+  if (!document.getElementById('askStyle')) document.head.append(Object.assign(document.createElement('style'), { id: 'askStyle', textContent: STYLE }));
+  return new Promise(resolve => {
+    const dlg = Object.assign(document.createElement('dialog'), { className: 'ask' });
+    const form = document.createElement('form');
+    form.method = 'dialog';
+    const grid = Object.assign(document.createElement('div'), { className: 'pairs' });
+    grid.style.cssText = 'display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;margin-bottom:12px;max-height:50vh;overflow-y:auto';
+    const selects = rows.map(r => {
+      const sel = document.createElement('select');
+      sel.setAttribute('aria-label', `Partner of ${r.name}`);
+      sel.append(...options.map(o => Object.assign(document.createElement('option'), { value: o, textContent: o === r.name ? `${o} (itself: on the middle)` : o })));
+      sel.value = r.value;
+      grid.append(Object.assign(document.createElement('span'), { textContent: r.name }), sel);
+      return sel;
+    });
+    const cancel = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Cancel' });
+    const yes = Object.assign(document.createElement('button'), { type: 'submit', textContent: ok, className: 'primary' });
+    const buttons = Object.assign(document.createElement('div'), { className: 'buttons' });
+    buttons.append(cancel, yes);
+    form.append(Object.assign(document.createElement('p'), { textContent: message }), grid, buttons);
+    dlg.append(form);
+    document.body.append(dlg);
+    let result: Record<string, string> | null = null;
+    form.addEventListener('submit', () => { result = Object.fromEntries(rows.map((r, i) => [r.name, selects[i].value])); });
+    cancel.addEventListener('click', () => dlg.close());
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
+    dlg.showModal();
+    (selects[0] ?? yes).focus();
+  });
+}
+
 /** Ask a yes/no question; the confirming button reads `ok`. `safe` puts the focus on Cancel, so a key typed ahead (Enter, Space) declines: for what cannot be undone. */
 export const confirmAsk = async (message: string, ok = 'OK', safe = false) => (await ask(message, ok, undefined, safe)) === true;
 

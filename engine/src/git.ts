@@ -1,3 +1,4 @@
+import { plural } from './util.js';
 /**
  * The editor's git support: the Files panel shows the branch and the changed files, and Commit stages and commits everything
  * under the project folder (never outside it: the repository can start higher up). The dev server runs git and gathers the facts;
@@ -45,7 +46,6 @@ export function changeKind(c: GitChange): GitChangeKind {
   return 'modified';
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const listOf = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 
 /** A first line for the commit: Add/Remove/Update, the scripts by name (up to three), then counts of the rest. */

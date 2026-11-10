@@ -1,12 +1,12 @@
 // Shared by the preview renderers: the text box, choice menu, HUD and audio live here (DOM over the
 // stage: crisp text, real buttons, any language), so a renderer subclass only draws the world.
 
-import { announceLine, asOptionIndex, type OptionIndex, assetContext, captionFor, sideImageKey, stateAssets, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type ScreenLive, type Renderer, type Resident, type ScreenView,  type RigManifest, type SayEvent, type SideImages, type SpeakerFocus, type Src, type VisualOp } from '../engine/src/index.js';
+import { IMAGE_FILE, announceLine, asOptionIndex, type OptionIndex, assetContext, captionFor, sideImageKey, stateAssets, type CaptionTable, type AssetContext, type CharacterDef, type DisplayState, type MenuItem, type PreloadTask, type ScreenLive, type Renderer, type Resident, type ScreenView,  type RigManifest, type SayEvent, type SideImages, type SpeakerFocus, type Src, type VisualOp } from '../engine/src/index.js';
 import { AssetLoader, assetKey } from './asset-loader.js';
 import { AudioSystem } from './audio.js';
 import { Movies, type MovieOptions } from './movies.js';
 import { HudLayer, ScreenLayer } from './screen-ui.js';
-import { IMAGE_FILE, imageKeys, ScreenSlots } from './screen-slots.js';
+import { imageKeys, ScreenSlots } from './screen-slots.js';
 import { Blips } from './blips.js';
 import { autoFocus, oskBoard } from './input.js';
 import { typeLine, type TypeHost } from './line-typer.js';

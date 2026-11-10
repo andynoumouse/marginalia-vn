@@ -6,7 +6,7 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { handleApi, readProject, foldersOf, ONLINE_CAPABILITIES } from '../../dist/online/routes.js';
-import { writeZip, readZip, commonRoot, readCapabilities, FULL_CAPABILITIES, projectFromListing, projectTextFiles, editorExtras } from '../../dist/engine/src/index.js';
+import { writeZip, readZip, commonRoot, readCapabilities, FULL_CAPABILITIES, projectFromListing, projectTextFiles, editorExtras, textHash, saveConflicts } from '../../dist/engine/src/index.js';
 import { projectData, projectListing } from '../../tools/project-data.mjs';
 
 const enc = new TextEncoder(), dec = new TextDecoder();
@@ -32,8 +32,8 @@ function api(files) {
     deflate: async b => zlib.deflateSync(b), sha1: async b => crypto.createHash('sha1').update(b).digest('hex'),
     now: () => new Date(clock += 1000),
   };
-  const call = async (method, path, body = '') => {
-    const res = await handleApi(ctx, method, new URL(path, 'http://x'), async () => (typeof body === 'string' ? enc.encode(body) : body));
+  const call = async (method, path, body = '', base = null) => {
+    const res = await handleApi(ctx, method, new URL(path, 'http://x'), async () => (typeof body === 'string' ? enc.encode(body) : body), base);
     const text = res ? await res.text() : null;
     let json = null;
     try { json = JSON.parse(text); } catch { /* text */ }
@@ -190,4 +190,25 @@ test('zips: stored and deflated entries round-trip; a single top folder is the p
   assert.equal(commonRoot(['a/x', 'b/y']), '');
   assert.equal(commonRoot(['game.json']), '');
   await assert.rejects(readZip(enc.encode('not a zip at all, really not'), inflate), /not a zip/);
+});
+
+test('a save based on an older version is refused with the stored text; no base is not checked (EL-18)', async () => {
+  const { call, text } = api(SAMPLE);
+  const first = text('script/a.vn');
+  assert.equal((await call('PUT', '/api/script?file=a.vn', first + 'x\n', textHash(first))).status, 200);
+  const r = await call('PUT', '/api/script?file=a.vn', 'mine\n', textHash(first)); // based on the old text
+  assert.equal(r.status, 409);
+  assert.equal(r.json.text, first + 'x\n');
+  assert.equal(text('script/a.vn'), first + 'x\n', 'not overwritten');
+  assert.equal((await call('PUT', '/api/game', '{"title":"U"}', textHash('{}'))).status, 409, 'game.json too');
+  assert.equal((await call('PUT', '/api/script?file=new.vn', 'n\n', textHash(''))).status, 200, 'a new file: its base is the empty text');
+  assert.equal((await call('PUT', '/api/script?file=a.vn', 'free\n')).status, 200, 'no base: not checked');
+});
+
+test('textHash ignores line endings; saveConflicts compares a base with the text on disk', () => {
+  assert.equal(textHash('a\r\nb\n'), textHash('a\nb\n'));
+  assert.notEqual(textHash('a'), textHash('b'));
+  assert.equal(saveConflicts(null, 'x'), false, 'no base, no check');
+  assert.equal(saveConflicts(textHash(''), null), false, 'a new file');
+  assert.equal(saveConflicts(textHash('x'), 'y'), true);
 });

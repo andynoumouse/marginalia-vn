@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Runtime, NullRenderer, assignIds, existingIds, resolveScreen, interpolate, checkAssets, themeCss, resolveTheme, getCompletions } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const fromFile = theme => resolveTheme('t', { t: theme });
 
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const build = text => compile([{ file: 't.vn', text }]);
 
 const script = [

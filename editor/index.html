@@ -44,7 +44,13 @@
   #tabs .tab:hover { border-color: var(--muted); }
   #tabs .tab[data-selected="true"] { color: var(--text); background: var(--ink); border-color: var(--muted); }
   #tabs .tab[data-errors="true"] { color: var(--bad); }
-  #work { flex: 1; min-height: 0; display: flex; }
+  #work { flex: 1; min-height: 0; display: flex; position: relative; }
+  /* A file changed outside the editor while its tab had unsaved edits (editor/conflict.ts): the bar over the editor, the diff over the code. */
+  #conflictBar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 8px 12px; background: color-mix(in srgb, var(--warn) 14%, var(--panel)); border-bottom: 1px solid var(--warn); }
+  #conflictBar[hidden] { display: none; }
+  #conflictBar span { flex: 1 1 260px; }
+  #work .conflict-diff { position: absolute; inset: 0; z-index: 5; background: var(--ink); }
+  #work .conflict-diff[hidden] { display: none; }
   #editor { flex: 1; min-width: 0; min-height: 0; }
   #sidebar { width: 240px; flex: none; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); min-height: 0; }
   #sidebar[hidden] { display: none; }
@@ -180,7 +186,9 @@
   #translations .tr-filter { flex: 1 1 200px; min-width: 0; }
   #translations .tr-ids { display: flex; align-items: center; gap: 10px; margin: 0 12px 6px; padding: 6px 10px; border: 1px solid var(--warn); border-radius: 4px; }
   #translations .tr-ids[hidden] { display: none; }
-  #translations .tr-summary { padding: 0 12px 6px; color: var(--muted); }
+  #translations .tr-status { display: flex; align-items: baseline; gap: 10px; padding: 0 12px 6px; }
+  #translations .tr-summary { color: var(--muted); }
+  #translations .tr-prune[hidden] { display: none; }
   #translations .tr-scroll { flex: 1; min-height: 0; overflow-y: auto; border-top: 1px solid var(--line); position: relative; }
   #translations .tr-spacer { position: relative; }
   #translations .tr-row { position: absolute; left: 0; right: 0; height: 88px; box-sizing: border-box; display: grid; grid-template-columns: 170px 1fr 1fr; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); }

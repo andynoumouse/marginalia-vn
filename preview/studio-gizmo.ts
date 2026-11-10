@@ -19,18 +19,23 @@
 // bone's body (its pivot to its children's pivots and its tip) over it, and a click on a vertex reports it; the editor shows its weights.
 
 import {
-  dragBone, fitBounds, gizmoFrame, gizmoHandles, GIZMO_RING, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
+  dragBone, fitBounds, gizmoFrame, gizmoHandles, GIZMO_RING, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, ringAround, meshEdges, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
   softWeights, meshSoftWeights, isPaintBrush, brushCursor, escapeAction, choiceCue,
   type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView, type WarpFalloff, type StageMode, type WeightsBrush,
 } from '../engine/src/index.js';
-import type { PixiRenderer } from './pixi-renderer.js';
+import type { StudioPixiRenderer } from './pixi-studio.js';
+import { followPointer } from './input.js';
 import { H, stage, W } from './stage-ui.js';
 
 /**
  * The gizmo: the transform tool drawn (null: none) on `name`, in local or world axes; and the stage `mode` the editor's tool row is in
  * (null: no tool, nothing on the stage takes a click), which decides what a press does (docs/design/studio-stage-modes.md).
  */
-export interface GizmoConfig { tool: GizmoTool | null; name: string | null; space: GizmoSpace; mode: StageMode | null }
+export interface GizmoConfig {
+  tool: GizmoTool | null; name: string | null; space: GizmoSpace; mode: StageMode | null;
+  /** A drag would be thrown away (no parameter, the subject unbound, no animation or a preset): no handles, only a mark on the subject (docs/design/studio-locked-gizmo.md). */
+  lock?: boolean;
+}
 /**
  * The Warp tool: the deformer (by id) whose lattice is shown, the points the editor has selected and how far a soft selection reaches. With a
  * free mesh in topology mode `topo` is the tool (add, delete, move, flip, addEdge, removeEdge) and `anchor` the vertex an Add edge started from.
@@ -60,7 +65,7 @@ const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string,
 
 export class StageTools {
   view: StageView = { ...IDENTITY_STAGE_VIEW };
-  private fitted = true;                 // the view still follows the window; a zoom or pan of the user's ends that
+  private fitTo: 'stage' | 'character' | null = 'stage'; // what the view keeps fitted when its box changes size; a zoom or pan of the user's ends that
   /** The studio stacks its columns and scrolls them (a narrow window): a plain wheel scrolls that column, Ctrl+wheel (or a pinch) zooms. */
   private scrollsPage = false;
   private cfg: GizmoConfig = { tool: null, name: null, space: 'local', mode: null };
@@ -98,7 +103,7 @@ export class StageTools {
   private vh = window.innerHeight;
 
   constructor(private deps: {
-    renderer: PixiRenderer;
+    renderer: StudioPixiRenderer;
     char: string;
     send: (msg: object) => void;
     /** Pose again (the extra offsets changed). */
@@ -109,7 +114,7 @@ export class StageTools {
     stage.style.left = '0';
     stage.style.top = '0';
     stage.style.transformOrigin = '0 0';
-    this.overlay = svg('svg', { style: 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:40' }) as SVGSVGElement;
+    this.overlay = svg('svg', { class: 'studio-gizmo', style: 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:40' }) as SVGSVGElement;
     this.label = document.createElement('div');
     this.label.style.cssText = 'position:fixed;left:8px;bottom:6px;z-index:41;font:12px system-ui,sans-serif;color:#cfd6e4;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:3px;pointer-events:none';
     this.tag = document.createElement('div');
@@ -133,18 +138,28 @@ export class StageTools {
     this.layout(window.innerWidth, window.innerHeight);
   }
 
-  /** The window changed size: keep the whole stage in view unless the user has moved the view. */
+  /** The window changed size: keep what was fitted in view (ES-20), unless the user has moved the view. */
   layout(vw: number, vh: number) {
-    if (this.fitted) this.view = fitBounds({ x: 0, y: 0, w: W, h: H }, vw, vh, 0);
-    else this.view = panBy(this.view, (vw - this.vw) / 2, (vh - this.vh) / 2); // what was in the middle stays there
+    if (!this.fitTo) this.view = panBy(this.view, (vw - this.vw) / 2, (vh - this.vh) / 2); // what was in the middle stays there
     this.vw = vw; this.vh = vh;
-    this.applyView();
+    if (this.fitTo) this.refit();
+    else this.applyView();
   }
 
-  /** F: the character fills the window (the whole stage when there is none to measure). */
+  /** F: the character fills the window (the whole stage when there is none to measure); Shift+F the whole stage. Kept on a resize. */
   fit(whole = false) {
-    const b = whole ? null : this.deps.renderer.studioBounds(this.deps.char);
-    this.fitted = !b;
+    this.fitTo = whole ? 'stage' : 'character';
+    this.refit();
+  }
+  /**
+   * Model is about the character and fits it, so its lattice and handles are not tiny; Animate fits the stage, scene included (Model's
+   * stage box is also taller). Only while the view is a fit: a zoom or pan of the user's stays.
+   */
+  fitFor(model: boolean) { if (this.fitTo) this.fit(!model); }
+  /** Fit again what the view is fitted to (after the art loaded or changed size). */
+  refit() {
+    if (!this.fitTo) return;
+    const b = this.fitTo === 'character' ? this.deps.renderer.studioBounds(this.deps.char) : null;
     this.view = fitBounds(b ?? { x: 0, y: 0, w: W, h: H }, this.vw, this.vh, b ? 40 : 0);
     this.applyView();
   }
@@ -152,9 +167,46 @@ export class StageTools {
   configure(c: GizmoConfig) {
     const was = this.cfg.mode;
     this.cfg = c;
+    if (c.lock && this.hover && !this.busy) { this.hover = null; document.body.style.cursor = ''; } // a handle's cursor goes with its handle
     // The Weights tool's cursor follows the brush mode as soon as the mode is on (the weights message may have come first); leaving it clears the cursor.
     if (!this.busy && c.mode !== was && (c.mode === 'weights' || was === 'weights')) document.body.style.cursor = c.mode === 'weights' && this.skin ? (this.brushAt ? 'none' : brushCursor(this.skin.mode)) : '';
     this.draw();
+    // The editor's answer to a tool key is this message, the last of the tool change: a press held for it goes on with the new tool.
+    this.toolAsked = false;
+    this.releasePress();
+  }
+
+  /**
+   * A tool key typed on the stage reaches the editor, which answers with the new tool (SR-12). A press in between would use the old tool, so
+   * it is held until the answer (or 200 ms, when the key changed nothing and no answer comes), then replayed; a release seen meanwhile follows it.
+   */
+  private toolAsked = false;
+  private held: { e: PointerEvent; up: PointerEvent | null; timer: number } | null = null;
+  private holdPress(e: PointerEvent) {
+    this.stop(e);
+    const held = { e, up: null as PointerEvent | null, timer: window.setTimeout(() => { this.toolAsked = false; this.releasePress(); }, 200) };
+    const up = (m: PointerEvent) => { if (this.held === held) held.up = m; window.removeEventListener('pointerup', up, true); };
+    window.addEventListener('pointerup', up, true);
+    this.held = held;
+  }
+  private releasePress() {
+    const h = this.held;
+    if (!h) return;
+    this.held = null;
+    clearTimeout(h.timer);
+    this.onDown(h.e);
+    if (h.up) window.dispatchEvent(new PointerEvent(h.up.type, { clientX: h.up.clientX, clientY: h.up.clientY, button: h.up.button, pointerId: h.up.pointerId, shiftKey: h.up.shiftKey, altKey: h.up.altKey, ctrlKey: h.up.ctrlKey }));
+  }
+
+  /** The mesh Generate would make for `part` (vertices in its image pixels), drawn dashed over the part until it is null (SD-14). */
+  private preview: { part: string; verts: number[]; tris: number[] } | null = null;
+  setMeshPreview(p: { part: string; verts: number[]; tris: number[] } | null) { this.preview = p; this.draw(); }
+  private drawPreview(p: { part: string; verts: number[]; tris: number[] }) {
+    const pts = this.deps.renderer.studioPartPoints(this.deps.char, p.part, p.verts);
+    if (!pts) return;
+    const at = pts.map(q => worldToScreen(this.view, q));
+    for (const [stroke, width, dash] of [['#000', 3, ''], ['#fff', 1, '4 3']] as const)
+      for (const [a, b] of meshEdges(p.tris)) if (at[a] && at[b]) svg('line', { x1: at[a][0], y1: at[a][1], x2: at[b][0], y2: at[b][1], stroke, 'stroke-width': width, 'stroke-opacity': 0.7, ...(dash ? { 'stroke-dasharray': dash } : {}) }, this.overlay);
   }
 
   /** Show the lattice of the deformer `w.id` (null: no Warp tool). */
@@ -230,6 +282,7 @@ export class StageTools {
     if (this.mask && space) this.drawMask(this.mask); // an outline is only a drawing: it shows while a pivot is being picked too
     if (this.warp && space && !this.deps.suspended()) this.drawLattice(this.warp);
     if (this.skin && space && !this.deps.suspended()) this.drawWeights(this.skin);
+    if (this.preview && !this.deps.suspended()) this.drawPreview(this.preview);
     this.tag.hidden = true;
     if (!c.tool || !space || this.deps.suspended()) return;
     const screen = (p: GizmoPoint): GizmoPoint => worldToScreen(this.view, space.toStage(p));
@@ -271,9 +324,20 @@ export class StageTools {
     const f = gizmoFrame(t.parent, t.offset, t.pivot, t.unit, c.space);
     const o = screen(f.origin);
     const dir = (v: GizmoPoint): GizmoPoint => { const p = screen([f.origin[0] + v[0], f.origin[1] + v[1]]); const l = Math.hypot(p[0] - o[0], p[1] - o[1]) || 1; return [(p[0] - o[0]) / l, (p[1] - o[1]) / l]; };
-    this.frame = { origin: o, x: dir(f.x), y: dir(f.y) };
-    for (const h of gizmoHandles(c.tool, this.frame)) this.drawHandle(h, h.axis === this.hover?.axis);
-    if (cue.tag) this.placeTag(cue.tag, o, this.frame.x, this.frame.y);
+    const frame = { origin: o, x: dir(f.x), y: dir(f.y) };
+    if (c.lock) this.drawLocked(o); // no frame: nothing to hover or drag, a press there is a press on the art
+    else {
+      this.frame = frame;
+      for (const h of gizmoHandles(c.tool, frame)) this.drawHandle(h, h.axis === this.hover?.axis);
+    }
+    if (cue.tag) this.placeTag(cue.tag, o, frame.x, frame.y);
+  }
+
+  /** A locked gizmo: a muted hollow square where its centre would be, so the subject still shows, and nothing that looks like a handle. */
+  private drawLocked(o: GizmoPoint) {
+    const s = 6;
+    svg('rect', { x: o[0] - s, y: o[1] - s, width: s * 2, height: s * 2, fill: 'none', stroke: '#000', 'stroke-width': 3, 'stroke-opacity': 0.4 }, this.overlay);
+    svg('rect', { x: o[0] - s, y: o[1] - s, width: s * 2, height: s * 2, fill: 'none', stroke: '#fff', 'stroke-width': 1.25, 'stroke-opacity': 0.7, 'stroke-dasharray': '3 2', 'data-gizmo-lock': 'true' }, this.overlay);
   }
 
   /** The choice tag by the gizmo: on the side away from both axis handles, past the rotate ring, kept inside the window. */
@@ -426,8 +490,9 @@ export class StageTools {
     if (this.busy && (k === 'escape' || ('wersqdbm'.includes(k) && k.length === 1))) return; // a tool change waits for the release of a stroke or drag
     if (k === 'escape') { e.preventDefault(); this.escape(); }
     else if (k === 'f') this.fit(e.shiftKey);
-    else if ('wersqdbm'.includes(k) && k.length === 1) this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false });
+    else if ('wersqdbm'.includes(k) && k.length === 1) { this.toolAsked = true; this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false }); }
     else if (k === 'x') this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: false }); // local / world
+    else if (k === 'k') this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: e.shiftKey }); // Animate: Key, Shift+K Auto-key
     else if (k.length === 1 && '[]{}'.includes(k)) { e.preventDefault(); this.deps.send({ type: 'studioKey', key: k, ctrl: false, shift: e.shiftKey }); } // the Weights brush's radius and strength
   }
 
@@ -449,7 +514,7 @@ export class StageTools {
     e.preventDefault();
     const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
     if (this.scrollsPage && !e.ctrlKey && !e.metaKey) { this.deps.send({ type: 'studioWheel', dy }); return; }
-    this.fitted = false;
+    this.fitTo = null;
     this.view = zoomViewAt(this.view, [e.clientX, e.clientY], wheelFactor(dy));
     this.applyView();
   }
@@ -530,11 +595,15 @@ export class StageTools {
   private onDown(e: PointerEvent) {
     window.focus();
     if (e.button === 1 || (e.button === 0 && this.spaceDown)) { if (this.spaceDown) this.spacePanned = true; this.pan(e); return; }
+    if (e.button === 0 && this.toolAsked && !this.held) { this.holdPress(e); return; }
     const mode = this.cfg.mode;
     if (e.button !== 0 || !mode || this.deps.suspended()) return;
     const p: GizmoPoint = [e.clientX, e.clientY];
     const h = this.frame && this.cfg.tool && this.cfg.name ? pickHandle(gizmoHandles(this.cfg.tool, this.frame), p) : null;
     if (h) { this.stop(e); this.startDrag(e, h); return; }
+    // Rotate: a drag from inside the ring turns the subject; a click there still chooses (the Weights test pose's ring keeps its inside for the brush).
+    const ring = mode === 'transform' && this.frame && this.cfg.tool === 'rotate' && this.cfg.name ? ringAround(gizmoHandles('rotate', this.frame), p) : null;
+    if (ring) { this.dragOrClick(e, () => this.startDrag(e, ring), () => this.transformDown(e, p)); return; }
     if (mode === 'weights') this.weightsDown(e, p);
     else if (mode === 'warp') this.warpDown(e, p);
     else if (mode === 'mask') this.maskDown(e, p);
@@ -650,17 +719,11 @@ export class StageTools {
     this.brushAt = p;
     send('start', this.brushAt);
     const move = (m: PointerEvent) => { this.brushAt = [m.clientX, m.clientY]; if (Math.hypot(m.clientX - p[0], m.clientY - p[1]) >= 4) moved = true; send('move', this.brushAt); };
-    const up = (m: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+    followPointer(window, move, m => {
       this.busy = false;
       send('end', null);
       if (m.type === 'pointerup' && !touched && !moved) { const hits = this.hitsAt(e); if (hits.length) this.select(e, p, hits[0], hits); }
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    });
   }
 
   /** A press in topology mode: the tool acts on the vertex, edge or spot under it (the editor does the edit and may refuse); nothing else is picked. */
@@ -689,10 +752,7 @@ export class StageTools {
       this.marquee = { x0, y0, x1: m.clientX, y1: m.clientY };
       this.draw();
     };
-    const up = (m: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+    followPointer(window, move, m => {
       this.busy = false;
       this.marquee = null;
       if (m.type === 'pointerup' && Math.hypot(m.clientX - x0, m.clientY - y0) >= 4) dragged = true; // a press and a release far apart are a drag even if no move was seen
@@ -702,60 +762,48 @@ export class StageTools {
       const points = pts.flatMap((q, i) => (q[0] >= ax && q[0] <= bx && q[1] >= ay && q[1] <= by ? [i] : []));
       this.deps.send({ type: skin ? 'studioWeightsSelect' : 'studioWarpSelect', id, points, mode: add ? 'add' : 'set' });
       this.draw();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    });
   }
 
   private stop(e: Event) { e.preventDefault(); e.stopPropagation(); }
 
   private pan(e: PointerEvent) {
     this.stop(e);
-    this.fitted = false;
+    this.fitTo = null;
     this.busy = true;
     let lx = e.clientX, ly = e.clientY;
-    const move = (m: PointerEvent) => { this.view = panBy(this.view, m.clientX - lx, m.clientY - ly); lx = m.clientX; ly = m.clientY; this.applyView(); };
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); this.busy = false; };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    followPointer(window, m => { this.view = panBy(this.view, m.clientX - lx, m.clientY - ly); lx = m.clientX; ly = m.clientY; this.applyView(); }, () => { this.busy = false; });
   }
 
   /** A lattice point pressed: report how far the pointer has moved it, measured in the deformer's own space, until the release. */
   private startWarpDrag(e: PointerEvent, point: number) {
-    const { renderer, char } = this.deps, id = this.warp!.id, from = this.toStage(e);
-    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioWarpDrag', phase, id, point, delta });
-    this.busy = true;
-    send('start', [0, 0]);
-    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioDeformerDelta(char, id, from, this.toStage(ev)) ?? [0, 0]);
-    const move = (m: PointerEvent) => step(m, 'move');
-    const up = (m: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      this.busy = false;
-      step(m, 'end');
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    const { renderer, char } = this.deps, id = this.warp!.id;
+    this.pointDrag(e, phase => ({ type: 'studioWarpDrag', phase, id, point }), (from, to) => renderer.studioDeformerDelta(char, id, from, to));
   }
 
   /** A mask polygon's point pressed: report how far the pointer has moved it, in canvas pixels, until the release. */
   private startMaskDrag(e: PointerEvent, point: number) {
-    const { renderer, char } = this.deps, shape = this.mask!.shape!, from = this.toStage(e);
-    const send = (phase: string, delta: [number, number]) => this.deps.send({ type: 'studioMaskDrag', phase, shape, point, delta });
+    const { renderer, char } = this.deps, shape = this.mask!.shape!;
+    this.pointDrag(e, phase => ({ type: 'studioMaskDrag', phase, shape, point }), (from, to) => renderer.studioMaskDelta(char, shape, from, to));
+  }
+
+  /** Sends `message(phase)` with the pointer's `delta` from the press: 'start', a 'move' per pointermove and 'end' on release. */
+  private pointDrag(e: PointerEvent, message: (phase: string) => object, delta: (from: GizmoPoint, to: GizmoPoint) => [number, number] | null | undefined) {
+    const from = this.toStage(e);
+    const send = (phase: string, d: [number, number]) => this.deps.send({ ...message(phase), delta: d });
     this.busy = true;
     send('start', [0, 0]);
-    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, renderer.studioMaskDelta(char, shape, from, this.toStage(ev)) ?? [0, 0]);
-    const move = (m: PointerEvent) => step(m, 'move');
-    const up = (m: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-      this.busy = false;
-      step(m, 'end');
-    };
+    const step = (ev: PointerEvent, phase: 'move' | 'end') => send(phase, delta(from, this.toStage(ev)) ?? [0, 0]);
+    followPointer(window, m => step(m, 'move'), m => { this.busy = false; step(m, 'end'); });
+  }
+
+  /** A press that is a drag once it moves 4 px (`drag` starts it, from the press) and a click when it is let go before that. */
+  private dragOrClick(e: PointerEvent, drag: () => void, click: () => void) {
+    this.stop(e);
+    const x0 = e.clientX, y0 = e.clientY;
+    const done = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    const move = (m: PointerEvent) => { if (Math.hypot(m.clientX - x0, m.clientY - y0) >= 4) { done(); drag(); } };
+    const up = (m: PointerEvent) => { done(); if (m.type === 'pointerup') click(); };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
@@ -779,16 +827,9 @@ export class StageTools {
       this.draw();
       send(phase, last);
     };
-    const move = (m: PointerEvent) => step(m, 'move');
-    const up = (m: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
+    followPointer(window, m => step(m, 'move'), m => {
       this.busy = false;
       step(m, 'end'); // the editor answers with studioExtra, which ends the drag here
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
+    });
   }
 }

@@ -2,10 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Runtime, NullRenderer, parseExpr, evalExpr, formatExpr, interpolate, parseVarValue, usesRandom, valuesEqual, getCompletions } from '../../dist/engine/src/index.js';
 import { seededDraw as makeRng } from './rng.mjs';
+import { errors, warnings } from './helpers.mjs';
 
 const ev = (src, vars = {}, rng) => evalExpr(parseExpr(src), vars, rng);
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 
 test('list literals, equality and formatting', () => {
   assert.deepEqual(ev('[]'), []);

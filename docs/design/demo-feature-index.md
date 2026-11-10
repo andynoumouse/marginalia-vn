@@ -52,9 +52,9 @@ demo takes it about 3 s with one seed (the test), 12 s with the editor's four. T
 
 ## Leaving a card
 
-`fx_close` runs when a card returns: `filter off`, `tint off`, `weather off`, `gravity reset`, `camera reset`,
-`animate camera stop`, `focus on`, `nvl off` and `hud off fx_coins_hud`, then a fade back to the library backdrop. It turns
-effects off by name because `scene` does not clear everything: a running `glitch` filter survived a `scene` in the preview.
+`fx_close` runs when a card returns: `focus on`, `nvl off` and `hud off fx_coins_hud`, then a fade back to the library
+backdrop. The `scene` of that fade clears the filter, tint, weather, wind, gravity and camera a card may have left on (it once
+left a running `glitch` filter on in the preview, so `fx_close` turned each off by name until that was fixed).
 A HUD ignores clicks while a blocking screen is up, so the HUD card puts its HUD up and has Iris say a line to click against.
 
 ## Left out

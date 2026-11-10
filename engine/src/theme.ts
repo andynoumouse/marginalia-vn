@@ -5,6 +5,7 @@
 
 import { isCssColor, parseColor, formatHex } from './colors.js';
 import { isObj } from './util.js';
+import { extAlternatives, FONT_EXTS } from './asset-kinds.js';
 
 export interface BoxTheme {
   x?: number; y?: number; width?: number; height?: number;
@@ -185,7 +186,7 @@ export function themeStylesheet(name: string, files: Record<string, unknown>, cs
 /** A theme stylesheet may not load anything from the network: `@import` and `url()` of a scheme or `//` host are removed. */
 const localCss = (css: string) => css.replace(/@import\b[^;]*;?/gi, '').replace(/url\(\s*(["']?)\s*(?:[a-z][a-z0-9+.-]*:|\/\/)[^)]*\)/gi, m => /^url\(\s*["']?\s*data:/i.test(m) ? m : 'none');
 
-const FONT = /^fonts\/([^/]+)\.(woff2?|ttf|otf)$/i;
+const FONT = new RegExp(`^fonts/([^/]+)\\.(${extAlternatives(FONT_EXTS)})$`, 'i');
 
 // Values come from the project's own game.json, but keep them from breaking out of the declaration (projects in the
 // online demo are shared).

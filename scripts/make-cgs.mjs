@@ -4,17 +4,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { encodePng, RGB } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'assets', 'bg');
 const W = 1920, H = 1080;
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  return Buffer.concat([len, body, crc]);
-};
 const mix = (a, b, t) => a.map((c, i) => c + (b[i] - c) * Math.max(0, Math.min(1, t)));
 // A cheap deterministic hash for the stars.
 const hash = (x, y) => { let h = (x * 374761393 + y * 668265263) >>> 0; h = ((h ^ (h >>> 13)) * 1274126177) >>> 0; return (h ^ (h >>> 16)) / 4294967296; };
@@ -37,9 +31,7 @@ function scene({ top, horizon, sun, glow, hills, sunAt }) {
     }
     rows.push(row);
   }
-  const head = Buffer.alloc(13); head.writeUInt32BE(W, 0); head.writeUInt32BE(H, 4); head.set([8, 2, 0, 0, 0], 8);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head),
-    chunk('IDAT', zlib.deflateSync(Buffer.concat(rows), { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  return encodePng(W, H, rows, RGB);
 }
 
 const cgs = {

@@ -4,6 +4,18 @@ The editor edits scripts and `game.json` next to the live preview. Open it at ht
 `npm run dev`), in [Marginalia Studio](studio.md) or in the [online demo](online.md). A tour with screenshots is in
 [tutorial/deeper/h-editor-tour.md](tutorial/deeper/h-editor-tour.md).
 
+**Saving is automatic.** A file is saved 0.4 s after you stop typing, and the preview reloads and goes back to the line it
+was on. A dot on the tab means the file has changes that are not written yet; *saving…* and *saved* show at the top right,
+and a failed save turns the dot red and says *save failed* (Ctrl+S tries again at once). **Follow preview** (the checkbox
+by the preview, on by default) marks the line the story is on and scrolls the editor to it when the story moves on, but
+not while you are typing and not when a save reloads the preview, so the view stays where you work.
+
+**Changes made outside the editor.** A file changed in another editor, by `git pull` or in a second editor tab shows up in a tab that
+has no unsaved edits, with the cursor and scroll kept (and not on the undo stack). When the tab has unsaved edits, nothing is overwritten:
+the tab gets a ⚠, a bar over the editor says the file changed outside, and the file is not saved until you choose **Compare** (your text
+beside the version on disk), **Keep mine** (save yours over it) or **Take theirs** (the version on disk goes into the tab; Ctrl+Z brings
+yours back). A save names the version it started from, so the server refuses one whose file changed meanwhile, in the online demo too.
+
 Contents: [Palette](#palette-ctrlp) · [Files panel](#files-panel) · [Git](#git) · [Refactoring and search](#refactoring-and-search) ·
 [Problems and quick fixes](#problems-and-quick-fixes) · [Preview from cursor](#preview-from-cursor) ·
 [Variables](#variables) · [Outline](#outline) · [Help (F1)](#help-f1) · [Keys](#keys) · [Build](#build)
@@ -82,8 +94,9 @@ It never pushes, pulls, switches branches or throws changes away; use your git t
 - **F2 on a variable name** does the same for a story variable (`set`, conditions, `call` arguments, `[name]` in
   text, `input`, `show screen ... as`) and for `persistent.<name>`. A label parameter, a screen parameter or a screen
   `each ... as` name is renamed only inside its label, screen or loop. A reserved word, a name the game fills in, or
-  a name that would merge with another variable is refused. Translations in `locale/*.json` keep the old `[name]`
-  until you re-export or edit them.
+  a name that would merge with another variable is refused. `[name]` changes too in the translations of the lines
+  that use it (`locale/*.json`, rewritten on disk, outside the undo history) and, for a story variable, in `game.json`
+  strings such as `labels`.
 - **Ctrl+Shift+F** (Find and Replace in All Files) searches every script and `game.json` (match case, whole word,
   regexp with `$1` in the replacement), lists the hits (click one to go there) and replaces them all.
 
@@ -149,6 +162,9 @@ the statement under the cursor (a `{` in dialogue text opens the text tags). In 
 [game-json.md](game-json.md), and in a `rig.json` tab [rig-json.md](rig-json.md) at the key (`order`, `groups`,
 `looks`) the cursor is under. F1 or Esc closes it.
 
+Hovering the mouse over a formatted variable in a line (`[gold:,2]`, `[coins:a coin|coins]`) shows what the format
+makes of a few sample values (plural forms in the game's language), or says that the format is unknown.
+
 Ctrl+F (or the search box) highlights every match and lists only the topics that have one; Enter and Shift+Enter
 step through them. **Open in window** moves the reference to a window of its own (`editor/help.html`) that stays
 open beside the editor. F1 also lists all the editor's keys under "Editor keys".
@@ -158,7 +174,7 @@ open beside the editor. F1 also lists all the editor's keys under "Editor keys".
 | Key | Action |
 |---|---|
 | Ctrl+Enter | Preview from cursor |
-| Ctrl+S | Save |
+| Ctrl+S | Save now (files save themselves a moment after you stop typing) |
 | Ctrl+P | Palette |
 | Ctrl+B | Files panel |
 | Ctrl+Shift+F | Find and replace in all files |

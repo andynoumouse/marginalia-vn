@@ -2,8 +2,9 @@
 // looping videos behind overlay pictures. Movies are named as in the script (`movie/<name>.mp4` is `<name>`).
 
 import type { AudioSystem } from './audio.js';
+import { MOVIE_FILE as MOVIE_EXT } from '../engine/src/asset-kinds.js';
 
-const MOVIE_FILE = /^movie\/[^/]+\.(webm|mp4|m4v|ogv)$/i;
+const isMovie = (file: string) => /^movie\/[^/]+$/.test(file) && MOVIE_EXT.test(file);
 /** Movies warmed up ahead of `movie play` (each buffers a few seconds, so only the nearest few are kept). */
 const WARM_MOVIES = 2;
 
@@ -21,7 +22,7 @@ export class Movies {
 
   /** The project's movie files (`file` is relative to assets/, `url` where the page fetches it); buffers of changed or removed files are dropped. */
   setFiles(assets: { file: string; url: string }[]) {
-    this.urls = new Map(assets.filter(a => MOVIE_FILE.test(a.file)).map(a => [a.file.replace(/\.[^./]+$/, '').slice(6), a.url] as const));
+    this.urls = new Map(assets.filter(a => isMovie(a.file)).map(a => [a.file.replace(/\.[^./]+$/, '').slice(6), a.url] as const));
     for (const [name, video] of this.warm) if (video.getAttribute('src') !== this.urls.get(name)) { this.drop(video); this.warm.delete(name); }
   }
   has(name: string) { return this.urls.has(name); }

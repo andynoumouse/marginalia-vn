@@ -34,7 +34,7 @@ export const DEBUG_HELP = [
   'clear                   empty this log',
 ];
 
-const NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)?$/;
+const NAME = /^[\p{L}_][\p{L}\p{N}\p{M}_]*(\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?$/u; // a variable in any alphabet (names.ts)
 const FLAG = /^[A-Za-z_][\w.-]*$/;
 const NO_ARGS = new Set(['help', 'clear', 'vars', 'labels', 'flags', 'persistent', 'memory']);
 

@@ -4,6 +4,7 @@
 
 import { addParamKey, deleteParamKey, setParamKey, type AnimDef } from '../engine/src/index.js';
 import { LABEL, localPoint, paramLaneAt, paramValueAt } from './anim-timeline.js';
+import { followPointer } from './pointer.js';
 
 export interface TrackHost {
   tl: SVGSVGElement;
@@ -46,15 +47,17 @@ export class TrackEditor {
     if (!host.editable() || !r) { host.seek(localPoint(tl, e).t); host.refreshView(); this.focusSel(); return; }
     tl.setPointerCapture(e.pointerId);
     const end = host.beginDrag();
+    // As a channel key: it moves by how far the pointer went, so a sideways drag keeps the value (SA-13).
+    const start = localPoint(tl, e), k0 = host.current()?.def.params?.[id]?.[index];
+    const t0 = k0?.t ?? start.t, v0 = k0?.v ?? paramValueAt(tl, lane, start.y, r.min, r.max), y0 = paramValueAt(tl, lane, start.y, r.min, r.max);
     const move = (m: PointerEvent) => {
       const p = localPoint(tl, m), c = host.current()!;
-      const out = setParamKey(c.def, id, this.sel!.index, { t: p.t, v: paramValueAt(tl, lane, p.y, r.min, r.max) });
+      const v = Math.min(r.max, Math.max(r.min, v0 + paramValueAt(tl, lane, p.y, r.min, r.max) - y0));
+      const out = setParamKey(c.def, id, this.sel!.index, { t: Math.min(1, Math.max(0, t0 + p.t - start.t)), v });
       this.sel = { id, index: out.index };
       host.dragStep(c.name, out.def);
     };
-    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); this.focusSel(); };
-    tl.addEventListener('pointermove', move);
-    tl.addEventListener('pointerup', up);
+    followPointer(tl, move, () => { end(); this.focusSel(); });
     host.refreshView();
     this.focusSel();
   }

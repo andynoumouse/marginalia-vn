@@ -66,8 +66,8 @@ label start:
 
 ## Change something
 
-1. In the script, change Mina's first line to `mina: The train is late again.` and save with **Ctrl+S**. The game
-   reloads and returns to the line you were on.
+1. In the script, change Mina's first line to `mina: The train is late again.` There is nothing to save: the editor
+   saves a moment after you stop typing (the tab's dot goes away), and the game reloads and returns to the line you were on.
 2. Put the cursor on any line further down and press **Ctrl+Enter** (*Preview from cursor*). The game jumps to
    that line (it replays the story up to it in an instant), so you can test the end of a story without clicking
    through the beginning every time.

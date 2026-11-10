@@ -9,6 +9,7 @@ import {
 } from '../engine/src/index.js';
 import { el } from './anim-dom.js';
 import type { StageEvent } from './anim-stage.js';
+import { wrapTab } from './modal.js';
 
 type ExportEvent = Extract<StageEvent, { type: 'exportReady' | 'exportData' | 'exportError' | 'exportDone' }>;
 
@@ -126,7 +127,7 @@ export class ExportDialog {
     this.root.addEventListener('keydown', e => {
       e.stopPropagation();
       if (e.key === 'Escape') { e.preventDefault(); if (this.running) this.cancel(); else this.close(); }
-      else if (e.key === 'Tab') this.trapTab(e);
+      else if (e.key === 'Tab') wrapTab(e, this.card);
     });
   }
 
@@ -208,14 +209,6 @@ export class ExportDialog {
     this.card.querySelector<HTMLElement>('.ax-form')!.hidden = on;
     this.card.querySelector<HTMLElement>('.ax-run')!.hidden = !on;
     if (on) this.card.querySelector<HTMLButtonElement>('.ax-cancel')!.disabled = false;
-  }
-  private trapTab(e: KeyboardEvent) {
-    const items = [...this.card.querySelectorAll<HTMLElement>('button, input, select, a[href]')].filter(x => !(x as HTMLInputElement).disabled && x.getClientRects().length > 0);
-    if (!items.length) { e.preventDefault(); return; }
-    const first = items[0], last = items[items.length - 1], at = document.activeElement;
-    if (e.shiftKey && (at === first || at === this.card)) { e.preventDefault(); last.focus(); }
-    else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
-    else if (!this.card.contains(at)) { e.preventDefault(); first.focus(); }
   }
 
   // ---- the run ----

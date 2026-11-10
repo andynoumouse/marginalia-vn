@@ -51,7 +51,7 @@ function tokenize(src: string): Tok[] {
       out.push({ t: 'str', v: s }); i = j + 1; continue;
     }
     // Names; `unlocked.<flag>` and `persistent.<name>` are the dotted forms (persistent data, see Runtime).
-    if ((m = /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?/.exec(rest))) { out.push({ t: 'id', v: m[0] }); i += m[0].length; continue; }
+    if ((m = /^[\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?/u.exec(rest))) { out.push({ t: 'id', v: m[0] }); i += m[0].length; continue; } // a name in any alphabet (names.ts)
     if ((m = /^(==|!=|<=|>=)/.exec(rest))) { out.push({ t: 'op', v: m[0] }); i += 2; continue; }
     if ('+-*/%<>(),[]'.includes(c)) { out.push({ t: 'op', v: c }); i++; continue; }
     if (c === '=') throw new ExprError('Unexpected "=": == compares (if trust == 1:) and set trust = 1 assigns');

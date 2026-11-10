@@ -45,7 +45,7 @@ Everything a mode does not name is inert while it is on.
 
 | Mode | Tool | A press on its handles | A press on art | A press on nothing | Leaves by |
 |---|---|---|---|---|---|
-| **Transform** | Move, Rotate, Scale (both studio modes) | drags the gizmo | chooses (see *What a click chooses*) | chooses nothing | another tool |
+| **Transform** | Move, Rotate, Scale (both studio modes) | drags the gizmo (none while it is locked: [studio-locked-gizmo.md](studio-locked-gizmo.md)) | chooses (see *What a click chooses*) | chooses nothing | another tool |
 | **Pivot** | Pivot (Model) | drags the pivot | moves the chosen part's pivot there | the same | another tool |
 | **Warp** | Warp (Model) | drags a lattice point, or a topology edit | chooses the part (its lattice shows) | clears the point selection, or starts a rectangle | another tool, or Esc with nothing selected |
 | **Weights** | Weights (Model) | as the brush mode says (below) | chooses the part (its mesh shows) | as the brush mode says | another tool, or Esc with nothing selected |

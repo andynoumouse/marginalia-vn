@@ -216,7 +216,7 @@ reach goes to the nearest; the result never has more than 4 influences and alway
 ## Physics
 
 The payoff of the feature is a hair or tail chain that turns bones, so a skinned strand mesh bends with no parameters in between
-(Mina's `hair_back` went through 15 parameters into a lattice when this was written; it is skinned now, with no parameters). This already works with no engine change: a physics output
+(when this was written Mina's `hair_back` went through 15 parameters into a lattice; it is a skinned mesh now, its strand bones turned by physics with no parameters). This already works with no engine change: a physics output
 `{ "part": "<name>", "scale": ... }` adds a rotation to a part **or a bone**. `stepPhysics` returns it by name, the renderer adds
 it to the pose, `placeRig` moves a name that is a bone as a bone, and `checkPhysics` accepts a bone name there. A chain with one
 segment per strand bone writes each segment (`segment`) to that bone's rotation. What is left is small: the key is called `part`

@@ -8,9 +8,10 @@
 
 import { audioBytes, type Resident } from '../engine/src/residency.js';
 import { voiceFile } from '../engine/src/voice.js';
+import { AUDIO_EXTS, extAlternatives } from '../engine/src/asset-kinds.js';
 import type { AssetFile } from './stage-ui.js';
 
-const AUDIO = /^(music|sound|voice)\/(.+)\.(ogg|mp3|wav|m4a|flac|opus)$/i;
+const AUDIO = new RegExp(`^(music|sound|voice)/(.+)\\.(${extAlternatives(AUDIO_EXTS)})$`, 'i');
 /** Decoded voice lines kept for the lookahead; a recording is a few hundred KB of PCM per line. */
 const VOICE_CACHE = 12;
 export type Bus = 'master' | 'music' | 'sound' | 'voice';

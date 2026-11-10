@@ -4,16 +4,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
+import { encodePng, RGB } from './png.mjs';
 import { fileURLToPath } from 'node:url';
 
 const out = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'assets', 'bg');
-const chunk = (type, data) => {
-  const body = Buffer.concat([Buffer.from(type), data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(body));
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  return Buffer.concat([len, body, crc]);
-};
 function png(width, height, top, bottom) {
   const row = y => {
     const t = y / (height - 1);
@@ -21,8 +15,7 @@ function png(width, height, top, bottom) {
     return Buffer.concat([Buffer.from([0]), Buffer.from(Array.from({ length: width }, () => px).flat())]);
   };
   const raw = Buffer.concat(Array.from({ length: height }, (_, y) => row(y)));
-  const head = Buffer.alloc(13); head.writeUInt32BE(width, 0); head.writeUInt32BE(height, 4); head.set([8, 2, 0, 0, 0], 8);
-  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', zlib.deflateSync(raw, { level: 9 })), chunk('IEND', Buffer.alloc(0))]);
+  return encodePng(width, height, raw, RGB);
 }
 
 fs.mkdirSync(out, { recursive: true });

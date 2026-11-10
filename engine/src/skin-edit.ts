@@ -6,6 +6,8 @@
 import type { BoneDef } from './bones.js';
 import { locateClamped, meshAdjacency } from './mesh.js';
 import { MAX_INFLUENCES, type DeformerDef, type DeformerMesh, type MeshWeights } from './params.js';
+import { segmentDistance } from './geometry.js';
+import { clamp01 } from './util.js';
 
 type Entry = Record<string, number>;
 /** What the edits read of a mesh. */
@@ -48,7 +50,6 @@ function withEntries(mesh: SkinMesh, edits: Iterable<[number, Entry | undefined]
   return out;
 }
 
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 const uniq = (vertices: Iterable<number>) => [...new Set(vertices)].filter(v => Number.isInteger(v) && v >= 0);
 
 /**
@@ -128,10 +129,7 @@ export function boneBody(tree: BoneTree, bone: string): [number, number, number,
 
 function distToBody(body: readonly [number, number, number, number][], x: number, y: number): number {
   let best = Infinity;
-  for (const [ax, ay, bx, by] of body) {
-    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 > 0 ? clamp01(((x - ax) * dx + (y - ay) * dy) / l2) : 0;
-    best = Math.min(best, Math.hypot(x - (ax + dx * t), y - (ay + dy * t)));
-  }
+  for (const [ax, ay, bx, by] of body) best = Math.min(best, segmentDistance(x, y, ax, ay, bx, by));
   return best;
 }
 
@@ -170,6 +168,29 @@ export function pairedBone(name: string): string | null {
   if (m) return `${swapCase(m[1], m[1].toLowerCase() === 'left' ? 'right' : 'left')}${m[2]}${m[3]}`;
   m = /^(.+)([._-])(left|right)$/i.exec(name);
   if (m) return `${m[1]}${m[2]}${swapCase(m[3], m[3].toLowerCase() === 'left' ? 'right' : 'left')}`;
+  return null;
+}
+
+/**
+ * A guess at the partner of a bone whose name says no side, for the Mirror dialog to start from (SD-13): among the rig's bones whose names
+ * differ from `name` in one number only (a family such as hair_0_0 … hair_4_0), the one at the mirrored place in that run of numbers
+ * (hair_0_0 <-> hair_4_0; hair_2_0, in the middle, is its own). Null when no such family or no bone at the mirrored number.
+ */
+export function guessPartner(name: string, bones: readonly string[]): string | null {
+  const parts = (s: string) => s.split(/(\d+)/);
+  const own = parts(name);
+  for (let i = 1; i < own.length; i += 2) {
+    const values: number[] = [];
+    for (const b of bones) {
+      const p = parts(b);
+      if (p.length !== own.length || !p.every((x, j) => j === i || x === own[j])) continue;
+      values.push(Number(p[i]));
+    }
+    if (values.length < 2) continue;
+    const want = Math.min(...values) + Math.max(...values) - Number(own[i]);
+    const hit = bones.find(b => { const p = parts(b); return p.length === own.length && p.every((x, j) => (j === i ? Number(x) === want : x === own[j])); });
+    if (hit !== undefined) return hit;
+  }
   return null;
 }
 

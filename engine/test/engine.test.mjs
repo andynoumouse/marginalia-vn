@@ -401,6 +401,15 @@ test('flash, tint and camera: parsing, lasting state, reset on scene', async () 
   }
 });
 
+test('flash <name>: a character or a picture shown anywhere is known, anything else is warned about', () => {
+  const text = [
+    'define alice "Alice"', 'label start:', '  flash alice', '  flash lamp #ff0000 0.2s', '  flash alcie', '  flash', '  "x"',
+    '  image show lamp lamp.png', '',
+  ].join('\n');
+  const warnings = compile([{ file: 't.vn', text }]).diagnostics.filter(d => d.severity === 'warning');
+  assert.deepEqual(warnings.map(d => [d.line, d.message.split(' (')[0]]), [[5, 'Unknown character "alcie"']]);
+});
+
 test('nvl: lines collect on a page; clear, scene and off end it; restore and save rebuild it', async () => {
   const text = [
     'define a "Al" color=#ff0000', 'label start:', '  "before"', '  nvl on', '  "one"', '  a: two', '  nvl clear', '  "three"', '  "four"',

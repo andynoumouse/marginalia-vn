@@ -5,6 +5,7 @@
  */
 
 import { HUD_EVENTS } from './screens.js';
+import { maskStrings, withoutComment } from './script-lex.js';
 
 export interface ProjectFile { name: string; text: string }
 
@@ -17,22 +18,11 @@ export interface TextEdit { file: string; line: number; col: number; length: num
 
 export type RenameResult = { ok: true; edits: TextEdit[] } | { ok: false; error: string };
 
-const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const RE_DEF = /^(\s*label\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\s*[:(])/;
-const RE_JUMP = /^(\s*(jump|call)\s+)([A-Za-z_][A-Za-z0-9_]*)(?=\s*(\(.*\))?\s*(#.*)?$)/;
-const RE_ON = new RegExp(`(?<![\\w])on\\s+(?:${HUD_EVENTS.join('|')})\\s+(?=[A-Za-z_])`, 'g');
-
-/** The line with the inside of every "string" blanked, so words in dialogue and menu text are never taken for syntax. */
-export function maskStrings(line: string): string {
-  let out = '', quote = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (quote && c === '\\') { out += '  '; i++; continue; }
-    if (c === '"') { quote = !quote; out += c; continue; }
-    out += quote ? ' ' : c;
-  }
-  return out;
-}
+// Label names in any alphabet (names.ts).
+const NAME = /^[\p{L}_][\p{L}\p{N}\p{M}_]*$/u;
+const RE_DEF = /^(\s*label\s+)([\p{L}_][\p{L}\p{N}\p{M}_]*)(?=\s*[:(])/u;
+const RE_JUMP = /^(\s*(jump|call)\s+)([\p{L}_][\p{L}\p{N}\p{M}_]*)(?=\s*(\(.*\))?\s*(#.*)?$)/u;
+const RE_ON = new RegExp(`(?<![\\w])on\\s+(?:${HUD_EVENTS.join('|')})\\s+(?=[\\p{L}_])`, 'gu');
 
 function scriptRefs(file: string, text: string): LabelRef[] {
   const refs: LabelRef[] = [];
@@ -44,12 +34,11 @@ function scriptRefs(file: string, text: string): LabelRef[] {
     m = RE_JUMP.exec(line);
     if (m) { at(m[1].length, m[3], m[2] as 'jump' | 'call'); return; }
     // Only inside the part before a trailing comment.
-    const hash = line.search(/#(?![0-9a-z]{4,}\b)/);
-    const code = hash >= 0 ? line.slice(0, hash) : line;
+    const code = withoutComment(line);
     RE_ON.lastIndex = 0;
     for (let o = RE_ON.exec(code); o; o = RE_ON.exec(code)) {
       const col = o.index + o[0].length;
-      const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(code.slice(col))![0];
+      const name = /^[\p{L}_][\p{L}\p{N}\p{M}_]*/u.exec(code.slice(col))![0];
       at(col, name, 'on');
     }
   });

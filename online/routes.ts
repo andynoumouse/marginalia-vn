@@ -4,8 +4,9 @@
 // than the art converter) answers like a server without it, and /api/capabilities tells the editor to hide it.
 
 import {
-  projectFromListing, projectTextFiles, editorExtras, planMove, checkProjectPath, planDrop, trashId, isTrashId, readManifest,
-  planPurge, MANIFEST, convertMaster, masterKind, previousParts, stageSize, prefixFrom,
+  projectFromListing, projectTextFiles, editorExtras, planMove, checkProjectPath, isUnder, trashId, isTrashId, readManifest,
+  AUDIO_FILE, assetSaveConflict, assetSaveTrash, isFolderName, isLocaleFile, isPlainName, isScriptFile, isVoiceLock, manifestText, newestFirst, planAssetSave, voiceTakes,
+  planPurge, MANIFEST, convertMaster, masterKind, previousParts, stageSize, prefixFrom, saveConflicts,
   type Capabilities, type TrashEntry, type TrashAction, type Psd, type Deflate,
 } from '../engine/src/index.js';
 
@@ -40,12 +41,7 @@ const json = (value: unknown, status = 200) => new Response(JSON.stringify(value
 const text = (body: string, status: number) => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 const OK = () => json({ ok: true });
 const forbidden = () => text('Forbidden', 403);
-const VOICE_AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 const TRASH = '.trash';
-const ext = (s: string) => /\.[^./]*$/.exec(s)?.[0].toLowerCase() ?? '';
-/** No empty, '.' or '..' segments, no backslashes: what path.resolve would have normalized away on disk. */
-const clean = (p: string) => p !== '' && !p.includes('\\') && p.split('/').every(s => s !== '' && s !== '.' && s !== '..');
-const isUnder = (p: string, dir: string) => p === dir || p.startsWith(`${dir}/`);
 const changeType = (p: string) => (p.startsWith('masters/') ? 'masters' : 'content') as 'content' | 'masters';
 
 /** Every folder that holds a file, without the files' own names ("script/a/b.vn" -> "script", "script/a"). */
@@ -74,8 +70,9 @@ export async function readProject(store: FileStore, warn: (m: string) => void = 
   };
 }
 
-export async function handleApi(ctx: RouteContext, method: string, url: URL, body: () => Promise<Uint8Array>): Promise<Response | null> {
-  const r = new Routes(ctx);
+/** `base`: the request's X-VN-Base header, the version of the file a save started from (null when it sent none: not checked). */
+export async function handleApi(ctx: RouteContext, method: string, url: URL, body: () => Promise<Uint8Array>, base: string | null = null): Promise<Response | null> {
+  const r = new Routes(ctx, base);
   const q = (k: string) => url.searchParams.get(k);
   const route = `${method} ${url.pathname}`;
   try {
@@ -92,7 +89,7 @@ export async function handleApi(ctx: RouteContext, method: string, url: URL, bod
       case 'GET /api/git': return json({ repo: false, git: false });
       case 'PUT /api/game': return await r.saveJson('game.json', body);
       case 'GET /api/locales': return json(await r.readLocales());
-      case 'PUT /api/locale': return LOCALE.test(q('file') ?? '') ? await r.saveJson(`locale/${q('file')}`, body) : forbidden();
+      case 'PUT /api/locale': return isLocaleFile(q('file') ?? '') ? await r.saveJson(`locale/${q('file')}`, body) : forbidden();
       case 'GET /api/voice': return json(await r.readVoice());
       case 'PUT /api/voice': return await r.saveVoice(body);
       case 'PUT /api/rig': return await r.saveRig(q('char') ?? '', body);
@@ -105,10 +102,15 @@ export async function handleApi(ctx: RouteContext, method: string, url: URL, bod
   } catch (e) { return text(String((e as Error).message), 500); }
 }
 
-const LOCALE = /^[\w\-]+\.(json|src)$/;
 
 class Routes {
-  constructor(private ctx: RouteContext) {}
+  constructor(private ctx: RouteContext, private base: string | null = null) {}
+  /** A save over a file that is no longer the version it started from: 409 with the text now stored (UX round EL-18), else null. */
+  private async stale(path: string): Promise<Response | null> {
+    if (this.base === null) return null;
+    const b = await this.store.read(path), disk = b ? dec.decode(b) : null;
+    return saveConflicts(this.base, disk) ? new Response(JSON.stringify({ conflict: true, text: disk ?? '' }), { status: 409, headers: { 'Content-Type': 'application/json' } }) : null;
+  }
   private get store() { return this.ctx.store; }
 
   private async write(path: string, bytes: Uint8Array) {
@@ -131,13 +133,15 @@ class Routes {
   }
 
   async saveScript(file: string, body: () => Promise<Uint8Array>) {
-    if (!/^[\w\-./]+\.vn$/.test(file) || !clean(file)) return forbidden();
-    await this.write(`script/${file}`, await body());
+    if (!isScriptFile(file)) return forbidden();
+    const bytes = await body(), refused = await this.stale(`script/${file}`);
+    if (refused) return refused;
+    await this.write(`script/${file}`, bytes);
     return OK();
   }
 
   async saveFolder(dir: string, inAssets: boolean) {
-    if (!(inAssets ? /^[\w\-]+$/ : /^[\w\-./]+$/).test(dir) || !clean(dir)) return forbidden();
+    if (!isFolderName(dir, inAssets)) return forbidden();
     const target = `${inAssets ? 'assets' : 'script'}/${dir}`;
     if (!(await this.isKind(target, true))) await this.write(`${target}/.gitkeep`, new Uint8Array(0));
     return OK();
@@ -146,18 +150,25 @@ class Routes {
   async saveJson(path: string, body: () => Promise<Uint8Array>) {
     const bytes = await body();
     try { JSON.parse(dec.decode(bytes)); } catch (e) { return text(`Invalid JSON: ${(e as Error).message}`, 400); }
+    const refused = await this.stale(path);
+    if (refused) return refused;
     await this.write(path, bytes);
     return OK();
   }
 
   async saveRig(char: string, body: () => Promise<Uint8Array>) {
-    if (!/^[\w\-]+$/.test(char) || !(await this.isKind(`assets/char/${char}`, true))) return forbidden();
+    if (!isPlainName(char) || !(await this.isKind(`assets/char/${char}`, true))) return forbidden();
     return this.saveJson(`assets/char/${char}/rig.json`, body);
   }
 
   async saveTheme(name: string, body: () => Promise<Uint8Array>, css = false) {
-    if (!/^[\w\-]+$/.test(name)) return forbidden();
-    if (css) { await this.write(`themes/${name}.css`, await body()); return OK(); }
+    if (!isPlainName(name)) return forbidden();
+    if (css) {
+      const bytes = await body(), refused = await this.stale(`themes/${name}.css`);
+      if (refused) return refused;
+      await this.write(`themes/${name}.css`, bytes);
+      return OK();
+    }
     return this.saveJson(`themes/${name}.json`, body);
   }
 
@@ -192,7 +203,7 @@ class Routes {
       const m = raw && readManifest(dec.decode(raw));
       if (m) out.push({ id, ...m, bytes: files.filter(f => f.path.startsWith(`${TRASH}/${id}/`)).reduce((n, f) => n + f.size, 0) });
     }
-    return out.sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id)); // newest first
+    return newestFirst(out);
   }
 
   private async removeEntries(ids: readonly string[]) {
@@ -208,7 +219,7 @@ class Routes {
     const id = trashId(now, taken);
     const pairs = all.filter(p => rels.some(r => isUnder(p, r))).map(p => [p, `${TRASH}/${id}/${p}`] as const);
     await this.store.move(pairs);
-    await this.store.write(`${TRASH}/${id}/${MANIFEST}`, enc.encode(JSON.stringify({ action, paths: [...rels], time: now.toISOString() }, null, 2)));
+    await this.store.write(`${TRASH}/${id}/${MANIFEST}`, enc.encode(manifestText(action, rels, now)));
     await this.keepFolders(pairs.map(p => p[0]));
     for (const [p] of pairs) this.ctx.changed(changeType(p), p);
     const purge = planPurge((await this.readTrash()).filter(e => e.id !== keep && e.id !== id), now.getTime());
@@ -242,7 +253,7 @@ class Routes {
     const out: Record<string, string> = {};
     for (const p of await this.paths()) {
       const name = /^locale\/([^/]+)$/.exec(p)?.[1];
-      if (!name || !LOCALE.test(name)) continue;
+      if (!name || !isLocaleFile(name)) continue;
       const b = await this.store.read(p);
       if (b) out[p] = dec.decode(b);
     }
@@ -254,8 +265,8 @@ class Routes {
     const files: Record<string, string> = {};
     for (const p of (await this.paths()).sort()) {
       const f = /^assets\/voice\/([^/]+)$/.exec(p)?.[1];
-      if (!f || !VOICE_AUDIO.test(f)) continue;
-      const name = f.replace(VOICE_AUDIO, '');
+      if (!f || !AUDIO_FILE.test(f)) continue;
+      const name = f.replace(AUDIO_FILE, '');
       if (!(name in files)) files[name] = f;
     }
     return files;
@@ -275,42 +286,23 @@ class Routes {
   async saveVoice(body: () => Promise<Uint8Array>) {
     let lock: unknown;
     try { lock = JSON.parse(dec.decode(await body())); } catch { return text('Not a voice lock', 400); }
-    if (!lock || typeof lock !== 'object' || Array.isArray(lock)
-      || Object.values(lock).some(e => typeof e?.sum !== 'string' || typeof e?.text !== 'string')) return text('Not a voice lock', 400);
+    if (!isVoiceLock(lock)) return text('Not a voice lock', 400);
     await this.store.write('voice.lock.json', enc.encode(JSON.stringify(lock, null, 2) + '\n'));
     return OK();
   }
 
   // ---- assets: a drop, a Replace, or a voice take (see saveAsset in preview/dev-server.mjs) ----
   async saveAsset(q: URLSearchParams, body: () => Promise<Uint8Array>) {
-    const voice = q.get('voice');
-    const replacing = voice === null ? q.get('replace') : null;
-    let dest: string, replaceVoice = false;
-    if (replacing !== null) {
-      const bad = checkProjectPath(replacing) ?? (replacing.startsWith('script/') ? 'replace assets and masters only' : null)
-        ?? (ext(replacing) !== ext(q.get('name') ?? '') ? `pick a ${ext(replacing) || 'same-type'} file` : null);
-      if (bad) return text(bad, 400);
-      if (!(await this.isKind(replacing, false))) return text(`${replacing} not found`, 404);
-      dest = replacing;
-    } else if (voice !== null) {
-      const e = VOICE_AUDIO.exec(q.get('name') ?? '')?.[0].toLowerCase();
-      if (!/^[\w\-]+(\.[\w\-]+)?$/.test(voice) || !e) return text('Not a voice recording name', 400);
-      dest = `assets/voice/${voice}${e}`;
-      replaceVoice = q.get('replace') === '1';
-    } else {
-      const plan = planDrop(q.get('name') ?? '', q.get('folder') ?? '');
-      if ('error' in plan) return text(plan.error, 400);
-      dest = plan.dest;
-    }
-    if (!clean(dest)) return text('Bad path', 400);
+    const plan = planAssetSave(q);
+    if ('error' in plan) return text(plan.error, 400);
+    const { dest, replacing, voice } = plan;
+    if (replacing !== null && !(await this.isKind(replacing, false))) return text(`${replacing} not found`, 404);
     const all = await this.paths();
-    // Takes of the same recording under another extension would make the name ambiguous (the first by file name wins).
-    const siblings = voice === null ? [] : all.filter(p => /^assets\/voice\/[^/]+$/.test(p) && VOICE_AUDIO.test(p) && p.slice(13).replace(VOICE_AUDIO, '') === voice).sort();
-    if (replacing === null && (voice === null ? all.includes(dest) : siblings.length && !replaceVoice)) {
-      return json({ dest: voice === null ? dest : siblings[0] }, 409);
-    }
+    const takes = voice === null ? [] : voiceTakes(all.filter(p => /^assets\/voice\/[^/]+$/.test(p)).map(p => p.slice('assets/voice/'.length)), voice);
+    const conflict = assetSaveConflict(plan, all.includes(dest), takes);
+    if (conflict !== null) return json({ dest: conflict }, 409);
     const bytes = await body();
-    const old = replacing !== null ? [replacing] : siblings;
+    const old = assetSaveTrash(plan, takes);
     const trash = old.length ? await this.toTrash(old, 'replace') : undefined;
     await this.write(dest, bytes);
     const art = dest.startsWith('masters/') ? await this.convert(dest.slice('masters/'.length)) : undefined;

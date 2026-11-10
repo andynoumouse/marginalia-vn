@@ -38,6 +38,8 @@ export interface MaskHost {
   drag(): MaskDrag;
   /** The Mask tool was asked for (a new drawn shape turns it on), or the chosen point changed. */
   useTool(): void;
+  /** Is the Mask tool the one in use? */
+  toolOn(): boolean;
   selected(): void;
   note(text: string): void;
 }
@@ -324,7 +326,7 @@ export class MaskPanel {
     }
     this.delBtn.disabled = n === null || poly.length <= MASK_MIN_POINTS;
     const kfs = def.keyforms?.length ?? 0;
-    q<HTMLElement>('.am-pthint').textContent = (n === null ? 'Choose the Mask tool (M): drag a point of the outline, click an edge to add one, Alt-click a point to remove it. Points are in pixels of the PSD canvas.' : `Point ${n} of ${poly.length}.`)
+    q<HTMLElement>('.am-pthint').textContent = (n === null ? (this.host.toolOn() ? 'Drag' : 'With the Mask tool (M), drag') + ' a point of the outline, click an edge to add one, Alt-click a point to remove it. Points are in pixels of the PSD canvas.' : `Point ${n} of ${poly.length}.`)
       + (kfs ? ` ${kfs === 1 ? '1 keyform reshapes' : `${kfs} keyforms reshape`} this shape with parameters (written in rig.json).` : '');
   }
 }

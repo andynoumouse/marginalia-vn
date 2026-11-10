@@ -4,7 +4,7 @@
 
 import { changeKind, type GitChange } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 
 export interface GitHost {
   /** Write the unsaved tabs to disk first: a commit takes the files as they are on disk. */
@@ -46,10 +46,7 @@ export class GitPanel {
 
   constructor(bar: HTMLElement, host: HTMLElement, private readonly h: GitHost) {
     this.bar = bar;
-    this.root = document.createElement('div');
-    this.root.id = 'gitCommit';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root, q } = mountModal(host, 'gitCommit', `
       <div class="gd-card" role="dialog" aria-modal="true" aria-label="Commit">
         <header><strong>Commit</strong><span class="gd-branch"></span><span class="hint">Everything under the project folder. Ctrl+Enter commits, Esc closes.</span>
           <button type="button" class="close" aria-label="Close commit">Close</button></header>
@@ -62,18 +59,13 @@ export class GitPanel {
           <button type="button" class="primary gd-go" disabled>Commit all</button>
         </div>
         <div class="gd-result" role="status" hidden></div>
-      </div>`;
-    host.append(this.root);
-    const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
+      </div>`, () => this.close());
+    this.root = root;
     this.summary = q('.gd-summary'); this.notes = q('.gd-notes'); this.rows = q('.gd-rows'); this.message = q('.gd-message');
     this.ignoreBtn = q('.gd-ignore'); this.commitBtn = q('.gd-go'); this.result = q('.gd-result');
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    q('.close').addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
-      else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void this.commit(); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void this.commit(); }
     });
-    trapModal(this.root, () => this.close());
     this.message.addEventListener('input', () => { this.edited = true; this.update(); });
     this.ignoreBtn.addEventListener('click', () => void this.ignore());
     this.commitBtn.addEventListener('click', () => void this.commit());

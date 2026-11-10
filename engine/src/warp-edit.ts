@@ -12,6 +12,8 @@ import {
 } from './params.js';
 import { meshGraphDistance } from './mesh.js';
 import { boneSubtree, type Bones, type PartBones } from './anim-edit.js';
+import { clampParam } from './params.js';
+import { round5 } from './util.js';
 
 export type WarpVec = [number, number];
 /** The size of a part's image box in stage units (pixels over `fxUnit`), the unit displacements are in. */
@@ -20,9 +22,6 @@ export interface PartBox { w: number; h: number }
 /** A slider value this close (as a fraction of the parameter's range) to a key edits that key; farther away it makes a new one. */
 export const WARP_KEY_SNAP = 0.02;
 const EPS = 1e-9;
-const DECIMALS = 1e5;
-/** Stored displacements are kept to 5 decimals (a hundredth of a pixel on a 1080 px stage); `+ 0` turns -0 into 0. */
-const clean = (n: number): number => Math.round(n * DECIMALS) / DECIMALS + 0;
 
 /** Sparse points as a dense interleaved [dx, dy, ...] list of `n` points. */
 function dense(pts: WarpPoints | undefined, n: number): number[] {
@@ -37,13 +36,12 @@ function dense(pts: WarpPoints | undefined, n: number): number[] {
 function sparse(v: ArrayLike<number>): WarpPoints | undefined {
   const pts: WarpPoints = {};
   for (let i = 0; i < v.length / 2; i++) {
-    const dx = clean(v[i * 2]), dy = clean(v[i * 2 + 1]);
+    const dx = round5(v[i * 2]), dy = round5(v[i * 2 + 1]);
     if (dx !== 0 || dy !== 0) pts[String(i)] = [dx, dy];
   }
   return Object.keys(pts).length ? pts : undefined;
 }
 const keyOf = (at: number, pts: WarpPoints | undefined): { at: number; pts?: WarpPoints } => (pts ? { at, pts } : { at });
-const clampTo = (p: ParamDef, v: number): number => Math.min(p.max, Math.max(p.min, Number.isFinite(v) ? v : p.default));
 const clampGrid = (n: number): number => Math.min(DEFORMER_MAX_GRID, Math.max(1, Math.round(Number.isFinite(n) ? n : 1)));
 
 /** Index of the first one-parameter keyform of `param` on `def`, -1 for none. This is the one the studio edits. */
@@ -62,7 +60,7 @@ function keyformAt(kf: DeformerKeyform, n: number, v: number): number[] {
 /** What the keyform of `param` alone adds to every point when the parameter is at `value`, interleaved [dx, dy, ...]. Zeros without a keyform. */
 export function ownDisplacement(def: DeformerDef, param: ParamDef, value: number): number[] {
   const n = deformerPoints(def), i = formIndex(def, param.id);
-  return i < 0 ? new Array<number>(n * 2).fill(0) : keyformAt(def.keyforms[i], n, clampTo(param, value));
+  return i < 0 ? new Array<number>(n * 2).fill(0) : keyformAt(def.keyforms[i], n, clampParam(param, value));
 }
 
 /** The values the keyform of `param` has keys at, ascending. */
@@ -87,7 +85,7 @@ export function warpKeyAt(def: DeformerDef, param: ParamDef, value: number): num
  * parameter's default, so the shape eases in from rest instead of holding everywhere.
  */
 export function setWarpOwn(def: DeformerDef, param: ParamDef, value: number, edits: readonly (readonly [number, WarpVec])[]): DeformerDef {
-  const n = deformerPoints(def), v = clampTo(param, value), own = ownDisplacement(def, param, v);
+  const n = deformerPoints(def), v = clampParam(param, value), own = ownDisplacement(def, param, v);
   const todo = edits.filter(([p, d]) => Number.isInteger(p) && p >= 0 && p < n && (Math.abs(own[p * 2] - d[0]) > EPS || Math.abs(own[p * 2 + 1] - d[1]) > EPS));
   if (!todo.length) return def;
   const next = structuredClone(def);
@@ -116,7 +114,7 @@ export function setWarpOwn(def: DeformerDef, param: ParamDef, value: number, edi
   }
   const key = keys[j], pts: WarpPoints = key.pts ?? {}, other = nb >= 0 ? dense(keys[nb].pts, n) : null;
   for (const [p, d] of todo) {
-    const to: WarpVec = [0, 1].map(c => clean(other ? (d[c] - (1 - w) * other[p * 2 + c]) / w : d[c])) as WarpVec;
+    const to: WarpVec = [0, 1].map(c => round5(other ? (d[c] - (1 - w) * other[p * 2 + c]) / w : d[c])) as WarpVec;
     if (to[0] === 0 && to[1] === 0) delete pts[String(p)]; else pts[String(p)] = to;
   }
   if (Object.keys(pts).length) key.pts = pts; else delete key.pts;
@@ -149,7 +147,7 @@ export function deleteWarpKey(def: DeformerDef, param: ParamDef, value: number):
  */
 export function addWarpKey(def: DeformerDef, param: ParamDef, value: number): DeformerDef {
   if (warpKeyAt(def, param, value) !== null) return def;
-  const n = deformerPoints(def), v = clampTo(param, value), next = structuredClone(def);
+  const n = deformerPoints(def), v = clampParam(param, value), next = structuredClone(def);
   next.keyforms ??= [];
   let k = formIndex(next, param.id);
   if (k < 0) { k = next.keyforms.length; next.keyforms.push({ param: param.id, keys: [] }); }
@@ -179,35 +177,72 @@ export function pasteWarpForm(def: DeformerDef, param: ParamDef, value: number, 
  * displacement of a mirrored point flipped in x. Points on the axis cannot move sideways in a symmetric shape, so their dx goes to 0.
  */
 export function mirrorWarp(def: DeformerDef, param: ParamDef, value: number, from: 'left' | 'right', only?: readonly number[]): DeformerDef {
-  const [cols, rows] = deformerGrid(def), own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [];
-  if (only) {
-    // A selection is the source: each chosen point is copied onto its partner across the axis (one on the axis just loses its sideways move).
-    for (const p of new Set(only)) {
-      if (!(p >= 0 && p < (cols + 1) * (rows + 1))) continue;
-      const i = p % (cols + 1), j = Math.floor(p / (cols + 1)), q = j * (cols + 1) + (cols - i);
-      edits.push(i * 2 === cols ? [p, [0, own[p * 2 + 1]]] : [q, [-own[p * 2], own[p * 2 + 1]]]);
-    }
-    return setWarpOwn(def, param, value, edits);
-  }
-  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
-    const p = j * (cols + 1) + i, q = j * (cols + 1) + (cols - i);
-    if (i * 2 === cols) edits.push([p, [0, own[p * 2 + 1]]]);
-    else if (from === 'left' ? i * 2 > cols : i * 2 < cols) edits.push([p, [-own[q * 2], own[q * 2 + 1]]]);
-  }
-  return setWarpOwn(def, param, value, edits);
+  const [cols] = deformerGrid(def), w = cols + 1, col = (p: number) => p % w;
+  const partner = (p: number) => p - col(p) + (cols - col(p));
+  return mirrorPoints(def, param, value, deformerPoints(def), partner, p => (from === 'left' ? col(p) * 2 > cols : col(p) * 2 < cols), only).def;
 }
 
 /** Moves every point of the keyform at `value` `amount` (0-1) of the way to the average of its neighbours, evening out kinks; with `only`, just those points move. */
 export function smoothWarp(def: DeformerDef, param: ParamDef, value: number, amount = 0.5, only?: readonly number[]): DeformerDef {
-  const [cols, rows] = deformerGrid(def), own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [], chosen = only ? new Set(only) : null;
-  for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
-    const p = j * (cols + 1) + i;
-    if (chosen && !chosen.has(p)) continue;
-    const around = [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]].filter(([x, y]) => x >= 0 && x <= cols && y >= 0 && y <= rows).map(([x, y]) => y * (cols + 1) + x);
+  const [cols, rows] = deformerGrid(def), w = cols + 1;
+  const neighbours = (p: number) => {
+    const i = p % w, j = Math.floor(p / w);
+    return [[i - 1, j], [i + 1, j], [i, j - 1], [i, j + 1]].filter(([x, y]) => x >= 0 && x <= cols && y >= 0 && y <= rows).map(([x, y]) => y * w + x);
+  };
+  return smoothPoints(def, param, value, deformerPoints(def), neighbours, amount, only);
+}
+
+// ---- point tools on either kind of deformer: a lattice's grid points or a free mesh's vertices (mesh-edit.ts) ----
+
+/**
+ * Copies the keyform at `value` across the vertical middle. `partner(p)` is the point mirroring `p` (`p` itself on the middle, -1 for
+ * none) and `overwritten(p)` whether `p` lies on the half that takes the copy. With `only`, those points are the source and land on their
+ * partners. A point on the middle just loses its sideways move. `unpaired` lists the points that should have changed but have no partner.
+ */
+export function mirrorPoints(
+  def: DeformerDef, param: ParamDef, value: number, n: number, partner: (p: number) => number, overwritten: (p: number) => boolean, only?: readonly number[],
+): { def: DeformerDef; unpaired: number[] } {
+  const own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [], unpaired: number[] = [];
+  for (const p of only ? cleanSelection(only, n) : Array.from({ length: n }, (_, i) => i)) {
+    const q = partner(p);
+    if (!only && q !== p && !overwritten(p)) continue; // the source half stays
+    if (q < 0) unpaired.push(p);
+    else if (q === p) edits.push([p, [0, own[p * 2 + 1]]]);
+    else if (only) edits.push([q, [-own[p * 2], own[p * 2 + 1]]]);
+    else edits.push([p, [-own[q * 2], own[q * 2 + 1]]]);
+  }
+  return { def: setWarpOwn(def, param, value, edits), unpaired };
+}
+
+/** Moves each point (with `only`, just those) `amount` (0-1) of the way to the average of its `neighbours`; a point with none stays. */
+export function smoothPoints(def: DeformerDef, param: ParamDef, value: number, n: number, neighbours: (p: number) => readonly number[], amount: number, only?: readonly number[]): DeformerDef {
+  const own = ownDisplacement(def, param, value), edits: [number, WarpVec][] = [];
+  for (const p of only ? cleanSelection(only, n) : Array.from({ length: n }, (_, i) => i)) {
+    const around = neighbours(p);
+    if (!around.length) continue;
     const avg = [0, 1].map(c => around.reduce((s, q) => s + own[q * 2 + c], 0) / around.length);
     edits.push([p, [own[p * 2] + (avg[0] - own[p * 2]) * amount, own[p * 2 + 1] + (avg[1] - own[p * 2 + 1]) * amount]]);
   }
   return setWarpOwn(def, param, value, edits);
+}
+
+/**
+ * Scales and rotates the chosen points about the centre of where they sit now (`about` 'selection') or of the part's box (`box`, in
+ * stage units). `rest(p)` is a point's rest position in the same units, so the rotation does not shear.
+ */
+export function transformPoints(
+  def: DeformerDef, param: ParamDef, value: number, points: readonly number[], n: number, rest: (p: number) => WarpVec, box: { w: number; h: number },
+  by: { scale?: number | WarpVec; rotate?: number; about?: 'selection' | 'lattice' },
+): DeformerDef {
+  const own = ownDisplacement(def, param, value), ok = cleanSelection(points, n);
+  if (!ok.length) return def;
+  const [sx, sy] = typeof by.scale === 'number' ? [by.scale, by.scale] : by.scale ?? [1, 1], a = ((by.rotate ?? 0) * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+  const at = (p: number): WarpVec => { const r = rest(p); return [r[0] + own[p * 2], r[1] + own[p * 2 + 1]]; };
+  const pivot: WarpVec = by.about === 'lattice' ? [box.w / 2, box.h / 2] : [0, 1].map(c => ok.reduce((s, p) => s + at(p)[c], 0) / ok.length) as WarpVec;
+  return setWarpOwn(def, param, value, ok.map(p => {
+    const [x, y] = at(p), dx = (x - pivot[0]) * sx, dy = (y - pivot[1]) * sy, r = rest(p);
+    return [p, [pivot[0] + dx * cos - dy * sin - r[0], pivot[1] + dx * sin + dy * cos - r[1]]] as [number, WarpVec];
+  }));
 }
 
 // ---- selections of points ----
@@ -313,16 +348,9 @@ export function transformWarpPoints(
   def: DeformerDef, param: ParamDef, value: number, points: readonly number[], box: PartBox,
   by: { scale?: number | WarpVec; rotate?: number; about?: 'selection' | 'lattice' },
 ): DeformerDef {
-  const [cols, rows] = deformerGrid(def), n = deformerPoints(def), own = ownDisplacement(def, param, value), ok = cleanSelection(points, n);
-  if (!ok.length) return def;
-  const [sx, sy] = typeof by.scale === 'number' ? [by.scale, by.scale] : by.scale ?? [1, 1], a = ((by.rotate ?? 0) * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+  const [cols, rows] = deformerGrid(def);
   const rest = (p: number): WarpVec => [((p % (cols + 1)) / cols) * box.w, (Math.floor(p / (cols + 1)) / rows) * box.h];
-  const at = (p: number): WarpVec => { const r = rest(p); return [r[0] + own[p * 2], r[1] + own[p * 2 + 1]]; };
-  const pivot: WarpVec = by.about === 'lattice' ? [box.w / 2, box.h / 2] : [0, 1].map(c => ok.reduce((s, p) => s + at(p)[c], 0) / ok.length) as WarpVec;
-  return setWarpOwn(def, param, value, ok.map(p => {
-    const [x, y] = at(p), dx = (x - pivot[0]) * sx, dy = (y - pivot[1]) * sy, r = rest(p);
-    return [p, [pivot[0] + dx * cos - dy * sin - r[0], pivot[1] + dx * sin + dy * cos - r[1]]] as [number, WarpVec];
-  }));
+  return transformPoints(def, param, value, points, deformerPoints(def), rest, box, by);
 }
 
 // ---- the deformers of a rig ----

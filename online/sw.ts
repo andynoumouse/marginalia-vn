@@ -140,7 +140,7 @@ sw.addEventListener('fetch', (e: FetchEvent) => {
       if (!project) return notFound('No project: open one from the project list');
       if (url.pathname === '/__events') return events(project);
       const req = e.request;
-      const res = await handleApi(context(project), req.method, url, async () => new Uint8Array(await req.arrayBuffer()));
+      const res = await handleApi(context(project), req.method, url, async () => new Uint8Array(await req.arrayBuffer()), req.headers.get('X-VN-Base'));
       return res ?? notFound();
     })());
     return;

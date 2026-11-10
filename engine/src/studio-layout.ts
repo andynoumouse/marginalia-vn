@@ -48,6 +48,8 @@ export const clampRight = (px: number) => Math.round(clamp(px, RIGHT_WIDTH.min, 
 export const clampSplit = (f: number) => Math.round(clamp(f, SPLIT.min, SPLIT.max) * 1000) / 1000;
 
 export type StudioSide = 'left' | 'right';
+/** What folds away: a side column (to a rail) or the timeline (to its transport row). */
+export type StudioFold = StudioSide | 'timeline';
 /** A column dragged narrower than this share of its smallest width folds away (to a thin rail) instead of stopping at the minimum. */
 export const COLLAPSE_SHARE = 0.6;
 /** What a drag of a column's edge asks for at width `px`: fold the column, or this width. */
@@ -60,7 +62,7 @@ export function dragColumn(side: StudioSide, px: number): { collapsed: true } | 
  * What is kept: for each mode, the sections the author opened (true) or closed (false) (Model also the Properties sub-blocks, `sub:<id>`), the
  * sizes the author dragged (both modes), the columns folded away, and the rig strip's tab and whether it is open (absent: folded on Physics).
  */
-export interface StudioLayout { open: Partial<Record<StudioMode, Record<string, boolean>>>; size?: StudioSizes; collapsed?: Partial<Record<StudioSide, true>>; rig?: RigStripState }
+export interface StudioLayout { open: Partial<Record<StudioMode, Record<string, boolean>>>; size?: StudioSizes; collapsed?: Partial<Record<StudioFold, true>>; rig?: RigStripState }
 
 /**
  * The rig strip (docs/design/studio-inspector.md, step 5): Model mode's rig-wide setup in tabs under the stage, where Animate has its
@@ -96,8 +98,8 @@ export function rigStrip(mode: StudioMode, state: RigStripState, without: readon
 }
 export const NO_LAYOUT: StudioLayout = { open: {} };
 
-/** The layout with a column folded away or brought back. */
-export function withCollapsed(layout: StudioLayout, side: StudioSide, collapsed: boolean): StudioLayout {
+/** The layout with a column (or the timeline) folded away or brought back. */
+export function withCollapsed(layout: StudioLayout, side: StudioFold, collapsed: boolean): StudioLayout {
   const { collapsed: was, ...rest } = layout;
   const next = { ...was };
   if (collapsed) next[side] = true; else delete next[side];
@@ -129,7 +131,7 @@ export function readLayout(raw: string | null | undefined): StudioLayout {
   }
   const folded = (data as { collapsed?: unknown }).collapsed;
   const collapsed: StudioLayout['collapsed'] = {};
-  if (folded && typeof folded === 'object') for (const s of ['left', 'right'] as const) if ((folded as Record<string, unknown>)[s] === true) collapsed[s] = true;
+  if (folded && typeof folded === 'object') for (const s of ['left', 'right', 'timeline'] as const) if ((folded as Record<string, unknown>)[s] === true) collapsed[s] = true;
   const hasSize = size.left !== undefined || size.right !== undefined || size.split !== undefined, hasFold = Object.keys(collapsed).length > 0;
   const r = (data as { rig?: unknown }).rig;
   const tab = r && typeof r === 'object' ? (r as Record<string, unknown>).tab : undefined, rigOpen = r && typeof r === 'object' ? (r as Record<string, unknown>).open : undefined;

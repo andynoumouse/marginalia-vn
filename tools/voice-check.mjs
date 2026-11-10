@@ -5,8 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
-const { checkVoice, acceptVoice, voiceText } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href);
+const { checkVoice, acceptVoice, voiceText, AUDIO_FILE: AUDIO } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href);
 
 const lockPath = root => path.join(root, 'voice.lock.json');
 

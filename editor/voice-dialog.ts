@@ -3,11 +3,11 @@
 // The row logic and the comparison with the lock (voice.lock.json in the project folder) are the engine's (voice.ts).
 
 import {
-  acceptVoice, changedSpan, checkVoice, matchVoiceDrops, recordingScriptCsv, voiceRows, voiceText,
+  acceptVoice, AUDIO_EXTS, AUDIO_FILE, changedSpan, checkVoice, matchVoiceDrops, recordingScriptCsv, voiceRows, voiceText,
   type StringRow, type StringTable, type VoiceLock, type VoiceRow,
 } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 
 export interface VoiceHost {
   /** The strings of the current scripts, in script order. */
@@ -23,7 +23,6 @@ export interface VoiceHost {
 const LANG = /^[A-Za-z]{2,3}([_-][A-Za-z0-9]+)?$/;
 const ROW_HEIGHT = 96;
 const FILTER_DELAY = 150;
-const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 const LABEL: Record<VoiceRow['status'], string> = { missing: 'no recording', recorded: 'recorded', outdated: 'outdated' };
 
 export class VoiceDialog {
@@ -56,10 +55,7 @@ export class VoiceDialog {
   private returnFocus: (() => void) | null = null;
 
   constructor(host: HTMLElement, private readonly h: VoiceHost) {
-    this.root = document.createElement('div');
-    this.root.id = 'voice';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root, q } = mountModal(host, 'voice', `
       <div class="vo-card" role="dialog" aria-modal="true" aria-label="Voice">
         <header><strong>Voice</strong><span class="hint">Esc to close. Drop audio files on a row, or name them after the lines and drop them on the list.</span>
           <button type="button" class="close" aria-label="Close voice">Close</button></header>
@@ -79,17 +75,12 @@ export class VoiceDialog {
           <button type="button" class="vo-ask-yes">Replace</button><button type="button" class="vo-ask-no">Keep the old take</button></div>
         <div class="vo-unmatched" hidden><span>Not matched to a line (drag one onto its row):</span><span class="vo-chips"></span></div>
         <div class="vo-scroll"><div class="vo-spacer"></div></div>
-      </div>`;
-    host.append(this.root);
-    const q = <T extends HTMLElement>(s: string) => this.root.querySelector<T>(s)!;
+      </div>`, () => this.close());
+    this.root = root;
     this.langSel = q('.vo-lang'); this.filter = q('.vo-filter'); this.missing = q('.vo-missing'); this.outdatedOnly = q('.vo-outdated');
     this.summary = q('.vo-summary'); this.note = q('.vo-note'); this.ask = q('.vo-ask'); this.unmatched = q('.vo-unmatched');
     this.allBtn = q('.vo-all'); this.scroller = q('.vo-scroll');
     this.list = new VirtualList(this.scroller, q('.vo-spacer'), ROW_HEIGHT, v => this.rowEl(v));
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    q('.close').addEventListener('click', () => this.close());
-    this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
-    trapModal(this.root, () => this.close());
     this.newLang = q('.vo-newlang');
     q('.vo-addlang').addEventListener('click', () => this.addLanguage());
     this.newLang.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.addLanguage(); } });
@@ -279,7 +270,7 @@ export class VoiceDialog {
 
   /** Save `file` as the take of `v`. An existing take is only replaced after asking. */
   private async take(v: VoiceRow, file: File, replace = false): Promise<'saved' | 'exists' | 'failed'> {
-    if (!AUDIO.test(file.name)) { this.say(`${file.name}: not an audio file (ogg, mp3, wav, m4a, flac or opus).`); return 'failed'; }
+    if (!AUDIO_FILE.test(file.name)) { this.say(`${file.name}: not an audio file (${AUDIO_EXTS.join(', ')}).`); return 'failed'; }
     this.ask.hidden = true;
     let reply: Response;
     try {

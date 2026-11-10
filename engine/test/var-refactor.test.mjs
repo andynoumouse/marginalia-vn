@@ -118,6 +118,19 @@ test('a rename also changes [name] in the translations of the lines that use it'
   assert.equal(JSON.parse(loc).ab12, 'Gold [gold:,] und "[gold]". [persistent.coins]');
 });
 
+test('a rename also changes [name] in game.json strings (labels the stock screens fill in), not a local of that name', () => {
+  const vn = 'label start:\n    set player = "Ann"\nlabel greet(player):\n    "Hi [player]" #ab12\n';
+  const game = '{\n  "title": "[player] or [players]",\n  "labels": { "end_title": "The end, [player:upper]. [persistent.player]" }\n}\n';
+  const fs = [{ name: 'start.vn', text: vn }, { name: 'game.json', text: game }];
+  const res = renameVariable(fs, variableAt(fs, 'start.vn', 2, 9), 'hero');
+  assert.ok(res.ok, res.error);
+  assert.equal(applyTextEdits(game, res.edits.filter(e => e.file === 'game.json')),
+    '{\n  "title": "[hero] or [players]",\n  "labels": { "end_title": "The end, [hero:upper]. [persistent.player]" }\n}\n');
+  const local = renameVariable(fs, variableAt(fs, 'start.vn', 4, 9), 'who');
+  assert.ok(local.ok, local.error);
+  assert.deepEqual(local.edits.filter(e => e.file === 'game.json'), []);
+});
+
 test('a rename changes [name] in the translations of character dialogue too, not only of quoted narration', () => {
   const vn = 'label start:\n    input player "Name?" #ab12\n    alice: Nice to meet you, [player]. #cd34\n';
   const fi = '{\n  "cd34": "Hauska tavata, [player]."\n}\n';

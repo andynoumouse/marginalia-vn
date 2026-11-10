@@ -77,13 +77,14 @@ export class PivotPanel {
     for (const f of Object.values(this.fields)) f.disabled = !part;
     // A set clears every part's pivot; Same pivot gives one part's to others, which a set does by typing it.
     this.clearBtn.disabled = set ? !set.pivot.mixed && !at : !at;
-    this.shareBtn.disabled = (part !== null && isBone) || !!set;
+    this.shareBtn.disabled = part === null || isBone || !!set;
+    this.shareBtn.title = part === null ? 'Same pivot for…: choose a part first' : isBone ? 'Same pivot for…: a bone has no parts to share its pivot with' : 'Same pivot for…: tick the other parts that should turn about this pivot too';
     if (this.shareBtn.disabled) this.share.close();
     if (this.share.isOpen) this.fillShare();
     // The hint is the row's tooltip (Transform has room for the two rows only); it is said in PSD pixels.
     const hint = set ? (picking ? `Click the stage where the ${set.label} should turn: each gets that pivot.` : set.pivot.mixed ? `The ${set.label} have different pivots: a pivot typed here is set on all of them (Ctrl+Z undoes it at once)` : at ? `Where the ${set.label} turn and scale, in PSD pixels: a pivot typed here is set on all of them` : `None of the ${set.label} has a pivot: one typed here is set on all of them`)
       : picking ? 'Click the stage where the part should turn. The character is shown at rest.'
-      : part ? (at ? 'Where it turns and scales, in PSD pixels (the Pivot tool, Q, places it on the stage)' : isBone ? "No pivot of its own: the bone turns about its parent's pivot, else the middle of its parts." : 'No pivot: the part turns about the middle of its image (Q places one).') : 'Choose a part or a bone in the tree. The pivot is where it turns and scales; in PSD pixels.';
+      : part ? (at ? 'Where it turns and scales, in PSD pixels (the Pivot tool, Q, places it on the stage)' : isBone ? "No pivot of its own: the bone turns about its parent's pivot, else the middle of its parts." : 'No pivot: the part turns about the middle of its image (Q places one).') : 'The pivot of the chosen part or bone: where it turns and scales, in PSD pixels.';
     this.hint.textContent = hint;
     this.row.title = hint;
   }
@@ -95,6 +96,8 @@ export class PivotPanel {
     if (!part) { this.shareBox.append('Choose a part in the tree first.'); return; }
     const at = pivots[part];
     if (!at) { this.shareBox.append(`${part} has no pivot yet.`); return; }
+    // Each tick takes effect at once (one undo step each), so the panel needs no OK.
+    this.shareBox.append(el('p', { className: 'as-pivot-hint', textContent: `Parts that turn about ${part}'s pivot (each tick applies at once):` }));
     for (const other of parts.filter(p => p !== part)) {
       const same = pivots[other]?.[0] === at[0] && pivots[other]?.[1] === at[1];
       const box = document.createElement('input');

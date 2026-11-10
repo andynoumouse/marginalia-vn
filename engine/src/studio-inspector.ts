@@ -7,6 +7,7 @@
 
 import { BRUSH_NAMES, isPaintBrush, type StageTool, type WeightsBrush } from './studio-stage.js';
 import { focusKind, type FocusKind, type PickVerb } from './studio-focus.js';
+import { plural } from './util.js';
 
 /** Which of the bar's panels a tool shows: Move, Rotate and Scale share the gizmo line. */
 export type ToolBar = 'gizmo' | 'pivot' | 'warp' | 'weights' | 'mask';
@@ -126,6 +127,8 @@ export interface GizmoLineState {
   param?: string | null;
   /** Model: is the subject bound to the active parameter by a pose (a drag writes its keyform)? */
   bound?: boolean;
+  /** Model: is a part Ctrl-clicked with the chosen one bound (a drag writes that one, so the gizmo is not locked)? */
+  setBound?: boolean;
   /** Model: the other ways the chosen part is bound to the active parameter (its warp, its mask): the tool that keys them. */
   other?: readonly ('warp' | 'mask')[];
   /** Model, no parameter active: the parameters that move the chosen part already (a click on one keeps the part), and whether the rig has any. */
@@ -145,7 +148,7 @@ export function gizmoLine(s: GizmoLineState): string {
   const poses = s.subject === s.chosen ? `poses ${s.subject}` : `poses ${s.subject}, the bone ${s.chosen} sits on`;
   if (s.mode === 'animate') {
     if (!s.anim) return `${poses} · no animation: choose one to key`;
-    if (s.anim.preset) return `${poses} · ${s.anim.name} is a preset: a drag only previews (Edit copy makes it editable)`;
+    if (s.anim.preset) return `${poses} · ${s.anim.name} is a preset and cannot be keyed: Edit copy makes an editable version`;
     return `${poses} · ${s.autoKey === false ? `a drag previews, Key writes it into ${s.anim.name}` : `a drag keys ${s.anim.name} at the playhead`}`;
   }
   // No parameter: a click on a parameter's name keeps the part only when the two are bound (studio-focus.ts), so name those, and the ways to bind.
@@ -157,8 +160,35 @@ export function gizmoLine(s: GizmoLineState): string {
   }
   if (s.bound) return `${poses} · a drag writes its keyform of ${s.param}`;
   const other = (s.other ?? []).map(k => (k === 'warp' ? `D keys ${s.chosen}'s warp` : `M keys ${s.chosen}'s mask`));
-  return `${poses} · ${s.subject} is not bound to ${s.param}: ${other.length ? other.join(', ') : `a drag writes nothing (Bind parts…, or ◆ on ${s.param}'s row, binds it)`}`;
+  return `${poses} · ${s.subject} is not bound to ${s.param}: ${other.length ? other.join(', ') : `nothing to drag until it is (Bind parts…, or ◆ on ${s.param}'s row, binds it)`}`;
 }
+
+/** Why the gizmo is locked (`gizmoLock`). */
+export type GizmoLock = 'noAnim' | 'preset' | 'noParams' | 'noParam' | 'unbound';
+
+/**
+ * Why a drag of the Move, Rotate or Scale gizmo would be thrown away at the release, or null when it would be kept: a locked gizmo draws
+ * no handles, and the line above (`gizmoLine`) says why and what to do (docs/design/studio-locked-gizmo.md). Animate with Auto-key off is
+ * not locked (the drag waits for Key), nor is a Ctrl-click set with one part bound (that one is written); the Weights tool's test pose is
+ * the caller's to leave out.
+ */
+export function gizmoLock(s: GizmoLineState): GizmoLock | null {
+  if (s.chosen === null || s.subject === null) return null; // no gizmo to lock
+  if (s.mode === 'animate') return !s.anim ? 'noAnim' : s.anim.preset ? 'preset' : null;
+  if (!s.param) return s.hasParams === false ? 'noParams' : 'noParam';
+  return s.bound || s.setBound ? null : 'unbound';
+}
+
+/**
+ * The status line's note, as last looked at: `ctx` names what the note was about (the mode, the tool, the focus, the animation and the
+ * working copy's revision), `text` is what it said then.
+ */
+export interface NoteSeen { ctx: string; text: string }
+/**
+ * Does the note stay? It describes the last thing done, so it goes once the context moved on, unless the action that moved it wrote a
+ * note of its own since the last look (a note set and then a part chosen, or a part chosen and then a note set).
+ */
+export const keepNote = (last: NoteSeen, now: NoteSeen): boolean => now.ctx === last.ctx || now.text !== last.text;
 
 /** What the focus header knows (Model mode): the focus, and how many things each of its pickers and verbs would offer. */
 export interface FocusHeaderState {
@@ -542,7 +572,6 @@ export function propBlocks(s: PropBlocksState): PropBlocksView {
 }
 
 type BlockMaker = (id: PropBlockId, title: string, b: Partial<PropBlock>) => PropBlock;
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Deform: the warp of a part (its own lattice or mesh, or the group it is in), a bone's group warp, or the group that bends a shape. Opens by

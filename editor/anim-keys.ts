@@ -3,6 +3,7 @@
 
 import { addKey, CHANNEL_REST, deleteKey, keysOf, progressOf, sampleChannel, setKey, type AnimDef, type KeyChannel, type KeyDef } from '../engine/src/index.js';
 import { channelAt, LABEL, localPoint, NUDGE, valueAt } from './anim-timeline.js';
+import { followPointer } from './pointer.js';
 
 export interface KeysEntry { name: string; preset: boolean; def: AnimDef; dur: number }
 
@@ -103,21 +104,20 @@ export class KeyEditor {
       this.sel = Number(key.dataset.key);
       this.frozen = { ...host.ranges() };
       const end = host.beginDrag();
+      // The key moves by how far the pointer went, not to where it is: a sideways drag keeps the value, an upward one keeps the time (SA-13).
+      const range = this.frozen[ch] ?? host.ranges()[ch], start = localPoint(tl, e), k0 = host.current()!.def.keys[this.sel];
+      const t0 = k0?.t ?? start.t, v0 = k0?.[ch] ?? valueAt(tl, ch, start.y, range), y0 = valueAt(tl, ch, start.y, range);
       move = m => {
         const p = localPoint(tl, m), c = host.current()!;
-        const r = setKey(c.def, this.sel!, { t: p.t, [ch]: valueAt(tl, ch, p.y, this.frozen?.[ch] ?? host.ranges()[ch]) });
+        const r = setKey(c.def, this.sel!, { t: Math.min(1, Math.max(0, t0 + p.t - start.t)), [ch]: v0 + valueAt(tl, ch, p.y, range) - y0 });
         this.sel = r.index;
         host.dragStep(c.name, r.def);
       };
-      const up = () => {
-        tl.removeEventListener('pointermove', move);
-        tl.removeEventListener('pointerup', up);
+      followPointer(tl, move, () => {
         this.frozen = null;
         end();
         this.focusSel(ch);
-      };
-      tl.addEventListener('pointermove', move);
-      tl.addEventListener('pointerup', up);
+      });
       host.refreshView();
       this.focusSel(ch);
       return;
@@ -126,10 +126,7 @@ export class KeyEditor {
     if (c?.preset) host.note(`${c.name} is a preset and cannot be changed. Press "Edit copy" to make an editable version.`);
     else if (key) this.sel = Number(key.dataset.key);
     host.seek(localPoint(tl, e).t);
-    move = m => host.seek(localPoint(tl, m).t);
-    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); };
-    tl.addEventListener('pointermove', move);
-    tl.addEventListener('pointerup', up);
+    followPointer(tl, m => host.seek(localPoint(tl, m).t));
   }
 
   /** The selected key takes the focus after a click (the timeline redraws its keys), so Delete and the arrows work on it at once. */

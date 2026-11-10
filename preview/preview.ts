@@ -14,6 +14,7 @@ import { chapterList as chapterListOf, chapterDiagnostics } from './chapters.js'
 import { initScreenSync } from './screen-sync.js';
 import { Menus, type AchievementRow, type GalleryItem, type TitleConfig } from './menus.js';
 import { PixiRenderer } from './pixi-renderer.js';
+import { StudioPixiRenderer } from './pixi-studio.js';
 import { playSplash } from './splash.js';
 import { isOutdatedSave, newestSave, normalizeSaveVersion, PersistentSet, PersistentValues, readSave, SeenLines, setChoiceSlots, writeSave,  type SaveData } from './saves.js';
 import { adjustFocused, autoFocus, moveFocus, watchGamepad, type Action } from './input.js';
@@ -22,7 +23,7 @@ import type { Voice } from './blips.js';
 import { $, H, notePadConfirm, sleep, stage, W, type AssetFile, type LineInfo } from './stage-ui.js';
 import { setStageSize } from './stage-size.js';
 import { gameId, setGameId } from './storage.js';
-import { themeCss, type Theme } from '../engine/src/index.js';
+import { IMAGE_FILE, themeCss, type Theme } from '../engine/src/index.js';
 import { Studio } from './studio.js';
 import { Timeline } from './timeline.js';
 
@@ -132,7 +133,9 @@ const toastEl = $('toast'), errBanner = $('errBanner');
 // The stage size comes from game.json and must be known before the canvas is made.
 const firstProject = await fetchProject().catch(() => null);
 setStageSize(stageSize(firstProject?.game));
-const renderer = new PixiRenderer();
+// The studio frame's stage answers the studio as well (pixi-studio.ts); the game's has no studio code.
+const studioRenderer = studioChar !== null ? new StudioPixiRenderer() : null;
+const renderer: PixiRenderer = studioRenderer ?? new PixiRenderer();
 try {
   await renderer.init();
 } catch (e) {
@@ -141,6 +144,7 @@ try {
 }
 // The dev preview lets browser tests read the stage (the characters' draw order, tint and bounds); an export does not.
 if (devMode) (window as unknown as { vnStage: () => unknown }).vnStage = () => renderer.stageSnapshot();
+if (devMode) (window as unknown as { vnWorld: () => unknown }).vnWorld = () => renderer.worldSnapshot();
 if (devMode) (window as unknown as { vnParts: (char: string) => unknown }).vnParts = (char: string) => renderer.partBounds(char);
 // Saves and settings are kept per game, so the id must be known before anything reads them.
 setGameId(gameId(firstProject?.game ?? {}));
@@ -230,10 +234,14 @@ renderer.onVoice = voiced => {
 
 const themeEl = document.head.appendChild(document.createElement('style'));
 
-/** The file of a background image by name (in assets/bg or the root), if there is one. */
-function bgFile(name: string): AssetFile | undefined {
-  return assetFiles.find(a => new RegExp(`^(bg/)?${name.replace(/[^\w-]/g, '')}\.(png|webp|jpe?g|avif)$`, 'i').test(a.file));
+/** The image file named `name` (any image extension, case ignored) in one of `dirs` ('' is the root of assets/). */
+function imageFile(name: string, dirs: string[]): AssetFile | undefined {
+  const keys = dirs.map(d => `${d}${name}`.toLowerCase());
+  return assetFiles.find(a => IMAGE_FILE.test(a.file) && keys.includes(a.file.replace(IMAGE_FILE, '').toLowerCase()));
 }
+
+/** The file of a background image by name (in assets/bg or the root), if there is one. */
+const bgFile = (name: string) => imageFile(name, ['bg/', '']);
 
 /** URL of a background image by name, or null when no such file exists. */
 function bgUrl(name: string): string | null {
@@ -256,8 +264,7 @@ function galleryItems(): GalleryItem[] {
 
 /** An image in assets/ui by name. */
 function uiFile(name: string): AssetFile | undefined {
-  if (!name) return undefined;
-  return assetFiles.find(a => new RegExp(`^ui/${name.replace(/[^\w-]/g, '')}\.(png|webp|jpe?g|avif)$`, 'i').test(a.file));
+  return name ? imageFile(name, ['ui/']) : undefined;
 }
 const uiUrl = (file: AssetFile | undefined) => (file ? `assets/${file.file}?v=${file.v}` : null);
 
@@ -679,7 +686,7 @@ async function loadStudio(proj: Project, char: string, stale: () => boolean) {
   if (stale()) return;
   const scripts = compile(proj.scripts ?? [], namedPositions(proj.game), namedAnchors(proj.game), stageSize(proj.game));
   studioProgram = scripts;
-  studio ??= new Studio(renderer, char, at => sceneAt(studioProgram!, at));
+  studio ??= new Studio(studioRenderer!, char, at => sceneAt(studioProgram!, at));
   await studio.loadScene(); // the scripts may have changed under the scene line
   await studio.show();
   return;
@@ -836,6 +843,8 @@ const gestureReady = () => gesturesOn() && canAct() && !renderer.screens.open &&
 /** With gestures on, the browser leaves the stage's touches to the page (scroll lists opt back in in index.html). */
 function applyGestures() { document.documentElement.toggleAttribute('data-gestures', gesturesOn()); }
 const GESTURE_SKIP = 'button, a, input, select, textarea, [data-id], .sc-scroll, [role="slider"], [role="button"]';
+// `t` and a gesture's length come from the events' own timeStamps (when the finger moved), not from when the page handled
+// them: on a busy page a lift can be handled long after it happened, and a quick swipe would read as a slow drag.
 interface Touching { start: Map<number, { x: number; y: number }>; t: number; fingers: number; moved: number; timer: number; fired: boolean; dx: number; dy: number }
 let touching: Touching | null = null;
 let swallowClick = false;
@@ -855,7 +864,7 @@ stage.addEventListener('pointerdown', e => {
     return;
   }
   if (!gestureReady() || (e.target as Element | null)?.closest?.(GESTURE_SKIP)) return;
-  touching = { start: new Map([[e.pointerId, { x: e.clientX, y: e.clientY }]]), t: performance.now(), fingers: 1, moved: 0, dx: 0, dy: 0, fired: false,
+  touching = { start: new Map([[e.pointerId, { x: e.clientX, y: e.clientY }]]), t: e.timeStamp, fingers: 1, moved: 0, dx: 0, dy: 0, fired: false,
     timer: window.setTimeout(() => {
       if (!touching || touching.fingers > 1 || !gestureReady()) return;
       touching.fired = true;
@@ -880,7 +889,8 @@ const liftTouch = (e: PointerEvent) => {
   const t = touching;
   endTouch();
   if (e.type === 'pointercancel' || t.fired) return;
-  const gesture = classifyStroke(t.fingers > 1 ? { dx: t.moved, dy: 0, ms: performance.now() - t.t, fingers: t.fingers } : { dx: t.dx, dy: t.dy, ms: performance.now() - t.t, fingers: 1 });
+  const ms = e.timeStamp - t.t;
+  const gesture = classifyStroke(t.fingers > 1 ? { dx: t.moved, dy: 0, ms, fingers: t.fingers } : { dx: t.dx, dy: t.dy, ms, fingers: 1 });
   if (!gesture || gesture === 'tap' || !gestureReady()) return;
   swallowClick = true;
   setTimeout(() => { swallowClick = false; }, 400); // a click that never comes must not eat the next real one
@@ -976,8 +986,16 @@ function handleAction(a: Action) {
     case 'skipOff': toggleSkip(false); break;
   }
 }
+// The rotate cover (fit()) pauses the game: no key or pad press reaches the story or a focused button under it (UX round
+// PI-11). Browser keys (F-keys, Ctrl/Cmd shortcuts) still work.
+const covered = () => document.documentElement.hasAttribute('data-rotate');
+const blockUnderCover = (e: KeyboardEvent) => {
+  if (covered() && !e.ctrlKey && !e.metaKey && !/^F\d+$/.test(e.key)) { e.preventDefault(); e.stopImmediatePropagation(); }
+};
+window.addEventListener('keydown', blockUnderCover, true);
+window.addEventListener('keyup', blockUnderCover, true);
 let padSeen = false; // no toast for "no gamepad" on page load, only after one has been connected
-watchGamepad(handleAction, () => uiRoot() !== null, s => {
+watchGamepad(a => { if (!covered()) handleAction(a); }, () => uiRoot() !== null, s => {
   const name = s.id.replace(/\s*\(.*$/, '').slice(0, 40); // "Xbox 360 Controller (STANDARD GAMEPAD Vendor: ...)"
   if (s.connected) { padSeen = true; toast(s.standard ? 'toast_pad_on' : 'toast_pad_nonstandard', name); }
   else if (padSeen) toast('toast_pad_off');
@@ -1077,7 +1095,7 @@ window.addEventListener('message', e => {
   if (e.origin !== location.origin) return;
   const m = e.data as { type?: string; file?: string; line?: number; name?: string; value?: unknown; text?: unknown; kind?: unknown; touch?: unknown } | null;
   if (m?.type === 'log' && typeof m.text === 'string') { debugLog?.(m.text, m.kind === 'err' ? 'err' : 'out'); return; }
-  if (m?.type === 'setVar' && runtime && typeof m.name === 'string' && /^(persistent\.)?[A-Za-z_]\w*$/.test(m.name)
+  if (m?.type === 'setVar' && runtime && typeof m.name === 'string' && /^(persistent\.)?[\p{L}_][\p{L}\p{N}\p{M}_]*$/u.test(m.name)
     && (typeof m.value === 'number' || typeof m.value === 'string' || typeof m.value === 'boolean')) {
     if (m.name.startsWith('persistent.')) { // stored for good, and read by this playthrough from now on
       runtime.persistent[m.name.slice('persistent.'.length)] = m.value;

@@ -1,10 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildChoreography, parseTransformLine, compile, Runtime, NullRenderer, transformToAnim } from '../../dist/engine/src/index.js';
+import { errors, warnings } from './helpers.mjs';
 
 const src = { file: 't.vn', line: 1 };
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 const build = (...lines) => buildChoreography({ name: 'c', src, lines: lines.map(([at, target, text]) => ({ at, target, step: parseTransformLine(text, src), src })) });
 const program = (...lines) => compile([{ file: 't.vn', text: lines.join('\n') + '\n' }]);
 const durs = def => def.steps.map(s => `${s.kind}${s.dur}`).join(' ');

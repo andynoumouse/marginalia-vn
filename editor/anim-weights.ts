@@ -6,12 +6,12 @@
 // engine/src/skin-edit.ts; the studio keeps the working copy of the deformers and this works through `WeightsHost`.
 
 import {
-  applyAutoWeights, applyNumeric, meshMirrorPartners, mirrorWeights, pairedBone, vertexWeights, cleanSelection, combineSelection, boneHeat, boundBones, paintWeights, startSkinning, weightsText, defaultBlend, deformerOf, isSkinned, resolvePivots, stopSkinning,
+  applyAutoWeights, applyNumeric, meshMirrorPartners, mirrorWeights, pairedBone, guessPartner, vertexWeights, cleanSelection, combineSelection, boneHeat, boundBones, paintWeights, startSkinning, weightsText, defaultBlend, deformerOf, isSkinned, resolvePivots, stopSkinning,
   BRUSH_RADIUS, BRUSH_STRENGTH, brushStep, weightsBar, DEFAULT_BRUSH, EMPTY_WEIGHTS_SESSION, effectiveBrush, isPaintBrush, patchWeightsSession, unbindBone, weightsSession,
   type Bones, type BrushMode, type NumericOp, type DeformerDef, type SkinState, type GizmoTool, type WeightsBrush, type WeightsSession, type WeightsSessions,
 } from '../engine/src/index.js';
 import { el, layoutRows } from './anim-dom.js';
-import { confirmAsk, promptAsk } from './ask.js';
+import { confirmAsk, pairsAsk } from './ask.js';
 import { iconButton, type IconName } from './studio-icons.js';
 import { Popover } from './studio-popover.js';
 import type { WarpDrag } from './anim-warp.js';
@@ -199,18 +199,6 @@ export class WeightsPanel {
     this.show();
   }
 
-  /** Ask which bone mirrors `bone` (its name says no side); null when cancelled. The answer must be a bone of the rig, `bone` itself for one on the middle. */
-  private async askPartner(bone: string, names: ReadonlySet<string>): Promise<string | null> {
-    let note = '';
-    for (let tries = 0; tries < 3; tries++) {
-      const answer = await promptAsk(`${note}Which bone is the partner of "${bone}" on the other side? Type its name (the bone itself, if it sits on the middle).`, bone, 'Use');
-      if (answer === null) return null;
-      const name = answer.trim();
-      if (names.has(name)) return name;
-      note = `"${name}" is no bone of this rig. `;
-    }
-    return null;
-  }
 
   /**
    * Mirror the weights of one half of the image onto the other, across its vertical middle: each vertex gives its weights to the vertex at the
@@ -223,12 +211,18 @@ export class WeightsPanel {
     const names = new Set(Object.keys(this.host.bones())), pairs: Record<string, string> = {};
     this.busy = true;
     try {
+      // Bones whose names say their side pair by name; the others are asked in one dialog, each starting at a guess from numbered names
+      // (hair_0_0 with hair_4_0) or at the bone itself (SD-13).
+      const ask: { name: string; value: string }[] = [];
       for (const b of boundBones(d.mesh)) {
         const guess = pairedBone(b), kept = this.pairs[b], known = kept !== undefined && names.has(kept) ? kept : guess !== null && names.has(guess) ? guess : null;
-        if (known !== null) { pairs[b] = known; continue; }
-        const answer = await this.askPartner(b, names);
-        if (answer === null) { this.host.note(`Mirror cancelled: ${b} has no partner bone.`); return; }
-        this.pairs[b] = pairs[b] = answer;
+        if (known !== null) pairs[b] = known;
+        else ask.push({ name: b, value: guessPartner(b, [...names]) ?? b });
+      }
+      if (ask.length) {
+        const answers = await pairsAsk(`Which bone is the partner on the other side of ${ask.length === 1 ? 'this bone' : 'each of these bones'}? A bone on the middle is its own partner.`, ask, [...names].sort(), 'Mirror');
+        if (answers === null) { this.host.note('Mirror cancelled.'); return; }
+        for (const [b, p] of Object.entries(answers)) this.pairs[b] = pairs[b] = p;
       }
     } finally { this.busy = false; }
     const now = this.def();
@@ -406,12 +400,13 @@ export class WeightsPanel {
     if (!(await confirmAsk(`Remove the skin of ${part}'s mesh? Its weights go; the part then follows its own bone again.`, 'Remove'))) return;
     this.host.set(this.host.deformers().map(x => (x === d ? { ...x, mesh: stopSkinning(d.mesh!) } : x)));
     this.put({ extra: [], active: null });
+    this.host.note(`Removed the skin of ${part}'s mesh: it follows its own bone again. Ctrl+Z brings the weights back.`);
   }
 
   show() {
     const chosen = this.host.part(), part = this.part(), d = this.def(), q = this.q;
     const bones = Object.keys(this.host.bones());
-    const none = !chosen ? 'Choose a part in the tree, one with a mesh (Properties › Deform, Mesh row), to weight it to the bones.'
+    const none = !chosen ? 'Choose a part with a mesh (on the stage or in the Parts tree; Properties › Deform, Mesh row, makes one) to weight it to the bones.'
       : !part ? `${chosen} is not a part with art. Weights belong to a part: choose a part with a mesh.`
         : !d ? `${part} has no mesh yet: Generate mesh in Deform, above (its Mesh row), then come back.`
           : !bones.length ? 'This rig has no bones. Weights bind a mesh to bones: add some in the Parts tree.' : '';

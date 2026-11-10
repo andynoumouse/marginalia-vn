@@ -3,7 +3,7 @@
 // an unset value comes from (an extended theme) and has a reset button.
 
 import { ThemeGallery } from './theme-gallery.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 import { TOKEN_FIELDS, componentKeys, componentStates, componentFields, setThemeValue, themeValueSource, contrastNote, COMMON_FONTS, fontNote, type ThemeField } from '../engine/src/index.js';
 import { esc } from '../engine/src/util.js';
 
@@ -43,26 +43,19 @@ export class ThemeDialog {
   private readonly gallery: ThemeGallery;
 
   constructor(host: HTMLElement, private readonly h: ThemeHost) {
-    this.root = document.createElement('div');
-    this.root.id = 'themePanel';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root } = mountModal(host, 'themePanel', `
       <div class="td-card" role="dialog" aria-modal="true" aria-label="Theme">
         <header><strong>Theme</strong><select class="td-name" aria-label="Theme file"></select>
           <span class="td-tabs"><button type="button" data-tab="palette">Palette</button><button type="button" data-tab="components">Components</button><button type="button" class="td-json">Advanced (JSON)</button><button type="button" class="td-dup-btn" title="Start a new theme file from this one">Duplicate…</button></span>
           <button type="button" class="close" aria-label="Close theme panel">Close</button></header>
         <div class="td-main"><div class="td-body"></div></div>
-      </div>`;
-    host.append(this.root);
+      </div>`, () => this.close());
+    this.root = root;
     this.body = this.root.querySelector('.td-body')!;
     // Clicking a part in a gallery tile jumps to the component (and state) that styles it.
     this.gallery = new ThemeGallery(i => { this.tab = 'components'; this.comp = i.key; this.state = i.state; this.render(); this.body.querySelector('.td-comp')?.scrollIntoView({ block: 'nearest' }); });
     this.root.querySelector('.td-main')!.append(this.gallery.element);
     this.nameSel = this.root.querySelector('.td-name')!;
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    this.root.querySelector('.close')!.addEventListener('click', () => this.close());
-    this.root.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
-    trapModal(this.root, () => this.close());
     this.nameSel.addEventListener('change', () => this.render());
     this.root.querySelector('.td-json')!.addEventListener('click', () => { const n = this.name; this.close(); if (n) this.h.openJson(n); });
     this.root.querySelector('.td-dup-btn')!.addEventListener('click', () => this.duplicate());

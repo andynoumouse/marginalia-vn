@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Runtime, NullRenderer, assignIds, successors, buildOutline, playtest, getCompletions } from '../../dist/engine/src/index.js';
+import { errors, warnings } from './helpers.mjs';
 
 const SCRIPT = [
   'label start:',                      // 1
@@ -21,8 +22,6 @@ const SCRIPT = [
 ].join('\n');
 
 const build = text => compile([{ file: 't.vn', text }]);
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 const texts = r => r.says.map(s => s.text);
 const timesOut = r => { r.chooser = options => options.length; return r; };
 

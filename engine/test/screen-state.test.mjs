@@ -2,9 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { seededRng } from './rng.mjs';
 import { compile, Runtime, NullRenderer, assignIds, getCompletions, playtest, defaultAnswer, blocks } from '../../dist/engine/src/index.js';
+import { errors, warnings } from './helpers.mjs';
 
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 const build = text => compile([{ file: 's.vn', text }]);
 const button = (v, id) => v.parts.find(p => p.id === id);
 const textOf = v => v.parts.find(p => p.kind === 'text').text;

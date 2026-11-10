@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   writeForm, dragForm, dragForms, formAt, isKeyed, snapSpot, padCorners, extendGrid, keyformDrivers, targetsOf, spotLabel,
-  isRestForm, evalTarget, evalKeyform, checkParams, KEY_SNAP, GRID_MAX,
+  isRestForm, evalTarget, evalKeyform, checkParams, KEY_SNAP, GRID_MAX, snapToTicks,
 } from '../../dist/engine/src/index.js';
 
 const close = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-4, `${msg ?? ''} ${a} vs ${b}`);
@@ -201,4 +201,12 @@ test('a key can be reached along an ease; writes keep it, linear drops it, bad n
   checkParams({ parameters: defs, keyforms: [{ target: 'a', param: 'head_x', keys: [{ at: 0, ease: 'nope' }, { at: 1, ease: 'out' }] }] }, new Set(['a']), m => problems.push(m));
   assert.equal(problems.length, 1);
   assert.match(problems[0], /unknown ease "nope"/);
+});
+
+test('a scrubbed slider lands on a key near it, else on its step (SR-18)', () => {
+  assert.equal(snapToTicks(0.53, [0, 0.5, 1], 0, 1, 0.01), 0.5, 'within reach of the key at 0.5');
+  assert.equal(snapToTicks(0.6, [0, 0.5, 1], 0, 1, 0.01), 0.6, 'out of reach: the step');
+  assert.equal(snapToTicks(0.6049, [], 0, 1, 0.01), 0.6);
+  assert.equal(snapToTicks(-0.97, [-1, 0, 1], -1, 1, 0.01), -1, 'the reach is a fraction of the whole range');
+  assert.equal(snapToTicks(12.4, [], 0, 30, 1), 12, 'a wide range steps by 1');
 });

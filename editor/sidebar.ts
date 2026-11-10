@@ -3,7 +3,7 @@
 // owns the tabs and the editor and hands the panel what it calls back into (see initSidebar).
 
 import {
-  buildFileTree, groupAssetFiles, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, screenStarter, UI_SCREENS,
+  acceptList, AUDIO_EXTS, FONT_EXTS, IMAGE_EXTS, MOVIE_EXTS, buildFileTree, groupAssetFiles, BUILTIN_THEMES, isUnder, matchMasters, movedPath, overriddenScreens, planMove, PROJECT_FOLDERS, renameAssetRefs, screenStarter, UI_SCREENS,
   type FileTreeFolder, type LabelEdit, type RigManifest, type UiScreen,
 } from '../engine/src/index.js';
 import { type Mode } from './anim-studio.js';
@@ -133,7 +133,7 @@ $('sbList').addEventListener('contextmenu', e => {
   ctxMenu.open(e, $('sbList'), [
     { label: 'New Script File…', run: () => void newFile() }, { label: 'New Folder under script/…', run: () => void newFolder() },
     null,
-    { label: 'Add Files…', run: () => pickAssets('', `${ART},audio/*,.ogg,.mp3,.wav,.m4a,.flac,.opus,.woff2,.woff,.ttf,.otf`) },
+    { label: 'Add Files…', run: () => pickAssets('', ANY) },
     { label: 'New Folder under assets/…', run: () => void newAssetFolder() },
     null,
     revealItem('', 'Open Project Folder'),
@@ -182,7 +182,8 @@ $('sbList').addEventListener('keydown', e => {
 const SECTIONS_KEY = 'vn.editor.sections';
 /** Sidebar sections the user folded, by heading text (they stay open while filtering). The built-in screens start folded, so the
  *  Characters and Assets sections, where art is added, are on screen at 900 px (UX round EP-5). */
-const foldedSections = new Set<string>((() => { try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '["Built-in screens"]') as string[]; } catch { return ['Built-in screens']; } })());
+// Folded until opened: Built-in screens, and Themes, so the Characters list starts higher in a short window (UX round ES-2).
+const foldedSections = new Set<string>((() => { try { return JSON.parse(localStorage.getItem(SECTIONS_KEY) ?? '["Built-in screens","Themes"]') as string[]; } catch { return ['Built-in screens', 'Themes']; } })());
 const sectionFolded = (text: string) => foldedSections.has(text) && sbFilter.value.trim() === '';
 function toggleSection(text: string) {
   if (foldedSections.has(text)) foldedSections.delete(text); else foldedSections.add(text);
@@ -396,9 +397,10 @@ function pickAssets(folder: string, accept = '') {
   input.addEventListener('change', () => { if (input.files?.length) void addAssets([...input.files], folder); });
   input.click();
 }
-const ART = '.png,.webp,.jpg,.jpeg,.avif,.svg';
-const SOUND = '.ogg,.mp3,.wav,.m4a,.flac,.opus';
-const MOVIE = '.webm,.mp4,.m4v,.ogv';
+const ART = acceptList(IMAGE_EXTS);
+const SOUND = acceptList(AUDIO_EXTS);
+const MOVIE = acceptList(MOVIE_EXTS);
+const ANY = `${ART},audio/*,${acceptList(AUDIO_EXTS, FONT_EXTS)}`;
 const acceptFor = (dir: string) => ['bg', 'char', 'ui'].includes(dir) ? `${ART},.psd` : dir === 'movie' ? MOVIE : ['music', 'sound', 'sfx', 'voice'].includes(dir) ? SOUND : '';
 /**
  * What a script wants for an asset file: `scene`, `music play`, `sound play` and `movie play` take the bare name (`park`), the
@@ -597,7 +599,7 @@ export function renderSidebarAssets() {
   const waiting = S.projectAssets.masters.filter(m => !m.output && sbMatch(`masters/${m.master}`));
   const addChar: SbAction = ['add', 'Add a character PSD (masters/char/)', () => pickAssets('char', '.psd')];
   const newAssetDir: SbAction = ['folder', 'New folder under assets/', () => void newAssetFolder()];
-  const addAny: SbAction = ['add', 'Add files (sorted by type: images to bg, sounds to music, fonts to fonts)', () => pickAssets('', `${ART},audio/*,.ogg,.mp3,.wav,.m4a,.flac,.opus,.woff2,.woff,.ttf,.otf`)];
+  const addAny: SbAction = ['add', 'Add files (sorted by type: images to bg, sounds to music, fonts to fonts)', () => pickAssets('', ANY)];
   sbAssetsEl.replaceChildren(
     ...sbSection('Characters', [addChar], () => [{ label: 'Add Character PSD…', run: addChar[2] }, null, revealItem('masters/char', `${REVEAL} (Masters)`), revealItem('assets/char')], () => chars.length ? chars.map(c => {
       const master = S.projectAssets.masters.find(m => m.output === `char/${c}/sprite.json`)?.master;

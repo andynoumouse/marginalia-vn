@@ -10,8 +10,9 @@
 import type { RigManifest } from './assets.js';
 import { projectFromListing, type ListedFile } from './project-data.js';
 import { rigSkeleton } from './rig.js';
+import { formatRig } from './anim-edit.js';
+import { IMAGE_FILE } from './asset-kinds.js';
 
-const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
 /** Hidden files and folders (.git, .trash, .gitkeep) and node_modules are no part of a character. */
 const skipped = (path: string) => path.split('/').some(seg => seg.startsWith('.') || seg === 'node_modules');
 
@@ -51,11 +52,11 @@ export function scanFolder(paths: Iterable<string>, folderName: string): FolderS
   // Characters in a game project (assets/char/<name>/) or in a char/ folder: a manifest or any image makes one; anywhere else only a manifest does.
   const dirs = new Set<string>();
   for (const base of markers) if (/^(?:assets\/char\/|char\/)?[^/]+\/$/.test(base)) dirs.add(base);
-  for (const p of files) { const m = /^((?:assets\/)?char\/[^/]+\/)/.exec(p); if (m && IMAGE.test(p)) dirs.add(m[1]); }
+  for (const p of files) { const m = /^((?:assets\/)?char\/[^/]+\/)/.exec(p); if (m && IMAGE_FILE.test(p)) dirs.add(m[1]); }
   const options = [...dirs].sort().map(base => ({ base, name: characterId(lastSegment(base)) }));
   if (options.length === 1) return { ...one(options[0].base), options };
   if (options.length > 1) return { kind: 'choose', base: '', name: own, options };
-  if (files.some(p => IMAGE.test(p) && !p.includes('/'))) return { kind: 'flat', base: '', name: own, options: [] };
+  if (files.some(p => IMAGE_FILE.test(p) && !p.includes('/'))) return { kind: 'flat', base: '', name: own, options: [] };
   return { kind: 'empty', base: '', name: own, options: [] };
 }
 
@@ -82,7 +83,7 @@ export interface StandaloneChar {
 
 /** The pose a flat character is drawn with when no pose is named: `default`, else `neutral`, else the first image by name. */
 function defaultPose(images: string[]): string | null {
-  const names = images.map(f => f.replace(IMAGE, '')).sort();
+  const names = images.map(f => f.replace(IMAGE_FILE, '')).sort();
   return names.includes('default') ? null : (names.find(n => n === 'neutral') ?? names[0] ?? null);
 }
 
@@ -105,14 +106,14 @@ export function standaloneChar(scan: CharacterOption, files: readonly Standalone
   const assets: StandaloneChar['assets'] = data.assets.map(a => ({ file: a.file, v: a.v }));
   // A flat character is drawn from its `default` image: with none, the first pose stands in for it.
   if (manifest.flat) {
-    const images = assets.map(a => a.file.slice(`char/${char}/`.length)).filter(f => !f.includes('/') && IMAGE.test(f));
+    const images = assets.map(a => a.file.slice(`char/${char}/`.length)).filter(f => !f.includes('/') && IMAGE_FILE.test(f));
     const pose = defaultPose(images);
-    const src = pose === null ? undefined : assets.find(a => a.file.slice(`char/${char}/`.length).replace(IMAGE, '') === pose);
+    const src = pose === null ? undefined : assets.find(a => a.file.slice(`char/${char}/`.length).replace(IMAGE_FILE, '') === pose);
     if (src) assets.push({ file: `char/${char}/default${/\.\w+$/.exec(src.file)![0]}`, v: src.v, from: src.file });
   }
   return {
     char, base, assets, manifest, rigText: data.rigTexts[char] ?? null,
-    starter: `${JSON.stringify(rigSkeleton(manifest), null, 2)}\n`, problems,
+    starter: formatRig(rigSkeleton(manifest)), problems,
   };
 }
 

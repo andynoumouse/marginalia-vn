@@ -250,3 +250,10 @@ test('triangulate: a thin outline whose long sides a plain Delaunay misses is co
     assert.ok((v[2 * b] - v[2 * a]) * (v[2 * c + 1] - v[2 * a + 1]) - (v[2 * b + 1] - v[2 * a + 1]) * (v[2 * c] - v[2 * a]) > 0, 'every triangle has a positive area');
   }
 });
+
+test('a margin below 2 px is taken as 2: with none the outline follows every pixel step (SD-14)', () => {
+  const w = 40, h = 60, a = new Uint8Array(w * h);
+  for (let y = 5; y < 55; y++) for (let x = 10 + (y % 3); x < 30 - (y % 2); x++) a[y * w + x] = 255; // a jagged edge
+  const zero = generateMesh(a, w, h, { detail: 'medium', margin: 0 }), two = generateMesh(a, w, h, { detail: 'medium', margin: 2 });
+  assert.deepEqual(zero, two);
+});

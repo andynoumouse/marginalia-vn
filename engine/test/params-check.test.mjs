@@ -15,6 +15,13 @@ test('a clean parameters, pads and keyforms section has no problems', () => {
   }), []);
 });
 
+test('an ease in rig.json may be a bezier(...) as well as a name', () => {
+  assert.deepEqual(run({
+    parameters: [{ ...defs[0], ease: 'bezier(0.25,0.1,0.25,1)' }, defs[1]],
+    keyforms: [{ target: 'head', param: 'a', keys: [{ at: -1, rot: 5 }, { at: 1, rot: -5, ease: 'cubic-bezier(0.5,0,0.5,1)' }] }],
+  }), []);
+});
+
 test('sections of the wrong type', () => {
   has({ categories: 'x' }, /categories: needs a list of names/);
   has({ parameters: 3 }, /parameters: needs a list of \{ id, min, max, default \}/);
@@ -53,6 +60,7 @@ test('one-dimensional keyforms: keys, their positions, the parameter and its ran
   has(kf({ keys: [{ at: 0, opacity: -1 }] }), /opacity: must not be negative/);
   has(kf({ keys: [{ at: 0, wobble: 1 }] }), /keys\[0\]: unknown field "wobble"/);
   has(kf({ keys: [{ at: 0, ease: 'wobble' }] }), /keys\[0\]\.ease: unknown ease "wobble"/);
+  has(kf({ keys: [{ at: 0, ease: 'bezier(2,0,1,1)' }] }), /keys\[0\]\.ease: unknown ease "bezier\(2,0,1,1\)": a bezier is/);
   has(kf({ keys: [5] }), /keys\[0\]: not a form/);
   has({ keyforms: [{ target: 'head' }] }, /use either param \+ keys, or params \+ grid \+ forms/);
 });

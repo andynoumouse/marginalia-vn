@@ -63,7 +63,7 @@ The panel reads these variables, which `fx_open` clears:
 
 Then wire the card into the index: a `button <id>` in the grid of its page in `screen feature_index` (a grid holds
 twelve cards) and an `elif card == "<id>":` branch in `label index_loop` that does `call fx_<id>` and `call fx_close`.
-`fx_close` switches the effects a card may have left on, so a card does not need to. A card that needs a screen of its own,
+`fx_close` switches off what a card may have left on (its `scene` clears the filter, tint, weather and camera), so a card does not need to. A card that needs a screen of its own,
 such as a map, shows it in place of `fx_panel` (see `script/fx_screens.vn`). Run `npm run ids` and `npm run strings` after.
 
 Nothing in the tour or the library may lead back to the index. The playtest bot (the editor's Playtest) tells situations

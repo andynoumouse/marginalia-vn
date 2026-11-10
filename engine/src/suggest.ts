@@ -2,6 +2,7 @@
 // Pure functions, no DOM.
 
 import type { Diagnostic, Src } from './types.js';
+import { maskStrings } from './script-lex.js';
 
 /** Edits (insert, delete, change, or swap two neighbours) that turn `a` into `b`; case is ignored. */
 export function editDistance(a: string, b: string): number {
@@ -38,11 +39,9 @@ export function closest(word: string, known: Iterable<string>, max = 3): string[
 export function wordSpan(line: string, word: string): [number, number] | null {
   if (!word) return null;
   const isName = (c: string | undefined) => c !== undefined && /[\w.]/.test(c);
-  let quoted = false;
-  for (let i = 0; i <= line.length - word.length; i++) {
-    const c = line[i];
-    if (c === '"' && line[i - 1] !== '\\') { quoted = !quoted; continue; }
-    if (quoted || !line.startsWith(word, i) || isName(line[i - 1]) || isName(line[i + word.length])) continue;
+  const code = maskStrings(line); // a word inside "quotes" is text, not the one meant
+  for (let i = 0; i <= code.length - word.length; i++) {
+    if (!code.startsWith(word, i) || isName(code[i - 1]) || isName(code[i + word.length])) continue;
     return [i, i + word.length];
   }
   return null;

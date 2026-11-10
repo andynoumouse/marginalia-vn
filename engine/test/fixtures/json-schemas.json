@@ -1485,14 +1485,21 @@
             },
             "ease": {
              "type": "string",
-             "enum": [
-              "linear",
-              "in",
-              "out",
-              "inout",
-              "back",
-              "bounce",
-              "elastic"
+             "anyOf": [
+              {
+               "enum": [
+                "linear",
+                "in",
+                "out",
+                "inout",
+                "back",
+                "bounce",
+                "elastic"
+               ]
+              },
+              {
+               "pattern": "^(cubic-)?bezier\\([^()]*\\)$"
+              }
              ]
             }
            }
@@ -1576,14 +1583,21 @@
            },
            "ease": {
             "type": "string",
-            "enum": [
-             "linear",
-             "in",
-             "out",
-             "inout",
-             "back",
-             "bounce",
-             "elastic"
+            "anyOf": [
+             {
+              "enum": [
+               "linear",
+               "in",
+               "out",
+               "inout",
+               "back",
+               "bounce",
+               "elastic"
+              ]
+             },
+             {
+              "pattern": "^(cubic-)?bezier\\([^()]*\\)$"
+             }
             ],
             "description": "Easing of the way to this key (default inout)."
            }
@@ -1620,14 +1634,21 @@
         },
         "ease": {
          "type": "string",
-         "enum": [
-          "linear",
-          "in",
-          "out",
-          "inout",
-          "back",
-          "bounce",
-          "elastic"
+         "anyOf": [
+          {
+           "enum": [
+            "linear",
+            "in",
+            "out",
+            "inout",
+            "back",
+            "bounce",
+            "elastic"
+           ]
+          },
+          {
+           "pattern": "^(cubic-)?bezier\\([^()]*\\)$"
+          }
          ],
          "description": "Easing of that move."
         }
@@ -1668,14 +1689,21 @@
         },
         "ease": {
          "type": "string",
-         "enum": [
-          "linear",
-          "in",
-          "out",
-          "inout",
-          "back",
-          "bounce",
-          "elastic"
+         "anyOf": [
+          {
+           "enum": [
+            "linear",
+            "in",
+            "out",
+            "inout",
+            "back",
+            "bounce",
+            "elastic"
+           ]
+          },
+          {
+           "pattern": "^(cubic-)?bezier\\([^()]*\\)$"
+          }
          ]
         }
        }

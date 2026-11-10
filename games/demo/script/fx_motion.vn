@@ -51,6 +51,7 @@ label fx_animate_presets:
   scene bg_reading_room fade 0.4s
   show iris smile at 0.3 fade 0.3s
   call fx_open("Animate presets", "Ready-made motions for any character. Play one once, or loop it until you press Reset.")
+  set fx_motion = true
   set fx_a_label = "Preset"
   set fx_a1 = "breathe"
   set fx_a2 = "bob"

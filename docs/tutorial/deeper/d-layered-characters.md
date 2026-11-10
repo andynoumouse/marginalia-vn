@@ -20,7 +20,7 @@ body
 _sketch                   names starting with _ are skipped
 ```
 
-Name layers for what they are, since you use the names in the script. Group parts that should move together into a
+Name layers for what they are, since you use the names in the script (letters, digits and `_`; the converter renames `Group 1` to `Group_1`, see [Names](../../art-pipeline.md#names)). Group parts that should move together into a
 folder that starts with `+` (`+head/`, `+arm/`), which becomes a bone. Save with *Maximize compatibility*.
 
 ## 2. Convert it

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { interpolate } from '../../dist/engine/src/index.js';
+import { formatHover, interpolate } from '../../dist/engine/src/index.js';
 
 test('[n:2] fixes decimals and [n:,] groups thousands', () => {
   assert.equal(interpolate('[t:2]', { t: 1.5 }), '1.50');
@@ -44,4 +44,15 @@ test('unknown variables, formats and non-numbers stay as written', () => {
   assert.equal(interpolate('[name:a|b]', { name: 'Ann' }), '[name:a|b]');
   assert.equal(interpolate('[a:b|c|d|e]', { a: 1 }), '[a:b|c|d|e]');
   assert.equal(interpolate('[t]', { t: 1.5 }), '1.5');
+});
+
+test('formatHover: what a [name:format] tag makes of sample values, or that the format is unknown', () => {
+  const line = '  "You have [gold:,2] and [coins:no coins|a coin|coins], [x:wat]." #ab12';
+  const at = s => line.indexOf(s) + 1;
+  assert.deepEqual(formatHover(line, at('[gold')), { from: line.indexOf('[gold'), to: line.indexOf('[gold') + '[gold:,2]'.length, text: '`gold` with `:,2`: 0 → "0.00", 1234.5 → "1,234.50", -7 → "-7.00"' });
+  assert.equal(formatHover(line, at('[coins')).text, '`coins` with `:no coins|a coin|coins`: 0 → "no coins", 1 → "a coin", 2 → "coins", 5 → "coins", 21 → "coins"');
+  assert.match(formatHover(line, at('[x:')).text, /^Unknown format `:wat`/);
+  assert.equal(formatHover(line, line.indexOf('You')), null);
+  assert.equal(formatHover('"[plain]"', 2), null);
+  assert.match(formatHover('[n:one=монета|few=монеты|many=монет|other=монеты]', 1, 'ru').text, /1 → "монета", 2 → "монеты", 5 → "монет", 21 → "монета"/);
 });

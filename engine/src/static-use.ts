@@ -4,8 +4,9 @@ import { collectVars, type Expr } from './expr.js';
 import { assetContext, imageKey, opAssets, screenAssets, type AssetIndex } from './assets.js';
 import { isClickable, shellEntryFields, walkNodes, shellVars, type ScreenNode } from './screens.js';
 import type { Program, Src } from './types.js';
+import { AUDIO_FILE, IMAGE_FILE } from './asset-kinds.js';
 
-const TEXT_VAR = /\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?::[^\][]+)?\]/g;
+const TEXT_VAR = /\[([\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?)(?::[^\][]+)?\]/gu;
 
 /** Variables each statement reads and writes, with the first place each is met. */
 export function variableUse(program: Program): { reads: Map<string, Src>; exprReads: Map<string, Src>; writes: Map<string, Src>; unlocks: Map<string, Src> } {
@@ -65,8 +66,6 @@ export function variableUse(program: Program): { reads: Map<string, Src>; exprRe
 
 // ---- static analysis: assets ----
 
-const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
-const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 const stem = (f: string) => f.replace(/\.[^./]+$/, '');
 
 /** Every string anywhere in a JSON value. */
@@ -85,7 +84,7 @@ export function unusedAssets(program: Program, index: AssetIndex, game: unknown 
   const addFile = (file: string | null | undefined) => {
     if (!file) return;
     if (file.includes('[')) {
-      wild.push(new RegExp(`^${file.replace(IMAGE, '').split(/\[[^\]]*\]/).map(s => s.replace(/[.*+?^${}()|\\]/g, '\\$&')).join('.*')}$`));
+      wild.push(new RegExp(`^${file.replace(IMAGE_FILE, '').split(/\[[^\]]*\]/).map(s => s.replace(/[.*+?^${}()|\\]/g, '\\$&')).join('.*')}$`));
       return;
     }
     const k = imageKey(file, ctx);
@@ -114,7 +113,7 @@ export function unusedAssets(program: Program, index: AssetIndex, game: unknown 
 
   return index.files.filter(f => {
     const parts = f.split('/');
-    const image = IMAGE.test(f), audio = AUDIO.test(f);
+    const image = IMAGE_FILE.test(f), audio = AUDIO_FILE.test(f);
     if (!image && !audio) return false;
     const key = stem(f);
     if (used.has(key) || wild.some(w => w.test(key))) return false;

@@ -6,6 +6,7 @@ label fx_shake_hop:
   scene bg_reading_room fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Shake and hop", "A character shakes or hops, and the whole screen can be jolted. Pick one and fire it as often as you like.")
+  set fx_motion = true
   set fx_a_label = "What moves"
   set fx_a1 = "Shake iris"
   set fx_a2 = "Hop iris"
@@ -51,6 +52,7 @@ label fx_shake_hop_loop:
 label fx_scene_transitions:
   scene bg_library fade 0.4s
   call fx_open("Scene transitions", "A new background arrives by cut, fade, dissolve, wipe and more. Pick one and the picture to change to.")
+  set fx_motion = true
   set fx_a_label = "Transition"
   set fx_a1 = "cut"
   set fx_a2 = "fade"
@@ -308,9 +310,9 @@ label fx_move_ease_loop:
 
 label fx_speaker_focus:
   scene bg_reading_room fade 0.4s
-  show iris smile at 0.2 fade 0.3s
-  show theo neutral at 0.5 fade 0.3s
-  call fx_open("Speaker focus", "While someone speaks, the others on stage dim. Turn it off for a group scene. Players can switch it off in Options too.")
+  show iris smile at 0.4 fade 0.3s
+  show theo neutral at 0.52 fade 0.3s
+  call fx_open("Speaker focus", "While someone speaks, the others dim and the speaker steps in front (front in game.json). Players can switch it off in Options.")
   set fx_a_label = "Focus"
   set fx_a1 = "on"
   set fx_a2 = "off"

@@ -2,7 +2,7 @@
 // help.html shows the same thing in a window of its own (`standalone`). Ctrl+F or the search box highlights matches.
 
 import { parseHelp, type HelpDoc } from '../engine/src/index.js';
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 
 export type HelpSource = 'commands' | 'game-json' | 'rig-json';
 export const HELP_DOCS: Record<HelpSource, { url: string; title: string }> = {
@@ -26,11 +26,8 @@ export class HelpDialog {
   private hit = -1;
 
   constructor(host: HTMLElement, private readonly standalone = false) {
-    this.root = document.createElement('div');
-    this.root.id = 'help';
-    this.root.hidden = true;
-    this.root.classList.toggle('standalone', standalone);
-    this.root.innerHTML = `
+    // Esc is handled below (the search box clears first); the standalone page has nothing to trap focus against.
+    const { root } = mountModal(host, 'help', `
       <div class="help-card" role="${standalone ? 'main' : 'dialog'}" aria-modal="${!standalone}" aria-label="Reference">
         <header><strong>Command reference</strong>
           <span class="search"><input type="search" placeholder="Search (Ctrl+F)" aria-label="Search the reference" spellcheck="false">
@@ -41,8 +38,9 @@ export class HelpDialog {
           <button type="button" class="popout modal-only" title="Open the reference in a window of its own">Open in window</button>
           <button type="button" class="close modal-only" aria-label="Close help">Close</button></header>
         <div class="help-main"><nav aria-label="Topics"></nav><article tabindex="-1"></article></div>
-      </div>`;
-    host.append(this.root);
+      </div>`, () => this.close(), { escape: false, trap: !standalone });
+    this.root = root;
+    this.root.classList.toggle('standalone', standalone);
     this.heading = this.root.querySelector('header strong')!;
     this.nav = this.root.querySelector('nav')!;
     this.body = this.root.querySelector('article')!;
@@ -56,8 +54,6 @@ export class HelpDialog {
     this.root.querySelector('.prev')!.addEventListener('click', () => this.step(-1));
     this.root.querySelector('.next')!.addEventListener('click', () => this.step(1));
     this.root.querySelector('.popout')!.addEventListener('click', () => this.popOut());
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    this.root.querySelector('.close')!.addEventListener('click', () => this.close());
     // The standalone page listens on the window: focus can be on nothing there.
     (standalone ? window : this.root).addEventListener('keydown', e => {
       const k = e as KeyboardEvent;
@@ -67,7 +63,6 @@ export class HelpDialog {
         this.query.select();
       } else if (k.key === 'Escape' && !standalone) { k.preventDefault(); k.stopPropagation(); this.close(); }
     });
-    if (!standalone) trapModal(this.root, () => this.close());
     // Links inside the document ([Story](#story)) and the topic list scroll instead of navigating.
     this.root.addEventListener('click', e => {
       const a = (e.target as HTMLElement).closest<HTMLElement>('[data-help]');

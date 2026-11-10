@@ -2,7 +2,7 @@
 // seconds and ease of the move into it; add, remove, reorder: the first entry that holds wins), and the studio-only Test variables
 // that stand in for the story's variables so a condition can be seen to hold. See docs/design/auto-animations.md.
 import { DEFAULT_REACTION_OVER, EASE_NAMES, parseCondition, parseVarValue, type ReactionDef, type Value } from '../engine/src/index.js';
-import { el, layoutRows } from './anim-dom.js';
+import { el, layoutRows, pickEase, showEase } from './anim-dom.js';
 
 export interface ReactionHost {
   reactions(): ReactionDef[];
@@ -103,9 +103,9 @@ export class ReactionPanel {
       over.setAttribute('aria-label', `Seconds the move into the pose of reaction ${i + 1} takes`);
       over.addEventListener('change', () => { const n = Number(over.value); change(i, { over: over.value.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : undefined }); });
       const ease = choice('ar-ease', [...EASE_NAMES], '(default)');
-      ease.value = r.ease ?? '';
+      showEase(ease, r.ease ?? '');
       ease.setAttribute('aria-label', `Ease of the move of reaction ${i + 1}`);
-      ease.addEventListener('change', () => change(i, { ease: ease.value || undefined }));
+      ease.addEventListener('change', async () => { const picked = await pickEase(ease); if (picked !== null) change(i, { ease: picked || undefined }); });
       const btn = (text: string, label: string, run: () => void, off = false) => {
         const b = el('button', { type: 'button', textContent: text, title: label, disabled: off || !can }) as HTMLButtonElement;
         b.setAttribute('aria-label', label);

@@ -84,6 +84,14 @@ test('traceOutline: two blobs give two outlines (biggest first), specks and hole
   assert.equal(traceOutline(a, w, h, { maxShapes: 1 }).length, 1);
 });
 
+test('traceOutline: a ring pinched at a corner keeps its gap inside the outline', () => {
+  // Cells of 10 px; the gap (two cells) only leaks out where (1,0) and (0,1) touch at a corner.
+  const cells = ['.XXX', 'X..X', 'XXXX'], S = 10, w = 4 * S, h = 3 * S;
+  const out = traceOutline(grid(w, h, (x, y) => cells[Math.floor(y / S)][Math.floor(x / S)] === 'X'), w, h, { tolerance: 0 });
+  assert.equal(out.length, 1);
+  assert.ok(Math.abs(area(out[0]) - (11 * S * S) / (w * h)) < 1e-9, `${area(out[0]) * w * h}`);
+});
+
 test('traceOutline: the threshold picks the soft edge, the point cap thins the outline', () => {
   const w = 30, h = 30;
   const soft = Uint8Array.from({ length: w * h }, (_, i) => { const x = i % w, y = Math.floor(i / w), d = Math.hypot(x + 0.5 - 15, y + 0.5 - 15); return d < 8 ? 255 : d < 12 ? 100 : 0; });

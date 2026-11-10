@@ -40,6 +40,12 @@ test('labelRefs finds definitions and every reference kind, not words in strings
   ]);
 });
 
+test('labelRefs reads past a colour: only a # with spaces around it starts a comment', () => {
+  const text = 'screen s:\n    panel at 0,0 size 5,5 color #000 on click cafe\n    button b at 1,1 "x" on click cafe # on click other\n';
+  const refs = labelRefs([{ name: 's.vn', text }]);
+  assert.deepEqual(refs.map(r => `${r.line}:${r.name}`), ['2:cafe', '3:cafe']);
+});
+
 test('renameLabel rewrites all of them and the result still compiles', () => {
   const r = renameLabel(files, 'cafe', 'bistro');
   assert.ok(r.ok);

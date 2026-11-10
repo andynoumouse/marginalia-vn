@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ANIMS, addOffset, scaleOffset, NO_OFFSET, autoAnimations, checkAssets, compile, parseTransformLine, transformToAnim, checkTransform, resolveAnim, resolveTransform, Runtime, NullRenderer } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const src = { file: 't.vn', line: 1 };
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const def = (steps, repeat = null) => ({ name: 'tf', src, steps: steps.map(s => parseTransformLine(s, src)), repeat });
 
 test('a step line: tween fields, seconds and ease in any order', () => {

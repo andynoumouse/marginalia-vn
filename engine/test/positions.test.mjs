@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, namedPositions, getCompletions, checkGame, showLine } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const script = line => [{ file: 't.vn', text: `define al "Al"\nlabel start:\n  ${line}\n` }];
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const game = { positions: { farleft: 0.08, leftcenter: 0.35 } };
 
 test('namedPositions: built ins, project names, invalid entries dropped, built ins replaceable', () => {

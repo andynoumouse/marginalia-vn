@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, stringRows, uiLabelRows, translationStatus, translatorCsv, outdatedIds } from '../../dist/engine/src/index.js';
+import { compile, stringRows, uiLabelRows, translationStatus, dropUnused, translatorCsv, outdatedIds } from '../../dist/engine/src/index.js';
 
 const script = `define e "Eve" color=#ffffff
 label start:
@@ -27,12 +27,24 @@ test('rows carry speaker, kind and place, in script order', () => {
   assert.equal(rows[3].line, 6);
 });
 
+test('screen and item strings come last, with the file and line they are written on', () => {
+  const p = compile([{ file: 'b.vn', text: 'define item key "Brass key" #it01\nscreen s:\n    button go at 0,0 "Go" #sc01\nlabel start:\n    "Hi" #hhhh\n' }]);
+  assert.deepEqual(stringRows(p).map(r => [r.id, r.kind, r.file, r.line]), [['hhhh', 'say', 'b.vn', 5], ['it01', 'other', 'b.vn', 1], ['sc01', 'other', 'b.vn', 3]]);
+});
+
 test('status counts empty entries as missing and flags stale ids', () => {
   const s = translationStatus(rows, { aaaa: 'Hei', bbbb: '', zzzz: 'old', 'ui.play': 'Pelaa' });
   assert.equal(s.total, 7);
   assert.equal(s.translated, 1);
   assert.deepEqual(s.missing, ['bbbb', 'cccc', 'dddd', 'eeee', 'ffff', 'gggg']);
   assert.deepEqual(s.unused, ['zzzz']);
+});
+
+test('dropUnused takes the stale ids out of the table and its snapshot, and keeps menu labels', () => {
+  const table = { aaaa: 'Hei', zzzz: 'old', yyyy: '', 'ui.play': 'Pelaa' }, snapshot = { aaaa: 'Hi', zzzz: 'Old' };
+  const out = dropUnused(rows, table, snapshot);
+  assert.deepEqual(out, { table: { aaaa: 'Hei', 'ui.play': 'Pelaa' }, snapshot: { aaaa: 'Hi' }, removed: ['zzzz', 'yyyy'] });
+  assert.equal(table.zzzz, 'old', 'the input is left alone');
 });
 
 test('csv quotes commas, quotes and newlines and adds a column per language', () => {

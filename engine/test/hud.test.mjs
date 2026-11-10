@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, Runtime, NullRenderer, buildOutline, getCompletions } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 
 const SCRIPT = `define a "Al"
 screen bar:

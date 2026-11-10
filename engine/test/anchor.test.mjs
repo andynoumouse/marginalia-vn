@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, parseAnchor, anchorOffset, getCompletions, Runtime, NullRenderer } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
 const script = line => [{ file: 't.vn', text: `define al "Al"\nlabel start:\n  ${line}\n  end\n` }];
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 
 test('parseAnchor: names, fractions and errors that list the names', () => {
   assert.deepEqual(parseAnchor('feet'), [0.5, 1]);

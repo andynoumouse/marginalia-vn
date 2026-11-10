@@ -63,7 +63,7 @@ if (build.mode === 'build') {
 
 // After the build: project-data.mjs uses the built engine (engine/src/project-data.ts).
 const { projectIndex } = await import('../tools/project-data.mjs');
-const { projectFromListing } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'index.js')).href);
+const { projectFromListing, saveConflicts } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'index.js')).href);
 const { isLocalHost, isOwnOrigin, isOpenable } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'request-guard.js')).href);
 
 // ---- art pipeline ----
@@ -148,13 +148,30 @@ function readBuffer(req, limit = 2_000_000) {
   });
 }
 const readBody = (req, limit) => readBuffer(req, limit).then(b => b.toString('utf8'));
+/**
+ * A save whose base (X-VN-Base, the version the editor started from) is no longer what `file` holds is refused with 409 and the text on
+ * disk, so an edit made outside the editor is not overwritten (engine/src/save-base.ts, UX round EL-18). True when it was refused.
+ */
+function refuseStale(req, res, file) {
+  const base = req.headers['x-vn-base'];
+  if (typeof base !== 'string') return false;
+  const disk = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (!saveConflicts(base, disk)) return false;
+  res.writeHead(409, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ conflict: true, text: disk ?? '' }));
+  return true;
+}
+// The name checks, the asset-save decisions and the trash manifest the online demo applies too (engine/src/api-rules.ts).
+const apiRules = () => import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'api-rules.js')).href);
 async function saveScript(req, res, url) {
+  const { isScriptFile } = await apiRules();
   const file = url.searchParams.get('file') ?? '';
   const target = path.resolve(scriptDir, file);
-  const ok = /^[\w\-./]+\.vn$/.test(file) && !file.includes('..') && target.startsWith(scriptDir + path.sep);
+  const ok = isScriptFile(file) && target.startsWith(scriptDir + path.sep);
   if (!isLocalRequest(req) || !ok) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
     const body = await readBody(req);
+    if (refuseStale(req, res, target)) return;
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, body);
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -162,12 +179,13 @@ async function saveScript(req, res, url) {
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
 }
 // A new folder under script/, or with `in=assets` a top-level one under assets/ (with a .gitkeep so git keeps it empty).
-function saveFolder(req, res, url) {
+async function saveFolder(req, res, url) {
+  const { isFolderName } = await apiRules();
   const dir = url.searchParams.get('dir') ?? '';
   const inAssets = url.searchParams.get('in') === 'assets';
   const base = inAssets ? assetDir : scriptDir;
   const target = path.resolve(base, dir);
-  const ok = (inAssets ? /^[\w\-]+$/ : /^[\w\-./]+$/).test(dir) && !dir.includes('..') && target.startsWith(base + path.sep);
+  const ok = isFolderName(dir, inAssets) && target.startsWith(base + path.sep);
   if (!isLocalRequest(req) || !ok) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
     fs.mkdirSync(target, { recursive: true });
@@ -252,14 +270,15 @@ const treeBytes = p => {
 };
 async function readTrash() {
   const { isTrashId, readManifest, MANIFEST } = await trashLib();
+  const { newestFirst } = await apiRules();
   if (!fs.existsSync(trashDir)) return [];
-  return fs.readdirSync(trashDir).filter(isTrashId).flatMap(id => {
+  return newestFirst(fs.readdirSync(trashDir).filter(isTrashId).flatMap(id => {
     const dir = path.join(trashDir, id);
     try {
       const m = readManifest(fs.readFileSync(path.join(dir, MANIFEST), 'utf8'));
       return m ? [{ id, ...m, bytes: treeBytes(dir) }] : [];
     } catch { return []; }
-  }).sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id)); // newest first
+  }));
 }
 async function purgeTrash(keep) {
   const { planPurge } = await trashLib();
@@ -268,6 +287,7 @@ async function purgeTrash(keep) {
 /** Moves project-relative `rels` into a new trash entry; returns its id. A path that fails to move stops the rest (and is not listed). */
 async function toTrash(rels, action, keep) {
   const { trashId, MANIFEST } = await trashLib();
+  const { manifestText } = await apiRules();
   fs.mkdirSync(trashDir, { recursive: true });
   const id = trashId(new Date(), fs.readdirSync(trashDir));
   const dir = path.join(trashDir, id), moved = [];
@@ -279,7 +299,7 @@ async function toTrash(rels, action, keep) {
       moved.push(rel);
     }
   } finally {
-    if (moved.length) fs.writeFileSync(path.join(dir, MANIFEST), JSON.stringify({ action, paths: moved, time: new Date().toISOString() }, null, 2));
+    if (moved.length) fs.writeFileSync(path.join(dir, MANIFEST), manifestText(action, moved, new Date()));
     else fs.rmSync(dir, { recursive: true, force: true });
   }
   await purgeTrash(keep).catch(e => console.warn(`[trash] purge: ${e.message}`));
@@ -416,69 +436,52 @@ const MAX_ASSET_BYTES = 200_000_000;
 // carries the file's sha1, which is what voice.lock.json stores.
 // The files panel's Replace is the other: `replace=<assets/... or masters/... path>` overwrites that existing file, same extension
 // (the old one goes to the trash; the reply's `trash` is the entry).
-const VOICE_AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
 async function saveAsset(req, res, url) {
   if (!isLocalRequest(req)) { res.writeHead(403); res.end('Forbidden'); return; }
-  const voice = url.searchParams.get('voice');
-  const replacing = voice === null ? url.searchParams.get('replace') : null;
-  let plan, replaceVoice = null;
-  if (replacing !== null) {
-    const { checkProjectPath } = await fileOps();
-    const ext = s => path.extname(s).toLowerCase();
-    const bad = checkProjectPath(replacing) ?? (replacing.startsWith('script/') ? 'replace assets and masters only' : null)
-      ?? (ext(replacing) !== ext(url.searchParams.get('name') ?? '') ? `pick a ${ext(replacing) || 'same-type'} file` : null);
-    if (bad) { res.writeHead(400); res.end(bad); return; }
-    if (!isKind(path.resolve(project, replacing), false)) { res.writeHead(404); res.end(`${replacing} not found`); return; }
-    plan = { dest: replacing };
-  } else if (voice !== null) {
-    const ext = VOICE_AUDIO.exec(url.searchParams.get('name') ?? '')?.[0].toLowerCase();
-    if (!/^[\w\-]+(\.[\w\-]+)?$/.test(voice) || !ext) { res.writeHead(400); res.end('Not a voice recording name'); return; }
-    plan = { dest: `assets/voice/${voice}${ext}` };
-    if (url.searchParams.get('replace') === '1') replaceVoice = voice;
-  } else {
-    const { planDrop } = await import(pathToFileURL(path.join(distRoot, 'dist', 'engine', 'src', 'asset-drop.js')).href);
-    plan = planDrop(url.searchParams.get('name') ?? '', url.searchParams.get('folder') ?? '');
-  }
+  const { planAssetSave, voiceTakes, assetSaveConflict, assetSaveTrash } = await apiRules();
+  const plan = planAssetSave(url.searchParams);
   const target = 'dest' in plan ? path.resolve(project, plan.dest) : '';
   if ('error' in plan || !target.startsWith(project + path.sep)) { res.writeHead(400); res.end('error' in plan ? plan.error : 'Bad path'); return; }
+  if (plan.replacing !== null && !isKind(target, false)) { res.writeHead(404); res.end(`${plan.replacing} not found`); return; }
   const dir = path.dirname(target);
-  // Takes of the same recording under another extension would make the name ambiguous (the first by file name wins).
-  const siblings = voice === null ? [] : (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter(f => VOICE_AUDIO.test(f) && f.replace(VOICE_AUDIO, '') === voice);
-  if (replacing !== null ? false : voice === null ? fs.existsSync(target) : siblings.length && !replaceVoice) {
+  const takes = plan.voice === null ? [] : voiceTakes(fs.existsSync(dir) ? fs.readdirSync(dir) : [], plan.voice);
+  const conflict = assetSaveConflict(plan, fs.existsSync(target), takes);
+  if (conflict !== null) {
     res.writeHead(409, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ dest: voice === null ? plan.dest : `assets/voice/${siblings[0]}` }));
+    res.end(JSON.stringify({ dest: conflict }));
     return;
   }
   try {
     const body = await readBuffer(req, MAX_ASSET_BYTES);
     fs.mkdirSync(dir, { recursive: true });
     // What gets overwritten goes to the trash first: the replaced file, or every take of the re-recorded line.
-    const old = replacing !== null ? [replacing] : siblings.map(f => `assets/voice/${f}`);
+    const old = assetSaveTrash(plan, takes);
     const trash = old.length ? await toTrash(old, 'replace') : undefined;
     fs.writeFileSync(target, body);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, dest: plan.dest, trash, ...(voice === null ? {} : { sum: crypto.createHash('sha1').update(body).digest('hex') }) }));
+    res.end(JSON.stringify({ ok: true, dest: plan.dest, trash, ...(plan.voice === null ? {} : { sum: crypto.createHash('sha1').update(body).digest('hex') }) }));
   } catch (e) { res.writeHead(500); res.end(String(e.message)); }
 }
 
 // The translation tables, so the editor can keep `[variable]` in them in step with a rename. Only locale/<lang>.json, and the
 // locale/<lang>.src source snapshots the Translations dialog keeps beside them (JSON too, but not a language: the game skips them).
-const localeName = file => /^[\w\-]+\.(json|src)$/.test(file) && path.resolve(localeDir, file).startsWith(localeDir + path.sep);
+const localeName = async file => (await apiRules()).isLocaleFile(file) && path.resolve(localeDir, file).startsWith(localeDir + path.sep);
 
-function readLocales(res) {
+async function readLocales(res) {
   const out = {};
-  if (fs.existsSync(localeDir)) for (const f of fs.readdirSync(localeDir)) if (localeName(f)) out[`locale/${f}`] = fs.readFileSync(path.join(localeDir, f), 'utf8');
+  if (fs.existsSync(localeDir)) for (const f of fs.readdirSync(localeDir)) if (await localeName(f)) out[`locale/${f}`] = fs.readFileSync(path.join(localeDir, f), 'utf8');
   res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(out));
 }
 
 // Shared by the JSON save routes: local requests only, `allowed` false is a 403, a body that is not JSON a 400 (unless `json` is
 // false), `write(body)` stores it, anything thrown a 500.
-async function saveBody(req, res, { allowed = true, max, json = true, write }) {
+async function saveBody(req, res, { allowed = true, max, json = true, write, file }) {
   if (!isLocalRequest(req) || !allowed) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
     const body = await readBody(req, max);
     if (json) { try { JSON.parse(body); } catch (e) { res.writeHead(400); res.end(`Invalid JSON: ${e.message}`); return; } }
+    if (file && refuseStale(req, res, file)) return;
     write(body);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end('{"ok":true}');
@@ -488,7 +491,7 @@ async function saveBody(req, res, { allowed = true, max, json = true, write }) {
 async function saveLocale(req, res, url) {
   const file = url.searchParams.get('file') ?? '';
   // a big project's table is several MB
-  await saveBody(req, res, { allowed: localeName(file), max: 50_000_000, write: body => { fs.mkdirSync(localeDir, { recursive: true }); fs.writeFileSync(path.join(localeDir, file), body); } });
+  await saveBody(req, res, { allowed: await localeName(file), max: 50_000_000, write: body => { fs.mkdirSync(localeDir, { recursive: true }); fs.writeFileSync(path.join(localeDir, file), body); } });
 }
 
 // Voice recordings and what the lock remembers of them; the editor's Voice dialog compares them with the lines (voice.lock.json).
@@ -502,7 +505,7 @@ async function saveVoice(req, res) {
   if (!isLocalRequest(req)) { res.writeHead(403); res.end('Forbidden'); return; }
   try {
     const lock = JSON.parse(await readBody(req, 10_000_000));
-    if (!lock || typeof lock !== 'object' || Array.isArray(lock) || Object.values(lock).some(e => typeof e?.sum !== 'string' || typeof e?.text !== 'string')) {
+    if (!(await apiRules()).isVoiceLock(lock)) {
       res.writeHead(400); res.end('Not a voice lock'); return;
     }
     const { writeLock } = await import('../tools/voice-check.mjs');
@@ -513,22 +516,22 @@ async function saveVoice(req, res) {
 }
 
 async function saveGame(req, res) {
-  await saveBody(req, res, { write: body => fs.writeFileSync(gameFile, body) });
+  await saveBody(req, res, { file: gameFile, write: body => fs.writeFileSync(gameFile, body) });
 }
 
 // A character's hand-written rig.json (the editor's rig tab); the character must already have art.
 async function saveRig(req, res, url) {
   const char = url.searchParams.get('char') ?? '';
   const dir = path.resolve(assetDir, 'char', char);
-  const ok = /^[\w\-]+$/.test(char) && dir.startsWith(path.join(assetDir, 'char') + path.sep) && fs.existsSync(dir);
-  await saveBody(req, res, { allowed: ok, write: body => fs.writeFileSync(path.join(dir, 'rig.json'), body) });
+  const ok = (await apiRules()).isPlainName(char) && dir.startsWith(path.join(assetDir, 'char') + path.sep) && fs.existsSync(dir);
+  await saveBody(req, res, { allowed: ok, file: path.join(dir, 'rig.json'), write: body => fs.writeFileSync(path.join(dir, 'rig.json'), body) });
 }
 
 async function saveTheme(req, res, url) {
   const name = url.searchParams.get('name') ?? '';
   const css = url.searchParams.get('ext') === 'css'; // themes/<name>.css is free-form CSS
   await saveBody(req, res, {
-    allowed: /^[\w\-]+$/.test(name), json: !css,
+    allowed: (await apiRules()).isPlainName(name), json: !css, file: path.join(project, 'themes', `${name}.${css ? 'css' : 'json'}`),
     write: body => { fs.mkdirSync(path.join(project, 'themes'), { recursive: true }); fs.writeFileSync(path.join(project, 'themes', `${name}.${css ? 'css' : 'json'}`), body); },
   });
 }
@@ -637,7 +640,7 @@ http.createServer((req, res) => {
   }
   if (url.pathname === '/api/script' && req.method === 'PUT') { guard(res, saveScript(req, res, url)); return; }
   if (url.pathname === '/api/asset' && req.method === 'PUT') { guard(res, saveAsset(req, res, url)); return; }
-  if (url.pathname === '/api/folder' && req.method === 'PUT') { saveFolder(req, res, url); return; }
+  if (url.pathname === '/api/folder' && req.method === 'PUT') { guard(res, saveFolder(req, res, url)); return; }
   if (url.pathname === '/api/move' && req.method === 'POST') { guard(res, movePath(req, res, url)); return; }
   if (url.pathname === '/api/delete' && req.method === 'POST') { guard(res, deletePath(req, res, url)); return; }
   if (url.pathname === '/api/trash' && req.method === 'GET') { guard(res, listTrash(res)); return; }
@@ -648,7 +651,7 @@ http.createServer((req, res) => {
   if (url.pathname === '/api/git/ignore' && req.method === 'POST') { guard(res, ignoreGit(req, res)); return; }
   if ((url.pathname === '/api/reveal' || url.pathname === '/api/open') && req.method === 'POST') { showPath(req, res, url, url.pathname.slice(5)); return; }
   if (url.pathname === '/api/game' && req.method === 'PUT') { guard(res, saveGame(req, res)); return; }
-  if (url.pathname === '/api/locales' && req.method === 'GET') { readLocales(res); return; }
+  if (url.pathname === '/api/locales' && req.method === 'GET') { guard(res, readLocales(res)); return; }
   if (url.pathname === '/api/locale' && req.method === 'PUT') { guard(res, saveLocale(req, res, url)); return; }
   if (url.pathname === '/api/voice' && req.method === 'GET') { guard(res, readVoice(res)); return; }
   if (url.pathname === '/api/voice' && req.method === 'PUT') { guard(res, saveVoice(req, res)); return; }

@@ -26,7 +26,8 @@ The second writes the source text of every string to `locale/en.json` (the file 
 
 Open **Translate** in the editor. It lists every string with the source on the left and an editable cell for the language
 you choose on the right. Add a language from the dropdown; it creates `locale/<lang>.json`. The dialog also shows
-which strings are missing, and which translations were made against older source text (*source changed*).
+which strings are missing, and which translations were made against older source text (*source changed*). Entries whose
+line was deleted (its id is gone from the scripts) are counted as *unused*, and **Remove unused** deletes them from the file.
 
 The menus (New game, Load, Options) translate through `ui.<key>` entries in the same file; the dialog lists them too.
 Fonts per language are set in the theme (`tokens.fonts`), for scripts such as Japanese.

@@ -9,7 +9,7 @@
 // translation add; scale and opacity multiply. A form uses the units of anim.ts Offset (dx, dy as stage fractions, sx, sy
 // added to a size of 1, rot in degrees) plus `opacity` as a factor.
 
-import { easing, EASE_NAMES, lerp } from './anim.js';
+import { easing, lerp, rigEaseProblem } from './anim.js';
 import { isNum } from './util.js';
 
 /** `ease`: the curve a script tween of this parameter follows (anim.ts EASES); linear when left out. */
@@ -42,6 +42,8 @@ const full = (f: FormValue | undefined): FullForm => ({
 
 export const clampParam = (def: ParamDef, v: number): number =>
   Number.isFinite(v) ? Math.min(def.max, Math.max(def.min, v)) : def.default;
+/** The parameter `id` among `defs`. */
+export const paramById = (defs: readonly ParamDef[], id: string): ParamDef | undefined => defs.find(d => d.id === id);
 
 /** Every parameter at its default. */
 export function paramDefaults(defs: ParamDef[] | undefined): Record<string, number> {
@@ -160,7 +162,8 @@ export function checkParams(data: { categories?: unknown; parameters?: unknown; 
     if (!isNum(p.min) || !isNum(p.max)) problem(`parameters.${p.id}: min and max must be numbers`, p.id);
     else if (!(p.min < p.max)) problem(`parameters.${p.id}: min must be less than max`, p.id);
     else if (!isNum(p.default) || p.default < p.min || p.default > p.max) problem(`parameters.${p.id}: default must be a number from ${p.min} to ${p.max}`, p.id);
-    if (p.ease !== undefined && !EASE_NAMES.includes(p.ease as string)) problem(`parameters.${p.id}: unknown ease "${String(p.ease)}" (${EASE_NAMES.join(', ')})`, p.id);
+    const badEase = p.ease !== undefined ? rigEaseProblem(p.ease) : null;
+    if (badEase) problem(`parameters.${p.id}: ${badEase}`, p.id);
     checkGroup('parameters', p.id, p.group);
     ids.set(p.id, p);
   });
@@ -190,7 +193,8 @@ export function checkParams(data: { categories?: unknown; parameters?: unknown; 
       for (const [field, v] of Object.entries(f)) {
         if (field === 'at') continue;
         if (field === 'ease' && where.includes('.keys[')) {
-          if (typeof v !== 'string' || !EASE_NAMES.includes(v)) problem(`${where}.ease: unknown ease "${String(v)}" (${EASE_NAMES.join(', ')})`, 'keyforms');
+          const bad = rigEaseProblem(v);
+          if (bad) problem(`${where}.ease: ${bad}`, 'keyforms');
           continue;
         }
         if (!(FORM_FIELDS as readonly string[]).includes(field)) problem(`${where}: unknown field "${field}" (${FORM_FIELDS.join(', ')})`, 'keyforms');

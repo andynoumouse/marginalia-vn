@@ -16,7 +16,17 @@ const listen = (fn: (e: MessageEvent) => void) => window.addEventListener('messa
   if (e.origin === location.origin && e.source === preview().contentWindow) fn(e);
 });
 
-export function showPreviewLine() {
+/** When the author last typed: Follow preview does not move the view for a while after (UX round EA-4). */
+let typedAt = -Infinity;
+const TYPING_QUIET_MS = 2000;
+/** A file's text changed by an edit (not a reload from disk, which is a flush). */
+export function noteTyping(e: { isFlush?: boolean }) { if (!e.isFlush) typedAt = performance.now(); }
+
+/**
+ * Mark the line the story is on. `reveal` also scrolls to it (Follow preview): when the story moved on, or Follow was just turned on;
+ * never on a plain redraw or a file being opened, and not while the author is typing, so an autosave's reload does not pull the view away.
+ */
+export function showPreviewLine(reveal = false) {
   S.decorations?.clear();
   if (!S.previewPos || S.previewPos.file !== S.active) return;
   const { line } = S.previewPos;
@@ -24,7 +34,7 @@ export function showPreviewLine() {
     range: new monaco.Range(line, 1, line, 1),
     options: { isWholeLine: true, className: 'vn-preview-line', linesDecorationsClassName: 'vn-preview-gutter' },
   }]);
-  if (followEl().checked) S.editor.revealLineInCenterIfOutsideViewport(line);
+  if (reveal && followEl().checked && performance.now() - typedAt > TYPING_QUIET_MS) S.editor.revealLineInCenterIfOutsideViewport(line);
 }
 
 listen(e => {
@@ -35,7 +45,7 @@ listen(e => {
   const moved = S.previewPos?.file !== m.file || S.previewPos.line !== m.line;
   S.previewPos = { file: m.file, line: m.line };
   if (followEl().checked && moved && m.file !== S.active && files.has(m.file) && files.get(S.active)?.kind === 'script') host.activate(m.file);
-  else showPreviewLine();
+  showPreviewLine(moved);
 });
 
 // The preview's error banner asks to jump to the line of a problem.
@@ -116,7 +126,7 @@ export async function previewFromCursor() {
 
 export function toggleFollow() {
   followEl().checked = !followEl().checked;
-  showPreviewLine();
+  showPreviewLine(true);
   setStatus(`follow preview ${followEl().checked ? 'on' : 'off'}`);
 }
 
@@ -129,5 +139,5 @@ export function initPreviewLink(h: typeof host) {
   host = h;
   $('varsBtn').addEventListener('click', toggleVars);
   $('varsClose').addEventListener('click', () => { varsEl.hidden = true; });
-  followEl().addEventListener('change', showPreviewLine);
+  followEl().addEventListener('change', () => showPreviewLine(true));
 }

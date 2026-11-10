@@ -14,7 +14,7 @@ export type Segment =
  * `lang` picks the plural rules for keyed plural forms (`[n:one=...|few=...|other=...]`).
  */
 export function interpolate(text: string, vars: Record<string, Value>, itemNames: Record<string, string> = {}, lang = 'en'): string {
-  return text.replace(/\[([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)(?::([^\][]+))?\]/g, (m, n: string, fmt?: string) => {
+  return text.replace(/\[([\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?)(?::([^\][]+))?\]/gu, (m, n: string, fmt?: string) => {
     if (!(n in vars)) return m;
     const v = vars[n];
     if (fmt !== undefined) return formatValue(v, fmt, lang) ?? m;
@@ -46,6 +46,26 @@ function formatValue(v: Value, fmt: string, lang: string): string | null {
   const digits = num[2] === undefined ? undefined : Number(num[2]);
   if (digits !== undefined && digits > 8) return null;
   return count.toLocaleString('en-US', { useGrouping: !!num[1], minimumFractionDigits: digits ?? 0, maximumFractionDigits: digits ?? 20 });
+}
+
+/**
+ * The editor's hover on a `[name:format]` tag at 0-based column `col` of `line`: the tag's columns [from, to) and a line of
+ * Markdown showing what the format makes of a few sample values (plural forms in `lang`, the script's language), or saying
+ * that the format is unknown. Null when `col` is on no formatted tag.
+ */
+export function formatHover(line: string, col: number, lang = 'en'): { from: number; to: number; text: string } | null {
+  const re = /\[([\p{L}_][\p{L}\p{N}\p{M}_]*(?:\.[\p{L}_][\p{L}\p{N}\p{M}_]*)?):([^\][]+)\]/gu;
+  for (let m = re.exec(line); m; m = re.exec(line)) {
+    const from = m.index, to = from + m[0].length;
+    if (col < from || col >= to) continue;
+    const fmt = m[2];
+    const samples = fmt.includes('|') ? [0, 1, 2, 5, 21] : [0, 1234.5, -7];
+    const shown = samples.map(n => [n, formatValue(n, fmt, lang)] as const);
+    if (shown.some(([, s]) => s === null)) return { from, to, text: `Unknown format \`:${fmt}\`: the tag is shown as written.` };
+    const quote = (s: string) => `"${s}"`;
+    return { from, to, text: `\`${m[1]}\` with \`:${fmt}\`: ${shown.map(([n, s]) => `${n} → ${quote(s!)}`).join(', ')}` };
+  }
+  return null;
 }
 
 const PLURAL_KEY = /^(zero|one|two|few|many|other|\d+)=(.*)$/s;

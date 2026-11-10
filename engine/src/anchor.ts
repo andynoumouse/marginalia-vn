@@ -1,3 +1,4 @@
+import { isNum } from './util.js';
 // Sprite anchors: the point a character scales, turns and mirrors about, as fractions of its own size
 // (0,0 top left, 1,1 bottom right). `x`/`y` of a character still say where its feet stand at rest.
 
@@ -18,12 +19,11 @@ export function parseAnchor(tok: string, names: Anchors = ANCHORS): Anchor {
 }
 
 const NAME = /^[A-Za-z_]\w*$/;
-const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** Why a game.json `anchors` entry is unusable, or null when it is fine. */
 export function anchorProblem(name: string, value: unknown): string | null {
   if (!NAME.test(name)) return `anchors: "${name}" is not a usable name (letters, digits and _; not starting with a digit)`;
-  if (Array.isArray(value) && value.length === 2 && value.every(isNumber)) return null;
+  if (Array.isArray(value) && value.length === 2 && value.every(isNum)) return null;
   return `anchors: "${name}" needs [fx, fy], two fractions of the sprite (0,0 top left, 1,1 bottom right)`;
 }
 

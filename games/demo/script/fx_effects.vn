@@ -5,6 +5,7 @@ label fx_filter:
   scene bg_reading_room fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Filters", "A filter changes the look of the whole scene, and one replaces the other. Reset takes it off.")
+  set fx_motion = true
   set fx_a_label = "Look"
   set fx_a1 = "blur"
   set fx_a2 = "grayscale"
@@ -81,6 +82,7 @@ label fx_weather:
   scene bg_library fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Weather", "Particles fall over the scene (embers rise). Change the kind or the amount while it falls; Reset clears the sky.")
+  set fx_motion = true
   set fx_a_label = "Kind"
   set fx_a1 = "rain"
   set fx_a2 = "snow"
@@ -142,6 +144,7 @@ label fx_flash:
   scene bg_library fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Flash", "A burst of colour over the whole screen, or over one character only: a hit, a spell, a lightning strike.")
+  set fx_motion = true
   set fx_a_label = "What flashes"
   set fx_a1 = "All white"
   set fx_a2 = "All red"
@@ -253,6 +256,7 @@ label fx_camera:
   scene bg_reading_room fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Camera", "Lean in, slide along, tilt or shake the view. Reset brings the camera back.")
+  set fx_motion = true
   set fx_a_label = "Move the view"
   set fx_a1 = "Zoom in"
   set fx_a2 = "Pan right"
@@ -358,6 +362,7 @@ label fx_burst:
   scene bg_library fade 0.4s
   show iris smile at center fade 0.3s
   call fx_open("Particle bursts", "A puff of particles, once, and the script goes straight on. Let one off on a character or on the stage.")
+  set fx_motion = true
   set fx_a_label = "Kind"
   set fx_a1 = "sparkle"
   set fx_a2 = "smoke"

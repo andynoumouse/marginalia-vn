@@ -14,7 +14,9 @@
 // Stencil masks are hard-edged; soft alpha masks would need render textures and are not offered (docs/design/animation-studio-parameters.md).
 
 import { checkPointKeyforms, type DeformerKeyform, type ParamDef } from './params.js';
-import { isNum } from './util.js';
+import { isNum, isObj } from './util.js';
+import { traceLoops } from './contour.js';
+import { signedArea } from './geometry.js';
 import { sampleLattice, type GroupStage } from './warp.js';
 
 export type MaskPoint = [number, number];
@@ -135,11 +137,6 @@ export interface TraceOptions {
   maxShapes?: number;
 }
 
-const signedArea = (pts: readonly MaskPoint[]): number => {
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
-  return a / 2;
-};
 
 /** Douglas-Peucker on an open run of `pts` between its two ends, which are kept. */
 function dpRun(pts: readonly MaskPoint[], tol: number): MaskPoint[] {
@@ -196,43 +193,12 @@ export function traceOutline(alpha: ArrayLike<number>, w: number, h: number, opt
   const biggest = Math.max(0, ...sizes);
   const keep = sizes.map((n, id) => ({ n, id })).filter(b => b.id > 0 && b.n >= Math.max(1, biggest * speck)).sort((a, b) => b.n - a.n).slice(0, maxShapes);
   const out: MaskPoint[][] = [];
-  const stride = w + 1, vertex = (x: number, y: number) => y * stride + x;
+  const blob = new Uint8Array(w * h);
   for (const { id } of keep) {
-    // The boundary edges of the blob, each running with the blob on its right (clockwise on screen): along the top of a pixel to the
-    // right, down its right side, back along the bottom and up the left. They chain into closed loops; only a clockwise one is an
-    // outer outline (a hole runs the other way).
-    const edges: [number, number, number, number][] = [], from = new Map<number, number[]>();
-    const add = (x0: number, y0: number, x1: number, y1: number) => {
-      const k = vertex(x0, y0), list = from.get(k);
-      if (list) list.push(edges.length); else from.set(k, [edges.length]);
-      edges.push([x0, y0, x1, y1]);
-    };
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      if (label[y * w + x] !== id) continue;
-      if (y === 0 || label[(y - 1) * w + x] !== id) add(x, y, x + 1, y);
-      if (x === w - 1 || label[y * w + x + 1] !== id) add(x + 1, y, x + 1, y + 1);
-      if (y === h - 1 || label[(y + 1) * w + x] !== id) add(x + 1, y + 1, x, y + 1);
-      if (x === 0 || label[y * w + x - 1] !== id) add(x, y + 1, x, y);
-    }
-    const used = new Uint8Array(edges.length);
+    // The blob's outline is its biggest clockwise loop (holes run the other way, and a gap open only at a corner is a hole too).
+    for (let s = 0; s < w * h; s++) blob[s] = label[s] === id ? 1 : 0;
     let best: MaskPoint[] | null = null, bestArea = 0;
-    for (let e0 = 0; e0 < edges.length; e0++) {
-      if (used[e0]) continue;
-      const steps: MaskPoint[] = [];
-      let e = e0;
-      for (;;) {
-        used[e] = 1;
-        const [x0, y0, x1, y1] = edges[e];
-        steps.push([x0, y0]);
-        const next = (from.get(vertex(x1, y1)) ?? []).find(k => !used[k]);
-        if (next === undefined) break;
-        e = next;
-      }
-      // Only corners are kept: a vertex between two steps in one direction is dropped.
-      const loop = steps.filter((p, i) => {
-        const a = steps[(i + steps.length - 1) % steps.length], b = steps[(i + 1) % steps.length];
-        return (p[0] - a[0]) * (b[1] - p[1]) !== (p[1] - a[1]) * (b[0] - p[0]);
-      });
+    for (const loop of traceLoops(blob, w, h, true)) {
       const area = signedArea(loop);
       if (area > bestArea) { best = loop; bestArea = area; }
     }
@@ -261,7 +227,6 @@ export interface PartEntry {
 }
 export interface ShapeDef { bone?: string; follow?: string; polygon: MaskPoint[]; keyforms?: DeformerKeyform[] }
 
-const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Whether a `parts` entry is a shape part (it has a `polygon`, whatever else is wrong with it; checkRig says what). */
 export const isShapeEntry = (def: unknown): boolean => isObj(def) && def.polygon !== undefined;

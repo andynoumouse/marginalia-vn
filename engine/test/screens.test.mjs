@@ -5,9 +5,8 @@ import {
   compile, Runtime, NullRenderer, Locale, assignIds, existingIds, getCompletions, insideScreen, interpolate, checkAssets, attachPreloads,
   pointInPolygon, pointInEllipse, hitTest, shapeCenter, shapeBounds, focusMove, defaultAnswer, replayAnswer, blocks, resolveScreen, validateScreen, sliderReadout,
 } from '../../dist/engine/src/index.js';
+import { errors, warnings } from './helpers.mjs';
 
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
-const warnings = p => p.diagnostics.filter(d => d.severity === 'warning').map(d => d.message);
 const build = text => compile([{ file: 's.vn', text }]);
 const view = (p, name, vars = {}) => {
   const items = Object.fromEntries(Object.values(p.items).map(i => [i.id, { name: i.name, image: i.image }]));

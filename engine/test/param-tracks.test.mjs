@@ -88,6 +88,7 @@ test('poses: only changed parameters, valid names, no mutation', () => {
 test('checkRig validates parameter tracks', () => {
   const msgs = anims => checkRig({ parts: [{ file: 'a.png' }], rig: { categories, parameters: defs, animations: anims } }).map(p => p.message);
   assert.deepEqual(msgs({ ok: { keys: [], params: { smile: [{ t: 0, v: 0 }, { t: 1, v: 1, ease: 'out' }] } } }), []);
+  assert.deepEqual(msgs({ ok: { keys: [{ t: 0.5, y: -10, ease: 'bezier(0.3,0,0.7,1)' }], params: { smile: [{ t: 0, v: 0 }, { t: 1, v: 1, ease: 'bezier(0.3,0,0.7,1)' }] } } }), []);
   assert.match(msgs({ x: { keys: [] } })[0], /non-empty/);
   const bad = msgs({ x: { keys: [], params: { nope: [{ t: 0, v: 0 }], smile: [{ t: 2, v: 5, zzz: 1 }, { t: 0, v: 0, ease: 'wobble' }], wind: [] } } }).join('\n');
   for (const want of [/no parameter "nope"/, /t must be/, /outside "smile"/, /unknown field "zzz"/, /unknown ease/, /needs a list of keys/]) assert.match(bad, want);

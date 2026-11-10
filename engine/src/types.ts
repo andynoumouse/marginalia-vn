@@ -152,6 +152,8 @@ export interface Program {
   items: Record<string, ItemDef>;
   screens: Record<string, ScreenDef>;
   strings: Record<string, string>; // localization id -> original text
+  /** Where each localized string is written (only when there are strings): the Translations dialog's file and line. */
+  stringSrc?: Record<string, Src>;
   diagnostics: Diagnostic[];
   /** The named stage positions the scripts were compiled with (built in plus game.json "positions"). */
   positions: Record<string, { x: number; y?: number }>;

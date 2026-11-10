@@ -4,6 +4,7 @@ import { assignIds, existingIds } from './ids.js';
 import { outdatedIds, translationStatus, type SourceSnapshot, type StringRow } from './translation.js';
 import { declaredVoiceLanguages, splitVoiceName, voiceRows, type BuildLanguages, type VoiceLock } from './voice.js';
 import type { PlaytestReport } from './playtest.js';
+import { plural } from './util.js';
 
 /**
  * The checks run before a build, as rows the editor's Build dialog and `vn export` both report. Pure: the caller gathers the
@@ -108,7 +109,6 @@ function some(ids: string[]): string {
   return ids.length > EXAMPLES ? `${shown} and ${ids.length - EXAMPLES} more` : shown;
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Runs every check that is not switched off and returns the findings, errors first, otherwise in check order. */
 export function buildChecks(input: BuildCheckInput): BuildReport {

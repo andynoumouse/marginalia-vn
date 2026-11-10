@@ -5,10 +5,12 @@
 // A clip written as `{ slot, frames, fps }` is expanded to keys on the first edit.
 
 import {
-  addFrameKey, asKeys, deleteFrame, duplicateFrame, framesFromSlot, reorderFrame, retimeFrame, retimeFrameAt, setFrame, trackOfSlot, withFrameTrack,
-  type AnimDef, type FrameTrackDef,
+  addFrameKey, asKeys, deleteFrame, duplicateFrame, framesFromSlot, reorderFrame, retimeFrame, retimeFrameAt, setFrame, slotShare, trackOfSlot, withFrameTrack,
+  type AnimDef, type FrameFill, type FrameTrackDef,
 } from '../engine/src/index.js';
+import { choiceAsk } from './ask.js';
 import { LABEL, frameLaneAt, localPoint } from './anim-timeline.js';
+import { followPointer } from './pointer.js';
 
 export interface FrameHost {
   tl: SVGSVGElement;
@@ -65,17 +67,30 @@ export class FrameEditor {
     });
   }
 
-  /** Fill (or replace) the track for `slot` with every variant of it, `fps` frames a second. */
-  fillFromSlot(slot: string, fps: number) {
+  /**
+   * Fill (or replace) the track for `slot` with every variant of it, `fps` frames a second. When they end before the animation does, ask
+   * whether to hold the last frame, loop them or spread them over the whole length (SA-18).
+   */
+  async fillFromSlot(slot: string, fps: number) {
     const c = this.host.current(), variants = this.host.slots()[slot];
     if (!c || c.preset || !variants?.length) return;
-    const track = framesFromSlot(slot, variants, fps, c.dur);
+    let fill: FrameFill = 'once';
+    const share = slotShare(variants.length, fps, c.dur);
+    if (share < 1) {
+      const took = Math.round(share * c.dur * 1000) / 1000;
+      const pick = await choiceAsk(`The ${variants.length} frames of ${slot} take ${took} s at ${fps} fps; the animation is ${c.dur} s long.`, ['Loop them', `Spread over ${c.dur} s`, 'Play once, hold the last']);
+      if (pick === null) return;
+      fill = (['loop', 'spread', 'once'] as const)[pick];
+    }
+    const track = framesFromSlot(slot, variants, fps, c.dur, fill);
     this.host.edit(() => {
       this.host.setAnim(c.name, withFrameTrack(c.def, slot, track));
       this.sel = { slot, index: 0 };
     });
-    const cut = variants.length - (track.keys?.length ?? 0);
-    this.host.note(cut > 0 ? `${track.keys!.length} of ${variants.length} frames fit in ${c.dur}s at ${fps} fps; lengthen the animation to fit the rest.` : `${variants.length} frames at ${fps} fps over ${c.dur}s.`);
+    const cut = variants.length - (track.keys?.length ?? 0), n = track.keys?.length ?? 0;
+    this.host.note(fill === 'loop' ? `${variants.length} frames at ${fps} fps, looped: ${n} blocks over ${c.dur} s.`
+      : fill === 'spread' ? `${variants.length} frames spread over ${c.dur} s, ${Math.round((c.dur / variants.length) * 1000) / 1000} s each.`
+        : cut > 0 ? `${n} of ${variants.length} frames fit in ${c.dur} s at ${fps} fps; lengthen the animation to fit the rest.` : `${variants.length} frames at ${fps} fps over ${c.dur} s.`);
   }
 
   removeTrack(slot: string) {
@@ -118,9 +133,7 @@ export class FrameEditor {
       this.sel = { slot, index: out.index };
       host.dragStep(c.name, withFrameTrack(c.def, slot, out.track));
     };
-    const up = () => { tl.removeEventListener('pointermove', move); tl.removeEventListener('pointerup', up); end(); this.focusSel(); };
-    tl.addEventListener('pointermove', move);
-    tl.addEventListener('pointerup', up);
+    followPointer(tl, move, () => { end(); this.focusSel(); });
     host.refreshView();
     this.focusSel();
   }

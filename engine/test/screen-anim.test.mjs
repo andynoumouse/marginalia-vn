@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compile, resolveScreen, SCREEN_CLAUSE_WORDS } from '../../dist/engine/src/index.js';
+import { errors } from './helpers.mjs';
 
-const errors = p => p.diagnostics.filter(d => d.severity === 'error').map(d => d.message);
 const TAIL = '\nlabel start:\n  show screen s\n  end\n';
 const build = body => compile([{ file: 's.vn', text: `screen s:\n${body}${TAIL}` }]);
 const view = (p, vars = {}) => resolveScreen(p.screens.s, vars, { items: {}, text: (_id, raw) => raw });

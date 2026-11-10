@@ -23,6 +23,7 @@ class Compiler {
   private labels: Record<string, Pc> = {};
   private params: Record<string, string[]> = {};
   private strings: Record<string, string> = {};
+  private stringSrc: Record<string, Src> = {};
   private assigned = new Set<string>();
   private unlocked = new Set<string>();
   private persisted = new Set<string>();
@@ -57,7 +58,7 @@ class Compiler {
   private registerString(src: Src, id: string | null, text: string) {
     if (!id) return;
     if (id in this.strings) this.diag(src, 'error', `Duplicate localization id #${id}`);
-    else this.strings[id] = text;
+    else { this.strings[id] = text; this.stringSrc[id] = { file: src.file, line: src.line }; }
   }
 
 
@@ -279,6 +280,8 @@ class Compiler {
           else if (op.part) this.diag(op.src, 'error', 'The camera has no parts: animate camera takes no part=');
         } else if (op.char in this.characters && pictures.has(op.char)) this.diag(op.src, 'error', `"${op.char}" is both a character and an image: rename one so animate knows which to move`);
         else if (!(op.char in this.characters) && !pictures.has(op.char)) this.unknownChar(op.src, op.char);
+      } else if (op.op === 'flash') { // `flash <name>` flashes a character or a picture shown somewhere
+        if (op.char !== undefined && !(op.char in this.characters) && !pictures.has(op.char)) this.unknownChar(op.src, op.char);
       } else if (op.op === 'jump' || op.op === 'call') {
         if (op.label in this.labels) op.target = this.labels[op.label];
         else this.diagnostics.push(withFix(op.src, 'error', `Unknown label "${op.label}"`, op.label, Object.keys(this.labels)));
@@ -360,8 +363,8 @@ class Compiler {
     this.emitProgram();
     this.resolveReferences();
     this.checkVariables();
-    const { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage, transforms, dynamicTransforms, choreographies } = this;
-    return { ops, labels, params, characters, items, screens, strings, diagnostics, positions, anchors, stage: { ...stage }, ...(Object.keys(transforms).length ? { transforms } : {}), ...(Object.keys(dynamicTransforms).length ? { dynamicTransforms } : {}), ...(Object.keys(choreographies).length ? { choreographies } : {}) };
+    const { ops, labels, params, characters, items, screens, strings, stringSrc, diagnostics, positions, anchors, stage, transforms, dynamicTransforms, choreographies } = this;
+    return { ops, labels, params, characters, items, screens, strings, ...(Object.keys(stringSrc).length ? { stringSrc } : {}), diagnostics, positions, anchors, stage: { ...stage }, ...(Object.keys(transforms).length ? { transforms } : {}), ...(Object.keys(dynamicTransforms).length ? { dynamicTransforms } : {}), ...(Object.keys(choreographies).length ? { choreographies } : {}) };
   }
 }
 

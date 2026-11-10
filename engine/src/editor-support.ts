@@ -8,7 +8,9 @@ import { childNodes, isClickable, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenN
 import { ANCHORS } from './anchor.js';
 import { FUNCTIONS } from './expr.js';
 import { SCREEN_CLAUSE_WORDS, startsWithClause } from './screen-syntax.js';
+import { endsInString } from './script-lex.js';
 import { ENTER_EFFECTS, LOOP_EFFECTS, SLIDE_DIRS } from './screen-anim.js';
+import { AUDIO_FILE, IMAGE_FILE, MOVIE_FILE } from './asset-kinds.js';
 
 /** Editor-agnostic completion item; the Monaco glue maps `kind` to its own enum. */
 export interface Suggestion {
@@ -20,7 +22,6 @@ export interface Suggestion {
   path?: boolean;
 }
 
-const IMAGE_FILE = /\.(png|webp|jpe?g|avif)$/i, AUDIO_FILE = /\.(ogg|mp3|wav|m4a|flac|opus)$/i, MOVIE_FILE = /\.(webm|mp4|m4v|ogv)$/i;
 const stripExt = (f: string) => f.replace(/\.[^./]+$/, '');
 /** Names of the files directly in `assets/<dir>` that match `ext`, without the extension (`scene park`, `music play theme`). */
 const folderNames = (files: string[], dir: string, ext: RegExp, root = false): string[] =>
@@ -160,7 +161,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
   const persistent: Suggestion[] = [...new Set(program.ops.flatMap(o => (o.op === 'set' && o.name.startsWith('persistent.') ? [o.name] : [])))]
     .map(label => ({ label, kind: 'variable', detail: 'persistent value' }));
 
-  const inString = (trimmed.match(/"/g)?.length ?? 0) % 2 === 1; // e.g. an `input` prompt or a screen's text
+  const inString = endsInString(trimmed); // e.g. an `input` prompt or a screen's text
   if (inString) { // a file parameter of a screen element: `image "…`, `mask "…`, `hover "…`, `back "…`, `fill "…`, `hover sound "…`
     if (/\bhover\s+sound\s+"[^"]*$/.test(trimmed)) return soundNames(files);
     if (/(?:^|\s)(?:image|mask|hover|back|fill)\s+"[^"]*$/.test(trimmed)) return imagePaths(files);
@@ -168,7 +169,7 @@ export function getCompletions(program: Program, linePrefix: string, rigs: Recor
   if (trimmed.startsWith('"') || /^[A-Za-z_]\w*:\s/.test(trimmed) || inString) { // inside dialogue, narration or option text
     const open = trimmed.lastIndexOf('{');
     if (open >= 0 && !trimmed.includes('}', open)) return TEXT_TAGS;
-    const ref = /\[([A-Za-z_][\w.]*)?(:[^\][]*)?$/.exec(trimmed); // an unclosed [variable or [variable:format
+    const ref = /\[([\p{L}_][\p{L}\p{N}\p{M}_.]*)?(:[^\][]*)?$/u.exec(trimmed); // an unclosed [variable or [variable:format
     if (!ref) return [];
     return ref[2] !== undefined ? (ref[2] === ':' ? TEXT_FORMATS : []) : [...variables, ...persistent];
   }

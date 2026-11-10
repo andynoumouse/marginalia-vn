@@ -39,3 +39,10 @@ test('needsRotate: only touch devices, only when the orientation is wrong', () =
   assert.equal(needsRotate(800, 800, HD, true), false);
   assert.equal(needsRotate(390, 844, { width: 1000, height: 1000 }, true), false);
 });
+
+test('needsRotate: a tablet held the other way still plays when the stage is big enough', () => {
+  assert.equal(needsRotate(768, 1024, HD, true), false); // a 768x432 stage
+  assert.equal(needsRotate(1024, 768, { width: 1080, height: 1920 }, true), false); // 432x768
+  assert.equal(needsRotate(700, 1000, HD, true), true); // 700x394: under 400 on its short side
+  assert.equal(needsRotate(932, 430, { width: 1080, height: 1920 }, true), true); // a big phone, sideways, on a portrait game
+});

@@ -66,7 +66,10 @@ export class PhysicsPanel {
     const inputs = preset.inputs.map((i, n) => ({ param: defs[n]?.id ?? i.name, weight: i.weight, smoothing: i.smoothing }));
     const outputs = preset.outputs.map(o => ({ param: o.name, scale: o.scale, min: o.min, max: o.max }));
     const chain: RigPhysicsChain = { inputs, segments: structuredClone(preset.segments), outputs, ...(preset.wind ? { wind: { ...preset.wind } } : {}) };
-    this.host.set({ ...chains, [id]: chain }, `Added chain "${id}" from the ${name} preset. Point its inputs and outputs at this rig's parameters or parts, then Shake.`);
+    // A preset names the parameters of a typical face rig: say which of them this rig lacks, rather than leave the rows to find out (SR-22).
+    const have = new Set(defs.map(d => d.id)), missing = [...new Set([...inputs, ...outputs].map(x => x.param).filter(p => !have.has(p)))];
+    const lack = missing.length ? ` ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not ${missing.length === 1 ? 'a parameter' : 'parameters'} of this rig: choose its own parameters or parts in ${missing.length === 1 ? 'that row' : 'those rows'} (marked), or add the parameters in Parameters.` : '';
+    this.host.set({ ...chains, [id]: chain }, `Added chain "${id}" from the ${name} preset.${lack || " Point its inputs and outputs at this rig's parameters or parts, then Shake."}`);
   }
 
   /** Rebuild the list (the chains changed, or the studio opened). */

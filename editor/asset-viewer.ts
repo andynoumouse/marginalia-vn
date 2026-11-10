@@ -1,7 +1,7 @@
 // Asset viewer: a modal over the editor that shows an image, plays a sound or previews a font, so looking at an
 // asset never navigates away from the editor. Left/Right step through the other assets of the same folder.
 
-import { trapModal } from './modal.js';
+import { mountModal } from './modal.js';
 
 const IMAGE = /\.(png|jpe?g|gif|webp|avif|svg)$/i, AUDIO = /\.(ogg|mp3|wav|m4a|flac)$/i, FONT = /\.(ttf|otf|woff2?)$/i;
 
@@ -26,31 +26,24 @@ export class AssetViewer {
   }
 
   constructor(host: HTMLElement) {
-    this.root = document.createElement('div');
-    this.root.id = 'assetView';
-    this.root.hidden = true;
-    this.root.innerHTML = `
+    const { root } = mountModal(host, 'assetView', `
       <div class="av-card" role="dialog" aria-modal="true" aria-label="Asset viewer" tabindex="-1">
         <header><strong></strong><span class="hint">Left/Right: other assets in the folder. Esc to close</span>
           <a class="av-open" target="_blank" rel="noopener">Open in tab</a>
           <button type="button" class="close" aria-label="Close viewer">Close</button></header>
         <div class="av-stage"></div>
         <div class="av-info"></div>
-      </div>`;
-    host.append(this.root);
+      </div>`, () => this.close());
+    this.root = root;
     this.title = this.root.querySelector('header strong')!;
     this.stage = this.root.querySelector('.av-stage')!;
     this.info = this.root.querySelector('.av-info')!;
-    this.root.addEventListener('mousedown', e => { if (e.target === this.root) this.close(); });
-    this.root.querySelector('.close')!.addEventListener('click', () => this.close());
     this.root.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); }
-      else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !(e.target instanceof HTMLMediaElement)) {
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !(e.target instanceof HTMLMediaElement)) {
         e.preventDefault();
         this.step(e.key === 'ArrowRight' ? 1 : -1);
       }
     });
-    trapModal(this.root, () => this.close());
   }
 
   get isOpen() { return !this.root.hidden; }

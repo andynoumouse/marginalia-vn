@@ -26,6 +26,7 @@ import { splitVoiceName } from './voice.js';
 import { buildCheckSettings } from './build-checks.js';
 import { isCssColor } from './colors.js';
 import { expandTokenRefs } from './theme.js';
+import { AUDIO_FILE, FONT_FILE, IMAGE_FILE, MOVIE_FILE } from './asset-kinds.js';
 
 /** One image of a layered character, or a slot with its variants (bottom to top in `parts`). */
 export interface RigPart {
@@ -61,9 +62,6 @@ export interface AssetIndex {
 /** Built-in text sound voices (preview/blips.ts). */
 export const BLIP_PRESETS = ['high', 'mid', 'low', 'soft', 'typewriter', 'robot', 'none'];
 
-const IMAGE = /\.(png|webp|jpe?g|avif)$/i;
-const AUDIO = /\.(ogg|mp3|wav|m4a|flac|opus)$/i;
-const MOVIE = /\.(webm|mp4|m4v|ogv)$/i;
 
 type Warn = (src: Src, message: string, word?: string, known?: Iterable<string>, otherwise?: string) => void;
 
@@ -74,13 +72,13 @@ function assetNames(index: AssetIndex) {
     const parts = f.split('/');
     return parts.length === 2 && parts[0] === dir && ext.test(f) ? [parts[1].replace(/\.[^.]+$/, '')] : [];
   }));
-  const bgs = names('bg', IMAGE);
-  for (const f of index.files) if (!f.includes('/') && IMAGE.test(f)) bgs.add(f.replace(/\.[^.]+$/, ''));
-  const masks = names('transitions', IMAGE);
-  const music = names('music', AUDIO), sounds = names('sound', AUDIO), movies = names('movie', MOVIE);
+  const bgs = names('bg', IMAGE_FILE);
+  for (const f of index.files) if (!f.includes('/') && IMAGE_FILE.test(f)) bgs.add(f.replace(/\.[^.]+$/, ''));
+  const masks = names('transitions', IMAGE_FILE);
+  const music = names('music', AUDIO_FILE), sounds = names('sound', AUDIO_FILE), movies = names('movie', MOVIE_FILE);
   const charImages = (char: string) => new Set(index.files.flatMap(f => {
     const parts = f.split('/');
-    return parts.length === 3 && parts[0] === 'char' && parts[1] === char && IMAGE.test(f) ? [parts[2].replace(/\.[^.]+$/, '')] : [];
+    return parts.length === 3 && parts[0] === 'char' && parts[1] === char && IMAGE_FILE.test(f) ? [parts[2].replace(/\.[^.]+$/, '')] : [];
   }));
 
   // Layered characters: which slot variants exist.
@@ -189,10 +187,10 @@ function styleChecker(index: AssetIndex, warn: Warn) {
 
 /** Screens and items: images that do not exist (only reported once there are images at all, like backgrounds), hover sounds and styles. */
 function checkImages(program: Program, index: AssetIndex, sounds: Set<string>, warn: Warn, styleProblem: (src: Src, style: string) => void) {
-  const imageKeys = new Set(index.files.filter(f => IMAGE.test(f)).map(f => f.replace(IMAGE, '')));
-  for (const f of index.files) if (MOVIE.test(f) && f.split('/').length === 2) imageKeys.add(f.replace(MOVIE, ''));
+  const imageKeys = new Set(index.files.filter(f => IMAGE_FILE.test(f)).map(f => f.replace(IMAGE_FILE, '')));
+  for (const f of index.files) if (MOVIE_FILE.test(f) && f.split('/').length === 2) imageKeys.add(f.replace(MOVIE_FILE, ''));
   const imageProblem = (src: Src, file: string, what: string) => {
-    if (imageKeys.size && !file.includes('[') && !imageKeys.has(file.replace(IMAGE, '').replace(MOVIE, ''))) warn(src, `No image "${file}" in assets (${what})`);
+    if (imageKeys.size && !file.includes('[') && !imageKeys.has(file.replace(IMAGE_FILE, '').replace(MOVIE_FILE, ''))) warn(src, `No image "${file}" in assets (${what})`);
   };
   for (const op of program.ops) if (op.op === 'image' && op.action === 'show') imageProblem(op.src, op.file, `image ${op.name}`);
   for (const it of Object.values(program.items ?? {})) if (it.image) imageProblem(it.src, it.image, `image of item ${it.id}`);
@@ -215,7 +213,7 @@ function checkImages(program: Program, index: AssetIndex, sounds: Set<string>, w
 /** Characters: blip voices, text box styles and side portraits; lines and menus with a look. */
 function checkCharacters(program: Program, index: AssetIndex, sounds: Set<string>, warn: Warn, styleProblem: (src: Src, style: string) => void) {
   const voices = new Set([...BLIP_PRESETS, ...(index.blips ?? []), ...sounds]);
-  const sides = new Set(index.files.flatMap(f => (IMAGE.test(f) && /^side\/[^/]+$/.test(f) ? [f.slice(5).replace(IMAGE, '')] : [])));
+  const sides = new Set(index.files.flatMap(f => (IMAGE_FILE.test(f) && /^side\/[^/]+$/.test(f) ? [f.slice(5).replace(IMAGE_FILE, '')] : [])));
   for (const op of program.ops) {
     if ((op.op === 'say' || op.op === 'menu') && op.look) styleProblem(op.src, op.look);
   }
@@ -270,11 +268,11 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   const stem = (f: string) => f.replace(/\.[^.]+$/, '');
   const images = new Set(index.files.flatMap(f => {
     const parts = f.split('/');
-    return IMAGE.test(f) && (parts.length === 1 || (parts.length === 2 && parts[0] === 'bg')) ? [stem(parts[parts.length - 1])] : [];
+    return IMAGE_FILE.test(f) && (parts.length === 1 || (parts.length === 2 && parts[0] === 'bg')) ? [stem(parts[parts.length - 1])] : [];
   }));
   const tracks = new Set(index.files.flatMap(f => {
     const parts = f.split('/');
-    return AUDIO.test(f) && parts.length === 2 && parts[0] === 'music' ? [stem(parts[1])] : [];
+    return AUDIO_FILE.test(f) && parts.length === 2 && parts[0] === 'music' ? [stem(parts[1])] : [];
   }));
   const image = (name: unknown, where: string) => {
     if (typeof name === 'string' && name && !images.has(name)) warn(name, `${where}: no image "${name}" in assets/bg`);
@@ -325,11 +323,11 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   if (Array.isArray(g.gallery)) for (const e of g.gallery) image(e?.image, 'gallery');
   const uiImages = new Set(index.files.flatMap(f => {
     const parts = f.split('/');
-    return IMAGE.test(f) && parts.length === 2 && parts[0] === 'ui' ? [stem(parts[1])] : [];
+    return IMAGE_FILE.test(f) && parts.length === 2 && parts[0] === 'ui' ? [stem(parts[1])] : [];
   }));
   const sounds = new Set(index.files.flatMap(f => {
     const parts = f.split('/');
-    return AUDIO.test(f) && parts.length === 2 && parts[0] === 'sound' ? [stem(parts[1])] : [];
+    return AUDIO_FILE.test(f) && parts.length === 2 && parts[0] === 'sound' ? [stem(parts[1])] : [];
   }));
   if (theme) {
     // Boxes of the theme and of its skins (a theme file's problems land here too, as the game sees it resolved).
@@ -346,7 +344,7 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
       if (key === 'accent' && v !== undefined && (typeof v !== 'string' || !isCssColor(v))) warn(String(v), `theme.accent needs a CSS color like "#5fd1c3", not ${JSON.stringify(v)}`);
     }
     const f = theme.font;
-    if (typeof f === 'string' && /\.(woff2?|ttf|otf)$/i.test(f) && !index.files.includes(`fonts/${f}`)) warn(f, `theme.font: no font file "${f}" in assets/fonts (use the name without the extension for an installed font)`);
+    if (typeof f === 'string' && FONT_FILE.test(f) && !index.files.includes(`fonts/${f}`)) warn(f, `theme.font: no font file "${f}" in assets/fonts (use the name without the extension for an installed font)`);
   }
   if (Array.isArray(g.achievements)) {
     for (const e of g.achievements) {
@@ -383,9 +381,9 @@ export interface AssetContext {
 export function assetContext(index: AssetIndex): AssetContext {
   const keys = new Set<string>(), voices = new Set<string>();
   for (const f of index.files) {
-    if (IMAGE.test(f)) keys.add(f.replace(IMAGE, ''));
-    else if (AUDIO.test(f) && f.split('/').length === 2) keys.add(f.replace(AUDIO, ''));
-    else if (MOVIE.test(f) && f.split('/').length === 2) keys.add(f.replace(MOVIE, ''));
+    if (IMAGE_FILE.test(f)) keys.add(f.replace(IMAGE_FILE, ''));
+    else if (AUDIO_FILE.test(f) && f.split('/').length === 2) keys.add(f.replace(AUDIO_FILE, ''));
+    else if (MOVIE_FILE.test(f) && f.split('/').length === 2) keys.add(f.replace(MOVIE_FILE, ''));
     const v = voiceId(f);
     if (v) voices.add(v);
   }
@@ -395,7 +393,7 @@ export function assetContext(index: AssetIndex): AssetContext {
 /** The line id of a voice recording path under assets/ (`voice/ab12.ogg`, `voice/ab12.fi.ogg`); null for any other file. */
 const voiceId = (file: string): string | null => {
   const parts = file.split('/');
-  return parts.length === 2 && parts[0] === 'voice' && AUDIO.test(file) ? splitVoiceName(parts[1].replace(AUDIO, '')).id : null;
+  return parts.length === 2 && parts[0] === 'voice' && AUDIO_FILE.test(file) ? splitVoiceName(parts[1].replace(AUDIO_FILE, '')).id : null;
 };
 
 /** The asset key under which a line's recording is preloaded (the language is picked by the shell when it loads it). */
@@ -411,7 +409,7 @@ export const maskKey = (name: string, ctx: AssetContext): string | null =>
 
 /** The image an overlay `image show` draws: its path under assets/ (extension optional); null when there is none (a placeholder is drawn). */
 export const imageKey = (file: string, ctx: AssetContext): string | null => {
-  const k = file.replace(IMAGE, '').replace(MOVIE, ''); // a movie (`movie/<name>`) is an overlay picture that plays on a loop
+  const k = file.replace(IMAGE_FILE, '').replace(MOVIE_FILE, ''); // a movie (`movie/<name>`) is an overlay picture that plays on a loop
   return ctx.has(k) ? k : null;
 };
 
@@ -446,7 +444,7 @@ export function rigLayers(rig: RigManifest, looks: string[], overrides: Record<s
 /** The image keys a sprite is drawn with (only files that exist: the rest is a placeholder). */
 export function spriteKeys(s: Pick<SpriteState, 'char' | 'pose' | 'more' | 'overrides'>, ctx: AssetContext): string[] {
   const rig = ctx.rigs[s.char]?.flat ? undefined : ctx.rigs[s.char];
-  const layerKeys = (overrides: Record<string, string>) => rigLayers(rig!, showLooks(s), overrides).map(p => `char/${s.char}/${p.file.replace(IMAGE, '')}`);
+  const layerKeys = (overrides: Record<string, string>) => rigLayers(rig!, showLooks(s), overrides).map(p => `char/${s.char}/${p.file.replace(IMAGE_FILE, '')}`);
   // A character that blinks or talks by itself also needs those variants loaded, or the swap would flash.
   const keys = rig
     ? [...new Set([...layerKeys(s.overrides), ...liveOverrides(rig.rig).flatMap(o => layerKeys({ ...s.overrides, ...o }))])]
@@ -469,7 +467,7 @@ export function stateAssets(state: Pick<DisplayState, 'bg' | 'sprites' | 'music'
 /** The image keys a screen draws that are known without running it: fixed images and masks, and every item image when it lists items. */
 export function screenAssets(program: Pick<Program, 'screens' | 'items'>, name: string, ctx: AssetContext): string[] {
   const out: string[] = [];
-  const add = (file: string | null | undefined) => { const k = file && !file.includes('[') ? file.replace(IMAGE, '') : null; if (k && ctx.has(k)) out.push(k); };
+  const add = (file: string | null | undefined) => { const k = file && !file.includes('[') ? file.replace(IMAGE_FILE, '') : null; if (k && ctx.has(k)) out.push(k); };
   let lists = false;
   const walk = (nodes: ScreenNode[]) => {
     for (const n of nodes) {

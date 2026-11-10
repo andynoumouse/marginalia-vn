@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  gizmoTarget, keyFromDelta, keyedOffset, offsetDelta, gizmoHandles, pickHandle, NO_OFFSET, BONE_REST, composeBones, applyMatrix,
+  gizmoTarget, keyFromDelta, keyedOffset, offsetDelta, gizmoHandles, pickHandle, ringAround, GIZMO_RING, NO_OFFSET, BONE_REST, composeBones, applyMatrix,
 } from '../../dist/engine/src/index.js';
 
 const off = o => ({ ...NO_OFFSET, ...o });
@@ -79,4 +79,15 @@ test('handles: tips, the middle, shafts and the ring are picked; empty space is 
   assert.equal(pickHandle(rt, [164, 100]).kind, 'ring');
   assert.equal(pickHandle(rt, [100, 100]), null);
   assert.equal(pickHandle(gizmoHandles('scale', f), [190, 99]).axis, 'x');
+});
+
+test('the rotate ring: a press just outside its line still turns, and one inside it is the ring for a drag (SD-12, SR-17)', () => {
+  const ring = gizmoHandles('rotate', { origin: [100, 100], x: [1, 0], y: [0, 1] });
+  assert.equal(pickHandle(ring, [100 + GIZMO_RING + 8, 100])?.kind, 'ring', 'a few px past the line');
+  assert.equal(pickHandle(ring, [100 + GIZMO_RING + 12, 100]), null, 'farther out is the art under it');
+  assert.equal(pickHandle(ring, [130, 100]), null, 'inside is not the line');
+  assert.equal(ringAround(ring, [130, 100])?.kind, 'ring', 'but a drag from inside turns');
+  assert.equal(ringAround(ring, [100 + GIZMO_RING + 2, 100]), null);
+  const move = gizmoHandles('move', { origin: [100, 100], x: [1, 0], y: [0, 1] });
+  assert.equal(ringAround(move, [130, 100]), null, 'only Rotate has a ring');
 });

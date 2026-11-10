@@ -23,6 +23,8 @@ export interface GizmoHost {
   part(): string | null;
   /** What the gizmo moves: in Model mode a chosen part on a bone gives the bone (the part stays chosen for the deform sections); else the chosen row. */
   subject(): string | null;
+  /** Would a drag of the gizmo be thrown away (no parameter, the subject unbound, no animation or a preset)? The stage draws no handles then. */
+  locked(): boolean;
   t(): number;
   anim(): { name: string; def: AnimDef; preset: boolean; dur?: number } | null;
   post(msg: object): void;
@@ -108,6 +110,8 @@ export class GizmoBar {
     // Esc on the stage with nothing selected in a deform tool (the stage page decides that), or with any tool but Move: back to Move. On Move it closes the studio.
     if (key === 'escape') { if (escapesToMove(this.tool)) { this.setTool('move'); return true; } return false; }
     if (key === 'x') { this.toggleWorld(); return true; }
+    // Animate: K writes the previewed drags at the playhead, Shift+K turns Auto-key on or off.
+    if (key === 'k' && this.host.mode() === 'animate') { if (shift) this.autoBtn.click(); else if (this.pending.size) this.commit(); return true; }
     if (key === 'f') { this.host.post({ type: 'studioView', whole: shift }); return true; }
     return false;
   }
@@ -123,7 +127,9 @@ export class GizmoBar {
     // With the Weights tool the gizmo is the test pose's: on the panel's active bone, as the panel says (none by default).
     const w = this.tool === 'weights' ? this.host.weights?.() ?? null : null;
     const tool = this.tool === 'weights' ? w?.tool ?? null : MODEL_TOOLS.includes(this.tool) ? null : this.tool;
-    const msg = { type: 'studioGizmo', tool, name: this.tool === 'weights' ? w?.bone ?? null : this.host.subject(), space: this.space, stage: this.tool };
+    // A gizmo whose drag would be thrown away at the release is locked: no handles (docs/design/studio-locked-gizmo.md). Never the test pose's.
+    const lock = this.tool !== 'weights' && tool !== null && this.host.locked();
+    const msg = { type: 'studioGizmo', tool, name: this.tool === 'weights' ? w?.bone ?? null : this.host.subject(), space: this.space, stage: this.tool, lock };
     const s = JSON.stringify(msg);
     if (s === this.sent) return;
     this.sent = s;
@@ -207,7 +213,8 @@ export class GizmoBar {
     this.worldBtn.setAttribute('aria-pressed', String(this.space === 'world'));
     this.autoBtn.setAttribute('aria-pressed', String(this.auto));
     const can = mode === 'animate' && !!a && !a.preset && !!part;
-    this.nameEl.textContent = part ? `${part}` : 'Click a part or a bone on the stage';
+    this.nameEl.textContent = part ? `${part}` : 'Nothing chosen: click a part on the stage, or choose it in the Parts tree';
+    this.fields.x.closest('.as-gz-nums')?.classList.toggle('as-off', !part); // nothing chosen: the name line says what to do, no blank fields (ES-9)
     const o = a && part ? keyedOffset(a.def, part, this.host.t()) : NO_OFFSET;
     const shown: Record<KeyChannel, number> = { x: o.dx, y: o.dy, scale: o.sy, rot: o.rot, opacity: o.opacity ?? 1 };
     for (const c of FIELDS) {

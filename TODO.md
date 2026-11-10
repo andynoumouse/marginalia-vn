@@ -42,7 +42,6 @@ Nothing open right now; pick from the topic sections below.
   - A "tried" tick per card (a persistent flag, shown on the index).
   - A "Try it" link from the docs and the F1 help into a card of the hosted demo; needs a start-at-label URL for the preview
     and a seeded project.
-  - A note in the panel when Reduce motion is on, which hides shake, glitch and weather.
   - Not checked: the keyboard and gamepad focus order of the index and of the card screens (map, scroll and grid, preferences,
     bars, HUD).
   - A way back to the index from the library that the playtest bot can survive (today: Esc, Leave the library, New game, or
@@ -90,8 +89,6 @@ Nothing open right now; pick from the topic sections below.
   opened from a script shows the scene at the cursor line behind the character. The dev preview exposes
   `window.vnStage()` (draw order, lit level, bounds), and a browser test covers `behind=`, `order=front` and placement.
   Left: no browser test of the studio's scene.
-- [~] Speaker focus (game.json `speakerFocus`, `focus on|off`, `define ... focus=off`, an Options switch; on in the demo).
-  A browser test covers the dimming, `front` and offstage narration. Left: `front` not tried in the demo.
 - [~] Side images (game.json `sideImages`, opt-in; `define ... side=<name>`, art in `assets/side/<name>[_<pose>].png`
   following the speaker's pose on stage). Left: a rig pose drawn as the portrait (no separate art); a line naming its own
   expression; keeping the last pose after `hide` (an offstage speaker shows the plain portrait); a place in `theme`
@@ -104,13 +101,12 @@ Nothing open right now; pick from the topic sections below.
   Transforms move `x`, `y`, `scale`, `rot`, `alpha` and the `tint=` / `flash=` colors of a character, a picture or the camera.
   What is left, most useful first:
   - [~] The camera as an animation target (`animate camera shake loop`, presets, transforms, `auto`) is built and was seen working in the preview (a steady shake, stopped by `animate camera stop`); parallax and `camera roll` likewise. A browser test ("camera shake, roll, tint, choreography, burst and the glitch filter") covers the shake, roll and zoom through `vnStage()`; nothing tests parallax. Left: parallax for `scene` background art (only pictures have it). The overscan (`overscanZoom`, a roll or shake zooms in just enough to hide the stage edge) is unit-tested and not seen in the preview.
-  - [~] Per-sprite effects: `move`/`image` `tint=` (multiply, tweened) and `flash <char|picture>` (color-matrix hit flash) are built and were seen working in the preview on the flat sample character (not on a rig with stencil masks). `tint=` and `flash=` are also transform-step channels (browser-tested on the flat character, not on a masked rig; not in rig.json keys or the studio's lanes). Left: brightness, blur, silhouette, a compile warning for `flash` of an unknown name.
+  - [~] Per-sprite effects: `move`/`image` `tint=` (multiply, tweened) and `flash <char|picture>` (color-matrix hit flash) are built and were seen working in the preview on the flat sample character (not on a rig with stencil masks). `tint=` and `flash=` are also transform-step channels (browser-tested on the flat character, not on a masked rig; not in rig.json keys or the studio's lanes). Left: brightness, blur, silhouette.
   - [~] More filters: `glow`, `chromatic` and `glitch` are built (one-pass shaders in `preview/scene-effects.ts`), seen working in the preview; the browser test only checks that the glitch shader compiles without console errors. Left: filters on a single character or picture (needs a per-sprite filter slot, as `flash` uses), and a true multi-pass bloom if the one-pass glow looks too crude.
-  - [ ] **Verify and fix** `scene` did not clear a running `glitch` filter in the preview, although docs/commands.md says a filter lasts until `filter off` or the next `scene` (found building the demo's feature index, whose `fx_close` works around it with `filter off`). Reading the code: the display state is cleared (`display-state.ts`), but a live `scene` goes through `worldScene` in `preview/pixi-renderer.ts`, which never applies the cleared filter, tint, weather and wind the way `syncWorld` does (so those probably stay on too; the demo's `fx_close` resets all of them by hand). Check that, and the glitch clock in `preview/scene-effects.ts` (it is advanced every frame), and add a browser-test line that a `scene` leaves no filter on. Then the workaround can go.
   - [~] Choreography: `choreography name:` with timed `<seconds> <actor>: <step>` lines and `perform name` is built (characters, pictures and the camera; a fixed timetable compiled into one padded transform per actor), seen working in the preview; the browser test plays one and checks the script compiles. Left: `perform` seconds-stretch and strength, `parallel` / `if` / `pick` / `repeat` inside a choreography, a choreography that loops or runs `auto`, relative start times (`after alice`), and keeping a running one in saves (a rollback during it shows only where the parts left things).
   - [~] Lip sync: `speaking` now follows a voice recording's loudness (open/closed, with a hold) on voiced lines; unit-tested for the gate only, not heard or seen in a browser. Left: phoneme or viseme shapes (several mouth shapes from the audio; see [animation-studio-parameters.md](docs/design/animation-studio-parameters.md)).
   - [~] Particle emitters: `burst <sparkle|smoke|confetti|dust> at <character|position>` is built (a transient puff, not kept in saves, seen working in the preview; the browser test fires one and checks for errors). Left: a continuous emitter that stays on a character or point and is kept in saves (`emit ... off`), kinds with other shapes (hearts, stars; needs textures), and a burst that follows a moving character.
-  - [~] Custom easing: `ease=bezier(x1,y1,x2,y2)` is built for script commands and transform steps (rig.json keys have `bezier` too). Left: a spring curve, and `bezier(...)` in rig.json `ease` strings (`checkRig` and the JSON schema accept only the named eases there; parameter keys have a `bezier` array).
+  - [~] Custom easing: `ease=bezier(x1,y1,x2,y2)` is built for script commands, transform steps and every rig.json `ease` (parameter keys also take a `bezier` array). The studio's ease selects show one and pick one ("curve…"). Left: a spring curve.
 - [ ] **Layered characters: look dependencies** (the part of Ren'Py's `layeredimage` that has no equivalent, see
   `docs/tutorial/deeper/f-from-renpy.md`): a variant that hides or changes another slot (a hat hides the loose hair, as
   `if_all` / `if_any` do), and taking one outfit off while keeping the rest of the look (`rig-json.md` says it is not
@@ -132,21 +128,14 @@ Nothing open right now; pick from the topic sections below.
   - [~] Animation studio: **Model | Animate** modes in three columns (animation picker and Parts tree, stage and timeline,
     collapsible sections; [docs/design/studio-ux.md](docs/design/studio-ux.md), built). Model mode (parts, bones, pivots,
     parameter preview, physics, by itself) has a Model button in the Files panel and a draggable pivot. Left:
-    - UX follow-ups: the timeline cannot fold to its transport row, the narrow layout has no browser test beyond the dock one, and the Look
+    - UX follow-ups: the narrow layout has no browser test beyond the dock and wheel ones, and the Look
       select shows what a look picks only in a tooltip. Sections can be dragged between the columns (a second left column opens beside the first; the side columns fold to a rail when dragged to the window edge) and reordered (grab button or
       Alt+arrows, Reset layout; [docs/design/dock-binding.md](docs/design/dock-binding.md), `editor/dock-ui.ts`, bench
       `editor/dock-sandbox.html`, `npm run test:dock`); left of that: dragging into the centre, touch polish, a layout per mode.
     - Model mode could add a draw-order / group overview.
-    - UX round ([docs/design/ux-test-2026-11/es.md](docs/design/ux-test-2026-11/es.md)): the Characters list starts below the fold in a
-      short window (ES-2; the right-click menu and plain `studio` in Ctrl+P now reach the studio); at 900x700 the stage starts below the first screen and at 1000x600 it is 376x204 (ES-4); the
-      Properties panel opens as about 20 blank disabled controls (ES-9); parameter rows are three lines tall at the default column
-      (ES-10); the
-      layer and group naming rules for PSDs are undocumented, and a Photoshop "Group 1" becomes an empty slot whose layers are
-      dropped (ES-8).
-    - [ ] Second UX round, studio only (three testers, 2026-11-09, 62 findings; [docs/design/ux-test-2026-11-studio/summary.md](docs/design/ux-test-2026-11-studio/summary.md)),
-      in its Fix-first order (all six are done: keyboard focus, posing a bound part on a bone, a mesh without a parameter, the edits that damaged
-      the rig, the right column of [docs/design/studio-inspector.md](docs/design/studio-inspector.md), and Animate's SA-2, 5, 6, 7 and 8): the S3s
-      are left.
+    - Left of the two UX rounds on the studio ([summary](docs/design/ux-test-2026-11-studio/summary.md), "After the Fix-first list"; every
+      batch and the leftovers are done): in a window only 600 px tall the stage is about 185 px tall unless the timeline is folded (ES-4).
+      Screen reader support is out of scope for the editor and the studio (the player side keeps it).
   - [ ] Automatic animations, what is left ([docs/design/auto-animations.md](docs/design/auto-animations.md)): studio buttons that make
     a blink or a talk animation from a slot's variants, spring transitions for reactions, a condition syntax for parameters beyond
     `param.<id>`, and the rig tab's check of condition names against the project's script variables (`checkRig` takes them;
@@ -254,8 +243,7 @@ Nothing open right now; pick from the topic sections below.
   clearing site data.
   A restore at a choice puts the line before it back in the box in one piece, so a line long enough to page (it types page by page on the first visit) is not paged there and is untested.
 - [ ] The end of the game: the words are now translatable labels (`end_title`, `end_hint`, `rotate_device`) over a dimmed stage. Left:
-  a short ending has no name of its own (PC-4; the quick menu now goes down at the end); the "Turn your device" cover blocks a tablet held
-  the other way when the stage would fit, and has no icon (PI-11).
+  a short ending has no name of its own (PC-4; the quick menu now goes down at the end).
 - [~] The quick bar (the labels have 28 px text and a dark halo). Left: it still overlaps the text box edge, touch targets are
   under 44 px, a tap beside it advances the story (PI-2, PI-3), and the editor's preview pane shows it at about 8 px (EA-19). Belongs with the touch steps of [docs/design/mobile.md](docs/design/mobile.md).
 - [ ] The exported game's first load (UX round, [docs/design/ux-test-2026-11/px.md](docs/design/ux-test-2026-11/px.md)): the page says
@@ -280,31 +268,14 @@ Nothing open right now; pick from the topic sections below.
 
 ## Tooling
 
-- [~] Editor UX evaluation. A first round (nine testers, 2026-11-08, 186 findings) is ranked in
-  [docs/design/ux-test-2026-11/summary.md](docs/design/ux-test-2026-11/summary.md); each tester's report has steps to reproduce. A second
-  round on the animation studio alone (three testers, 2026-11-09) is in [docs/design/ux-test-2026-11-studio/summary.md](docs/design/ux-test-2026-11-studio/summary.md).
-  (Problems in both the editor and the preview header is on purpose.) Left: fix the items below and run the testers again; the
-  timed run of a fixed task list (new project to first choice, add a character from a PSD, translate, export) by a person on a
-  fresh Studio install; and what the testers could not try (a real phone, a screen reader, a gamepad, audio, Firefox and Safari,
-  macOS and Linux, a project of useful size). The top findings, most harmful first (ids are the reports'; player, Studio and
-  animation studio items are in their own sections):
-  - [ ] Names are ASCII only (EL-11): a label such as `päivä_1` is refused, now with a message that names the character and the
-    rule (docs/commands.md). Accepting other letters in labels, variables and characters touches the parser, expressions,
-    interpolation, rename and the editor's word patterns (`A-Za-z_` appears in 23 source files), so it needs a decision first.
-  - [ ] An external edit (`git pull`, VS Code) to a script with unsaved edits in its tab is overwritten silently by the editor's
-    text, and two editor tabs on one project are last-writer-wins (EL-18).
-  - [ ] Decide: Follow preview (on by default) scrolls the editor to the preview's line after every autosave, even when typing far
-    away (EA-4); the editor autosaves but the docs and the tutorial say to press Ctrl+S (EA-9).
 - [~] Files panel. Left: an open asset folder draws a row for every file in it (fine at a few thousand; use `VirtualList` if
   a project has one far bigger: step 2.2 of [docs/design/editor-asset-scaling.md](docs/design/editor-asset-scaling.md),
   measure with `scripts/measure-big-project.mjs`); renamed images that are character poses are not followed (nor `show alice smile` when a pose
   file is renamed); no rename of characters (converted or flat); no drag-and-drop moves inside the tree; no Undo for Rename.
 - [~] Story outline. Left: back edges arc below the nodes and can cross labels in the same columns; a 300-label story lays out in
   one long row and Fit shows a thin strip (UX round EL-12; the layout itself is unit-tested for 400 labels).
-- [~] Variable rename. Left: game.json text is not scanned.
 - [~] "Did you mean" quick fixes. Left: game.json names and rig.json keys.
-- [~] Translations dialog. Left: no import of a translated CSV;
-  no translator notes; stale ids are counted but not removable; screen/item strings show no file and line.
+- [~] Translations dialog. Left: no import of a translated CSV; no translator notes.
 - [~] Script statistics (`vn stats`, the palette's **Story: Script Statistics**, `engine/src/stats.ts`). Left: words per
   route (the playtest bot's endings, shortest and longest way to each); counts in the Outline's label nodes.
 - [ ] Brand icon in the editor header in place of the "Marginalia VN" text (the page title stays text).
@@ -323,8 +294,6 @@ Nothing open right now; pick from the topic sections below.
   - [-] **DEFERRED (later)** The by-hand checks on a clean Windows: the Studio zip, including the SmartScreen prompt, and a
     zip exported from it. Windows Sandbox is not on Windows 10 Home; needs a VM or a second PC.
   - [ ] An installer for the Studio (electron-builder/NSIS), with a Start menu entry and file association for `game.json`.
-  - [ ] The downloads handler (`will-download` in `studio/main.cjs`) is untested; `studio.test.mjs` already stubs the folder picker
-    (`VN_STUDIO_TEST_PICK`), so check whether the save path can be stubbed the same way.
   - [-] **DEFERRED (later)** Updates: tell the author when a newer Studio is released (a version check against the GitHub
     releases, opt-in), then auto-update.
   - [-] **DEFERRED (much later)** Studio and the desktop export's installer build (`npm run dist`) on Linux and macOS (only
@@ -335,8 +304,7 @@ Nothing open right now; pick from the topic sections below.
   browser, writing a playable zip.
 - [ ] First run of Marginalia Studio and the online demo (UX round, [docs/design/ux-test-2026-11/st.md](docs/design/ux-test-2026-11/st.md)):
   no Studio download is published, only a build from a clone (ST-4: the docs say so and
-  link the demo; a GitHub release with the zip would fix it); the first-run screen's only primary button is Open Folder (ST-5); the online demo does not work offline
-  and the docs do not say so (ST-15).
+  link the demo; a GitHub release with the zip would fix it); the first-run screen's only primary button is Open Folder (ST-5).
 - [~] Desktop app (Electron, `vn export --desktop`).
   - [ ] Maybe let users drop modifier scripts in the folder that override some variables (needs a definition first).
   - [-] **DEFERRED (later)** Steam: achievements from game.json `achievements` sent to Steamworks (steamworks.js or
@@ -400,7 +368,7 @@ Left from the code-pattern audit; none changes behavior, so pick them up when to
     with the Mystery template as the example.
   - [~] Playtest bot and screens: checked: the bot already takes every enabled non-`act` element of a blocking screen
     as a choice, and states are deduplicated, so a looping room does not spin. Left: report an element that no route
-    could ever enable (today only its unreachable handler lines/labels show); a unit test with a looping room screen (`demo-index.test.mjs` walks the looping demo); the bot
+    could ever enable (today only its unreachable handler lines/labels show); the bot
     counts situations by their variables, so a way from one large state space into another (the demo's tour or library
     back to its index) multiplies them until it stops with "more than 500 different situations" and names only the label:
     say which variables differ, or let an author mark ones the story no longer reads (the demo resets its index variables by hand; the bot already ignores variables that no condition reads or that are overwritten
@@ -414,7 +382,7 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
 - [~] As a writer, I want rich choice menus. Left: custom `screen` data for the choice menu (menus are not screens yet), a
   seen marker in the editor preview; timers for `input`/`screen`, a `timeleft` variable, per-menu extended time, saving the clock.
 - [~] As a writer, I want my game in any language (variable formatting exists). Left: right-to-left text; line breaking
-  for Chinese and Japanese (no line may start with 。、」 and the like); no hover for the format.
+  for Chinese and Japanese (no line may start with 。、」 and the like).
 - [~] As a player on a phone or tablet, I want the game to fit and play well on a touch screen, and a wrapper that ships it to
   iOS/Android. Planned in [docs/design/mobile.md](docs/design/mobile.md); steps 1 (fit, safe areas, rotate cover), 2
   (swipes, long press, `touch` in game.json) and 6 (installable app, game.json `pwa`) are built, step 3 (touch targets, text floor, Phone preview) mostly, and step 4 partly

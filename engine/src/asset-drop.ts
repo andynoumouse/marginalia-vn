@@ -5,10 +5,8 @@
  * A folder of the engine's own takes its kind of file only (bg: images, music: sounds, ...). Returns a project-relative path, or why the file is refused.
  */
 
-const IMAGE = ['png', 'webp', 'jpg', 'jpeg', 'avif', 'svg'];
-const AUDIO = ['ogg', 'mp3', 'wav', 'm4a', 'flac', 'opus'];
-const FONT = ['woff2', 'woff', 'ttf', 'otf'];
-const MOVIE = ['webm', 'mp4', 'm4v', 'ogv'];
+import { AUDIO_EXTS as AUDIO, FONT_EXTS as FONT, IMAGE_EXTS as IMAGE, MOVIE_EXTS as MOVIE } from './asset-kinds.js';
+
 const MASTER_FOLDERS = ['bg', 'char', 'ui'];
 // What the engine's own folders take; a folder of the author's own (cg/, map/) takes any supported type.
 const TAKES: Record<string, { exts: string[]; what: string }> = {
