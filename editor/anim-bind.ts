@@ -117,6 +117,7 @@ export class BindPanel {
   private inputs: Record<string, HTMLInputElement>;
   private affect: HTMLElement;
   private sizeSel: HTMLSelectElement;
+  private pickSize: HTMLSelectElement;
   private verbBtns: Record<HeaderVerb, HTMLButtonElement>;
   private crumbEl: HTMLElement;
   private partPop: Popover;
@@ -142,6 +143,7 @@ export class BindPanel {
         <label class="ab-picksub" title="A ticked bone also takes the bones below it and their parts"><input type="checkbox" class="ab-picksubbox"> and what hangs on a ticked bone</label>
         <span class="ab-pickhow"><label title="Mirror the poses sideways: x moves and rotations change sign, as for the arm on the other side"><input type="checkbox" class="ab-mirror"> mirror poses</label>
           <label title="Run the parameter's range end for end: a key at the minimum lands at the maximum, as for a look to the left copied to a look to the right"><input type="checkbox" class="ab-reverse"> reverse range</label></span>
+        <label class="ab-picksize" title="The corners a pad binding makes: the pose can differ at each one">Grid on the pad <select aria-label="Grid of the pad's keys for the parts bound now">${PAD_SIZES.map(n => `<option value="${n}">${n} × ${n}</option>`).join('')}</select></label>
         <div class="ab-pickbtns"><button type="button" class="ab-pickgo"></button><button type="button" class="ab-pickcancel">Cancel</button></div>
       </div>`;
     this.root.innerHTML = `
@@ -197,6 +199,9 @@ export class BindPanel {
     h<HTMLInputElement>('.ab-pickfilter').addEventListener('input', () => this.drawList());
     this.picker.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this.close(); } });
     this.sizeSel.addEventListener('change', () => this.host.setSize(Number(this.sizeSel.value) as PadSize));
+    // The same choice in the picker, where it is made before the bind (MR-3; rig-json.md: "chosen with Grid on a pad before binding").
+    this.pickSize = h<HTMLSelectElement>('.ab-picksize select');
+    this.pickSize.addEventListener('change', () => this.host.setSize(Number(this.pickSize.value) as PadSize));
     this.keyHere.addEventListener('click', () => this.host.keyHere());
     for (const f of FORM_INPUTS) this.inputs[f.field].addEventListener('change', () => {
       const input = this.inputs[f.field], v = Number(input.value);
@@ -225,6 +230,8 @@ export class BindPanel {
     this.note.hidden = !hv?.keyformNote;
     this.sizeSel.value = String(v.size);
     this.gridRow.hidden = !act?.pad;
+    this.pickSize.value = String(v.size);
+    this.pickSize.closest<HTMLElement>('.ab-picksize')!.hidden = !act?.pad;
     // The keys of the chosen part on a slider: one button each, the one the slider is on pressed.
     this.keysRow.hidden = !act || !v.chosen || v.keyAction === null;
     this.redraw('keys', [v.keys, v.keyAction], () => {
@@ -253,6 +260,7 @@ export class BindPanel {
       input.placeholder = fields && !v.form.values ? 'no key' : '';
     }
     for (const part of this.formRow.querySelectorAll<HTMLElement>('label')) part.hidden = !fields; // a warp, a mask or an unbound part has no pose fields: the text says why
+    this.formRow.querySelector<HTMLElement>('.ab-units')!.hidden = !fields; // the units of those fields, none for a warp's or a shape's points (MD-7)
     this.root.querySelector<HTMLElement>('.ab-points')!.hidden = !act || !v.chosen || !warp;
     // Copy form, Paste form, Paste mirrored, Reset: shown with the pose fields; one that cannot run is disabled and says why.
     const ops = hv?.formOps ?? [], opsRow = this.root.querySelector<HTMLElement>('.ab-ops')!;

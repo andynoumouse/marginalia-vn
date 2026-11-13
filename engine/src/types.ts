@@ -68,13 +68,13 @@ export interface MenuOption {
 }
 
 import type { AnimDef, SpriteAnim } from './anim.js';
-import type { BurstName, FilterName, WeatherName } from './fx.js';
+import type { BurstName, FilterLook, WeatherName } from './fx.js';
 
-export type Transition = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'iris' | 'blinds' | 'pixelate';
-export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'iris', 'blinds', 'pixelate'];
+export type Transition = 'cut' | 'fade' | 'dissolve' | 'wipe' | 'push' | 'iris' | 'blinds' | 'pixelate' | 'zoom' | 'ripple';
+export const TRANSITIONS: Transition[] = ['cut', 'fade', 'dissolve', 'wipe', 'push', 'iris', 'blinds', 'pixelate', 'zoom', 'ripple'];
 
 export type VisualBody =
-  | { op: 'scene'; bg: string; transition: Transition; dir: string | null; mask: string | null; dur: number }
+  | { op: 'scene'; bg: string; transition: Transition; dir: string | null; mask: string | null; dur: number; color?: string; hold?: number } // color: what a fade goes through (black when left out); hold: seconds it stays on it, on top of dur
   | { op: 'show'; char: string; pose: string | null; more: string[]; overrides: Record<string, string>; x: number | null; fade: number; y?: number; scale?: number; flip?: boolean; anchor?: [number, number]; order?: 'front' | 'back'; behind?: string; /** `pose=a,b`: rig.json poses laid over the character's parameters */ poses?: string[] } // order/behind: where it goes in the draw order (state.sprites, back to front)
   | { op: 'hide'; char: string; fade: number }
   | { op: 'move'; char: string; x: number | null; y: number | null; scale: number | null; rotation: number | null; alpha: number | null; flip: boolean | null; anchor: [number, number] | null; tint?: string | null; dur: number; ease: string } // null = unchanged; tint: a color, null = back to none, left out = unchanged
@@ -88,7 +88,8 @@ export type VisualBody =
   | { op: 'tint'; color: string | null; strength: number; dur: number } // colour wash over the scene; null clears it
   | { op: 'camera'; zoom: number | null; x: number | null; y: number | null; roll?: number; dur: number; ease: string } // zoom about (x, y), both 0-1; zoom null = a pan that keeps the zoom; x/y null (a roll) keep the pivot; roll = degrees, left out keeps it
   | { op: 'weather'; kind: WeatherName | null; intensity: number; dur: number } // falling particles over the scene; null clears them
-  | { op: 'filter'; name: FilterName | null; strength: number; dur: number } // screen-wide look (blur, grayscale, ...); null clears it
+  | { op: 'filter'; looks: FilterLook[]; merge: boolean; dur: number } // screen-wide look (blur, grayscale, ...): the whole look, or with merge only the named filters (strength 0 takes one off); [] without merge clears it
+  | { op: 'letterbox'; size: number; dur: number } // black bars top and bottom, each `size` of the stage height; 0 takes them away
   | { op: 'gravity'; factor: number } // how hard weather and bursts fall: 1 as authored, 0 none, negative up
   | { op: 'wind'; strength: number; gusts: number; dur: number } // the scene's wind on physics chains: signed (positive blows right), 0 = calm; dur = seconds to reach it
   | { op: 'behaviors'; on: boolean } // rig.json `auto` animations (idle, blink, talk) on or off for the story from here
@@ -110,7 +111,7 @@ export type ControlBody =
   | { op: 'jump'; label: string; target: Pc }
   | { op: 'call'; label: string; target: Pc; args?: Expr[] } // args bind to the label's parameters (Program.params) for the length of the call
   | { op: 'ret' }
-  | { op: 'end' }
+  | { op: 'end'; /** The ending's name, shown on the end screen in place of "The End". */ title?: string; id?: string | null }
   | { op: 'hud'; mode: 'on' | 'off'; name: string; keep: boolean } // put a screen up beside the story (`hud on <screen>`), or take it down
   | { op: 'nvl'; mode: 'on' | 'off' | 'clear' } // full-screen narration pages instead of the text box
   | { op: 'textbox'; mode: 'hide' } // hide the text box until the next line shows it again
@@ -223,7 +224,10 @@ export interface DisplayState {
   tint?: { color: string; strength: number } | null;
   camera?: Camera;
   weather?: { kind: WeatherName; intensity: number } | null;
-  filter?: { name: FilterName; strength: number } | null;
+  /** The filters on the scene (`filterLooks` reads it); a single look in saves from before filters stacked. */
+  filter?: FilterLook[] | FilterLook | null;
+  /** `letterbox`: each bar's height as a share of the stage height; absent = no bars. Survives `scene`. */
+  letterbox?: number;
   /** `wind`: the scene's wind on physics chains (strength signed, positive to the right); absent or null = calm. */
   wind?: { strength: number; gusts: number } | null;
   /** `gravity`: the factor on how hard weather and bursts fall; absent or null = 1. */
@@ -301,7 +305,8 @@ export interface Renderer {
    * `on click|focus|blur set` handler (ViewItem.sets) calls `live.set(name, value)` and the screen is drawn again from the view it returns.
    */
   screen(view: ScreenView, src: Src, live?: ScreenLive): Promise<string>;
-  end(): void;
+  /** The story is over; `title` is the ending's name (`end "Name"`, translated and formatted), '' for none. */
+  end(title?: string): void;
 }
 
 /** What the player answered at a menu (option index), an input (text) or a screen (element id), or the HUD event taken at a safe point; replayed in order by restore(). */

@@ -122,7 +122,7 @@ test('a part key and a moving bone at once: the key shapes the vertices first, t
 const quad = mesh => ({ id: 'm', part: 'sleeve', mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 1, 2, 2, 1, 3], ...mesh }, keyforms: [] });
 const problems = (def, extra = []) => {
   const out = [];
-  checkDeformers({ deformers: [def, ...extra], parameters: [] }, new Set(['sleeve', 'a', 'b']), new Set(['arm', 'forearm', 'x']), new Set(), m => out.push(m), new Map(), new Set(), new Map());
+  checkDeformers({ deformers: [def, ...extra], parameters: [] }, new Set(['sleeve', 'a', 'b']), new Set(['arm', 'forearm', 'x']), m => out.push(m), new Map(), new Set(), new Map());
   return out;
 };
 const has = (list, text) => assert.ok(list.some(m => m.includes(text)), `${text} not in ${JSON.stringify(list)}`);
@@ -156,7 +156,7 @@ test('checkDeformers: a skinned member of a group warp is left out of the differ
   const group = { id: 'g', members: ['a', 'b'], box: [0, 0, 10, 10], keyforms: [] };
   const run = skinnedA => {
     const out = [], skinned = { id: 'ma', part: 'a', mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 1, 2, 2, 1, 3], weights: {} }, keyforms: [] };
-    checkDeformers({ deformers: skinnedA ? [skinned, group] : [group], parameters: [] }, new Set(['a', 'b']), new Set(['arm', 'forearm']), new Set(), m => out.push(m), new Map([['a', 'arm'], ['b', 'forearm']]));
+    checkDeformers({ deformers: skinnedA ? [skinned, group] : [group], parameters: [] }, new Set(['a', 'b']), new Set(['arm', 'forearm']), m => out.push(m), new Map([['a', 'arm'], ['b', 'forearm']]));
     return out;
   };
   has(run(false), 'different bones');

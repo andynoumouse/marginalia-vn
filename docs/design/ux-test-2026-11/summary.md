@@ -46,14 +46,14 @@ the first-hour docs and the quick bar's text halo are fixed, so the top is done.
   contrast is 1.0 to 1.4:1 on light scenes (PI-4, PC-7), and it overlaps the text box edge.
 - **Feedback is thin.** The status line is small, grey, truncated and stale (EA-9, EA-16, EP-15, EL-9); toggles, Reveal
   and view commands say nothing; the editor autosaves but the tutorial says press Ctrl+S (EA-9).
-- **Names are ASCII only.** A Finnish label name such as `päivä_1` is refused (EL-11, confirmed); the message now names the
-  character, but accepting accented letters in names is a language decision (see `TODO.md`).
+- **Names are ASCII only.** A Finnish label name such as `päivä_1` is refused (EL-11, confirmed). *Fixed since:* labels,
+  variables and screens take names in any alphabet.
 - **Ending screen.** The short ending has no name of its own (PC-4); the "Turn your device" cover blocks a tablet that
-  would fit the stage (PI-11).
-- **Narrow windows.** Studio layout (ES-4), Outline's Close off-screen at 390 px (EL-20), online editor on a phone with
-  no notice (ST-6).
+  would fit the stage (PI-11; *fixed since:* the cover shows only when the stage would be too small to play).
+- **Narrow windows.** Studio layout (ES-4, still open), Outline's Close off-screen at 390 px (EL-20, fixed), online editor on a
+  phone with no notice (ST-6, fixed).
 - **Docs and product disagree.** Jargon the tutorial never explains (OB-15), the sample comment (ES-16) and "Rig mode"
-  in two sample scripts.
+  in two sample scripts (both fixed).
 - **Web export loading.** The modules are about 150 unbundled requests, 6 s on fast 3G and 20 s on slow (PX-1; the page now
   says it is loading meanwhile); title waits for the 2.9 MB music (PX-2, by design); first line about 27 s after New game on slow
   3G (PX-3; the bar's 200 % is fixed).
@@ -68,10 +68,11 @@ screens are matched to their labels by English text; they would need to carry a 
 ## Needs a decision, not just a fix
 
 - Follow preview (on by default) scrolls the editor back to the preview's line after every autosave, even when typing
-  far away (EA-4).
+  far away (EA-4). *Fixed:* it leaves the view alone for a moment after typing.
 - Autosave versus "save with Ctrl+S" in the docs (EA-9), and whether the editor should say it saved.
 - Whether undo in the animation studio should switch to the animation it changed (ES-5), and whether key times should
-  be seconds rather than fractions of Length (ES-7).
+  be seconds rather than fractions of Length (ES-7). *Both decided and built:* undo shows what it changed, and key
+  times are durations ([time-units.md](../time-units.md)).
 - What a first-time Studio user sees first: Open Folder is the only primary button (ST-5).
 - Title-screen waits for audio on slow networks (PX-2, documented as intended).
 - Whether the online demo should work offline (ST-15).

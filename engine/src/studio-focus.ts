@@ -34,14 +34,15 @@ export interface Breadcrumb { crumbs: Crumb[]; /** After the crumbs: whether a k
 
 /**
  * The line above the right column. `keyed`: is there a key of what the gizmo poses at the value (null: not asked, or the gizmo poses nothing
- * bound there). `poser`: what the gizmo poses when that is not the part itself, the bone it sits on (poseTarget).
+ * bound there); 'corner' on a pad, whose grid has every corner from the bind on, so a drag changes the one at the dot (MR-4). `poser`: what the
+ * gizmo poses when that is not the part itself, the bone it sits on (poseTarget).
  */
-export function breadcrumb(s: FocusState, controlName: string, valueText: string, keyed: boolean | null, poser: string | null = null): Breadcrumb {
+export function breadcrumb(s: FocusState, controlName: string, valueText: string, keyed: boolean | 'corner' | null, poser: string | null = null): Breadcrumb {
   const kind = focusKind(s);
   if (kind === 'none') return { crumbs: [], status: '' };
   if (kind === 'param') return { crumbs: [{ text: controlName, up: null }], status: '' };
   if (kind === 'part') return { crumbs: [{ text: s.part!, up: null }], status: '' };
-  const status = [keyed === null ? '' : keyed ? 'key' : 'no key here: a drag adds one', poser !== null && poser !== s.part ? `the gizmo poses ${poser}, the bone ${s.part} sits on` : ''];
+  const status = [keyed === null ? '' : keyed === 'corner' ? 'corner' : keyed ? 'key' : 'no key here: a drag adds one', poser !== null && poser !== s.part ? `the gizmo poses ${poser}, the bone ${s.part} sits on` : ''];
   return {
     crumbs: [{ text: s.part!, up: 'part' }, { text: controlName, up: 'param' }, { text: `@ ${valueText}`, up: null }],
     status: status.filter(Boolean).join(' · '),

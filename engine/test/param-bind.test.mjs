@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  axisLines, sliderLines, bindPose, unbindPose, isBound, removeKey, bindDeformer, unbindDeformer, bindMask, unbindMask,
+  axisLines, sliderLines, warpBound, warpOf, warpBarHint, bindPose, unbindPose, isBound, removeKey, bindDeformer, unbindDeformer, bindMask, unbindMask,
   boundParts, affectedBy, keyTicks, warpTicks, driverOf, controlOf, sameDriver, writeForm, evalTarget, checkParams, DEFAULT_PAD_SIZE,
 } from '../../dist/engine/src/index.js';
 
@@ -190,4 +190,31 @@ test('controls: the studio\'s key for a parameter or a pad, and back', () => {
   assert.equal(sameDriver({ param: 'head_x' }, { param: 'head_x' }), true);
   assert.equal(sameDriver({ param: 'head_x' }, padOf), false);
   assert.equal(sameDriver(padOf, { params: ['head_x', 'head_y'] }), true);
+});
+
+test('warpBound: a part is bound through its own warp or its group warp, by a slider key or a pad grid; a pad axis alone does not count', () => {
+  const deformers = [
+    { id: 'hair_warp', part: 'hair', grid: [2, 2], keyforms: [{ param: 'sway', keys: [{ at: 0 }] }] },
+    { id: 'head_warp', members: ['face', 'eyes'], grid: [3, 3], keyforms: [{ params: ['head_x', 'head_y'], grid: { x: [-1, 0, 1], y: [-1, 0, 1] }, forms: [] }] },
+    { id: 'body_warp', part: 'body', grid: [2, 2], keyforms: [] },
+  ];
+  assert.equal(warpBound(deformers, 'hair', { param: 'sway' }), true, 'its own warp, a slider');
+  assert.equal(warpBound(deformers, 'face', { params: ['head_x', 'head_y'] }), true, 'a group warp, a pad grid');
+  assert.equal(warpBound(deformers, 'eyes', { params: ['head_x', 'head_y'] }), true, 'any member');
+  assert.equal(warpBound(deformers, 'face', { param: 'head_x' }), false, 'one axis of the pad is not the grid');
+  assert.equal(warpBound(deformers, 'face', { params: ['head_y', 'head_x'] }), false, 'the axes in the other order are another pad');
+  assert.equal(warpBound(deformers, 'body', { param: 'sway' }), false, 'a warp with no keys');
+  assert.equal(warpBound(deformers, 'legs', { param: 'sway' }), false, 'no warp');
+  assert.equal(warpOf(deformers, 'face').id, 'head_warp');
+  assert.equal(warpOf(deformers, 'body').id, 'body_warp');
+  assert.equal(warpOf(deformers, 'legs'), undefined);
+});
+
+test('the Warp bar says what a lattice drag still needs', () => {
+  assert.match(warpBarHint(true, null), /^click a slider's name in Parameters, then drag the points/);
+  assert.match(warpBarHint(true, { name: 'head_turn', pad: true }), /^head_turn is a pad, and a lattice drag keys one slider/);
+  // UX round 3 MD-1: a warp already keyed to the pad's grid is not sent to one of the pad's sliders, where a key would add on top.
+  assert.equal(warpBarHint(true, { name: 'head_turn', pad: true, grid: 'head_warp' }), "head_warp is keyed to head_turn's grid: shown, not editable in the studio yet");
+  assert.equal(warpBarHint(true, { name: 'lean', pad: false }), '');
+  assert.equal(warpBarHint(false, null), '', 'no warp: the Deform block says how to make one');
 });

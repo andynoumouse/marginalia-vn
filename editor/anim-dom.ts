@@ -1,7 +1,6 @@
 // Small DOM builders shared by the animation studio's modules.
 
-import { easeProblem, isEaseSpec } from '../engine/src/index.js';
-import { promptAsk } from './ask.js';
+import { curveAsk } from './curve-dialog.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 /** The value of the "curve…" entry every ease select ends with: it asks for a `bezier(...)` (see pickEase). */
@@ -20,7 +19,7 @@ export function showEase(sel: HTMLSelectElement, value: string) {
   for (const o of sel.querySelectorAll('option[data-custom]')) if ((o as HTMLOptionElement).value !== value) o.remove();
   let curve = sel.querySelector<HTMLOptionElement>('option[data-curve]');
   if (!curve) {
-    curve = el('option', { value: CURVE, textContent: 'curve…', title: 'A curve of your own: bezier(x1,y1,x2,y2)' });
+    curve = el('option', { value: CURVE, textContent: 'curve…', title: 'Shape a curve of your own: drag its handles (written as bezier(x1,y1,x2,y2))' });
     curve.dataset.curve = '';
     sel.append(curve);
   }
@@ -34,22 +33,15 @@ export function showEase(sel: HTMLSelectElement, value: string) {
 }
 
 /**
- * The ease an ease select's change picks: its value, or for "curve…" a `bezier(...)` asked for (starting from the current one;
- * a curve that is not valid is asked for again, saying why). Null when cancelled: the select shows its old value again.
+ * The ease an ease select's change picks: its value, or for "curve…" a `bezier(...)` shaped in the curve dialog (starting from the
+ * current ease; UX round 3 AN-11: it was typed in a prompt). Null when cancelled: the select shows its old value again.
  */
 export async function pickEase(sel: HTMLSelectElement): Promise<string | null> {
   if (sel.value !== CURVE) return sel.value;
   const was = sel.dataset.was ?? '';
-  const help = 'A curve of your own, as in CSS: bezier(x1,y1,x2,y2), with x1 and x2 from 0 to 1 (a y outside 0 to 1 overshoots).';
-  let message = help, value = /^(?:cubic-)?bezier\(/.test(was) ? was : 'bezier(0.25,0.1,0.25,1)';
-  for (;;) {
-    const typed = await promptAsk(message, value, 'Use curve');
-    if (typed === null) { showEase(sel, was); return null; }
-    const spec = typed.replace(/\s+/g, '');
-    if (isEaseSpec(spec)) { showEase(sel, spec); return spec; }
-    message = `${easeProblem(spec)}.\n\n${help}`;
-    value = typed;
-  }
+  const spec = await curveAsk(was);
+  showEase(sel, spec ?? was);
+  return spec;
 }
 export function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string) {
   const e = document.createElementNS(SVGNS, tag);

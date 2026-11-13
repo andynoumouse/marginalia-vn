@@ -610,8 +610,8 @@ export abstract class StageRenderer implements Renderer {
     return this.slots.draw('quick', this.quickShown ? view : null, { after: () => this.onModeChange() }); // a redraw drops the pressed state of Auto and Skip
   }
 
-  /** Draw the project's pause screen (null: hide it). */
-  pause(view: ScreenView | null) { return this.slots.draw('pause', view, { focus: 'always' }); }
+  /** Draw the project's pause screen (null: hide it). Every draw puts focus on the element `focusId` (the one that opened the screen now closed) or the first one. */
+  pause(view: ScreenView | null, focusId = '') { return this.slots.draw('pause', view, { focus: 'always', focusId }); }
 
   /** Draw the project's options screen (null: hide it). A redraw keeps the focus; only the first one moves it onto the screen. */
   options(view: ScreenView | null) { return this.slots.draw('options', view, { focus: 'first' }); }
@@ -704,14 +704,15 @@ export abstract class StageRenderer implements Renderer {
     });
   }
 
-  end() {
+  end(title = '') {
     box.dataset.visible = 'false';
     this.clearPage();
     this.onEnd();
     // The words are the translated hidden labels (game.json `labels`, `ui.end_title` / `ui.end_hint`); the editor's preview says what an author means.
+    // An ending's own name (`end "Name"`) takes the title's place in both (UX round PC-4).
     const dev = endedEl.dataset.dev === 'true';
     const word = (key: string, fallback: string) => document.querySelector(`[data-ui="${key}"]`)?.textContent ?? fallback;
-    endedEl.querySelector('.end-title')!.textContent = dev ? 'End of script' : word('end_title', 'The End');
+    endedEl.querySelector('.end-title')!.textContent = title || (dev ? 'End of script' : word('end_title', 'The End'));
     endedEl.querySelector('.end-hint')!.textContent = dev ? 'Click to restart' : word('end_hint', 'Click to return to the title screen');
     endedEl.style.display = 'flex';
     this.advanceFn = () => { this.advanceFn = null; this.onEnded(); };

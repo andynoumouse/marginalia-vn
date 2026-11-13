@@ -1,7 +1,7 @@
 // The JSON schemas behind completions, hover docs and validation in Monaco's JSON tabs: game.json, theme files and
 // each open character's rig.json. Rebuilt from the compiled program and the project's assets (see updateGameSchema).
 
-import { EASE_NAMES, partName, QUICK_ITEMS, UI_COMPONENTS, type RigManifest } from '../engine/src/index.js';
+import { BUILTIN_THEMES, closest, DEFAULT_LEVELS, didYouMean, EASE_NAMES, partName, QUICK_ITEMS, UI_COMPONENTS, type RigManifest } from '../engine/src/index.js';
 import { files, GAME_URI, S } from './state.js';
 
 declare const monaco: any;
@@ -93,6 +93,21 @@ function basicsProperties() {
       properties: { width: { type: 'integer', minimum: 64, maximum: 8192 }, height: { type: 'integer', minimum: 64, maximum: 8192 } },
       required: ['width', 'height'],
     },
+    psdPrefix: { type: 'string', default: '+', description: 'Character PSDs: a top-level group whose name starts with this is a folder, not a slot ("" turns it off). Used by npm run art.' },
+    build: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Settings for the pre-build checks (vn export --check, the Build dialog).',
+      properties: {
+        checks: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'How serious each check is.',
+          properties: Object.fromEntries(Object.entries(DEFAULT_LEVELS).map(([id, level]) => [id, { enum: ['error', 'warning', 'info', 'off'], default: level }])),
+        },
+      },
+      examples: [{ checks: { untranslated: 'error', 'voice-missing': 'off' } }],
+    },
   };
 }
 
@@ -113,10 +128,10 @@ function startupProperties() {
           examples: names([...used('music', 'name'), ...S.assetNames.music]),
         },
         showTitle: { type: 'boolean', default: true, description: 'Show the game name (turn off when the background art has a logo).' },
-        align: { enum: ['left', 'center', 'right'], default: 'center', description: 'Where the title and buttons sit.' },
+        align: { deprecationMessage: 'No longer read: the title screen is a screen now. To move its buttons, edit it (Built-in screens in the Files panel).' },
         buttons: {
           type: 'array', uniqueItems: true,
-          description: 'Buttons in order. Leave one out to hide it.',
+          description: 'Which optional buttons the default title screen shows: continue, gallery, music_room, chapters, achievements (all when left out). New game, Load and Options always show.',
           items: { enum: ['new_game', 'continue', 'load', 'gallery', 'music_room', 'chapters', 'achievements', 'options'] },
         },
         fade: { type: 'number', minimum: 0, maximum: 5, default: 0.4, description: 'Seconds of black between the title screen and the game, both ways (0 = cut).' },
@@ -335,6 +350,10 @@ function dialogueProperties() {
 function themeProperty() {
   return {
     theme: { type: 'string', description: 'The name of a theme file: "night" uses themes/night.json.' },
+    themes: {
+      type: 'array', uniqueItems: true, items: { type: 'string', examples: Object.keys(BUILTIN_THEMES) },
+      description: 'Themes the player can pick in Options (the row shows when there are two or more): theme files or the built-ins (base, paper, high-contrast).',
+    },
   };
 }
 
@@ -355,6 +374,44 @@ export function updateGameSchema() {
   monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
     validate: true,
     schemas: [{ uri: 'vn://schema/game.json', fileMatch: [GAME_URI], schema }, ...rigSchemas(), ...themeSchemas()],
+  });
+  suggestKeys(schema);
+}
+
+/** Every property name a schema knows, at any depth. */
+function schemaKeys(node: unknown, out = new Set<string>()): Set<string> {
+  if (Array.isArray(node)) { for (const n of node) schemaKeys(n, out); return out; }
+  if (!node || typeof node !== 'object') return out;
+  for (const [k, v] of Object.entries(node)) {
+    if (k === 'properties' && v && typeof v === 'object') for (const name of Object.keys(v)) out.add(name);
+    schemaKeys(v, out);
+  }
+  return out;
+}
+
+/**
+ * game.json's "Property theem is not allowed." gets the closest names the schema knows, as script, rig.json and game.json asset names do
+ * (UX round 3 ED-8). The JSON worker's markers are rewritten once each; a rewritten one is left alone.
+ */
+let keysSuggested = false;
+function suggestKeys(schema: object) {
+  if (keysSuggested || !monaco.editor?.onDidChangeMarkers) return; // a test's monaco has no editor
+  keysSuggested = true;
+  const known = [...schemaKeys(schema)];
+  monaco.editor.onDidChangeMarkers((uris: { toString(): string }[]) => {
+    if (!uris.some(u => u.toString() === GAME_URI)) return;
+    const model = monaco.editor.getModel(monaco.Uri.parse(GAME_URI));
+    if (!model) return;
+    const markers = monaco.editor.getModelMarkers({ owner: 'json', resource: model.uri }) as { message: string }[];
+    let changed = false;
+    const next = markers.map(m => {
+      const word = /^Property (\S+) is not allowed\.$/.exec(m.message)?.[1];
+      const options = word ? closest(word, known) : [];
+      if (!options.length) return m;
+      changed = true;
+      return { ...m, message: m.message.replace(/\.$/, '') + didYouMean(options) };
+    });
+    if (changed) monaco.editor.setModelMarkers(model, 'json', next);
   });
 }
 
@@ -379,7 +436,7 @@ function themeSchemas() {
   const schema = {
     type: 'object',
     properties: {
-      extends: str('Another theme file (its name) or the built-in "base"; values here win.'),
+      extends: str('Another theme file (its name) or a built-in: "base", "paper" or "high-contrast"; values here win.'),
       tokens: {
         type: 'object',
         properties: {

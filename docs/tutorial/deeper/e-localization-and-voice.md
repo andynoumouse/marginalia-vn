@@ -29,6 +29,10 @@ you choose on the right. Add a language from the dropdown; it creates `locale/<l
 which strings are missing, and which translations were made against older source text (*source changed*). Entries whose
 line was deleted (its id is gone from the scripts) are counted as *unused*, and **Remove unused** deletes them from the file.
 
+To work with a translator, **Export CSV** saves every string with its context and the translations so far. When the sheet
+comes back, **Import CSV** reads it: it shows how many translations are new or changed per language and asks before
+writing them. Empty cells keep what is there, and a line reworded since the export shows as *source changed*.
+
 The menus (New game, Load, Options) translate through `ui.<key>` entries in the same file; the dialog lists them too.
 Fonts per language are set in the theme (`tokens.fonts`), for scripts such as Japanese.
 

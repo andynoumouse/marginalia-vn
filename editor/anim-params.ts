@@ -37,6 +37,8 @@ export interface ParamHost {
   poses(): Record<string, PoseDef>;
   /** The hand-set values or the held ids changed: the stage draws them. */
   moved(): void;
+  /** A hand move of `values` ended (a slider let go, a typed value, a pad drag let go, a reset): Animate keys it under Auto-key, or says it is not keyed. */
+  settled(values: Record<string, number>): void;
   /** Key `values` at the playhead of the animation on show (one undo step). */
   key(values: Record<string, number>): void;
   note(text: string): void;
@@ -222,6 +224,11 @@ export class ParamPanel {
     this.host.moved();
     this.sync();
   }
+  /** The end of a hand move of `ids`: the host may key them (AN-5). */
+  private settle(ids: string[]) {
+    const v = this.values();
+    this.host.settled(Object.fromEntries(ids.filter(id => Object.hasOwn(v, id)).map(id => [id, v[id]])));
+  }
 
   /** Move one parameter's control from elsewhere in the studio (the Warp tool's slider moves); clamped to its range. */
   setValue(id: string, v: number) {
@@ -261,7 +268,7 @@ export class ParamPanel {
     this.base = Object.fromEntries(defs.filter(d => Object.hasOwn(this.base, d.id)).map(d => [d.id, clamp(d, this.base[d.id])]));
     for (const id of [...this.hold]) if (!defs.some(d => d.id === id)) this.hold.delete(id);
     this.body.replaceChildren();
-    if (!defs.length) this.body.append(el('p', { className: 'as-pivot-hint', textContent: this.host.authoring()
+    if (!defs.length) this.body.append(el('p', { className: 'as-pivot-hint ap-none', textContent: this.host.authoring()
       ? "This character has no parameters yet. The + in this section's head adds one: New parameter makes a slider, New pad a 2D control. Click a control's name to make it the active parameter, then pick the parts it moves on the stage or in the Parts tree."
       : 'This character has no parameters. Add them in Model mode (or "parameters" to its rig.json); see docs/rig-json.md.' }));
     if (this.drafting) this.body.append(this.padDraft());
@@ -276,10 +283,10 @@ export class ParamPanel {
       const sec = el('section', { className: 'ap-group' }, head);
       sec.dataset.cat = g.name;
       const rows = el('div', { className: 'ap-rows' });
-      const axes = new Set<string>(); // a pad's two sliders follow it, right under it, and do not move on their own
+      const axes = new Map<string, string>(); // a pad's two sliders (to the pad's id) follow it, right under it, and do not move on their own
       for (const c of g.controls) {
-        if (c.kind === 'pad') { axes.add(c.x.id); axes.add(c.y.id); }
-        rows.append(...(c.kind === 'slider' ? this.slider(c.param, axes.has(c.param.id)) : this.pad(c.pad, c.x, c.y)));
+        if (c.kind === 'pad') { axes.set(c.x.id, c.pad.id); axes.set(c.y.id, c.pad.id); }
+        rows.append(...(c.kind === 'slider' ? this.slider(c.param, axes.has(c.param.id), axes.get(c.param.id)) : this.pad(c.pad, c.x, c.y)));
       }
       if (!g.controls.length) rows.append(el('p', { className: 'as-pivot-hint ap-empty', textContent: 'Empty: drag parameters here, or use +.' }));
       const show = (on: boolean) => { rows.hidden = !on; fold.setAttribute('aria-expanded', String(on)); this.folded.set(g.name, on); };
@@ -420,7 +427,7 @@ export class ParamPanel {
     });
     const reset = el('button', { type: 'button', className: 'ap-reset', textContent: '↺', title: `Reset ${label} to its default` });
     reset.setAttribute('aria-label', `Reset ${label}`);
-    reset.addEventListener('click', () => { for (const d of this.host.defs()) if (ids.includes(d.id)) this.set(d.id, d.default); this.commit(); });
+    reset.addEventListener('click', () => { for (const d of this.host.defs()) if (ids.includes(d.id)) this.set(d.id, d.default); this.commit(); this.settle(ids); });
     const paint = (keyed: boolean, tracked: boolean, model: boolean, hasTarget: boolean) => {
       key.classList.toggle('ap-keyed', keyed);
       key.classList.toggle('ap-tracked', tracked && !keyed);
@@ -440,7 +447,7 @@ export class ParamPanel {
   private removeButton(label: string, title: string, run: () => void): HTMLButtonElement {
     const b = el('button', { type: 'button', className: 'ap-del-btn ap-model-only', textContent: '✕', title });
     b.setAttribute('aria-label', `Delete ${label}`);
-    b.addEventListener('click', run);
+    b.addEventListener('click', e => { e.stopPropagation(); run(); }); // the row's click would choose the control just deleted and drop the note (MR-9)
     return b;
   }
 
@@ -450,7 +457,8 @@ export class ParamPanel {
     return input;
   }
 
-  private slider(d: ParamDef, axis = false): HTMLElement[] {
+  /** `pad`: the pad an axis row sits under; a name that starts with the pad's shows only the rest (head_turn_x as x), so two cut-off names do not look alike (MR-12). */
+  private slider(d: ParamDef, axis = false, pad?: string): HTMLElement[] {
     const range = numberInput('range', d);
     range.setAttribute('aria-label', d.id);
     const num = numberInput('number', d);
@@ -466,8 +474,10 @@ export class ParamPanel {
       range.value = String(v);
       input(String(v));
     });
-    num.addEventListener('change', () => input(num.value));
-    const label = el('label', { textContent: d.id, title: 'Make this the active parameter' });
+    num.addEventListener('change', () => { input(num.value); if (num.value !== '' && Number.isFinite(Number(num.value))) this.settle([d.id]); });
+    range.addEventListener('change', () => this.settle([d.id])); // let go, or a key press: one key, not one per step of the drag
+    const short = pad && d.id.startsWith(`${pad}_`) && d.id.length > pad.length + 1 ? d.id.slice(pad.length + 1) : d.id;
+    const label = el('label', { textContent: short, title: short === d.id ? 'Make this the active parameter' : `${d.id}: make this the active parameter` });
     this.nameKeys(label, () => this.pick(d.id, undefined, true));
     if (!axis) this.dragSource(label, { kind: 'control', id: d.id });
     const row = el('div', { className: `ap-row${axis ? ' ap-axisrow' : ''}` }, label, el('div', { className: 'ap-track' }, range, ticks), num, key,
@@ -488,7 +498,7 @@ export class ParamPanel {
           const tick = el('button', { type: 'button', className: `ap-tick${first && !posed ? ' ap-rest' : ''}`, title: `${first ? (posed ? 'Posed' : 'At rest') : 'Keyed'} at ${shown(t)}: click to set ${d.id} to ${shown(t)}`, tabIndex: -1 });
           tick.style.setProperty('--f', String(at(t)));
           tick.addEventListener('mousedown', e => e.preventDefault()); // no focus: the row would be redrawn under the click
-          tick.addEventListener('click', () => { this.set(d.id, clamp(d, t)); this.commit(); });
+          tick.addEventListener('click', () => { this.set(d.id, clamp(d, t)); this.commit(); this.settle([d.id]); });
           return tick;
         }));
         const active = model && this.host.keyedControl() === d.id;
@@ -531,7 +541,7 @@ export class ParamPanel {
     area.addEventListener('pointerdown', e => {
       area.setPointerCapture(e.pointerId);
       at(e.clientX, e.clientY);
-      followPointer(area, m => at(m.clientX, m.clientY));
+      followPointer(area, m => at(m.clientX, m.clientY), () => this.settle([x.id, y.id]));
     });
     area.addEventListener('keydown', e => {
       const dx = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0, dy = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0;
@@ -541,6 +551,7 @@ export class ParamPanel {
       this.set(x.id, clamp(x, v[x.id] + dx * big * (x.max - x.min)));
       this.set(y.id, clamp(y, v[y.id] + dy * big * (y.max - y.min)));
       this.commit();
+      this.settle([x.id, y.id]);
     });
     const label = el('label', { textContent: id, title: 'Make this the active parameter' });
     this.nameKeys(label, () => { if (!this.owns(x.id, y.id, gridKey)) this.pick(gridKey, undefined, true); });

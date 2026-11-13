@@ -152,9 +152,9 @@ import { checkDeformers as checkMeshDeformers, MESH_MAX_VERTS } from '../../dist
 
 const meshParams = [{ id: 'head_x', min: -1, max: 1, default: 0 }];
 const quad = (extra = {}) => ({ id: 'm', part: 'hair', mesh: { verts: [0, 0, 10, 0, 0, 10, 10, 10], tris: [0, 1, 2, 2, 1, 3] }, keyforms: [], ...extra });
-const meshProblems = (def, boxes, framed = new Set()) => {
+const meshProblems = (def, boxes) => {
   const out = [];
-  checkMeshDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: meshParams }, new Set(['hair', 'cloak']), new Set(), framed, m => out.push(m), new Map(), new Set(), boxes);
+  checkMeshDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: meshParams }, new Set(['hair', 'cloak']), new Set(), m => out.push(m), new Map(), new Set(), boxes);
   return out;
 };
 const has = (list, text) => assert.ok(list.some(m => m.includes(text)), `${text} not in ${JSON.stringify(list)}`);
@@ -203,8 +203,7 @@ test('a free mesh stays within the part box plus a margin when the box is known'
   assert.deepEqual(meshProblems(way), [], 'unknown box: skipped');
 });
 
-test('a free mesh follows the one-deformer-per-part and frame-track rules', () => {
+test('a free mesh follows the one-deformer-per-part rule', () => {
   has(meshProblems([quad(), quad({ id: 'm2' })]), 'already has deformer');
   has(meshProblems([quad(), { id: 'l', part: 'hair', grid: [2, 2], keyforms: [] }]), 'already has deformer');
-  has(meshProblems(quad(), undefined, new Set(['hair'])), 'frame track');
 });

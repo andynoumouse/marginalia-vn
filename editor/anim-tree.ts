@@ -403,6 +403,7 @@ export class RigTree {
         const next = saveLook(s.looks, name, picks);
         if (!next) { host.note(name ? 'This character has no slots to save.' : 'Give the look a name first.'); return; }
         host.change({ looks: next });
+        host.note(`Saved look "${name}" (${Object.keys(picks).length} slots). A show line uses it by name: show <character> ${name}.`); // MR-11: it said nothing
       });
       roots.looks.append(el('div', { className: 'as-look-save-row' }, lookName, saveBtn));
     }

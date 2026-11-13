@@ -5,7 +5,7 @@ PSD files in `masters/` are converted to game-ready art in `assets/`. `npm run a
 [Plain images](#plain-images-without-psds).
 
 ```
-masters/bg/<name>.psd     ->  assets/bg/<name>.png              (scene <name>) flattened, scaled to cover 1920x1080
+masters/bg/<name>.psd     ->  assets/bg/<name>.png              (scene <name>) flattened, scaled to cover the stage
 masters/char/<char>.psd   ->  assets/char/<char>/sprite.json    + one trimmed PNG per part
 masters/ui/<name>.psd     ->  assets/ui/<name>.png              (theme frames) flattened at 1:1
 ```
@@ -15,7 +15,7 @@ drawn as a placeholder, and changed files hot-reload.
 
 ## Character PSD layout
 
-The canvas height becomes the 1080 px stage height; keep the feet near the bottom.
+The canvas height becomes the stage height (1080 px by default); keep the feet near the bottom.
 
 ```
 eyes/                     top-level group = a slot
@@ -61,7 +61,7 @@ above, and so are hidden top-level layers.
 
 ## rig.json
 
-Z-order tweaks, looks and groups go in a hand-written `assets/char/<name>/rig.json` next to the generated
+Z-order tweaks, looks, bones and parts go in a hand-written `assets/char/<name>/rig.json` next to the generated
 `sprite.json`. The converter never touches it, and it is read when the game starts. The full reference is
 [rig-json.md](rig-json.md) (also F1 in the `rig.json` tab).
 

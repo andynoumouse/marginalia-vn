@@ -16,7 +16,7 @@ animate iris breathe loop
 animate iris stop
 ```
 
-`move` slides to a place over the given seconds (`ease`: linear, in, out, inout, back, bounce, elastic; add `nowait` to
+`move` slides to a place over the given seconds (`ease`: linear, in, out, inout, back, bounce, elastic, step; add `nowait` to
 carry on while it moves). `animate` plays presets such as `breathe`, `nod` and `bounce`, or animations from a character's
 `rig.json`. With `loop` it repeats until `stop`.
 
@@ -84,12 +84,12 @@ The full list of steps is in the [command reference](../../commands.md#transform
 
 ```
 tint #402010 0.3 1.5s      # colour wash, strength, fade-in seconds
-filter sepia 0.8 1s        # blur, grayscale, sepia, night, vignette
+filter sepia 0.8 1s        # blur, grayscale, sepia, night, vignette, glow, crt, grain and more
 camera zoom 1.6 at center y=0.35 1.2s ease=out
 camera pan right 1s
 camera reset 0.8s
 flash #ffffff 0.5s
-weather rain 0.8 2s        # rain, snow, petals, embers
+weather rain 0.8 2s        # rain, snow, petals, embers, leaves, fog, fireflies
 weather off 2s
 ```
 

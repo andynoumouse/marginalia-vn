@@ -1,6 +1,6 @@
 # Phone and tablet play
 
-Plan for playing an exported game on a touch device. Steps 1 and 2 are built, step 3 mostly, step 4 partly (see their notes); the rest is not.
+Plan for playing an exported game on a touch device. Steps 1, 2 and 6 are built, step 3 mostly, steps 4 and 5 partly (see their notes); step 7 is not.
 
 ## Where the game stands
 
@@ -122,6 +122,6 @@ Plan for playing an exported game on a touch device. Steps 1 and 2 are built, st
 
 ## Open questions
 
-- Is swipe-left meant to advance? (Leaning no: advance is the tap, and a swipe must never skip.)
+- Decided in step 2: swipe left does not advance (the tap does, and a swipe must never skip).
 - Do gestures need to be rebindable in game.json, or is on / off enough?
 - Does Studio's export need a "mobile" check in the Build dialog (target size, orientation, asset budget)?

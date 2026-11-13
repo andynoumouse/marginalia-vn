@@ -31,7 +31,7 @@ author's wish that the script language say its unit (`animate robo wave 2s`).
 - **The menu `timeout` takes an expression.** A literal takes the unit (`timeout 8s`). An expression is wrapped and the unit put after
   it: `timeout (8 - difficulty)s`. The parser checks the unit; the expression itself stays unit-free.
 - **Built:**
-  - one helper in `parser.ts` (`durationArg`) used at every slot, with tests;
+  - one helper (`readDuration`, `engine/src/duration.ts`) used at every slot, with tests;
   - the slots' usage strings;
   - `editor-support.ts` completions and the highlighter;
   - `docs/commands.md`, the README's syntax block and the F1 help (it reads the commands doc).

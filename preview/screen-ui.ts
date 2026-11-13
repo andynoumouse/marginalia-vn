@@ -811,7 +811,11 @@ export class HudLayer {
       if (names.has(name)) continue;
       this.layers.delete(name);
       const el = h.el;
-      if (leave && h.layer.close(true, () => { el.remove(); this.leaving--; this.root.dataset.visible = this.layers.size || this.leaving ? 'true' : 'false'; })) { this.leaving++; continue; }
+      if (leave && h.layer.close(true, () => { el.remove(); this.leaving--; this.root.dataset.visible = this.layers.size || this.leaving ? 'true' : 'false'; })) {
+        el.dataset.leaving = 'true'; // focus must not land on its elements: they go when the exit ends
+        this.leaving++;
+        continue;
+      }
       h.layer.close();
       el.remove();
     }
@@ -847,8 +851,8 @@ export class HudLayer {
    * element sits in a scroll area that `start bottom`, the last enabled one of that area gets it instead (the history opens on the newest line).
    */
   focusFirst(id = ''): boolean {
-    const live = '[data-on="true"]:not([aria-disabled])';
-    let el = (id ? this.root.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"][data-on="true"]`) : null) ?? this.root.querySelector<HTMLElement>(live);
+    const live = ':scope > :not([data-leaving]) [data-on="true"]:not([aria-disabled])';
+    let el = (id ? this.root.querySelector<HTMLElement>(`:scope > :not([data-leaving]) [data-id="${CSS.escape(id)}"][data-on="true"]`) : null) ?? this.root.querySelector<HTMLElement>(live);
     let wanted = !!id;
     const area = !id ? el?.closest<HTMLElement>('.sc-scroll[data-start="bottom"]') : null;
     if (area) { el = [...area.querySelectorAll<HTMLElement>(live)].at(-1) ?? el; wanted = true; }

@@ -3,7 +3,8 @@
 > Built, except two parts left out on purpose (see "Not built" at the end). Phase 0 (images as animation targets), phase 1 (sequences), phase 2 (`parallel:`,
 > `if` / `elif` / `else`, `pick:` / `choice:`, parameters and expressions; the last three are worked out when `animate` runs)
 > and phase 3 (`every` / `while`, attached with `animate <target> <name> auto`) are in. Where the built syntax differs from
-> the sketches below (values are relative offsets, so no `move to`), `docs/commands.md` is authoritative. Closes the largest gap in [From Ren'Py](../tutorial/deeper/f-from-renpy.md): a writer cannot compose
+> the sketches below (values are relative offsets, so no `move to`), `docs/commands.md` is authoritative; the sketches also predate [time units](time-units.md), so their bare numbers are durations
+> that now carry a unit (`0.4s`). Closes the largest gap in [From Ren'Py](../tutorial/deeper/f-from-renpy.md): a writer cannot compose
 > their own motion in the script. Revisits the "ATL is not planned" note in [screen-animation.md](screen-animation.md).
 
 ## The gap today
@@ -139,7 +140,7 @@ loses to the rig, with an editor warning, so an artist's animation is never sile
    Covers the nervous / pace / enter-and-settle cases, which is most of what writers copy-paste today.
 2. **Structure.** `parallel:`, `pick:`, `if:`, parameters, calling other transforms.
 3. **Behaviours.** Run a transform by itself under a condition, sharing the `auto` scheduler:
-   `transform fidget every 4..9 while affection > 3:`, started with `animate alice fidget auto` (or declared once on the
+   `transform fidget every 4s..9s while affection > 3:`, started with `animate alice fidget auto` (or declared once on the
    character). This is where the layered-character conditions meet script staging.
 4. **Maybe, only on demand:** transforms inside `screen:` blocks (`on enter alice_pop`), which would replace the
    `uianims` idea in screen-animation.md with the same mechanism.
@@ -164,12 +165,12 @@ that routes `animate <name>` to a character or an image, plus tests for save, ro
 ## Open questions
 
 1. **Relative or absolute.** Relative (above) makes transforms reusable but cannot say "go to the left edge"; `move to`
-   inside a transform would then be absolute for that channel. Is the mix confusing?
+   inside a transform would then be absolute for that channel. Is the mix confusing? *Decided: relative only, no `move to`.*
 2. **`seconds` on `animate`.** Rescaling a whole sequence is handy, but with `wait`s and `pick` inside it is ambiguous.
-   Maybe only `strength=` and a `speed=` multiplier.
-3. **Files.** All in `script/*.vn`, or also a `transforms.vn` convention. Probably the first.
+   Maybe only `strength=` and a `speed=` multiplier. *Decided: the seconds stretch the whole sequence, waits too.*
+3. **Files.** All in `script/*.vn`, or also a `transforms.vn` convention. Probably the first. *Decided: any script.*
 4. **Screens.** Whether phase 4 is wanted, or presets stay enough there.
-5. **Flat characters.** Confirm they take whole-body animations the same way a rig does.
+5. **Flat characters.** Confirm they take whole-body animations the same way a rig does. *Decided: they do.*
 6. **Name clashes** (decided). `animate <name>` targets a character or an image, so a name used by both is a
    compile-time error rather than a precedence rule: either winner would silently animate the wrong thing, and
    tightening a rule later breaks existing games while relaxing an error does not.

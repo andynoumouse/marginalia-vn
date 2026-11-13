@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, stringRows, uiLabelRows, translationStatus, dropUnused, translatorCsv, outdatedIds } from '../../dist/engine/src/index.js';
+import { compile, stringRows, uiLabelRows, translationStatus, dropUnused, translatorCsv, outdatedIds, parseCsv, importTranslatorCsv } from '../../dist/engine/src/index.js';
 
 const script = `define e "Eve" color=#ffffff
 label start:
@@ -77,4 +77,44 @@ test('menu labels are rows: the page text, replaced by game.json labels, keyed u
   assert.equal(st.translated, 1);
   assert.deepEqual(st.unused, []); // ui.* entries never count as unused
   assert.match(translatorCsv(rows, { fi: { 'ui.back': 'Takaisin' } }, ['fi']), /ui\.back,,,,label,,Back,Takaisin/);
+});
+
+test('parseCsv reads quoted cells with commas, quotes and line breaks, drops a BOM and finds a semicolon delimiter', () => {
+  assert.deepEqual(parseCsv('\uFEFFid,fi\r\na,"Hei, ""sinä""\nrivi"\r\n\r\nb,x'), [['id', 'fi'], ['a', 'Hei, "sinä"\nrivi'], ['b', 'x']]);
+  assert.deepEqual(parseCsv('id;fi\na;"x;y"\n'), [['id', 'fi'], ['a', 'x;y']]);
+  assert.deepEqual(parseCsv('id\tfi\na\tb'), [['id', 'fi'], ['a', 'b']]);
+});
+
+test('an exported sheet reads back: new and changed translations, empty cells kept, snapshots of what the translator saw', () => {
+  const tables = { fi: { aaaa: 'Hei', bbbb: 'Kertoja' } };
+  const sheet = translatorCsv(rows, tables, ['fi', 'de'], { fi: {} })
+    .replace('"Hello, there.",Hei,', '"Hello, there.","Hei, siellä",')
+    .replace('Which way?,,', 'Which way?,Mihin?,')
+    .replace('Bye.,,,', 'Bye.,,,Tschüss.');
+  const out = importTranslatorCsv(sheet, rows, tables, { fi: { aaaa: 'Hello, there.' } });
+  assert.deepEqual(out.unknown, []);
+  assert.deepEqual(out.ignored, []);
+  const [fi, de] = out.languages;
+  assert.deepEqual([fi.lang, fi.added, fi.changed, fi.isNew], ['fi', ['cccc'], ['aaaa'], false]);
+  assert.deepEqual(fi.table, { aaaa: 'Hei, siellä', bbbb: 'Kertoja', cccc: 'Mihin?' });
+  assert.deepEqual(fi.snapshot, { aaaa: 'Hello, there.', cccc: 'Which way?' });
+  assert.deepEqual([de.lang, de.added, de.isNew, de.table], ['de', ['gggg'], true, { gggg: 'Tschüss.' }]);
+  assert.equal(tables.fi.aaaa, 'Hei', 'the inputs are left alone');
+});
+
+test('a sheet exported before a line was reworded imports as outdated; unknown ids, the source language and other columns are skipped', () => {
+  const csv = 'ID;source;en;fi;notes;fi previous source\n#aaaa;Hello!;Hello!;Hei!;call back;\nzzzz;Gone;;Poissa;;\nbbbb;Narration.;;Kertoja;;\nbbbb;Narration.;;Kertoja 2;;\n';
+  const out = importTranslatorCsv(csv, rows, {}, {}, 'en');
+  assert.deepEqual(out.ignored, ['en', 'notes']);
+  assert.deepEqual(out.unknown, ['zzzz']);
+  const [fi] = out.languages;
+  assert.deepEqual(fi.added, ['aaaa', 'bbbb'], 'a repeated id counts once, and its last cell wins');
+  assert.deepEqual(fi.table, { aaaa: 'Hei!', bbbb: 'Kertoja 2' });
+  assert.deepEqual(fi.outdated, ['aaaa']);
+  assert.deepEqual(outdatedIds(rows, fi.table, fi.snapshot), ['aaaa']);
+});
+
+test('a sheet with no id or no language column says why', () => {
+  assert.match(importTranslatorCsv('key,fi\na,b\n', rows, {}).error, /no "id" column/);
+  assert.match(importTranslatorCsv('id,source,notes\naaaa,x,y\n', rows, {}).error, /no language column/);
 });

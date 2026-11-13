@@ -26,8 +26,8 @@ Contents: [Palette](#palette-ctrlp) · [Files panel](#files-panel) · [Git](#git
 
 | Type | Mode |
 |---|---|
-| (nothing) | Go to file, recently used first, so Ctrl+P, Enter flips between two files. A new name offers "Create" |
-| `>` | Commands: preview from cursor / title screen / new game, add ids (file or all), save all, next problem, toggle follow / word wrap / minimap / preview pane, export web build, open exported game, export strings, reconvert all art, reset player data, plus every Monaco editor action |
+| (nothing) | Go to file, recently used first, so Ctrl+P, Enter flips between two files. A label's name also offers the label (`@name`), above "Create" for a new name |
+| `>` | Commands: preview from cursor / splash / intro / new game, add ids (file or all), save all, next problem, toggle follow / word wrap / minimap / preview pane, export web build, open exported game, export strings, reconvert all art, reset player data, plus every Monaco editor action |
 | `@` | Go to label, across all scripts |
 | `:` | Go to line |
 | `#` | Go to asset. A character with a converted `sprite.json` opens its `rig.json` in a tab (a generated skeleton when it has none, unsaved until you save); other assets open in a viewer dialog |
@@ -112,7 +112,9 @@ The logic is in `engine/src/colors.ts`.
 A mistyped name is marked with the closest known names in the message, for example
 `Unknown command "shwo" (did you mean "show"?)`, and **Ctrl+.** on it offers each one as a quick fix. This covers
 commands, labels, characters, screens, and backgrounds, poses, tracks, sounds, animations and parts that have no
-file. The matching is in `engine/src/suggest.ts`.
+file. In `game.json` it covers the art, music and sounds the title screen, music room, theme and achievements name; in a
+`rig.json` tab, the parts, bones, slots, variants, looks, poses and parameters it refers to and its misspelled keys. The
+matching is in `engine/src/suggest.ts`.
 
 F8 / Shift+F8 jump to the next / previous problem. The `rig.json` tab (see [rig-json.md](rig-json.md)) completes
 part, slot and variant names for that character, marks mistakes as warnings, and saves like `game.json`.
@@ -146,7 +148,9 @@ number, or text; Enter applies, Esc cancels). Persistent values are stored at on
 
 The **Outline** button (or the command Story: Show Outline) draws the labels as a flowchart: jumps, calls and labels
 that run on into the next one, with unreachable labels dashed. Edges inside an `if` (or a choice with a condition)
-show the condition. Click a label to go to its source.
+show the condition. Each label shows how many words the player reads in it (counted as in the script statistics), how
+many choice menus it has and whether it ends the story; hovering shows its file, line and dialogue lines too. Click a
+label to go to its source.
 
 - The mouse wheel zooms at the cursor; dragging pans (arrow keys and +/- too).
 - **Fit** (or 0, or a double-click on the background) shows everything; **Start** centres on the start label.
@@ -179,7 +183,10 @@ open beside the editor. F1 also lists all the editor's keys under "Editor keys".
 | Ctrl+B | Files panel |
 | Ctrl+Shift+F | Find and replace in all files |
 | Ctrl+. | Quick fix |
+| F1 | Command reference for the statement at the cursor |
 | F2 | Rename (label, variable or file) |
+| Shift+F12 | Every use of the label or variable under the cursor |
+| F12 | Open the animation on an `animate` line in the studio |
 | F8 / Shift+F8 | Next / previous problem |
 | Alt+Z | Word wrap |
 | Alt+W | Close tab |

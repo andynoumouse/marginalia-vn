@@ -121,7 +121,7 @@ export function addParam(doc: ParamDoc, group?: string): ParamEdit {
   if (group && !doc.categories.includes(group)) return { error: `There is no category "${group}".` };
   const id = uniqueParamId(doc.parameters.map(p => p.id));
   const def: ParamDef = { id, min: -1, max: 1, default: 0, ...(group ? { group } : {}) };
-  return { doc: { ...doc, parameters: [...doc.parameters, def] }, note: `Added parameter "${id}" (-1 to 1, default 0)${group ? ` under ${group}` : ''}. Rename it and set its range under Edit; pose the chosen bone at a value to key it.`, id };
+  return { doc: { ...doc, parameters: [...doc.parameters, def] }, note: `Added parameter "${id}" (-1 to 1, default 0)${group ? ` under ${group}` : ''}. Name it and set its range in the Parameter section (right column); then Bind parts… binds what it moves.`, id };
 }
 
 export interface ParamPatch { id?: string; min?: number; max?: number; default?: number; group?: string | null; ease?: string | null }
@@ -142,7 +142,10 @@ export function updateParam(doc: ParamDoc, id: string, patch: ParamPatch): Param
     if (doc.parameters.some(p => p.id === to)) return { error: `There is a parameter named "${to}" already.` };
     out = renameIn(out, id, to);
     name = to;
-    notes.push(`Renamed to "${to}" in the keyforms, pads, poses, animation tracks, deformers, masks and physics of this rig. Script lines that name "${id}" are not changed.`);
+    // Nothing named it yet (a parameter just made): a short note, not the list of everything a rename would follow into (MR-10).
+    const others = (d: ParamDoc) => JSON.stringify({ ...d, parameters: [] });
+    notes.push(others(out) === others({ ...doc, parameters: [] }) ? `Named "${to}".`
+      : `Renamed to "${to}" in the keyforms, pads, poses, animation tracks, deformers, masks and physics of this rig. Script lines that name "${id}" are not changed.`);
   }
   if (patch.group && !doc.categories.includes(patch.group)) return { error: `There is no category "${patch.group}".` };
   const pad = padOfAxis(doc, id);

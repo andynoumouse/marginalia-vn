@@ -101,8 +101,14 @@ export function helpTopicAt(line: string, column = line.length): string | null {
     if (/^"[^"]*(?:\\.[^"]*)*"(?:\s+#\w+)?(?:\s+if\s.+)?\s*:$/.test(t)) return 'menu';
     return 'speech-and-narration';
   }
-  return COMMAND_WORD.exec(t)?.[1] ?? null;
+  const word = COMMAND_WORD.exec(t)?.[1] ?? null;
+  if (word === 'on' && !/^on\s+timeout\b/.test(t)) return 'screen'; // on enter / exit / click ...: a screen clause, not the menu's clock
+  if (word === 'image' && /^image\s+"/.test(t)) return 'screen'; // a screen's picture, not the image command
+  return (word && SCREEN_WORDS[word]) ?? word;
 }
+
+/** Screen element and statement words without a heading of their own, and the heading that explains each. */
+const SCREEN_WORDS: Readonly<Record<string, string>> = { text: 'screen', slider: 'screen', select: 'screen', default: 'screen', cancel: 'state' };
 
 /** rig.json's top-level keys and the docs/rig-json.md heading (its slug) that explains each. */
 const RIG_TOPICS: Readonly<Record<string, string>> = {

@@ -56,6 +56,7 @@ screen feature_index:
   button go_rigs at 1544,210 size 230,72 "Rigs" #l7u6 hover scale 1.04
   grid 4 at 80,310 gap 24 cell 425,130 if index_page == "stage":
     button scene_transitions size 425,130 "Scene changes" #ye7i sub "scene: fade, wipe, iris ..." hover scale 1.04
+    button scene_more size 425,130 "More scene changes" #uul9 sub "scene: push, zoom, ripple, fade #color" hover scale 1.04
     button show_hide size 425,130 "Show and hide" #svgb sub "show, hide" hover scale 1.04
     button draw_order size 425,130 "Draw order" #lg3o sub "order=, behind=" hover scale 1.04
     button move_ease size 425,130 "Move and ease" #obua sub "move, ease=" hover scale 1.04
@@ -68,11 +69,13 @@ screen feature_index:
   grid 4 at 80,310 gap 24 cell 425,130 if index_page == "effects":
     button flash size 425,130 "Flash" #lm2w sub "flash" hover scale 1.04
     button tint size 425,130 "Tint" #jfp3 sub "tint" hover scale 1.04
-    button filter size 425,130 "Filters" #j15k sub "filter: eight looks" hover scale 1.04
+    button filter size 425,130 "Filters" #j15k sub "filter: eight looks that stack" hover scale 1.04
+    button filter_more size 425,130 "More filters" #zuj7 sub "filter: sunbeams, wave, crt, speedlines ..." hover scale 1.04
     button camera size 425,130 "Camera" #ixsp sub "camera zoom, pan, roll" hover scale 1.04
-    button weather size 425,130 "Weather" #oqwi sub "rain, snow, petals, embers" hover scale 1.04
+    button weather size 425,130 "Weather" #oqwi sub "rain, snow, leaves, fog, fireflies ..." hover scale 1.04
     button gravity size 425,130 "Gravity" #f2b0 sub "gravity" hover scale 1.04
     button burst size 425,130 "Particle bursts" #kez1 sub "burst" hover scale 1.04
+    button letterbox size 425,130 "Letterbox" #or80 sub "letterbox: cinematic bars" hover scale 1.04
   grid 4 at 80,310 gap 24 cell 425,130 if index_page == "text":
     button text_tags size 425,130 "Text tags" #id8s sub "italic, colour, wave, ruby" hover scale 1.04
     button text_timing size 425,130 "Text timing" #d5ge sub "pause, wait, nw, speed" hover scale 1.04
@@ -168,6 +171,9 @@ label index_loop:
   elif card == "scene_transitions":
     call fx_scene_transitions
     call fx_close
+  elif card == "scene_more":
+    call fx_scene_more
+    call fx_close
   elif card == "show_hide":
     call fx_show_hide
     call fx_close
@@ -204,8 +210,14 @@ label index_loop:
   elif card == "filter":
     call fx_filter
     call fx_close
+  elif card == "filter_more":
+    call fx_filter_more
+    call fx_close
   elif card == "camera":
     call fx_camera
+    call fx_close
+  elif card == "letterbox":
+    call fx_letterbox
     call fx_close
   elif card == "weather":
     call fx_weather
@@ -288,6 +300,7 @@ label index_loop:
 label fx_close:
   # The scene below clears the filter, tint, weather, wind, gravity and camera; these are what a scene leaves alone.
   focus on
+  letterbox off
   nvl off
   hud off fx_coins_hud
   # The panel's variables go back to empty, so every card leaves the story in the same state (the playtest bot counts situations by variables).

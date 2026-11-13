@@ -55,7 +55,7 @@ test('param merges into the sprite parameters; animate keeps only looping animat
 
 test('scene resets sprites, tint, camera, weather and filter, and keeps only images and HUD marked keep', () => {
   const s = stateWith(show('a'), { op: 'tint', color: '#f00', strength: 0.5 }, { op: 'camera', zoom: 2, x: 0.1, y: 0.2 },
-    { op: 'weather', kind: 'rain', intensity: 1 }, { op: 'filter', name: 'sepia', strength: 1 },
+    { op: 'weather', kind: 'rain', intensity: 1 }, { op: 'filter', looks: [{ name: 'sepia', strength: 1 }], merge: false },
     { op: 'image', action: 'show', name: 'logo', file: 'logo.png', keep: true }, { op: 'image', action: 'show', name: 'tmp', file: 'tmp.png' });
   s.hud = [{ name: 'a', keep: true }, { name: 'b', keep: false }];
   applyToState(s, { op: 'scene', bg: 'park' });
@@ -99,9 +99,9 @@ test('music: play, pause and resume, stop; sound loops stack and stop by name or
 });
 
 test('tint, weather and filter set or clear; camera keeps the zoom when none is given; behaviors and focus toggle', () => {
-  const s = stateWith({ op: 'tint', color: '#00f', strength: 0.3 }, { op: 'weather', kind: 'snow', intensity: 2 }, { op: 'filter', name: 'blur', strength: 4 });
-  assert.deepEqual([s.tint, s.weather, s.filter], [{ color: '#00f', strength: 0.3 }, { kind: 'snow', intensity: 2 }, { name: 'blur', strength: 4 }]);
-  applyToState(s, { op: 'tint', color: null }); applyToState(s, { op: 'weather', kind: null }); applyToState(s, { op: 'filter', name: null });
+  const s = stateWith({ op: 'tint', color: '#00f', strength: 0.3 }, { op: 'weather', kind: 'snow', intensity: 2 }, { op: 'filter', looks: [{ name: 'blur', strength: 0.4 }], merge: false });
+  assert.deepEqual([s.tint, s.weather, s.filter], [{ color: '#00f', strength: 0.3 }, { kind: 'snow', intensity: 2 }, [{ name: 'blur', strength: 0.4 }]]);
+  applyToState(s, { op: 'tint', color: null }); applyToState(s, { op: 'weather', kind: null }); applyToState(s, { op: 'filter', looks: [], merge: false });
   assert.deepEqual([s.tint, s.weather, s.filter], [null, null, null]);
   applyToState(s, { op: 'camera', zoom: 3, x: 0.2, y: 0.3 });
   applyToState(s, { op: 'camera', x: 0.6, y: 0.7 });

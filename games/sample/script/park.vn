@@ -47,4 +47,4 @@ label bench_talk:
       jump town_square
 
     "Call it a night." #zsc9:
-      end
+      end "An Early Night" #xzvo

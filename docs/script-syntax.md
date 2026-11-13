@@ -13,27 +13,33 @@ Ctrl+Enter (Preview from cursor) on a line or a label such as `label animation_s
 define alice "Alice" color=#ff6fa5      # character; optional style (see look-and-feel.md)
 set trust = 0                           # top-level lines run once before the story starts
 label start:                            # entry point is "start" (or the first label)
-  scene bg_park fade 0.5                # transitions: cut | fade | dissolve | wipe <left|right|up|down> | iris | blinds | pixelate; dissolve mask=<image in assets/transitions>
+  scene bg_park fade 0.5s               # transitions: cut | fade [#color] | dissolve | wipe <left|right|up|down> | push <dir> | iris | blinds | pixelate | zoom | ripple; dissolve mask=<image in assets/transitions>; hold=<duration> on fade
   music play theme loop  /  music stop fade 1s  /  music pause  /  music resume
   show alice smile at left fade 0.3s     # look(s), at left|center|right|0-1|a game.json position, slot=variant overrides
   show alice smile at 0.35 y=0.02 scale=1.1 flip=on   # place without a slide (the animation studio's Place row writes it)
   show bob at right behind=alice  /  show alice order=front|back   # draw order (else the order of first show, newest in front)
-  move alice to right 0.6s ease=out      # ease: linear | in | out | inout | back | bounce | elastic ; add `nowait` to run in background
+  move alice to right 0.6s ease=out      # ease: linear | in | out | inout | back | bounce | elastic | step ; add `nowait` to run in background
   move alice scale=1.2 rot=-5 y=-0.03 0.4s   # size, tilt, lift, alpha=, flip=on|off, anchor=feet|center|head|0.5,0.3 (the pivot)
   shake alice 0.3s strength=6   hop alice 0.25s   wait 0.5s   sound play door duck   # duck: the music dips under it
   sound loop rain fade 2s  /  sound stop rain fade 3s   # looping ambience on its own channel (`sound stop` alone ends all)
   movie play opening noskip                           # a fullscreen cutscene, assets/movie/opening.webm|mp4 (loop: repeats until skipped)
   animate alice breathe loop  /  animate alice nod  /  animate alice stop   # breathe bob sway nod shiver pulse bounce hop shake, or a rig.json animation; part=hair moves one part
-  animate robo pose=happy  /  animate robo look_x=0.6 mouth=0.8 over 0.4   # tween a rig's parameters or a pose (show robo pose=happy sets one)
-  flash [#ffffff] [0.4]                 # screen flash that fades out
+  animate robo pose=happy  /  animate robo look_x=0.6 mouth=0.8 over 0.4s   # tween a rig's parameters or a pose (show robo pose=happy sets one)
+  flash [#ffffff] [0.4s]                # screen flash that fades out
   tint #203060 0.4 1.5s  /  tint off      # colour wash over the scene: color, strength 0-1, seconds (lasts until `scene`)
   focus off  /  focus on                 # speaker focus (game.json "speakerFocus" dims who is not speaking): off for a group scene
   image show letter cg/letter at 960,540 anchor=center fade 0.4s  /  image move letter to 960,300 0.5s  /  image hide letter   # overlay pictures: assets/ path, stage pixels, layer=-1 behind characters, fixed, keep; a file in assets/movie plays as a looping video
-  camera zoom 1.5 at left y=0.4 0.8 ease=out  /  camera pan right 1  /  camera reset 0.5   # zoom about a point, slide it, reset; resets on `scene`
-  weather rain|snow|petals|embers [0.6] [1]  /  weather off      # falling particles: intensity 0-1, fade-in seconds
-  wind right|left [0.5] [gusts=0.4] [1]  /  wind off   # blows on physics chains (hair, ribbons): strength 0-2, gustiness 0-1, build-up seconds
+  camera zoom 1.5 at left y=0.4 0.8s ease=out  /  camera pan right 1s  /  camera reset 0.5s   # zoom about a point, slide it, reset; resets on `scene`
+  weather rain|snow|petals|embers|leaves|fog|fireflies [0.6] [1s]  /  weather off   # particles: intensity 0-1, fade-in time
+  wind right|left [0.5] [gusts=0.4] [1s]  /  wind off   # blows on physics chains (hair, ribbons): strength 0-2, gustiness 0-1, build-up time
   gravity 0.3  /  gravity reset         # how hard weather and bursts fall: 1 normal, 0 none, negative up
-  filter blur|grayscale|sepia|night|vignette [1] [0.8]  /  filter off   # a look over the scene: strength 0-1, seconds
+  filter blur|grayscale|sepia|night|invert|vignette|glow|sunbeams|chromatic|wave|pixelate|crt|grain|glitch|speedlines [1] [0.8s]  /  filter off
+                                        # a look over the scene: strength 0-1, fade time; stack with `filter sepia + grain`, add or drop one with `filter + glow` / `filter - glow`
+  letterbox [0.12] [1s]  /  letterbox off   # film bars at top and bottom (each bar's share of the stage height); survives `scene`
+  burst sparkle|smoke|confetti|dust at alice count=40   # a one-off puff of particles; does not hold the script up
+  camera roll -4 0.8s ease=inout        # tilt the view; image show ... parallax=0.5 follows the camera by half
+  behaviors off  /  behaviors on        # stop or restart what characters do by themselves (idle loop, blinking, talking mouth)
+  transform <name>:  /  choreography <name>:  then  animate alice <name>  /  perform <name>   # your own animations and staged moments (see commands.md)
   nvl on  /  nvl clear  /  nvl off      # full-screen narration pages instead of the text box; a new page on clear or scene
   textbox hide                          # hide the text box until the next line
 ```
@@ -50,7 +56,7 @@ label start:                            # entry point is "start" (or the first l
 ## Choices and conditions
 
 ```
-  menu "Optional prompt line" style=urgent timeout 8:   # style= (a theme style) and timeout are optional: seconds to answer; needs the on timeout block below
+  menu "Optional prompt line" style=urgent timeout 8s:   # style= (a theme style) and timeout are optional: time to answer; needs the on timeout block below
     "Option" if trust >= 1:             # optional condition; add  else "Reason shown"  to show it disabled instead of hiding it
       set trust += 1
       jump other
@@ -95,4 +101,5 @@ Lines get a trailing id like `#a3f9` (menu options: `"text" #a3f9:`). `npm run i
 The script is the source language; other languages live in `locale/<lang>.json` as `{ "a3f9": "..." }`.
 In the editor, **Translations** (Ctrl+P, then `>`) lists every string with its speaker, file and line beside the chosen
 language, saves what you type to `locale/<lang>.json`, starts a new language, filters to what is untranslated and exports a
-CSV with that context for translators. The list is virtual, so it stays fast with tens of thousands of strings.
+CSV with that context for translators. **Import CSV** reads such a sheet back (an `id` column and a column per language code;
+comma, semicolon or tab separated): empty cells keep the current translation, and ids no line has are skipped. The list is virtual, so it stays fast with tens of thousands of strings.

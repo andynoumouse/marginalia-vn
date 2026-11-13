@@ -1,9 +1,13 @@
 # Design notes: existing 2D character rig formats
 
-Background for the part hierarchy and mesh-warp items in `TODO.md`; a survey, not a decision. Written from memory of
-these projects, so check each one's current status and license before relying on it.
+Background for the part hierarchy and mesh-warp items in `TODO.md`; a survey, not a decision. Not checked against each project's sources, so verify its current status and license before
+relying on it.
 
-## Where the rig stands today
+## Where the rig stood (2026-11-05)
+
+*Since then* bones, looks, parameters, mesh warps, skinning and physics are built ([rig-hierarchy.md](rig-hierarchy.md),
+[animation-studio-parameters.md](animation-studio-parameters.md), [skinning.md](skinning.md)), so this section and the
+"In this engine" column below describe the starting point.
 
 Layered characters (`sprite.json` from a PSD plus `rig.json`) have flat parts: slots with swappable variants, plain
 layers, `order`, `groups` as lists of parts, per-part `pivots`, and keyframe animations whose keys can name a `part`.
@@ -15,8 +19,8 @@ inheritance and no mesh deformation. Everything is rigid.
 | Format | Openness | Model |
 |---|---|---|
 | **Spine** (Esoteric Software) | JSON and binary formats are documented; runtimes need a Spine editor license | Bone hierarchy, slots holding attachments, skins, weighted meshes, IK and other constraints, per-property timelines with curves. The de facto interchange format; an official PixiJS runtime exists. |
-| **DragonBones** | MIT format and runtimes, Pixi included | The same bone and slot model as Spine. Development has largely stalled as far as I know. |
-| **Inochi2D** | Open source (BSD), published `.inp` format | Live2D-style puppets: meshes with deformers driven by named parameters (head angle, mouth open). Editor: Inochi Creator; a Rust runtime (Inox2D). No mature Pixi runtime that I know of. |
+| **DragonBones** | MIT format and runtimes, Pixi included | The same bone and slot model as Spine. Development appears to have largely stalled. |
+| **Inochi2D** | Open source (BSD), published `.inp` format | Live2D-style puppets: meshes with deformers driven by named parameters (head angle, mouth open). Editor: Inochi Creator; a Rust runtime (Inox2D). No mature Pixi runtime found. |
 | **Rive** | MIT runtimes; the editor is a hosted product | Vector bones plus state machines. A solid web runtime, but not built around PSD-sliced art. |
 | **Spriter (SCML)**, **Creature** | Partly open, small ecosystems | Bone or mesh animation, less used now. |
 | **Live2D Cubism** | Proprietary (`.moc3`; closed Core runtime with bundling limits) | Parametric mesh warp. Community Pixi wrappers lag Pixi's releases. |

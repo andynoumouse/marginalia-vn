@@ -242,7 +242,7 @@ test('random add / delete sequences keep every entry valid and in range', () => 
     }
     const def = { id: 'm', part: 'p', mesh: { verts, tris, defaultBone: 'a', weights: mesh.weights }, keyforms: [] };
     const out = [];
-    checkDeformers({ deformers: [def], parameters: [] }, new Set(['p']), new Set(bones), new Set(), m => out.push(m));
+    checkDeformers({ deformers: [def], parameters: [] }, new Set(['p']), new Set(bones), m => out.push(m));
     assert.deepEqual(out, []);
   }
   assert.ok(applied > 30, `only ${applied} edits applied`);

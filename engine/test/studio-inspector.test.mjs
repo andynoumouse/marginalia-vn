@@ -49,8 +49,15 @@ test('the Weights bar: the selection operations show in Select mode only, and wa
 test('the gizmo line says what the gizmo poses and whether a drag writes', () => {
   assert.match(gizmoLine({ mode: 'model', chosen: null, subject: null }), /^Nothing chosen/);
   assert.equal(gizmoLine({ mode: 'model', chosen: 'torso', subject: 'spine', param: 'breathe', bound: false, other: ['warp'] }),
-    "poses spine, the bone torso sits on · spine is not bound to breathe: D keys torso's warp");
+    "poses spine, the bone torso sits on · spine has no pose on breathe, D keys torso's warp");
   assert.equal(gizmoLine({ mode: 'model', chosen: 'head', subject: 'head', param: 'head_x', bound: true }), 'poses head · a drag writes its keyform of head_x');
+  // UX round 3 MD-15: a part bound to nothing whose bone is bound points to the bone.
+  assert.equal(gizmoLine({ mode: 'model', chosen: 'upper_r', subject: 'arm_r', param: null, movedBy: [], boneMovedBy: { bone: 'arm_r', params: ['arm_r_lift'] } }),
+    'poses arm_r, the bone upper_r sits on · upper_r is bound to no parameter, its bone arm_r is (arm_r_lift): Alt-click upper_r chooses arm_r, or Bind to parameter… binds upper_r itself');
+  // UX round 3 MR-1: a part with no pivot of its own turns and scales about its bone's joint.
+  assert.equal(gizmoLine({ mode: 'model', chosen: 'eyes', subject: 'eyes', param: 'eye_open', bound: true, pivotFrom: 'head' }),
+    "poses eyes · a drag writes its keyform of eye_open · about head's joint: Q, then a click, gives eyes a pivot of its own");
+  assert.doesNotMatch(gizmoLine({ mode: 'model', chosen: 'eyes', subject: 'head', param: 'eye_open', bound: true, pivotFrom: 'head' }), /joint/, 'only when the part itself is posed');
   assert.match(gizmoLine({ mode: 'model', chosen: 'head', subject: 'head', param: 'blink', bound: false }), /head is not bound to blink: nothing to drag until it is \(Bind parts…, or ◆ on blink's row, binds it\)$/);
 });
 

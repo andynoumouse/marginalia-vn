@@ -61,3 +61,15 @@ export function withFix(src: Src, severity: Diagnostic['severity'], message: str
   const options = closest(word, known);
   return { file: src.file, line: src.line, severity, message: message + (options.length ? didYouMean(options) : otherwise), ...(options.length ? { fix: { word, options } } : {}) };
 }
+
+/** Reports a problem about the JSON key `at`; with `word` and `known`, the closest known names are offered as fixes (the rig.json checks). */
+export type ProblemReport = (message: string, at: string, word?: string, known?: Iterable<string>) => void;
+
+/**
+ * Where `word` stands in a line of JSON as a whole quoted string (`"word"`), as [start, end) character offsets of the word
+ * inside the quotes; null when it is not there. Used to replace it with a fix.
+ */
+export function jsonWordSpan(line: string, word: string): [number, number] | null {
+  const i = word ? line.indexOf(JSON.stringify(word)) : -1;
+  return i < 0 ? null : [i + 1, i + 1 + JSON.stringify(word).length - 2];
+}

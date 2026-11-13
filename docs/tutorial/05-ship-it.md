@@ -43,7 +43,8 @@ With Node.js the command is `npm run export -- --desktop`. More in [desktop](../
 ## Saves and the game id
 
 A player's saves and settings are stored under the game's `id` in `game.json` (`the-last-train` here). Pick it once,
-before the first release. **Changing the id or the title later starts everyone with empty saves.**
+before the first release. **Changing the id later starts everyone with empty saves.** So does changing the title of a game
+without an id, and the desktop app keeps its saves in a folder named after the title.
 
 ## Optional: an installable app
 

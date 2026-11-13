@@ -107,6 +107,7 @@ export class KeyEditor {
       // The key moves by how far the pointer went, not to where it is: a sideways drag keeps the value, an upward one keeps the time (SA-13).
       const range = this.frozen[ch] ?? host.ranges()[ch], start = localPoint(tl, e), k0 = host.current()!.def.keys[this.sel];
       const t0 = k0?.t ?? start.t, v0 = k0?.[ch] ?? valueAt(tl, ch, start.y, range), y0 = valueAt(tl, ch, start.y, range);
+      host.seek(t0); // clicking a key shows its pose on the stage, as clicking a frame block shows its frame (AN-14)
       move = m => {
         const p = localPoint(tl, m), c = host.current()!;
         const r = setKey(c.def, this.sel!, { t: Math.min(1, Math.max(0, t0 + p.t - start.t)), [ch]: v0 + valueAt(tl, ch, p.y, range) - y0 });

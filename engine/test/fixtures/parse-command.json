@@ -41,13 +41,13 @@
  "scene park slide left": {
   "ops": [],
   "diagnostics": [
-   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, push, iris, blinds, pixelate, zoom, ripple)"
   ]
  },
  "scene park slide left 2": {
   "ops": [],
   "diagnostics": [
-   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+   "error: Unexpected \"slide\" in scene (transitions: cut, fade, dissolve, wipe, push, iris, blinds, pixelate, zoom, ripple)"
   ]
  },
  "scene park mask=ui/m.png dissolve 1s": {
@@ -72,13 +72,13 @@
  "scene park wobble": {
   "ops": [],
   "diagnostics": [
-   "error: Unexpected \"wobble\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+   "error: Unexpected \"wobble\" in scene (transitions: cut, fade, dissolve, wipe, push, iris, blinds, pixelate, zoom, ripple)"
   ]
  },
  "scene park fade x": {
   "ops": [],
   "diagnostics": [
-   "error: Unexpected \"x\" in scene (transitions: cut, fade, dissolve, wipe, iris, blinds, pixelate)"
+   "error: Unexpected \"x\" in scene (transitions: cut, fade, dissolve, wipe, push, iris, blinds, pixelate, zoom, ripple)"
   ]
  },
  "show ann": {
@@ -441,7 +441,7 @@
  "move ann to left ease=wobble": {
   "ops": [],
   "diagnostics": [
-   "error: Unknown ease \"wobble\" (linear, in, out, inout, back, bounce, elastic, or bezier(x1,y1,x2,y2))"
+   "error: Unknown ease \"wobble\" (linear, in, out, inout, back, bounce, elastic, step, or bezier(x1,y1,x2,y2))"
   ]
  },
  "move ann to left ease=bezier(0.2,0,0.4,1)": {
@@ -1378,14 +1378,19 @@
  "weather": {
   "ops": [],
   "diagnostics": [
-   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [duration like 2s], or weather off [duration]"
+   "error: Use: weather <rain|snow|petals|embers|leaves|fog|fireflies> [intensity 0-1] [duration like 2s], or weather off [duration]"
   ]
  },
  "weather fog": {
-  "ops": [],
-  "diagnostics": [
-   "error: Use: weather <rain|snow|petals|embers> [intensity 0-1] [duration like 2s], or weather off [duration]"
-  ]
+  "ops": [
+   {
+    "op": "weather",
+    "kind": "fog",
+    "intensity": 0.6,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
  },
  "weather rain 2": {
   "ops": [],
@@ -1397,8 +1402,13 @@
   "ops": [
    {
     "op": "filter",
-    "name": "blur",
-    "strength": 1,
+    "looks": [
+     {
+      "name": "blur",
+      "strength": 1
+     }
+    ],
+    "merge": false,
     "dur": 0
    }
   ],
@@ -1408,8 +1418,13 @@
   "ops": [
    {
     "op": "filter",
-    "name": "glow",
-    "strength": 1,
+    "looks": [
+     {
+      "name": "glow",
+      "strength": 1
+     }
+    ],
+    "merge": false,
     "dur": 0
    }
   ],
@@ -1419,8 +1434,13 @@
   "ops": [
    {
     "op": "filter",
-    "name": "chromatic",
-    "strength": 0.6,
+    "looks": [
+     {
+      "name": "chromatic",
+      "strength": 0.6
+     }
+    ],
+    "merge": false,
     "dur": 1
    }
   ],
@@ -1430,8 +1450,13 @@
   "ops": [
    {
     "op": "filter",
-    "name": "glitch",
-    "strength": 0.5,
+    "looks": [
+     {
+      "name": "glitch",
+      "strength": 0.5
+     }
+    ],
+    "merge": false,
     "dur": 0
    }
   ],
@@ -1441,8 +1466,13 @@
   "ops": [
    {
     "op": "filter",
-    "name": "sepia",
-    "strength": 0.5,
+    "looks": [
+     {
+      "name": "sepia",
+      "strength": 0.5
+     }
+    ],
+    "merge": false,
     "dur": 2
    }
   ],
@@ -1452,8 +1482,8 @@
   "ops": [
    {
     "op": "filter",
-    "name": null,
-    "strength": 0,
+    "looks": [],
+    "merge": false,
     "dur": 0
    }
   ],
@@ -1463,8 +1493,8 @@
   "ops": [
    {
     "op": "filter",
-    "name": null,
-    "strength": 0,
+    "looks": [],
+    "merge": false,
     "dur": 1
    }
   ],
@@ -1473,19 +1503,278 @@
  "filter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
+   "error: Use: filter <blur|grayscale|sepia|night|invert|vignette|glow|sunbeams|chromatic|wave|pixelate|crt|grain|glitch|speedlines> [strength 0-1] [+ <another> [strength]] [duration like 1s]; filter + <name> [strength] [duration] adds one, filter - <name> [duration] takes one off, filter off [duration] clears them"
   ]
  },
  "filter glitter": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
+   "error: Unknown filter \"glitter\" (blur, grayscale, sepia, night, invert, vignette, glow, sunbeams, chromatic, wave, pixelate, crt, grain, glitch, speedlines)"
   ]
  },
  "filter night x": {
   "ops": [],
   "diagnostics": [
-   "error: Use: filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration like 1s], or filter off [duration]"
+   "error: Use: filter <blur|grayscale|sepia|night|invert|vignette|glow|sunbeams|chromatic|wave|pixelate|crt|grain|glitch|speedlines> [strength 0-1] [+ <another> [strength]] [duration like 1s]; filter + <name> [strength] [duration] adds one, filter - <name> [duration] takes one off, filter off [duration] clears them"
+  ]
+ },
+ "filter wave 0.5": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "wave",
+      "strength": 0.5
+     }
+    ],
+    "merge": false,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter grain + crt 0.6 1s": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "grain",
+      "strength": 1
+     },
+     {
+      "name": "crt",
+      "strength": 0.6
+     }
+    ],
+    "merge": false,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter invert": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "invert",
+      "strength": 1
+     }
+    ],
+    "merge": false,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter pixelate 0.3": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "pixelate",
+      "strength": 0.3
+     }
+    ],
+    "merge": false,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter sepia 0.8 + vignette 0.6 1s": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "sepia",
+      "strength": 0.8
+     },
+     {
+      "name": "vignette",
+      "strength": 0.6
+     }
+    ],
+    "merge": false,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter + glow 0.4": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "glow",
+      "strength": 0.4
+     }
+    ],
+    "merge": true,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter - vignette 0.5s": {
+  "ops": [
+   {
+    "op": "filter",
+    "looks": [
+     {
+      "name": "vignette",
+      "strength": 0
+     }
+    ],
+    "merge": true,
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "filter sepia + sepia": {
+  "ops": [],
+  "diagnostics": [
+   "error: The filter \"sepia\" is named twice"
+  ]
+ },
+ "filter sepia +": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: filter <blur|grayscale|sepia|night|invert|vignette|glow|sunbeams|chromatic|wave|pixelate|crt|grain|glitch|speedlines> [strength 0-1] [+ <another> [strength]] [duration like 1s]; filter + <name> [strength] [duration] adds one, filter - <name> [duration] takes one off, filter off [duration] clears them"
+  ]
+ },
+ "scene bg_park push right 0.8s": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "bg_park",
+    "transition": "push",
+    "dir": "right",
+    "mask": null,
+    "dur": 0.8
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene bg_park push": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "bg_park",
+    "transition": "push",
+    "dir": "left",
+    "mask": null,
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene bg_park push sideways": {
+  "ops": [],
+  "diagnostics": [
+   "error: A push comes from left, right, up, down, not \"sideways\""
+  ]
+ },
+ "scene bg_park zoom 1s": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "bg_park",
+    "transition": "zoom",
+    "dir": null,
+    "mask": null,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene bg_park ripple 1.2s": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "bg_park",
+    "transition": "ripple",
+    "dir": null,
+    "mask": null,
+    "dur": 1.2
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene bg_park fade #ffffff 1s hold=0.5s": {
+  "ops": [
+   {
+    "op": "scene",
+    "bg": "bg_park",
+    "transition": "fade",
+    "dir": null,
+    "mask": null,
+    "dur": 1,
+    "color": "#ffffff",
+    "hold": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "scene bg_park dissolve #fff": {
+  "ops": [],
+  "diagnostics": [
+   "error: A color goes with fade (scene <background> fade #ffffff 1s), not dissolve"
+  ]
+ },
+ "scene bg_park hold=1s": {
+  "ops": [],
+  "diagnostics": [
+   "error: hold= goes with fade, not cut"
+  ]
+ },
+ "letterbox": {
+  "ops": [
+   {
+    "op": "letterbox",
+    "size": 0.12,
+    "dur": 0
+   }
+  ],
+  "diagnostics": []
+ },
+ "letterbox 0.2 1s": {
+  "ops": [
+   {
+    "op": "letterbox",
+    "size": 0.2,
+    "dur": 1
+   }
+  ],
+  "diagnostics": []
+ },
+ "letterbox off 0.5s": {
+  "ops": [
+   {
+    "op": "letterbox",
+    "size": 0,
+    "dur": 0.5
+   }
+  ],
+  "diagnostics": []
+ },
+ "letterbox 0": {
+  "ops": [],
+  "diagnostics": [
+   "error: A letterbox bar is more than 0 and at most 0.4 of the stage height (letterbox off takes the bars away)"
+  ]
+ },
+ "letterbox wide": {
+  "ops": [],
+  "diagnostics": [
+   "error: Use: letterbox [bar height 0-0.4, 0.12 by default] [duration like 0.5s], or letterbox off [duration]"
   ]
  },
  "focus on": {
@@ -2228,7 +2517,63 @@
    }
   ],
   "diagnostics": [
-   "error: Unexpected \"now\" in end"
+   "error: Use: end [\"Ending name\"] (the name in quotes)"
+  ]
+ },
+ "end \"The Quiet Ending\"": {
+  "ops": [
+   {
+    "op": "end",
+    "title": "The Quiet Ending",
+    "id": null
+   },
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": []
+ },
+ "end \"The Quiet Ending\" #ql01": {
+  "ops": [
+   {
+    "op": "end",
+    "title": "The Quiet Ending",
+    "id": "ql01"
+   },
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": []
+ },
+ "end #ql01": {
+  "ops": [
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": [
+   "error: An end id needs an ending name to translate"
+  ]
+ },
+ "end \"A\" \"B\"": {
+  "ops": [
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": [
+   "error: Use: end [\"Ending name\"] (the name in quotes)"
+  ]
+ },
+ "end \"A\" now": {
+  "ops": [
+   {
+    "op": "end"
+   }
+  ],
+  "diagnostics": [
+   "error: Use: end [\"Ending name\"] (the name in quotes)"
   ]
  },
  "nvl on": {

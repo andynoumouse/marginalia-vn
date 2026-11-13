@@ -537,7 +537,9 @@ export class Runtime {
       }
       case 'unlock':
         if (!this.unlocks.includes(op.name)) this.unlocks.push(op.name);
-        this.onUnlock(op.name); // also during replay: storing a flag again is harmless
+        // Also during a save's replay: storing a flag again is harmless. Not on the way to a script line (Preview from cursor, Try in
+        // scene): that route is guessed, and its unlocks are not the player's (UX round 3 ED-4).
+        if (!(this.instant && this.target && !('step' in this.target))) this.onUnlock(op.name);
         break;
       case 'hud': {
         const list = (this.state.hud ??= []).filter(h => h.name !== op.name);
@@ -595,6 +597,9 @@ export class Runtime {
     }
   }
 
+  /** The name of the ending an `end "Name"` just reached, for renderer.end(). */
+  private endTitle = '';
+
   private async loop(): Promise<void> {
     const gen = ++this.gen;
     const { ops } = this.program;
@@ -602,10 +607,12 @@ export class Runtime {
     while (gen === this.gen) {
       if (this.rerun.kind === 'label' && this.instant && --this.rerun.budget < 0) this.pc = ops.length; // the label goes round in circles
       if (this.pc < 0 || this.pc >= ops.length) {
+        const title = this.endTitle;
+        this.endTitle = '';
         if (this.resolveRerun()) continue;
         if (this.cutscene) { this.cutscene = false; this.cutsceneDone = true; return; }
         if (!await this.finishInstant(gen, null)) return;
-        this.renderer.end();
+        this.renderer.end(title);
         return;
       }
       const op = ops[this.pc];
@@ -826,6 +833,7 @@ export class Runtime {
         else this.pc = ops.length;
         break;
       case 'end':
+        this.endTitle = op.title ? this.fmt(this.locale.t(op.id ?? null, op.title)) : '';
         this.pc = ops.length;
         break;
       case 'nvl':

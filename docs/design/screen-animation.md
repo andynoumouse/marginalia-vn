@@ -22,13 +22,13 @@ element that disappears is already gone from the DOM before it could animate out
 Three clauses, valid on any element line, written with the other clauses:
 
 ```
-on enter <effect> [seconds] [delay seconds] [stagger seconds] [distance=80]
-on exit  <effect> [seconds] [delay seconds] [distance=80]
-loop <effect> [seconds] [strength=1]
+on enter <effect> [duration] [delay <duration>] [stagger <duration>] [distance=80]
+on exit  <effect> [duration] [delay <duration>] [distance=80]
+loop <effect> [duration] [strength=1]
 ```
 
-`distance=` (stage pixels, `slide` only) is a keyword like `strength=` so it cannot be mistaken for the seconds, as in
-`on enter slide left 0.4 distance=200`.
+`distance=` (stage pixels, `slide` only) is a keyword like `strength=` so it cannot be mistaken for the duration, as in
+`on enter slide left 0.4s distance=200`. (Durations carry their unit since [time-units.md](time-units.md).)
 
 `on enter` and `on exit` sit beside the existing `on click|focus|blur` events. `on` is already a clause-start word, so the
 parser needs no new one: it looks at the word after `on`. Unlike `click`, `focus` and `blur`, these two take an effect and
@@ -36,12 +36,12 @@ not a label or a `set`. `loop` is a standing state, not an event, so it is not u
 
 ```
 screen journal:
-    panel at 400,200 size 1120,680 image "ui/frame.png" slice 40 on enter fade 0.3 on exit fade 0.2
-        text at 40,40 "Journal" on enter slide down 0.4 delay 0.1
-        each notes as n at 40,120 step 0,64 on enter slide right 0.25 stagger 0.06:
+    panel at 400,200 size 1120,680 image "ui/frame.png" slice 40 on enter fade 0.3s on exit fade 0.2s:
+        text at 40,40 "Journal" on enter slide down 0.4s delay 0.1s
+        each notes as n at 40,120 step 0,64 on enter slide right 0.25s stagger 0.06s:
             text at 0,0 "[n]"
-    button close at 1500,60 "Close" on enter pop 0.2 delay 0.4
-    image "ui/new.png" at 1700,90 loop pulse 1.2
+    button close at 1500,60 "Close" on enter pop 0.2s delay 0.4s
+    image "ui/new.png" at 1700,90 loop pulse 1.2s
 ```
 
 ### Effects for `on enter` and `on exit`
@@ -108,7 +108,8 @@ one cycle, with the same defaults as `animate`.
   container runs its own exit, and the `delay`s order them. (An earlier draft had a `cascade` flag for this; it was
   dropped as redundant and was never built.)
 - **Built-in screens.** The clauses are parsed on every screen, so a project's `screen title` can use them. The built-in
-  CSS-drawn screens (the options and saves defaults) are left alone.
+  CSS-drawn screens (the options and saves defaults) were left alone; since then the built-ins are screens too
+  (`engine/src/ui-screens.ts`) and use the clauses.
 
 ## Parsing and view
 

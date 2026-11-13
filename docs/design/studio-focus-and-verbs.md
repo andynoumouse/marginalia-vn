@@ -136,7 +136,8 @@ the focus transitions with the breadcrumb and previous / next key, then these do
 - **Alt-click on a bone** in a Bind parts… pick binds the bone, the bones below it and their parts. Unbinding a subtree at once is gone with the tick that did it; the ✕ unbinds one part.
 - **The previous / next buttons** step along the keys of the chosen part on the active slider; changing the part goes through Bound parts or a click.
 - **Overlapping parts** cycle in Model mode only; Animate keeps its single frontmost pick.
-- **Names.** The "Keyed by" list of the design is the existing **Moved by** row.
+- **Names.** The "Keyed by" list of the design is the existing **Moved by** row (since then Bound parts and Moved by are the focus
+  header's ▾ lists, see [studio-inspector.md](studio-inspector.md)).
 - **A drag with a part alone in focus** writes nothing and says to press Moved by or Bind to parameter…; a drag on an unbound part says to bind it first.
 
 Left open: a pick for Copy keys; whether a drag that adds a key by accident needs more than Ctrl+Z; the over-stage copy of the breadcrumb. Three studio browser tests

@@ -55,8 +55,8 @@ differences that bite first, and what has no equivalent yet.
 
 - **`python:` blocks, `init python`, and Python classes.** The most common reason a Ren'Py game cannot be ported as-is.
 - **Most of ATL.** A [`transform`](../../commands.md#transform) block is a named sequence of tweens, waits and
-  `repeat`, played with `animate`, on a character or a picture. Marginalia has no `parallel` or `choice` blocks, events
-  (`on show`) or per-frame transform language, and a transform's values are relative to where the sprite stands.
+  `repeat`, with `parallel:` and `choice:` blocks, played with `animate`, on a character or a picture. Marginalia has no
+  events (`on show`) or per-frame transform language, and a transform's values are relative to where the sprite stands.
 - **Layered images by attribute** (`layeredimage`). The nearest thing is a layered PSD character with slots and
   looks: [layered characters](d-layered-characters.md).
 - **Ren'Py's ecosystem of add-ons.** Systems such as a phone UI, a battle system or a map are built from

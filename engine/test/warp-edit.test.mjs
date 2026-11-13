@@ -11,7 +11,7 @@ const nearAll = (a, b, eps = 1e-5) => { assert.equal(a.length, b.length); a.forE
 const sway = { id: 'sway', min: 0, max: 1, default: 0 };
 const turn = { id: 'turn', min: -1, max: 1, default: 0 };
 const deformer = (keyforms = [], grid = [2, 2]) => ({ id: 'd', part: 'p', grid, keyforms });
-const problems = def => { const out = []; checkDeformers({ deformers: [def], parameters: [sway, turn] }, new Set(['p']), new Set(), new Set(), m => out.push(m)); return out; };
+const problems = def => { const out = []; checkDeformers({ deformers: [def], parameters: [sway, turn] }, new Set(['p']), new Set(), m => out.push(m)); return out; };
 const at = (def, id, v) => [...evalDeformer(def, { [id]: v })];
 
 test('a drag on a point at a key writes its displacement there, sparse', () => {
@@ -349,7 +349,7 @@ test('mirror and smooth can act on chosen points only', () => {
 
 const groupProblems = (def, extra = {}) => {
   const out = [];
-  checkDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: [sway, turn] }, new Set(['a', 'b', 'c']), new Set(['head']), extra.framed ?? new Set(), m => out.push(m), extra.boneOf ?? new Map());
+  checkDeformers({ deformers: Array.isArray(def) ? def : [def], parameters: [sway, turn] }, new Set(['a', 'b', 'c']), new Set(['head']), m => out.push(m), extra.boneOf ?? new Map());
   return out;
 };
 const group = (more = {}) => ({ id: 'g', members: ['a', 'b'], grid: [2, 2], keyforms: [], ...more });
@@ -373,8 +373,7 @@ test('a part is in one group warp at most, and keeps its one own warp', () => {
   assert.match(groupProblems([{ id: 'p1', part: 'a', keyforms: [] }, { id: 'p2', part: 'a', keyforms: [] }])[0], /already has deformer "p1"/);
 });
 
-test('a member with a frame track is an error, and members on different bones are warned about', () => {
-  assert.match(groupProblems(group(), { framed: new Set(['b']) })[0], /"b" has a frame track/);
+test('members on different bones are warned about', () => {
   assert.deepEqual(groupProblems(group(), { boneOf: new Map([['a', 'head'], ['b', 'head']]) }), []);
   assert.match(groupProblems(group(), { boneOf: new Map([['a', 'head'], ['b', 'neck']]) })[0], /different bones \(head, neck\)/);
 });

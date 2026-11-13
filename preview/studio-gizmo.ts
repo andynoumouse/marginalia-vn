@@ -19,7 +19,7 @@
 // bone's body (its pivot to its children's pivots and its tip) over it, and a click on a vertex reports it; the editor shows its weights.
 
 import {
-  dragBone, fitBounds, gizmoFrame, gizmoHandles, GIZMO_RING, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, ringAround, meshEdges, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
+  dragBone, fitBounds, rotateSweep, gizmoFrame, gizmoHandles, GIZMO_RING, handleSize, IDENTITY_STAGE_VIEW, latticeEdges, nearestEdge, NO_OFFSET, shapeAtEdge, shapeAtInside, offsetDelta, panBy, pickHandle, pickPoint, ringAround, meshEdges, screenToWorld, sumOffset, wheelFactor, worldToScreen, zoomViewAt,
   softWeights, meshSoftWeights, isPaintBrush, brushCursor, escapeAction, choiceCue,
   type GizmoHandle, type GizmoPoint, type GizmoSpace, type GizmoTool, type Offset, type StageView, type WarpFalloff, type StageMode, type WeightsBrush,
 } from '../engine/src/index.js';
@@ -65,7 +65,8 @@ const svg = <K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string,
 
 export class StageTools {
   view: StageView = { ...IDENTITY_STAGE_VIEW };
-  private fitTo: 'stage' | 'character' | null = 'stage'; // what the view keeps fitted when its box changes size; a zoom or pan of the user's ends that
+  private measured = false; // the last fit to the character found its art (settle() fits only until then)
+  private fitTo: 'stage' | 'character' | null = 'stage';// what the view keeps fitted when its box changes size; a zoom or pan of the user's ends that
   /** The studio stacks its columns and scrolls them (a narrow window): a plain wheel scrolls that column, Ctrl+wheel (or a pinch) zooms. */
   private scrollsPage = false;
   private cfg: GizmoConfig = { tool: null, name: null, space: 'local', mode: null };
@@ -110,6 +111,8 @@ export class StageTools {
     repose: () => void;
     /** Pivots / placing own the pointer, or an animation plays: no gizmo. */
     suspended: () => boolean;
+    /** Does posing `subject` (a part or a bone) move `part`: the part itself, or a part on that bone or a bone under it? */
+    carries: (part: string, subject: string) => boolean;
   }) {
     stage.style.left = '0';
     stage.style.top = '0';
@@ -156,13 +159,19 @@ export class StageTools {
    * stage box is also taller). Only while the view is a fit: a zoom or pan of the user's stays.
    */
   fitFor(model: boolean) { if (this.fitTo) this.fit(!model); }
-  /** Fit again what the view is fitted to (after the art loaded or changed size). */
+  /** Fit again what the view is fitted to (F, a mode switch, a resize). */
   refit() {
     if (!this.fitTo) return;
     const b = this.fitTo === 'character' ? this.deps.renderer.studioBounds(this.deps.char) : null;
+    this.measured = !!b;
     this.view = fitBounds(b ?? { x: 0, y: 0, w: W, h: H }, this.vw, this.vh, b ? 40 : 0);
     this.applyView();
   }
+  /**
+   * The stage was drawn again: a fit to the character waiting for its art fits now. Once the art was measured the view stays put, so a
+   * pose that changes the character's bounds does not move it under the pointer (MR-5, MD-11); F fits again.
+   */
+  settle() { if (this.fitTo === 'character' && !this.measured) this.refit(); }
 
   configure(c: GizmoConfig) {
     const was = this.cfg.mode;
@@ -329,6 +338,12 @@ export class StageTools {
     else {
       this.frame = frame;
       for (const h of gizmoHandles(c.tool, frame)) this.drawHandle(h, h.axis === this.hover?.axis);
+      // While a rotation is dragged, the turn so far by the ring: past a full turn 370° and 10° look alike on the stage (MD-14).
+      if (this.busy && c.tool === 'rotate' && this.drag?.name === c.name) {
+        const r = Math.round(this.drag.delta.rot * 10) / 10, ring = gizmoHandles('rotate', frame)[0]?.radius ?? 40;
+        const text = `${r > 0 ? '+' : ''}${r}°${Math.abs(r) >= 360 ? ` (${Math.trunc(r / 360)} turn${Math.abs(r) >= 720 ? 's' : ''})` : ''}`;
+        svg('text', { x: o[0], y: o[1] - ring - 10, 'text-anchor': 'middle', 'font-size': 14, 'font-family': 'system-ui, sans-serif', 'font-weight': 600, fill: '#fff', stroke: '#000', 'stroke-width': 4, 'paint-order': 'stroke', 'data-readout': 'rot' }, this.overlay).textContent = text;
+      }
     }
     if (cue.tag) this.placeTag(cue.tag, o, frame.x, frame.y);
   }
@@ -407,6 +422,12 @@ export class StageTools {
     const sig = `${w.id}|${m.box.w}|${m.box.h}|${m.size.w}|${m.size.h}`;
     if (sig !== this.reportedSkinBox) { this.reportedSkinBox = sig; this.deps.send({ type: 'studioWarpBox', id: w.id, w: m.box.w, h: m.box.h, pw: m.size.w, ph: m.size.h }); }
     const at = this.skinVerts = m.verts.map(p => worldToScreen(this.view, p));
+    // Each triangle tinted by its corners' mean weight, so where a bone pulls reads as an area, not only as dots (MD-13).
+    const heat = (i: number) => Math.min(1, Math.max(0, w.heat[i] ?? 0));
+    for (let t = 0; t + 2 < m.tris.length; t += 3) {
+      const [a, b, c] = [m.tris[t], m.tris[t + 1], m.tris[t + 2]], k = (heat(a) + heat(b) + heat(c)) / 3;
+      if (k > 0.02 && at[a] && at[b] && at[c]) svg('polygon', { points: [at[a], at[b], at[c]].map(p => p.join(',')).join(' '), fill: `hsl(${Math.round(240 * (1 - k))} 90% 55%)`, 'fill-opacity': 0.15 + 0.35 * k, stroke: 'none' }, this.overlay);
+    }
     for (const [stroke, width, opacity] of [['#000', 3, 0.35], ['#fff', 1, 0.55]] as const)
       for (const [a, b] of m.edges) svg('line', { x1: at[a][0], y1: at[a][1], x2: at[b][0], y2: at[b][1], stroke, 'stroke-width': width, 'stroke-opacity': opacity }, this.overlay);
     at.forEach((p, i) => {
@@ -604,6 +625,11 @@ export class StageTools {
     // Rotate: a drag from inside the ring turns the subject; a click there still chooses (the Weights test pose's ring keeps its inside for the brush).
     const ring = mode === 'transform' && this.frame && this.cfg.tool === 'rotate' && this.cfg.name ? ringAround(gizmoHandles('rotate', this.frame), p) : null;
     if (ring) { this.dragOrClick(e, () => this.startDrag(e, ring), () => this.transformDown(e, p)); return; }
+    // Move: a drag that starts on art the chosen part or bone carries moves it, as the gizmo's centre does; a click there still chooses (MR-2).
+    if (mode === 'transform' && this.frame && this.cfg.tool === 'move' && this.cfg.name && !this.cfg.lock && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      const top = this.hitsAt(e)[0], free = gizmoHandles('move', this.frame).find(x => x.axis === 'free');
+      if (top !== undefined && free && this.deps.carries(top, this.cfg.name)) { this.dragOrClick(e, () => this.startDrag(e, free), () => this.transformDown(e, p)); return; }
+    }
     if (mode === 'weights') this.weightsDown(e, p);
     else if (mode === 'warp') this.warpDown(e, p);
     else if (mode === 'mask') this.maskDown(e, p);
@@ -819,8 +845,12 @@ export class StageTools {
     this.busy = true;
     send('start', NO_OFFSET);
     let last = NO_OFFSET;
+    // Rotate adds up the turn move by move, so going round past half a turn keeps going instead of flipping to the other side.
+    let at = from, sweep = 0;
     const step = (ev: PointerEvent, phase: 'move' | 'end') => {
-      const next = dragBone({ tool, start: t.offset, pivot: t.pivot, parent: t.parent, unit: t.unit, from, to: local(ev), mods: { shift: ev.shiftKey, alt: ev.altKey }, space: c.space, axis: h.axis, center: t.center });
+      const to = local(ev);
+      if (tool === 'rotate') { sweep += rotateSweep({ start: t.offset, pivot: t.pivot, parent: t.parent, unit: t.unit, from: at, to }); at = to; }
+      const next = dragBone({ tool, start: t.offset, pivot: t.pivot, parent: t.parent, unit: t.unit, from, to, mods: { shift: ev.shiftKey, alt: ev.altKey }, space: c.space, axis: h.axis, center: t.center, ...(tool === 'rotate' ? { sweep } : {}) });
       last = offsetDelta(t.offset, next);
       this.drag = { name, delta: last }; // the pose shows the drag as it goes, in either mode; the editor decides what a finished drag becomes
       this.deps.repose();

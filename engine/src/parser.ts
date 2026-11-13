@@ -5,7 +5,7 @@ import { parseTransformLine, type ChoreographyDef, type ChoreographyLine, type T
 import { BUILTIN_POSITIONS, type Position, type Positions } from './positions.js';
 import { parseExpr, parseExprList, usesRandom, ExprError, type Expr } from './expr.js';
 import { durationOf, isBareNumber, isDuration, readDuration, unitMessage } from './duration.js';
-import { BURST_NAMES, FILTER_NAMES, WEATHER_NAMES, isBurstName, isFilterName, isWeatherName, type BurstName, type FilterName, type WeatherName } from './fx.js';
+import { BURST_NAMES, DIRECTIONS, FILTER_NAMES, LETTERBOX_MAX, LETTERBOX_SIZE, WEATHER_NAMES, isBurstName, isFilterName, isWeatherName, type BurstName, type FilterLook, type FilterName, type WeatherName } from './fx.js';
 import type { LocalSets, ScreenDef, ScreenNode } from './screens.js';
 import { DEFAULT_STAGE, stageLabel, type StageSize } from './stage.js';
 import { withFix } from './suggest.js';
@@ -21,6 +21,8 @@ export const RE_NARR = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+style=(\w+))?(?:[ \t]+#([A-
 // `input name "Prompt" [options] [#id]`: the prompt is a localizable string when it has an id.
 export const RE_INPUT = /^input[ \t]+[A-Za-z_]\w*[ \t]+"((?:[^"\\]|\\.)+)"/;
 export const RE_INPUT_ID = /[ \t]#([A-Za-z0-9]{4,8})$/;
+/** `end "Ending name"`: its id is at the end of the line too (RE_INPUT_ID). */
+export const RE_END = /^end[ \t]+"((?:[^"\\]|\\.)+)"/;
 // `"Text" [#id] [if cond [else "Reason" [#id]]]:`; with an `else` an option whose condition fails is shown disabled, with the reason.
 export const RE_OPT = /^"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?(?:[ \t]+if[ \t]+(.+?)(?:[ \t]+else[ \t]+"((?:[^"\\]|\\.)*)"(?:[ \t]+#([A-Za-z0-9]{4,8}))?)?)?[ \t]*:$/;
 
@@ -72,7 +74,7 @@ class UnknownCommand extends ParseError {
 }
 /** Every word a statement can start with (for "did you mean" on an unknown one). */
 export const COMMAND_WORDS = ['label', 'menu', 'if', 'elif', 'else', 'set', 'define', 'transform', 'choreography', 'screen', 'scene', 'show', 'hide', 'move', 'shake',
-  'animate', 'hop', 'perform', 'burst', 'flash', 'tint', 'focus', 'behaviors', 'camera', 'weather', 'wind', 'gravity', 'filter', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
+  'animate', 'hop', 'perform', 'burst', 'flash', 'tint', 'focus', 'behaviors', 'camera', 'weather', 'wind', 'gravity', 'filter', 'letterbox', 'hud', 'image', 'music', 'sound', 'movie', 'wait', 'call', 'jump', 'nvl',
   'textbox', 'unlock', 'input', 'return', 'end'] as const;
 export type CommandWord = (typeof COMMAND_WORDS)[number];
 /** `parts`: the physical lines of a screen element written over several (this line first, then its clause continuations); `text` is then all of them joined. */
@@ -195,17 +197,33 @@ function parseSceneCommand(c: Cmd): OpBody {
     if (!mask) throw new ParseError('mask= needs the name of an image in assets/transitions');
     a = c.a = a.filter(t => t !== maskTok);
   }
-  let i = 1, dir: string | null = null;
+  // `hold=<duration>`: how long a fade stays on its color between going out and coming in.
+  let hold: number | undefined;
+  const holdTok = a.find(t => t.startsWith('hold='));
+  if (holdTok) {
+    hold = durationOf(holdTok.slice(5)) ?? undefined;
+    if (hold === undefined) throw new ParseError(isBareNumber(holdTok.slice(5)) ? unitMessage(holdTok.slice(5)) : 'hold= takes a duration like 0.5s');
+    a = c.a = a.filter(t => t !== holdTok);
+  }
+  let i = 1, dir: string | null = null, color: string | undefined;
   let transition = (mask ? 'dissolve' : 'cut') as Transition;
   if (TRANSITIONS.includes(a[i] as Transition)) transition = a[i++] as Transition;
   if (mask && transition !== 'dissolve') throw new ParseError(`mask= works with dissolve, not ${transition}`);
-  if (transition === 'wipe') dir = !isNum(a[i]) && !isDuration(a[i]) && a[i] !== undefined ? a[i++] : 'left';
+  if (transition === 'wipe' || transition === 'push') {
+    dir = !isNum(a[i]) && !isDuration(a[i]) && a[i] !== undefined && !COLOR.test(a[i]) ? a[i++] : 'left';
+    if (!(DIRECTIONS as readonly string[]).includes(dir)) throw new ParseError(`A ${transition} comes from ${DIRECTIONS.join(', ')}, not "${dir}"`);
+  }
+  if (a[i] !== undefined && COLOR.test(a[i])) {
+    if (transition !== 'fade') throw new ParseError(`A color goes with fade (scene <background> fade #ffffff 1s), not ${transition}`);
+    color = a[i++];
+  }
+  if (hold !== undefined && transition !== 'fade') throw new ParseError(`hold= goes with fade, not ${transition}`);
   bareDur(a[i]);
   const d = durationOf(a[i]);
   if (d !== null) i++;
   extra(i, `transitions: ${TRANSITIONS.join(', ')}`);
   const dur = d ?? (transition === 'cut' ? 0 : 0.5);
-  return visual({ op: 'scene', bg, transition, dir, mask, dur });
+  return visual({ op: 'scene', bg, transition, dir, mask, dur, ...(color ? { color } : {}), ...(hold ? { hold } : {}) });
 }
 
 function parseShowCommand(c: Cmd): OpBody {
@@ -530,14 +548,49 @@ function parseGravityCommand(c: Cmd): OpBody {
   return c.visual({ op: 'gravity', factor });
 }
 
+/** `filter <name> [strength] [+ <name> [strength]]... [duration]` sets the whole look; `filter + ...` changes only the filters it names, `filter - <name>` takes one off. */
 function parseFilterCommand(c: Cmd): OpBody {
-  const { parseLevel, offDur, visual } = c;
+  const { offDur, visual } = c;
   const a = c.a;
-  const usage = `Use: filter <${FILTER_NAMES.join('|')}> [strength 0-1] [duration like 1s], or filter off [duration]`;
-  if (a[0] === 'off') return visual({ op: 'filter', name: null, strength: 0, dur: offDur(usage) });
-  if (!isFilterName(a[0] ?? '')) throw new ParseError(usage);
-  const { level: strength, dur } = parseLevel(usage, 'Filter strength', 1);
-  return visual({ op: 'filter', name: a[0] as FilterName, strength, dur });
+  const usage = `Use: filter <${FILTER_NAMES.join('|')}> [strength 0-1] [+ <another> [strength]] [duration like 1s]; filter + <name> [strength] [duration] adds one, filter - <name> [duration] takes one off, filter off [duration] clears them`;
+  const known = (name: string | undefined): FilterName => {
+    if (name === undefined || name === '+') throw new ParseError(usage);
+    if (!isFilterName(name)) throw new ParseError(`Unknown filter "${name}" (${FILTER_NAMES.join(', ')})`);
+    return name;
+  };
+  if (a[0] === 'off') return visual({ op: 'filter', looks: [], merge: false, dur: offDur(usage) });
+  if (a[0] === '-') {
+    if (a.length > 3) throw new ParseError(usage);
+    return visual({ op: 'filter', looks: [{ name: known(a[1]), strength: 0 }], merge: true, dur: optDur(a[2], usage) ?? 0 });
+  }
+  const merge = a[0] === '+', looks: FilterLook[] = [];
+  let i = merge ? 1 : 0;
+  for (;;) {
+    const name = known(a[i++]);
+    if (looks.some(l => l.name === name)) throw new ParseError(`The filter "${name}" is named twice`);
+    const strength = isNum(a[i]) ? Number(a[i++]) : 1;
+    if (strength < 0 || strength > 1) throw new ParseError('Filter strength is 0 to 1');
+    looks.push({ name, strength });
+    if (a[i] !== '+') break;
+    i++;
+  }
+  const dur = optDur(a[i], usage);
+  if (dur !== null) i++;
+  if (a.length > i) throw new ParseError(isBareNumber(a[i]) ? unitMessage(a[i]) : usage);
+  return visual({ op: 'filter', looks, merge, dur: dur ?? 0 });
+}
+
+function parseLetterboxCommand(c: Cmd): OpBody {
+  const a = c.a;
+  const usage = `Use: letterbox [bar height 0-${LETTERBOX_MAX}, ${LETTERBOX_SIZE} by default] [duration like 0.5s], or letterbox off [duration]`;
+  if (a[0] === 'off') return c.visual({ op: 'letterbox', size: 0, dur: c.offDur(usage) });
+  let i = 0;
+  const size = isNum(a[0]) ? Number(a[i++]) : LETTERBOX_SIZE;
+  if (size <= 0 || size > LETTERBOX_MAX) throw new ParseError(`A letterbox bar is more than 0 and at most ${LETTERBOX_MAX} of the stage height (letterbox off takes the bars away)`);
+  const dur = optDur(a[i], usage);
+  if (dur !== null) i++;
+  if (a.length > i) throw new ParseError(isBareNumber(a[i]) ? unitMessage(a[i]) : usage);
+  return c.visual({ op: 'letterbox', size, dur: dur ?? 0 });
 }
 
 function parseHudCommand(c: Cmd): OpBody {
@@ -729,8 +782,13 @@ function parseReturnCommand(c: Cmd): OpBody {
 }
 
 function parseEndCommand(c: Cmd): OpBody {
-  const { extra } = c;
-  extra(0); return { op: 'end' };
+  if (!c.a.length) return { op: 'end' };
+  if (/^#[A-Za-z0-9]{4,8}$/.test(c.a[0])) throw new ParseError('An end id needs an ending name to translate');
+  // The name must be quoted: a bare word after end (`end now`) is a mistake, not a name.
+  if (!RE_END.test(c.text.trimStart())) throw new ParseError('Use: end ["Ending name"] (the name in quotes)');
+  const [title, ...rest] = c.a;
+  if (rest.length > 1 || (rest.length && !/^#[A-Za-z0-9]{4,8}$/.test(rest[0]))) throw new ParseError('Use: end ["Ending name"] (the name in quotes)');
+  return { op: 'end', title, id: rest.length ? rest[0].slice(1) : null };
 }
 
 /** One parser per command word; the words that are not here are unknown commands (or belong to the file parser). */
@@ -753,6 +811,7 @@ const COMMAND_PARSERS: Record<string, (c: Cmd) => OpBody> = {
   wind: parseWindCommand,
   gravity: parseGravityCommand,
   filter: parseFilterCommand,
+  letterbox: parseLetterboxCommand,
   hud: parseHudCommand,
   image: parseImageCommand,
   music: parseMusicCommand,

@@ -5,6 +5,7 @@
 
 import { parseRich } from './text.js';
 import type { Op, Program } from './types.js';
+import { routeWordsText, type PlaytestEnding } from './playtest.js';
 
 export interface TextCount {
   /** Dialogue lines, menu options and prompts. */
@@ -62,6 +63,7 @@ const add = (to: TextCount, c: TextCount) => { to.lines += c.lines; to.words += 
 function opTexts(op: Op): string[] {
   if (op.op === 'say') return [op.text];
   if (op.op === 'input') return [op.prompt];
+  if (op.op === 'end') return op.title ? [op.title] : [];
   if (op.op === 'menu') {
     const out = op.prompt !== null ? [op.prompt] : [];
     for (const o of op.options) { out.push(o.text); if (o.reason !== null) out.push(o.reason); }
@@ -69,6 +71,9 @@ function opTexts(op: Op): string[] {
   }
   return [];
 }
+
+/** Words of the player-facing text of one op (what scriptStats counts for it). */
+export const opWords = (op: Op): number => opTexts(op).reduce((n, t) => n + countText(t).words, 0);
 
 /** Count the text of `program`. `wordsPerMinute` sets the reading speed (default 200, an unhurried reader). */
 export function scriptStats(program: Program, wordsPerMinute = 200): ScriptStats {
@@ -124,8 +129,11 @@ export function readingTime(minutes: number): string {
   return m < 60 ? `about ${m} min` : `about ${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`;
 }
 
-/** The statistics as plain text (the CLI prints it, the editor shows it in the Output panel). */
-export function statsText(stats: ScriptStats, title = 'Script statistics'): string {
+/**
+ * The statistics as plain text (the CLI prints it, the editor shows it in the Output panel). With the playtest bot's `endings`, a
+ * Routes section gives the words read to each ending a first playthrough reaches, on the shortest and the longest route.
+ */
+export function statsText(stats: ScriptStats, title = 'Script statistics', endings: PlaytestEnding[] = [], unreached: { src: { file: string; line: number }; title?: string }[] = []): string {
   const n = (c: TextCount) => `${c.words} words, ${c.lines} lines, ${c.chars} characters`;
   const rows = (items: NamedCount[], name: (i: NamedCount) => string[]) => {
     const cols = items.map(name);
@@ -138,6 +146,19 @@ export function statsText(stats: ScriptStats, title = 'Script statistics'): stri
     `  choices and prompts: ${n(stats.choices)}`,
     `  to translate: ${n(stats.translation)} (localizable strings, each once)`,
   ];
+  const routes = endings.filter(e => e.words);
+  if (routes.length) {
+    out.push('', 'Routes (words read from the start to each ending: shortest route, then the most different lines one route reads)');
+    const names = routes.map(e => `${e.src.file}:${e.src.line}${e.title ? ` "${e.title}"` : e.kind === 'end' ? '' : e.kind === 'return' ? ' (return)' : ' (end of script)'}`);
+    const width = Math.max(...names.map(n => n.length));
+    const time = (w: { min: number; max?: number }) => {
+      const lo = readingTime(w.min / stats.wordsPerMinute), hi = w.max === undefined ? lo : readingTime(w.max / stats.wordsPerMinute);
+      return lo === hi ? lo : `${lo} to ${hi.replace(/^about /, '')}`;
+    };
+    routes.forEach((e, i) => out.push(`  ${names[i].padEnd(width)}  ${routeWordsText(e.words!)}  (${time(e.words!)})`));
+  }
+  // An ending no route reaches has no words to count: say so, or a new chapter's endings just look missing (UX round 3 ED-2).
+  if (unreached.length) out.push('', `Not reached from the start (no route leads there, so no words are counted): ${unreached.map(e => `${e.src.file}:${e.src.line}${e.title ? ` "${e.title}"` : ''}`).join(', ')}`);
   if (stats.characters.length) out.push('', 'Characters', ...rows(stats.characters, i => [i.name]));
   if (stats.files.length) out.push('', 'Scripts', ...rows(stats.files, i => [i.name]));
   if (stats.labels.length) out.push('', 'Labels', ...rows(stats.labels, i => [(i as LabelCount).file, i.name]));

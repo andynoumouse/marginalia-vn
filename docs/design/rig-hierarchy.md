@@ -2,7 +2,7 @@
 
 Plan for replacing flat `groups` in `rig.json` with a bone hierarchy, and for merging outfits and poses into one
 concept, the **look**. Background and the survey of other formats: [rig-formats.md](rig-formats.md). Current format:
-[../rig-json.md](../rig-json.md). Status: design, nothing implemented.
+[../rig-json.md](../rig-json.md). Status: built (all five phases; see TODO.md).
 
 ## Decisions already made
 
@@ -112,7 +112,8 @@ today, with the same units: `x`/`y` as a fraction of stage height, `scale` added
   of its own image. Model mode's pivot tool edits the chosen node's pivot, bone or part.
 - **Scale and flip.** A bone's `scale` multiplies its children's positions as well, like a normal transform
   hierarchy. The `scale` channel is a single number, so scale is always uniform and a rotated child never shears; if
-  separate x and y scale channels are ever added, the shear question comes back with them. The character-level flip and
+  separate x and y scale channels are ever added, the shear question comes back with them. (Since then bone offsets carry
+  `sx` / `sy` for Model keyforms; animation keys still have the single `scale` channel.) The character-level flip and
   scale remain above the root.
 - **Pivot fallback.** A bone with no `pivot` uses its parent's; the first bone with none and no parent uses the middle
   of the bounding box of the parts on it and its descendants (computed at load from their images), and the character
@@ -192,7 +193,8 @@ Warnings (still loads):
   per distinct pivot, as now); the chosen bone is highlighted along with its subtree, and dimming covers everything
   outside it (the existing `focus`). Dragging a pivot moves the bone's `pivot` and keeps the children's world pivots
   fixed (their local numbers do not change, since pivots are canvas-space).
-- **Same pivot for…** goes away: a head's parts share a pivot by sharing a bone.
+- **Same pivot for…** goes away: a head's parts share a pivot by sharing a bone. (It was kept in the end, in the Pivot
+  tool's options bar, for parts without a bone.)
 - **Looks list** (replaces the Poses list): rig.json looks and art-tagged implicit ones, each with its picks; click to
   dress the stage. A button saves the current dress as a new look.
 - **`editor-support.ts`**: `rigPartNames` returns parts then bones (what `part=` and keys accept); `rigPoseNames`
@@ -253,6 +255,5 @@ scale is uniform, so there is no shear (see Transform composition).
 Open:
 
 - **Taking an outfit off** (`+name` / `-name` or `wear` / `unwear`) is deliberately left out; revisit once a game needs it.
-- **Mesh warp** (see the mesh-warp item in `TODO.md`) will want weights from bones to vertices; the format here leaves
-  room (a later `mesh` entry on a part), but no part of this design depends on it. The weights are designed in
-  [skinning.md](skinning.md), as a `weights` entry inside a free mesh.
+- **Mesh warp** wanted weights from bones to vertices; the format here left room, and no part of this design depends on
+  it. Both are built since: the weights are a `weights` entry inside a free mesh ([skinning.md](skinning.md)).

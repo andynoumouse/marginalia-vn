@@ -6,6 +6,7 @@
 // a jump (instant mode, skip, the studio's scrubber) lands on the right frame with no state to keep.
 
 import { clamp01, round4, SAME_TIME } from './util.js';
+import type { ProblemReport } from './suggest.js';
 
 export interface FrameKey { t: number; frame: string }
 export interface FrameTrackDef { slot: string; keys?: FrameKey[]; frames?: string[]; fps?: number; loop?: boolean }
@@ -106,7 +107,10 @@ export const slotShare = (variants: number, fps: number, dur: number): number =>
 export function retimeFrameAt(track: FrameTrackDef, index: number, t: number): { track: FrameTrackDef; index: number } {
   const keys = [...(track.keys ?? [])];
   if (!keys[index]) return { track, index };
-  const moved = { ...keys[index], t: round4(clamp01(t)) };
+  const at = round4(clamp01(t));
+  // Never onto another block's time: that block would last no time and hide (AN-15). The move waits until it is past.
+  if (keys.some((k, i) => i !== index && Math.abs(k.t - at) < SAME_TIME)) return { track, index };
+  const moved = { ...keys[index], t: at };
   keys[index] = moved;
   keys.sort((a, b) => a.t - b.t);
   return { track: { ...track, keys }, index: keys.indexOf(moved) };
@@ -156,7 +160,7 @@ export function addFrameKey(track: FrameTrackDef, t: number, frame: string): Fra
 }
 
 /** Problems of an animation's frame tracks, for `checkRig`. `slots` maps each slot to its variants; `anim` is the animation's name. */
-export function checkFrames(anim: string, frames: unknown, slots: Map<string, Record<string, unknown>>, problem: (message: string, at: string) => void): void {
+export function checkFrames(anim: string, frames: unknown, slots: Map<string, Record<string, unknown>>, problem: ProblemReport): void {
   if (frames === undefined) return;
   if (!Array.isArray(frames)) { problem(`animations.${anim}.frames: needs a list of tracks`, anim); return; }
   const seen = new Set<string>();
@@ -164,10 +168,10 @@ export function checkFrames(anim: string, frames: unknown, slots: Map<string, Re
     const at = `animations.${anim}.frames[${i}]`;
     if (!tr || typeof tr !== 'object' || Array.isArray(tr)) { problem(`${at}: not a track`, anim); return; }
     const t = tr as Record<string, unknown>;
-    for (const k of Object.keys(t)) if (!['slot', 'keys', 'frames', 'fps', 'loop'].includes(k)) problem(`${at}: unknown field "${k}" (slot, keys, frames, fps, loop)`, anim);
+    for (const k of Object.keys(t)) if (!['slot', 'keys', 'frames', 'fps', 'loop'].includes(k)) problem(`${at}: unknown field "${k}" (slot, keys, frames, fps, loop)`, anim, k, ['slot', 'keys', 'frames', 'fps', 'loop']);
     if (typeof t.slot !== 'string') { problem(`${at}: needs the "slot" it plays`, anim); return; }
     const slot = t.slot, have = slots.get(slot);
-    if (!have) problem(`${at}: no slot "${slot}" (slots: ${[...slots.keys()].join(', ') || 'none'}; a plain layer has no variants to step through)`, anim);
+    if (!have) problem(`${at}: no slot "${slot}" (slots: ${[...slots.keys()].join(', ') || 'none'}; a plain layer has no variants to step through)`, anim, slot, slots.keys());
     if (seen.has(slot)) problem(`${at}: a second frame track on slot "${slot}" (one animation plays one track per slot)`, anim);
     seen.add(slot);
     const known = (f: unknown, where: string) => {

@@ -312,7 +312,8 @@ test('checkRig: deformers', () => {
   assert.ok(msgs('x').some(m => m.includes('deformers: needs a list')));
   const framed = { animations: { a: { dur: 1, keys: [], frames: [{ slot: 'eyes', frames: ['open', 'down'] }] } } };
   assert.deepEqual(msgs([{ ...ok, part: 'hair' }], framed), []);
-  assert.ok(msgs([{ ...ok, part: 'eyes' }], framed).some(m => m.includes('has a frame track')));
+  // A warped part may swap frames: the new frame is mapped onto the same lattice or mesh, and fitting it is the animator's call.
+  assert.deepEqual(msgs([{ ...ok, part: 'eyes' }], framed), []);
 });
 
 test('mergeRig leaves shape parts alone: never missing, never added to order', () => {

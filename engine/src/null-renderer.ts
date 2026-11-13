@@ -12,6 +12,8 @@ export class NullRenderer implements Renderer {
   syncs: DisplayState[] = [];
   inputs: string[] = [];
   ended = false;
+  /** The ending's name the last end() was given. */
+  endTitle = '';
   /** Decide which option to take; defaults to the first. */
   chooser: (options: MenuItem[]) => number = () => 0;
 
@@ -40,5 +42,5 @@ export class NullRenderer implements Renderer {
   /** The HUD screens as the runtime last pushed them. */
   huds: ScreenView[][] = [];
   hud(views: ScreenView[]) { this.huds.push(views); }
-  end() { this.ended = true; }
+  end(title = '') { this.ended = true; this.endTitle = title; }
 }

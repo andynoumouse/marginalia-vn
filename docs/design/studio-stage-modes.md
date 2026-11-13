@@ -169,6 +169,7 @@ Decisions taken while building, where the note left room:
 - **The stage mode travels in the gizmo message** (`stage`, the tool row's tool) and the brush mode in the weights message (`mode`), so the stage
   knows the mode even when the tool has no mesh or lattice to show; a press on art chooses the part then, as the table says.
 - No mode badge was built (the third open question): the hint line names the tool, the brush mode and the active bone, and says how to leave.
+  Superseded since: the tool options bar's first item names the mode ([studio-inspector.md](studio-inspector.md) step 1).
 
 ## Revised after the second UX round (2026-11-09)
 

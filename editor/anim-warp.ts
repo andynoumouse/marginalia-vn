@@ -67,8 +67,6 @@ export interface WarpHost {
   selected(): void;
   /** The alpha channel of the part's image from the stage (one byte per pixel, `w` x `h`), null when the stage cannot give it. */
   partAlpha(part: string): Promise<{ w: number; h: number; alpha: Uint8Array } | null>;
-  /** The name of an animation with a frame track on slot `part`, if any (a warped part cannot swap frames). */
-  framedIn(part: string): string | null;
   note(text: string): void;
 }
 
@@ -236,7 +234,8 @@ export class WarpPanel {
     this.q('.aw-mirror-lr').addEventListener('click', () => this.mirror('left'));
     this.q('.aw-mirror-rl').addEventListener('click', () => this.mirror('right'));
     this.q('.aw-mirror-sel').addEventListener('click', () => this.mirror('left', this.selection));
-    this.q('.aw-smooth').addEventListener('click', () => this.change(def => (def.mesh ? smoothMeshWarp : smoothWarp)(def, this.active()!, this.value(), 0.5, this.selection.length ? this.selection : undefined), 'Nothing to smooth: the points are even.'));
+    this.q('.aw-smooth').addEventListener('click', () => this.change(def => (def.mesh ? smoothMeshWarp : smoothWarp)(def, this.active()!, this.value(), 0.5, this.selection.length ? this.selection : undefined), 'Nothing to smooth: the points are even.',
+      `Smoothed ${this.selection.length ? 'the chosen points' : 'the points'} of this keyform; press again for more. Ctrl+Z undoes it.`)); // MD-10: it said nothing
     this.q('.aw-write').addEventListener('click', () => this.write());
   }
 
@@ -404,8 +403,6 @@ export class WarpPanel {
   private async generate() {
     const part = this.part();
     if (!part) return;
-    const clash = this.host.framedIn(part);
-    if (clash) { this.host.note(`${part} has a frame track in ${clash}; a warped part cannot swap frames. Remove the track first.`); return; }
     if (!(await this.fetchAlpha(part, true))) { this.host.note(`The stage could not read the image of ${part}.`); return; }
     const mesh = this.generated(part), detail = this.detail;
     if (!mesh || !meshUsable(mesh)) { this.host.note(`${part} has no opaque pixels to make a mesh of.`); return; }
@@ -424,8 +421,6 @@ export class WarpPanel {
   add() {
     const part = this.part();
     if (!part || deformerOf(this.host.deformers(), part)) return;
-    const clash = this.host.framedIn(part);
-    if (clash) { this.host.note(`${part} has a frame track in ${clash}; a warped part cannot swap frames. Remove the track first.`); return; }
     this.selection = [];
     const next = addDeformer(this.host.deformers(), part);
     this.choice = deformerOf(next, part)?.id ?? null;
@@ -436,15 +431,14 @@ export class WarpPanel {
   private groupSeed(): { members: string[]; name: string } | null {
     const bone = this.bone();
     if (bone) { const on = this.host.bonePartsOf(bone); return on.length ? { members: on, name: bone } : null; }
-    const sel = this.host.selectedParts();
-    return sel.length > 1 ? { members: sel, name: sel[0] } : null;
+    // The chosen part first: it names the group and is the member a drag is measured in, not whichever comes first in draw order (MD-9).
+    const members = this.host.setParts() ?? this.host.selectedParts(); // the Ctrl-click set lists the chosen part first
+    return members.length > 1 ? { members: [...members], name: members[0] } : null;
   }
   /** Deform's Add group warp: one lattice over the parts on the chosen bone, or over the parts ticked in the tree. */
   addGroup() {
     const seed = this.groupSeed();
     if (!seed) return;
-    const clash = seed.members.map(m => ({ m, a: this.host.framedIn(m) })).find(x => x.a);
-    if (clash) { this.host.note(`${clash.m} has a frame track in ${clash.a}; a warped part cannot swap frames. Remove the track first.`); return; }
     const next = addGroupDeformer(this.host.deformers(), seed.members, undefined, seed.name);
     this.selection = [];
     this.choice = next.at(-1)!.id;
@@ -576,13 +570,21 @@ export class WarpPanel {
       this.dragging = null;
       d.drag.end();
       // A drag between keys makes a key there: say so, as the gizmo's line does for a pose (SD-7).
-      if (next !== d.base && warpKeyAt(d.base, d.param, d.value) === null) this.host.note(`Added a key of ${d.param.id} at ${Math.round(d.value * 1000) / 1000} to ${d.base.id}: the drag was between keys. Ctrl+Z takes it back.`);
+      // A first key says it started the keyform (MD-5), and a key on one axis of a pad the warp is keyed to warns that it adds on top of that grid (MD-1).
+      if (next !== d.base && warpKeyAt(d.base, d.param, d.value) === null) {
+        const at = Math.round(d.value * 1000) / 1000, first = !d.base.keyforms?.some(k => k.param === d.param.id);
+        const grid = d.base.keyforms?.find(k => k.params?.includes(d.param.id))?.params;
+        this.host.note((first ? `Keyed ${d.base.id} to ${d.param.id}: a key at ${at}, with rest at ${d.param.default}.` : `Added a key of ${d.param.id} at ${at} to ${d.base.id}: the drag was between keys.`)
+          + (grid ? ` It adds on top of the grid ${d.base.id} has on ${grid.join(' and ')}.` : '') + ' Ctrl+Z takes it back.');
+      }
     }
   }
 
   // ---- topology of a free mesh ----
   /** The topology tool on the stage, null outside the mode (or for a part that has no free mesh). */
   topoTool(): TopoTool | null { return this.topo && this.def()?.mesh ? this.topoPick : null; }
+  /** In Edit topology, what the topology tool in use does, for the status line (MD-13: it kept the Warp hint); null otherwise. */
+  topoHint(): string | null { const t = TOPO_TOOLS.find(x => x.id === this.topoTool()); return t ? `Edit topology · ${t.label}: ${t.hint}` : null; }
   /** The vertex an Add edge started from, if any. */
   topoAnchor(): number | null { return this.topoTool() === 'addEdge' ? this.anchor : null; }
 
@@ -695,7 +697,7 @@ export class WarpPanel {
       targetPick.replaceChildren(...cands.map((d, i) => el('option', { value: d.id, textContent: labels[i] })));
     }
     if (def) targetPick.value = def.id;
-    q<HTMLElement>('.aw-targethint').textContent = isGroup && set ? `The ${set.length} parts are all members of this group.` : isGroup && part ? `${part} is bent by this group's lattice after its own warp.` : isGroup && shape ? `${shape} is a mask shape: this group's lattice bends it, as it bends the parts it clips.` : '';
+    q<HTMLElement>('.aw-targethint').textContent = isGroup && set ? `The ${set.length} parts are all members of this group.` : isGroup && part ? (deformerOf(this.host.deformers(), part) ? `${part} is bent by this group's lattice after its own warp.` : `${part} is bent by this group's lattice; it has no warp of its own (Add warp makes one, bent first).`) : isGroup && shape ? `${shape} is a mask shape: this group's lattice bends it, as it bends the parts it clips.` : '';
     const mem = q<HTMLElement>('.aw-members');
     mem.hidden = !isGroup;
     if (isGroup) this.showMembers(def!);

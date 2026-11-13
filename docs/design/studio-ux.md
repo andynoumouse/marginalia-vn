@@ -162,7 +162,8 @@ Model
 
 ### Centre: the stage and time
 
-- **Tool row** (over the stage): the stage tools (Pivot, Move in Model; Move, Rotate, Scale in Animate), World axes, Fit;
+- **Tool row** (over the stage; as first built: the deform tools are now Warp, Weights and Mask, and World axes moved to the
+  Move / Rotate / Scale options bar, so the view group is Fit): the stage tools (Pivot, Move in Model; Move, Rotate, Scale in Animate), World axes, Fit;
   in Animate, at its right end, Auto-key and Key. It holds commands for the stage only; no form fields.
   The buttons are **icons**, not words (`editor/studio-icons.ts` holds the set, `editor/studio-toolrow.ts` the row): one 20 x 20 grid, a
   1.6 stroke, `currentColor`, so an icon takes the button's colour and the page's theme variables. In three groups with a hairline
@@ -197,6 +198,11 @@ drawn. Defaults in bold.
 | Mask | Model | a part row: what it is clipped to (nothing / a shape / another part) and **New shape**; a shape row: its name (rename), **Delete shape**, the bone it sits on, the part it follows, the parts it clips, its points by number, add and remove a point, the problems of the mask, and a note with a button when a group warp bends a clipped part but not its shape. The stage outlines the chosen shape (the shape of a chosen part). Closed until the Mask tool is chosen. |
 | Physics | Model | the chains, presets, Shake (was the Physics tab) |
 | By itself | Model | idle, talking, blink, and the mouth and blink fields (was the Character tab) |
+
+*Since changed:* this table is the column as first built. Today the right column holds Keyforms, Parameter and Properties (the
+Selection section, renamed) in Model, and Properties, Frames and Place in scene in Animate. Warp and Mask became blocks of Properties and the tool
+options bar, Physics and Reactions (which replaced By itself) are tabs of the rig strip, and the ✎ editors moved into the Parameter section;
+see [studio-inspector.md](studio-inspector.md).
 
 The column is always at least a Selection section, so "what do I do with the thing I picked" has one answer. An empty
 rig (no parameters, no frames) shows the section header with "none" and a line saying how to add one, as today's tabs do.
@@ -236,7 +242,8 @@ rig (no parameters, no frames) shows the section header with "none" and a line s
   shape's points are keyed). The row is chosen like any other (click, Ctrl-click to add it to the chosen rows, Up / Down), in Model mode only. A section rather than a block in Selection, for the
   reason Warp's is one (see [animation-studio-parameters.md](animation-studio-parameters.md), Masks, as built).
 - **Presets**: a preset picker in the section header it belongs to (physics presets in Physics, pose presets in Parameters).
-- **Curve editor**: a Dope sheet | Curves switch on the transport row.
+- **Curve editor**: a Dope sheet | Curves switch on the transport row. (Not built; a curve dialog per ease select was, see
+  [param-curve-editor.md](param-curve-editor.md).)
 
 None of these needs a tab or a mode.
 
@@ -300,11 +307,12 @@ arrangement; D and G do not need the part list, so it may shrink then.
 **Steps** (each keeps `npm test` green; browser tests that assert the DOM position of the palette are updated, not loosened):
 1. **Built (2026-11-07):** the palette is in the left column in both modes, above the Parts tree; a grip between them (the share of the height the palette may take, default 0.5) and one on the column's right edge (width, 220 to 520 px, default 300) resize them, with the arrow keys too; the sizes are kept in `vn.editor.studioLayout` (`size`, `engine/src/studio-layout.ts`). The Bind block moved to a **Keyforms** section, first in the right column in Model (the DOM half of step 3), and the Animate parameter-key fields moved into Selection. The palette code (`editor/anim-params.ts`) is unchanged, so its rows are still the two-line ones of step 2.
 2. **Built (2026-11-07):** the one-line row (a 68 px name, the slider with its key marks, a 52 px number and the ◆); in Model the reset and edit buttons show only on the active row, the row with focus, or the one whose editor is open (not on hover: a button that appears under the pointer moves the slider under it). A filter field appears above 12 parameters. The pad keeps its 112 px square with the readout beside it (it already was); its second line of axis buttons stays.
-3. The Keyforms section (the Bound block, `editor/anim-bind.ts`, moves to the right) and the layout rules in `engine/src/studio-layout.ts`.
-4. Animate: the same, and the selected parameter key under Selection.
-5. **Movable sections** (the user's workspace; see below). Built after the defaults above, so the first layout is one worth keeping.
+3. **Built:** the Keyforms section (the Bound block, `editor/anim-bind.ts`, moves to the right) and the layout rules in `engine/src/studio-layout.ts`.
+4. **Built:** Animate: the same, and the selected parameter key under Selection.
+5. **Built** ([dock-binding.md](dock-binding.md)): **Movable sections** (the user's workspace; see below). Built after the defaults above, so the first layout is one worth keeping.
 
-**A layout the user can change (proposed 2026-11-07).** The free docking rejected under "Alternatives considered" is still out (floating windows,
+**A layout the user can change (proposed 2026-11-07; as built, one layout serves both modes, under its own key, and Reset layout
+is a header button: see [dock-binding.md](dock-binding.md)).** The free docking rejected under "Alternatives considered" is still out (floating windows,
 tab groups, splits inside the stage area need a layout engine). A narrower form is in: every block is a *section* with a header (Look, Parameters,
 Parts, Keyforms, Selection, Warp, Mask, Physics, Frames, Place in scene, By itself), and the **columns are fixed** (left, right, and a bottom strip under the stage for the
 timeline). The author drags a section header into any column, or to another place in the same column; column widths and the divider between two stacked sections are
@@ -336,9 +344,9 @@ vertically, as it does today, but what is above the fold is the picker, the stag
 ## Open questions
 
 - Whether Looks deserve their own section once there are more than a handful (the select scales; chips did not).
-- Whether the timeline should become collapsible to its transport row, for a stage-only review of an animation.
+- Decided and built: the timeline folds to its transport row, for a stage-only review of an animation.
 - Model opens on the Move tool, not Pivot: with Pivot on, a click on the stage moves the chosen part's pivot, which would
-  fight picking parts to bind. The Pivot tool (Q, or Pick on stage) is one click away; whether setting a rig up deserves a first-run nudge toward pivots is open.
+  fight picking parts to bind. The Pivot tool (Q) is one click away; whether setting a rig up deserves a first-run nudge toward pivots is open.
 - Decided 2026-11-07: binding is a verb that asks for its target (**Bind parts…**, **Bind to parameter…**); a click only chooses, and the studio has one focus
   (see [studio-focus-and-verbs.md](studio-focus-and-verbs.md)).
 - Keyform authoring's undo granularity is decided: one gizmo drag is one keyform written and one undo step; a field edit, a key / unkey and a

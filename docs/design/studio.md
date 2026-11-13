@@ -1,6 +1,7 @@
 # Design notes: Marginalia Studio (the editor as a desktop app)
 
-A plan, not a description of something built. The goal is that an author downloads one app and writes a game, with no
+Status: steps 1-5 are built; left are the installer, the by-hand check on a clean Windows and updates (TODO.md,
+"Shipping"). The goal is that an author downloads one app and writes a game, with no
 Node.js, npm, TypeScript or git on their machine. Code signing is left out for now: unsigned builds show Windows
 SmartScreen's "More info → Run anyway", and the README says so.
 
@@ -189,7 +190,7 @@ Each step is usable on its own and keeps the CLI working.
 
 ## Open questions
 
-- Updating the Studio: a "new version available" check against GitHub releases, or nothing at first.
+- Updating the Studio: decided, and deferred (TODO.md): an opt-in version check against GitHub releases, then auto-update.
 - macOS and Linux builds: same deferral as the game export's installers.
 - Whether the Studio should also offer a `vn` command line (Electron as node with `bin/vn.mjs`) for people who script
   their builds.

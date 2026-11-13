@@ -41,6 +41,7 @@ test('the breadcrumb names the keyform, its value and whether a key is there', (
   assert.deepEqual(on.crumbs.map(c => c.up), ['part', 'param', null]);
   assert.equal(on.status, 'key');
   assert.equal(off.status, 'no key here: a drag adds one');
+  assert.equal(breadcrumb(kf, 'look', '-1, 1', 'corner').status, 'corner', 'a pad grid has every corner from the bind on (MR-4)');
   assert.deepEqual(breadcrumb({ control: 'lift', part: null }, 'Arm lift', '0.5', null).crumbs, [{ text: 'Arm lift', up: null }]);
   assert.deepEqual(breadcrumb({ control: null, part: 'head' }, 'x', '0', null).crumbs, [{ text: 'head', up: null }]);
   assert.deepEqual(breadcrumb({ control: null, part: null }, 'x', '0', null), { crumbs: [], status: '' });

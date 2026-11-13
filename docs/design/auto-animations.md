@@ -1,6 +1,6 @@
 # Automatic animations (`auto`) and poses held by conditions (`reactions`)
 
-> Built. The studio's Reactions list and Test variables sit in their own Model-mode section, **Reactions**. A parameter counts as set by the script when it is away from its default, which is how a reaction's pose sits under the script's value. `param.<id>` parses as a dotted name in `expr.ts`; an `every` wait counts from the end of a run; stored dock layouts drop a section id they do not know.
+> Built. The studio's Reactions list and Test variables sit in the **Reactions** tab of Model mode's rig strip, beside Physics. A parameter counts as set by the script when it is away from its default, which is how a reaction's pose sits under the script's value. `param.<id>` parses as a dotted name in `expr.ts`; an `every` wait counts from the end of a run; stored dock layouts drop a section id they do not know.
 
 Goal: blinking, talking and idling stop being three special mechanisms. An animation says when it runs on its own; the
 engine has one scheduler for that. Everything the clip can do (frame tracks, parameter tracks, bone and part keys) is then
@@ -42,7 +42,8 @@ already used by `if`), so a writer has one syntax. It sees:
   reactive poses below. A clip that writes a parameter therefore cannot switch itself off and on.
 
 It is parsed when the rig loads (`checkRig` reports a syntax error and a name that is neither a script variable nor one of
-the built-ins; the variable list comes from the project, as the editor's completions already know it) and evaluated each
+the built-ins; the variable list comes from the project, as the editor's completions already know it; `checkRig` takes it, but the
+editor does not pass it yet, see TODO.md) and evaluated each
 step against the current variables. A condition is a function of the state, so a save or a load needs nothing stored:
 the character is simply in the right state again.
 
@@ -69,7 +70,7 @@ ease=<e>`), and the script already tweens to one. A **reaction** binds a conditi
   pose; the two share only the condition language and the scheduler's inputs.
 - Layer order for a parameter, bottom to top: its default, the reaction's pose, the script's value, an animation's track, the
   bone keys on top (the existing order plus one layer under the script, so an explicit `animate robo pose=...` wins).
-- Reactions are edited in the studio's Model mode (the Poses section gets a "Reactions" list: condition, pose, over, ease).
+- Reactions are edited in the studio's Model mode (a **Reactions** tab of the rig strip, beside Physics: condition, pose, over, ease).
 
 ### Rules
 
@@ -82,8 +83,8 @@ ease=<e>`), and the script already tweens to one. A **reaction** binds a conditi
   blinking and the mouth carry on, motion does not. This replaces the per-trigger special cases.
 - **Preloading.** The variants of every automatic animation's frame tracks load with the character (`framesNeeded`), so a
   blink never shows an empty part. This is the one new asset-loading path.
-- **Unknown or invalid `auto`**: `checkRig` rejects both forms given, neither, a bad `every`, a `while` that is not
-  `always` or `speaking`, and unknown fields. An automatic animation with `dur` 0 or a frame-less, key-less body is a warning
+- **Unknown or invalid `auto`**: `checkRig` rejects both forms given, neither, a bad `every`, a `while` that does not
+  parse or names an unknown variable, and unknown fields. An automatic animation with `dur` 0 or a frame-less, key-less body is a warning
   (it does nothing).
 
 ## Engine
@@ -126,7 +127,7 @@ own `auto` would fight the scrubber), and run in Model mode as the blink and the
 - Variables do not exist in the studio, so a condition naming one is false there unless the author sets test values: a
   small **Test variables** list in Model mode (name = value, studio-only, never saved) feeds the preview, the same way the
   Look select does for slot variants. Without it a reaction or conditional animation could not be seen while authoring.
-- The Poses section gets the **Reactions** list (condition, pose, over, ease; add, remove, reorder).
+- The **Reactions** list (condition, pose, over, ease; add, remove, reorder), built as a tab of the rig strip.
 - `RigSettings`, `readRigSettings`, `speakPart`, `blinkPart`, `autonomousValue` in `anim-edit.ts` and the `autonomous` write
   in `studio-doc.ts` go; a `setAuto(def, auto | null)` takes their place (pure, with the same "one-line stays one-line"
   formatting care as the other edits).

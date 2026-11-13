@@ -27,6 +27,7 @@ export class StudioPixiRenderer extends PixiRenderer {
   studioShapes(char: string): { name: string; outlines: [number, number][][] }[] { return this.queries.studioShapes(char); }
   studioMaskDelta(char: string, shape: string, from: [number, number], to: [number, number]): [number, number] | null { return this.queries.studioMaskDelta(char, shape, from, to); }
   studioPartBox(char: string, part: string): { x: number; y: number; w: number; h: number } | null { return this.queries.studioPartBox(char, part); }
+  studioPartBoxes(char: string) { return this.queries.studioPartBoxes(char); }
   studioPartOutline(char: string, part: string): [[number, number], [number, number]][] | null { return this.queries.studioPartOutline(char, part); }
   /** For a bone of `char`: the parts that move with it (its own and its child bones'), its child bones, and its tip as a stage pixel. Null for a name that is not a bone. */
   studioBoneInfo(char: string, bone: string): { parts: string[]; children: string[]; tip: [number, number] | null } | null {

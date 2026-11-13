@@ -1,6 +1,7 @@
 # Bone-weighted skinning of free meshes
 
-Status: design, agreed 2026-11-08; steps 1 (core), 2 (renderer, with its browser tests), 3 (tip and the pure edits), 4 (Mina's hair), 5a (Weights tool: bind and Auto-weights), 5b (heat overlay, vertex readout) and 5c (the brush) and 5d (the test pose) built, 6a (selection and the numeric tools), 6b (Mirror) and 6c (bone removal and the rest-pose rule); the rest not. A free mesh ([free-mesh.md](free-mesh.md)) gets per-vertex bone weights, so one drawn
+Status: design, agreed 2026-11-08; steps 1 (core), 2 (renderer, with its browser tests), 3 (tip and the pure edits), 4 (Mina's hair), 5a (Weights tool: bind and Auto-weights), 5b (heat overlay, vertex readout) and 5c (the brush) and 5d (the test pose) built, 6a (selection and the numeric tools), 6b (Mirror), 6c (bone removal and the rest-pose rule) and 7 (docs) built; step 8 (optional) not.
+The studio UI landed as the Weights tool (B) with Properties › Skin and the tool options bar, not a section of its own, and **Bind bones…** became **Bind ▾**. A free mesh ([free-mesh.md](free-mesh.md)) gets per-vertex bone weights, so one drawn
 part (an arm, a ponytail, a tail, a scarf) bends along the skeleton instead of turning as a rigid piece. It joins two things that
 exist today: the bone tree ([rig-hierarchy.md](rig-hierarchy.md), `engine/src/bones.ts`) and the triangle mesh. The survey in
 [rig-formats.md](rig-formats.md) lists weighted meshes as missing, and rig-hierarchy.md left room for them.
@@ -123,7 +124,7 @@ bend when the bones turn it: the warp rides along with the part instead of stayi
   sleeve on `arm_l` is "under" `arm_l` for the tree, even if its weights also reach the torso.
 - **Group warp members on different bones**: `checkDeformers` warns about those because a bone that turns relative to the others
   would skew the lattice. Skinned members are left out of that warning (the weights decide where their points go).
-- **Frame tracks**: a frame track on a part with a deformer is already an error (the variants would need a mesh each). Variants of
+- **Frame tracks**: a frame track on a part with a deformer was an error when this was written; since 2026-11-11 it is allowed (see [mesh-warp.md](mesh-warp.md)). Variants of
   a slot share the mesh and its weights, so give them the same image size.
 - **Reduced motion and skipping** need nothing: a skinned part follows whichever bone motion is shown.
 
@@ -220,8 +221,8 @@ The payoff of the feature is a hair or tail chain that turns bones, so a skinned
 `{ "part": "<name>", "scale": ... }` adds a rotation to a part **or a bone**. `stepPhysics` returns it by name, the renderer adds
 it to the pose, `placeRig` moves a name that is a bone as a bone, and `checkPhysics` accepts a bone name there. A chain with one
 segment per strand bone writes each segment (`segment`) to that bone's rotation. What is left is small: the key is called `part`
-even for a bone (an alias `bone` can be added if that reads badly), and the studio's Physics tab may list only parts as output
-targets (not checked). The hair sample in step 4 proves the path.
+even for a bone (an alias `bone` can be added if that reads badly), and the studio's Physics tab lists bones and parts as output
+targets ("Bone or part"). The hair sample in step 4 proves the path.
 
 ## Not in this design
 
@@ -307,8 +308,8 @@ documented in `rig-json.md` until a rig can show them: `weights` and `defaultBon
      The rest-pose rule: a Warp-tool drag on a skinned mesh is refused, with a hint, while a bone that influences it (or one above it) is posed by
      keyforms at the current slider values (`evalAll` of the keyforms, a pure `posedInfluences(mesh, bones, offsets)` in `skin-edit.ts`); the Weights
      tool's own test pose never reaches it (the Warp tool lets go of it). **Rename bone is not part of this step**: the Parts tree cannot rename a
-     bone at all, and a rename must be carried through keyforms, animation keys, physics, masks and parts as the parameter rename is; it is its own
-     item in `TODO.md`, and `renameWeightBone` is ready for it.
+     bone at all, and a rename must be carried through keyforms, animation keys, physics, masks and parts as the parameter rename is; it was built
+     later (`renameBone`, `engine/src/bone-edit.ts`), with `renameWeightBone` for the meshes.
 7. **Docs.** A Skinning subsection in `rig-json.md`; the rig.json F1 help keys; the tutorial's layered-character page.
 8. **Optional: keyforms under a pose.** The drag conversion described under Authoring. Decided after step 6, by whether correctives
    for bent joints turn out to be wanted.

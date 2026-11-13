@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  dragBone, gizmoFrame, boneWorld, invertMatrix, wrapDeg, offsetMatrix, applyMatrix, mulMatrix, BONE_REST, NO_OFFSET,
+  dragBone, rotateSweep, gizmoFrame, boneWorld, invertMatrix, wrapDeg, offsetMatrix, applyMatrix, mulMatrix, BONE_REST, NO_OFFSET,
   worldToScreen, screenToWorld, zoomViewAt, wheelFactor, panBy, fitBounds, handleSize, handleScale, MIN_ZOOM, MAX_ZOOM,
 } from '../../dist/engine/src/index.js';
 
@@ -58,6 +58,23 @@ test('rotate sweeps the pointer angle around the pivot', () => {
   near(o.rot, 90);
   const back = drag({ tool: 'rotate', start: off({ rot: 10 }), from: [200, 50], to: [200 - 1, 50 - 1] });
   assert.ok(back.rot < 10);
+});
+
+test('rotate follows the pointer round past half a turn when the sweep is summed move by move', () => {
+  // The pointer goes round the pivot in 30-degree moves, as a drag's pointer events would.
+  const at = deg => [PIVOT[0] + 100 * Math.cos(deg * Math.PI / 180), PIVOT[1] + 100 * Math.sin(deg * Math.PI / 180)];
+  const turn = (to, dir) => {
+    let sweep = 0;
+    for (let deg = 0; deg !== to; deg += dir) sweep += rotateSweep({ ...base, from: at(deg), to: at(deg + dir) });
+    return drag({ tool: 'rotate', from: at(0), to: at(to), sweep });
+  };
+  near(turn(360, 30).rot, 360, 1e-9);
+  near(turn(-390, -30).rot, -390, 1e-9);
+  near(turn(210, 30).rot, 210, 1e-9);
+  // Without the summed sweep the angle is read between the two points and flips at half a turn, as before.
+  near(drag({ tool: 'rotate', from: at(0), to: at(210) }).rot, -150, 1e-9);
+  // Shift still snaps the total.
+  near(drag({ tool: 'rotate', from: at(0), to: at(0), sweep: 367, mods: { shift: true } }).rot, 360);
 });
 
 test('rotate through a rotated and a scaled parent still reads the sweep in the parent space', () => {

@@ -16,10 +16,14 @@ const change = edit => { const a = doc(), b = structuredClone(a); edit(b); retur
 
 test('an animation edit names the animation, what changed in it, and Animate', () => {
   assert.deepEqual(change(d => { d.anims.wave.dur = 3; }), { label: 'wave: Length 1.1 s → 3 s', mode: 'animate', anim: 'wave' });
-  assert.deepEqual(change(d => { d.anims.wave.keys.push({ t: 0.9, part: 'arm', rot: 0 }); }), { label: 'wave: key added on arm', mode: 'animate', anim: 'wave', part: 'arm' });
-  assert.deepEqual(change(d => { d.anims.wave.keys = []; }), { label: 'wave: key removed on arm', mode: 'animate', anim: 'wave', part: 'arm' });
+  assert.deepEqual(change(d => { d.anims.wave.keys.push({ t: 0.9, part: 'arm', rot: 0 }); }), { label: 'wave: key at 0.99 s added on arm', mode: 'animate', anim: 'wave', part: 'arm' });
+  assert.deepEqual(change(d => { d.anims.wave.keys = []; }), { label: 'wave: key at 0.55 s removed on arm', mode: 'animate', anim: 'wave', part: 'arm' });
   assert.equal(change(d => { d.anims.wave.keys[0].rot = 30; }).label, 'wave: key on arm changed');
-  assert.equal(change(d => { d.anims.nod.keys.push({ t: 0, rot: 1 }); }).label, 'nod: key added on the whole character');
+  // UX round 3 AN-13: a group edit of several keys.
+  const two = edit => { const a = doc(); a.anims.wave.keys.push({ t: 0.8, part: 'arm', rot: 5 }); const b = structuredClone(a); edit(b); return describeChange(a, b).label; };
+  assert.equal(two(d => { for (const k of d.anims.wave.keys) k.t += 0.1; }), 'wave: 2 keys moved on arm');
+  assert.equal(two(d => { for (const k of d.anims.wave.keys) k.rot += 1; }), 'wave: 2 keys changed on arm');
+  assert.equal(change(d => { d.anims.nod.keys.push({ t: 0, rot: 1 }); }).label, 'nod: key at 0 s added on the whole character');
   assert.equal(change(d => { d.anims.wave.params = { lean: [{ t: 0, v: 1 }] }; }).label, 'wave: lean track');
   assert.equal(change(d => { d.anims.wave.frames = [{ slot: 'eyes', keys: [{ t: 0, frame: 'shut' }] }]; }).label, 'wave: frames of eyes');
   assert.equal(change(d => { d.anims.wave.auto = { every: 3 }; }).label, 'wave: Automatic');
@@ -33,9 +37,16 @@ test('animations added, deleted and renamed', () => {
 
 test('Model edits name their area and part, and Model', () => {
   assert.deepEqual(change(d => { d.pivots.face = [6, 6]; }), { label: 'pivot of face', mode: 'model', part: 'face' });
-  assert.deepEqual(change(d => { d.keyforms[0].keys[1].rot = 8; }), { label: 'keyform of head on lean', mode: 'model', part: 'head' });
+  assert.deepEqual(change(d => { d.keyforms[0].keys[1].rot = 8; }), { label: 'pose of head on lean at 1', mode: 'model', part: 'head' });
+  // UX round 3 MR-8, MD-10, AN-10: undo names the operation, not only the thing.
+  assert.equal(change(d => { d.keyforms[0].keys.push({ at: 0.5, rot: 2 }); }).label, 'key of head on lean at 0.5 added');
+  assert.equal(change(d => { d.keyforms[0].keys.pop(); }).label, 'key of head on lean at 1 removed');
+  assert.equal(change(d => { d.parameters[0].id = 'tilt'; }).label, 'parameter lean renamed tilt');
+  assert.equal(change(d => { d.parameters[0].max = 0.5; }).label, 'lean max 1 → 0.5');
+  assert.equal(change(d => { d.anims.wave.keys[0].ease = 'out'; }).label, 'wave: ease of the key at 0.55 s on arm');
   assert.deepEqual(change(d => { d.keyforms = []; }), { label: 'keyform of head on lean removed', mode: 'model', part: 'head' });
-  assert.deepEqual(change(d => { d.deformers[0].mesh.verts[0] = 1; }), { label: 'deformer hand_mesh', mode: 'model', part: 'hand' });
+  assert.deepEqual(change(d => { d.deformers[0].mesh.verts[0] = 1; }), { label: 'mesh of hand_mesh', mode: 'model', part: 'hand' });
+  assert.equal(change(d => { d.deformers[0].mesh.weights = { 0: { arm: 1 } }; }).label, 'weights of hand_mesh');
   assert.deepEqual(change(d => { d.physics.hair.segments[0].mass = 2; }), { label: 'physics chain hair', mode: 'model' });
   assert.deepEqual(change(d => { d.parts.hand = { bone: 'root' }; }), { label: 'bone of hand', mode: 'model', part: 'hand' });
 });

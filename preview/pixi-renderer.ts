@@ -5,7 +5,7 @@
 // Characters are anchored bottom-center at x * stage width; backgrounds are scaled to cover the stage.
 
 import { Application, Assets, ColorMatrixFilter, type ColorMatrix, Container, Graphics, Matrix, Mesh, MeshGeometry, MeshPlane, Rectangle, Sprite, Texture } from 'pixi.js';
-import { IMAGE_FILE, AnimPlayer, overscanZoom, CAMERA_TARGET, mouthOpen, lerpRgb, mulRgb, rgbNumber, flashMatrix, imageBytes, type Resident, sampleLattice, warpFreeMesh, warpMeshPoints, type DeformerMesh, applyDisplacement, deformerGrid, deformerPoints, evalDeformer, isGroupDeformer, memberMeshGrid, paramsKey, restLattice, unionLatticeBox, warpMemberMesh, type DeformerDef, BONE_REST, compileSkin, isSkinned, skinPoints, evalPointKeyforms, maskChain, maskView, normalizeMasks, MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, bendShapeByGroup, shapeBentByGroup, type MaskDef, type MaskPoint, addOffset, evalAll, addPhysicsParams, restStates, stepPhysics, windVelocity, type FxEnv, type WorldWind, type ChainStates, type PhysicsOff, lerpParams, autoAnimations, startAuto, stepAuto, everyBounds, reactionTarget, startReaction, stepReaction, type Value, resolveParams, anchorOffset, type AnimDef, bgKey, easing, EASES, focusLevels, raisedSpeaker, revealShapes, shakeOffset, maskKey, pixelBlock, lerp, NO_OFFSET, resolveAnim, partsUnder, rigLayers, showLooks, scaleOffset, spriteKeys, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
+import { IMAGE_FILE, AnimPlayer, overscanZoom, CAMERA_TARGET, mouthOpen, lerpRgb, mulRgb, rgbNumber, flashMatrix, imageBytes, type Resident, sampleLattice, warpFreeMesh, warpMeshPoints, type DeformerMesh, applyDisplacement, deformerGrid, deformerPoints, evalDeformer, isGroupDeformer, memberMeshGrid, paramsKey, restLattice, unionLatticeBox, warpMemberMesh, type DeformerDef, BONE_REST, compileSkin, isSkinned, skinPoints, evalPointKeyforms, maskChain, maskView, normalizeMasks, MASK_WARN_COUNT, partName, placeRig, pointKeyformKey, traceOutline, warpPoints, bendShapeByGroup, shapeBentByGroup, type MaskDef, type MaskPoint, addOffset, evalAll, addPhysicsParams, restStates, stepPhysics, windVelocity, type FxEnv, type WorldWind, blendLooks, filterLooks, type ChainStates, type PhysicsOff, lerpParams, autoAnimations, startAuto, stepAuto, everyBounds, reactionTarget, startReaction, stepReaction, type Value, resolveParams, anchorOffset, type AnimDef, bgKey, easing, EASES, focusLevels, raisedSpeaker, revealShapes, pushOffsets, zoomLook, rippleAmount, shakeOffset, maskKey, pixelBlock, lerp, NO_OFFSET, resolveAnim, partsUnder, rigLayers, showLooks, scaleOffset, spriteKeys, type Offset, type RigData, type Camera, type DisplayState, type SpriteState } from '../engine/src/index.js';
 import { FX, type Actor, type Fx, type GroupWarp, type MaskNode } from './pixi-actor.js';
 import { PictureLayer } from './picture-layer.js';
 import { applyFlash } from './flash-filter.js';
@@ -56,6 +56,7 @@ export class PixiRenderer extends StageRenderer {
   private tintLayer = new Graphics();
   private flashLayer = new Graphics();
   private fade = new Graphics();
+  private letterbox = { top: new Graphics(), bottom: new Graphics(), size: 0 }; // `letterbox`: black bars over the stage, each `size` of its height; not shaken
   protected actors = new Map<string, Actor>();
   private shown: DisplayState | null = null;         // the state last synced or applied (speaker focus reads who is on stage)
   private raised: string | null = null;              // the speaker drawn in front for the line (speakerFocus.front)
@@ -76,15 +77,18 @@ export class PixiRenderer extends StageRenderer {
     await this.app.init({ width: W, height: H, background: '#000000', antialias: true, resolution: 1, preference: 'webgl' });
     this.app.canvas.id = 'canvas';
     stage.prepend(this.app.canvas);
-    this.fade.rect(0, 0, W, H).fill(0x000000);
+    this.fade.rect(0, 0, W, H).fill(0xffffff); // white, tinted to the color a fade goes through
+    this.fade.tint = 0x000000;
     this.fade.alpha = 0;
     for (const g of [this.tintLayer, this.flashLayer]) { g.rect(0, 0, W, H).fill(0xffffff); g.alpha = 0; }
+    for (const g of [this.letterbox.top, this.letterbox.bottom]) g.rect(0, 0, W, 1).fill(0x000000);
+    this.setLetterbox(0);
     this.spriteLayer.sortableChildren = true;
     this.world.addChild(this.bgLayer, this.pictures.behind, this.spriteLayer, this.pictures.front, this.bursts.layer);
     this.effects.init(g => this.app.renderer.generateTexture({ target: g, resolution: 1 }));
     this.scene.addChild(this.world, this.pictures.fixed, this.effects.weatherLayer);
     this.shaker.addChild(this.scene, this.effects.vignette, this.tintLayer, this.flashLayer);
-    this.app.stage.addChild(this.shaker, this.fade);
+    this.app.stage.addChild(this.shaker, this.letterbox.top, this.letterbox.bottom, this.fade);
     this.app.ticker.add(t => this.step(t.deltaMS));
   }
 
@@ -360,7 +364,8 @@ export class PixiRenderer extends StageRenderer {
     const opacity = new Map<string, number>();
     for (const [name, o] of a.partPose) if (o.opacity !== undefined) for (const p of under(name)) opacity.set(p, (opacity.get(p) ?? 1) * o.opacity);
     const gone = this.hiddenIn(a);
-    for (const [name, c] of a.parts) c.alpha = gone.has(name) ? 0 : (!lit || lit.includes(name) ? 1 : 0.2) * Math.min(1, opacity.get(name) ?? 1);
+    // The others at 40 %: at 20 % a dark chosen part (robo's mouth) had nothing behind it on the black stage and vanished (MD-12).
+    for (const [name, c] of a.parts) c.alpha = gone.has(name) ? 0 : (!lit || lit.includes(name) ? 1 : 0.4) * Math.min(1, opacity.get(name) ?? 1);
   }
   protected poseBody(a: Actor, o: Offset) {
     a.body.position.set(o.dx * FX(), o.dy * FX());
@@ -808,9 +813,9 @@ export class PixiRenderer extends StageRenderer {
     }
     return out;
   }
-  /** What the world shows besides the characters, for the browser tests: the filter, the tint over the stage and the weather. */
+  /** What the world shows besides the characters, for the browser tests: the filters (`sepia+vignette`), the tint over the stage, the weather and the letterbox bars. */
   worldSnapshot() {
-    return { filter: this.effects.filterNow?.name ?? null, tint: this.tintLayer.alpha > 0 ? this.tintLayer.alpha : 0, weather: this.effects.weather?.kind ?? null };
+    return { filter: this.effects.looksNow.map(l => l.name).join('+') || null, letterbox: this.letterbox.size, tint: this.tintLayer.alpha > 0 ? this.tintLayer.alpha : 0, weather: this.effects.weather?.kind ?? null };
   }
   stageSnapshot() {
     return [...this.actors.values()].filter(a => a.node.parent === this.spriteLayer)
@@ -871,6 +876,14 @@ export class PixiRenderer extends StageRenderer {
     if (t) this.tintLayer.tint = t.color;
     this.tintLayer.alpha = t ? t.strength : 0;
   }
+  /** The letterbox bars, each `size` of the stage height (0 = none). */
+  private setLetterbox(size: number) {
+    const { top, bottom } = this.letterbox, h = Math.max(0, size) * H;
+    this.letterbox.size = size;
+    top.scale.y = bottom.scale.y = h;
+    bottom.y = H - h;
+    top.visible = bottom.visible = h > 0;
+  }
 
   protected syncWorld(state: DisplayState) {
     for (const t of this.tweens) t.done();
@@ -883,6 +896,7 @@ export class PixiRenderer extends StageRenderer {
     this.effects.pixelate = null;
     this.effects.setWeather(state.weather ?? null);
     this.effects.setLook(state.filter ?? null);
+    this.setLetterbox(state.letterbox ?? 0);
     this.wind = state.wind ?? null;
     this.gravity = state.gravity ?? 1;
     this.fade.alpha = 0;
@@ -901,7 +915,8 @@ export class PixiRenderer extends StageRenderer {
       if (op.op === 'camera') { this.setCamera(state.camera ?? { zoom: 1, x: 0.5, y: 0.5 }); return; }
       if (op.op === 'weather') { this.effects.setWeather(null); return; }
       if (op.op === 'filter') { this.effects.setLook(state.filter ?? null); return; }
-      if (op.op === 'scene' && ['wipe', 'iris', 'blinds', 'pixelate'].includes(op.transition)) op = { ...op, transition: 'dissolve' };
+      if (op.op === 'letterbox') { this.setLetterbox(state.letterbox ?? 0); return; }
+      if (op.op === 'scene' && ['wipe', 'push', 'iris', 'blinds', 'pixelate', 'zoom', 'ripple'].includes(op.transition)) op = { ...op, transition: 'dissolve' };
     }
     switch (op.op) {
       case 'scene': return this.worldScene(op, state, alive);
@@ -916,6 +931,7 @@ export class PixiRenderer extends StageRenderer {
       case 'camera': return this.worldCamera(op, state);
       case 'weather': return this.worldWeather(op, state, alive);
       case 'filter': return this.worldFilter(op, state, alive);
+      case 'letterbox': return this.worldLetterbox(op, state, alive);
       case 'wind': return this.worldWind(op, state, alive);
       case 'gravity': this.gravity = state.gravity ?? 1; return;
       case 'hop': return this.worldHop(op);
@@ -927,15 +943,17 @@ export class PixiRenderer extends StageRenderer {
   private async worldScene(op: Extract<WorldOp, { op: 'scene' }>, state: DisplayState, alive: () => boolean): Promise<void> {
     if (op.transition === 'cut' || op.dur <= 0) { this.setBg(op.bg); this.rebuildSprites(state, true); return; }
     if (op.transition === 'fade') {
+      this.fade.tint = op.color ?? 0x000000;
       await this.tween(op.dur / 2, k => { this.fade.alpha = k; });
       if (!alive()) return;
       this.setBg(op.bg); this.rebuildSprites(state, true);
+      if (op.hold) { await this.tween(op.hold, () => {}); if (!alive()) return; }
       await this.tween(op.dur / 2, k => { this.fade.alpha = 1 - k; });
       return;
     }
     if (op.transition === 'pixelate') {
       const fx = this.effects.pixelate = this.effects.pixelFilter();
-      this.effects.setLook(this.effects.filterNow);
+      this.effects.setLook(this.effects.looksNow);
       let swapped = false;
       await this.tween(op.dur, k => {
         fx.resources.pixelUniforms.uniforms.uBlock = pixelBlock(k);
@@ -943,7 +961,7 @@ export class PixiRenderer extends StageRenderer {
       });
       this.effects.pixelate = null;
       if (!alive()) return;
-      this.effects.setLook(this.effects.filterNow);
+      this.effects.setLook(this.effects.looksNow);
       return;
     }
     this.rebuildSprites(state, true);
@@ -964,8 +982,41 @@ export class PixiRenderer extends StageRenderer {
       for (const c of [...this.bgLayer.children]) if (c !== next) { this.bgLayer.removeChild(c); c.destroy(); }
       return;
     }
-    this.bgLayer.addChild(next);
-    if (op.transition === 'wipe' || op.transition === 'iris' || op.transition === 'blinds') {
+    const old = [...this.bgLayer.children];
+    if (op.transition === 'zoom') this.bgLayer.addChildAt(next, 0); else this.bgLayer.addChild(next); // a zoom uncovers the new picture from under the old
+    if (op.transition === 'push') {
+      const dir = op.dir ?? 'left';
+      await this.tween(op.dur, t => {
+        const o = pushOffsets(dir, EASES.inout(t), W, H);
+        for (const c of old) c.position.set(W / 2 + o.old[0], H / 2 + o.old[1]);
+        next.position.set(W / 2 + o.next[0], H / 2 + o.next[1]);
+      });
+      if (!alive()) return;
+    } else if (op.transition === 'zoom') {
+      const scales = old.map(c => c.scale.x), cover = next.scale.x;
+      await this.tween(op.dur, t => {
+        const z = zoomLook(EASES.inout(t));
+        old.forEach((c, i) => { c.scale.set(scales[i] * z.oldScale); c.alpha = z.oldAlpha; });
+        next.scale.set(cover * z.nextScale);
+      });
+      if (!alive()) return;
+    } else if (op.transition === 'ripple') {
+      const fx = this.effects.rippleFilter();
+      this.bgLayer.filterArea = new Rectangle(0, 0, W, H); // the stage, so the waves are the same whatever the picture's cover scale; harmless once the filter is gone
+      this.bgLayer.filters = [fx];
+      next.alpha = 0;
+      try {
+        await this.tween(op.dur, t => {
+          fx.resources.rippleUniforms.uniforms.uAmp = rippleAmount(t);
+          fx.resources.rippleUniforms.uniforms.uTime = t * op.dur;
+          next.alpha = EASES.inout(t);
+        });
+      } finally {
+        this.bgLayer.filters = [];
+        fx.destroy();
+      }
+      if (!alive()) return;
+    } else if (op.transition === 'wipe' || op.transition === 'iris' || op.transition === 'blinds') {
       const transition = op.transition, mask = new Graphics();
       this.bgLayer.addChild(mask);
       next.mask = mask;
@@ -1161,13 +1212,17 @@ export class PixiRenderer extends StageRenderer {
   }
 
   private async worldFilter(op: Extract<WorldOp, { op: 'filter' }>, state: DisplayState, alive: () => boolean): Promise<void> {
-    const from = this.effects.filterNow, to = op.name ? { name: op.name, strength: op.strength } : null;
-    const name = (to ?? from)?.name;
-    if (!name) return;
-    const s0 = from && from.name === name ? from.strength : 0, s1 = to ? to.strength : 0;
-    await this.tween(op.dur, k => { this.effects.setLook({ name, strength: s0 + (s1 - s0) * k }); });
+    // Every filter goes from its strength now to the one in the state, so a new look crossfades with the old.
+    const from = this.effects.looksNow, to = filterLooks(state.filter);
+    await this.tween(op.dur, k => { this.effects.setLook(blendLooks(from, to, k)); });
     if (alive()) this.effects.setLook(state.filter ?? null);
     return;
+  }
+
+  private async worldLetterbox(op: Extract<WorldOp, { op: 'letterbox' }>, state: DisplayState, alive: () => boolean): Promise<void> {
+    const from = this.letterbox.size, to = op.size;
+    await this.tween(op.dur, k => { this.setLetterbox(from + (to - from) * k); });
+    if (alive()) this.setLetterbox(state.letterbox ?? 0);
   }
 
   private async worldWind(op: Extract<WorldOp, { op: 'wind' }>, state: DisplayState, alive: () => boolean): Promise<void> {

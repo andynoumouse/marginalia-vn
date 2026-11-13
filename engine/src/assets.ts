@@ -21,7 +21,7 @@ import { pwaProblem } from './pwa.js';
 import { iconAsset, versionProblem } from './app-info.js';
 import { hudLabels, isClickable, walkNodes, type ScreenNode } from './screens.js';
 import { expandShow, showLooks, liveOverrides, orderedParts, partName, rigPartNames, rigLookNames, type RigData } from './rig.js';
-import { withFix } from './suggest.js';
+import { closest, didYouMean, withFix } from './suggest.js';
 import { splitVoiceName } from './voice.js';
 import { buildCheckSettings } from './build-checks.js';
 import { isCssColor } from './colors.js';
@@ -260,10 +260,12 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   const lines = text.split('\n');
   const lineOf = (name: string) => Math.max(1, lines.findIndex(l => l.includes(`"${name}"`)) + 1);
   const seen = new Set<string>();
-  const warn = (name: string, message: string) => {
+  /** With `known`, the message offers the closest of those names ("did you mean"), and the editor a quick fix. */
+  const warn = (name: string, message: string, known?: Iterable<string>) => {
     if (seen.has(message)) return;
     seen.add(message);
-    out.push({ file: 'game.json', line: lineOf(name), severity: 'warning', message });
+    const options = known ? closest(name, known) : [];
+    out.push({ file: 'game.json', line: lineOf(name), severity: 'warning', message: message + didYouMean(options), ...(options.length ? { fix: { word: name, options } } : {}) });
   };
   const stem = (f: string) => f.replace(/\.[^.]+$/, '');
   const images = new Set(index.files.flatMap(f => {
@@ -275,13 +277,13 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
     return AUDIO_FILE.test(f) && parts.length === 2 && parts[0] === 'music' ? [stem(parts[1])] : [];
   }));
   const image = (name: unknown, where: string) => {
-    if (typeof name === 'string' && name && !images.has(name)) warn(name, `${where}: no image "${name}" in assets/bg`);
+    if (typeof name === 'string' && name && !images.has(name)) warn(name, `${where}: no image "${name}" in assets/bg`, images);
   };
   const title = g.titleScreen;
   if (title && typeof title === 'object') {
     image(title.background, 'titleScreen.background');
     if (typeof title.music === 'string' && title.music && !tracks.has(title.music)) {
-      warn(title.music, `titleScreen.music: no track "${title.music}" in assets/music`);
+      warn(title.music, `titleScreen.music: no track "${title.music}" in assets/music`, tracks);
     }
   }
   for (const problem of buildCheckSettings(g).problems) warn('build', problem);
@@ -311,7 +313,7 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   if (Array.isArray(g.musicRoom)) {
     for (const e of g.musicRoom) {
       const t = typeof e === 'string' ? e : e?.track;
-      if (typeof t === 'string' && t && !tracks.has(t)) warn(t, `musicRoom: no track "${t}" in assets/music`);
+      if (typeof t === 'string' && t && !tracks.has(t)) warn(t, `musicRoom: no track "${t}" in assets/music`, tracks);
     }
   }
   if (g.captions && typeof g.captions === 'object' && !Array.isArray(g.captions)) {
@@ -334,7 +336,7 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
     const boxes = [theme, ...Object.values(theme.skins ?? {}) as any[]].flatMap(t => t && typeof t === 'object'
       ? (['textbox', 'namebox', 'choices'] as const).flatMap(k => (t[k] && typeof t[k] === 'object' ? [[k, t[k]] as const] : [])) : []);
     for (const [k, b] of boxes) {
-      if (typeof b.image === 'string' && b.image && !uiImages.has(b.image)) warn(b.image, `theme.${k}.image: no image "${b.image}" in assets/ui`);
+      if (typeof b.image === 'string' && b.image && !uiImages.has(b.image)) warn(b.image, `theme.${k}.image: no image "${b.image}" in assets/ui`, uiImages);
       for (const c of ['background', 'border'] as const) {
         if (b[c] !== undefined && (typeof b[c] !== 'string' || !isCssColor(b[c]))) warn(String(b[c]), `theme.${k}.${c} needs a CSS color like "#112233", not ${JSON.stringify(b[c])}`);
       }
@@ -349,11 +351,11 @@ export function checkGame(game: unknown, index: AssetIndex, text = ''): GameProb
   if (Array.isArray(g.achievements)) {
     for (const e of g.achievements) {
       const icon = e && typeof e === 'object' ? e.icon : undefined;
-      if (typeof icon === 'string' && icon && !uiImages.has(icon)) warn(icon, `achievements: no icon "${icon}" in assets/ui`);
+      if (typeof icon === 'string' && icon && !uiImages.has(icon)) warn(icon, `achievements: no icon "${icon}" in assets/ui`, uiImages);
     }
   }
   const toastSound = g.achievementToast && typeof g.achievementToast === 'object' ? g.achievementToast.sound : undefined;
-  if (typeof toastSound === 'string' && toastSound && !sounds.has(toastSound)) warn(toastSound, `achievementToast.sound: no sound "${toastSound}" in assets/sound`);
+  if (typeof toastSound === 'string' && toastSound && !sounds.has(toastSound)) warn(toastSound, `achievementToast.sound: no sound "${toastSound}" in assets/sound`, sounds);
   for (const message of speakerFocusProblems(g.speakerFocus)) warn('speakerFocus', message);
   for (const message of sideImageProblems(g.sideImages)) warn('sideImages', message);
   for (const message of touchProblems(g.touch)) warn('touch', message);
@@ -521,7 +523,7 @@ export function opAssets(op: Op, ctx: AssetContext, program?: Pick<Program, 'scr
 }
 
 /** The ops that name no asset: `opAssets` ends with a check against this, so a new op that does has to get a case or be listed here. */
-type AssetFreeOp = Extract<Op, { op: 'hide' | 'move' | 'shake' | 'hop' | 'animate' | 'param' | 'perform' | 'burst' | 'flash' | 'tint' | 'camera' | 'weather' | 'filter' | 'wind' | 'gravity' | 'focus' | 'behaviors' | 'wait'
+type AssetFreeOp = Extract<Op, { op: 'hide' | 'move' | 'shake' | 'hop' | 'animate' | 'param' | 'perform' | 'burst' | 'flash' | 'tint' | 'camera' | 'weather' | 'filter' | 'letterbox' | 'wind' | 'gravity' | 'focus' | 'behaviors' | 'wait'
   | 'menu' | 'input' | 'set' | 'jump' | 'call' | 'ret' | 'end' | 'nvl' | 'textbox' | 'unlock' | 'branch' | 'goto' }>;
 
 /** How far ahead, in lines of the story (says, menus, inputs), preload tasks reach. */

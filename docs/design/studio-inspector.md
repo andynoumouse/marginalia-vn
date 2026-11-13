@@ -1,7 +1,7 @@
 # Animation studio: the right column holds properties, the tool holds its options
 
 Status: proposed 2026-11-09, revised the same day after a review by a second reader ([studio-inspector-review.md](studio-inspector-review.md)); the
-open questions are decided (below). **Done**: steps 0 to 5 are built (2026-11-09); what is left of the UX round is under step 5. Follows [studio-ux.md](studio-ux.md) (layout, sections), [studio-focus-and-verbs.md](studio-focus-and-verbs.md)
+open questions are decided (below). **Done**: steps 0 to 5 are built (2026-11-09), and so is the rest of the UX round (2026-11-10) except ES-4 (TODO.md). Follows [studio-ux.md](studio-ux.md) (layout, sections), [studio-focus-and-verbs.md](studio-focus-and-verbs.md)
 (one focus, verbs that ask for their target) and [studio-stage-modes.md](studio-stage-modes.md) (what a click does per tool). Those notes fixed
 *what is chosen*; this one is about *where the controls for it sit*.
 
@@ -114,7 +114,7 @@ is the test studio-ux.md set for tabs), folded to its tab row by default; open, 
 ### What stays
 
 The one focus, the click rules per tool, the dock and its movable sections, the left column (Look, Poses, Parameters, Parts). Animate mode's
-inspector (Properties, Frames, Place in scene) changes only by gaining the focus header.
+inspector (Properties, Frames, Place in scene) stays as it is (the focus header ended up Model only, see step 1).
 
 ## Steps
 
@@ -499,8 +499,8 @@ step, tested, rather than being written whole first. Ordered by pixels removed p
    outputs take the next: mina's six chains are 1843 px (238 to 321 each), against 2153 for the text areas; a wider window fits all three
    tables on one line.
 
-   **What is left of the second UX round** ([ux-test-2026-11-studio/summary.md](ux-test-2026-11-studio/summary.md)): Fix first items 1 to 5
-   are done. Item 6, Animate mode: the At the playhead fields do not follow the playhead (SA-2); a single pose key slides back to rest by t=1
+   **What was left of the second UX round** ([ux-test-2026-11-studio/summary.md](ux-test-2026-11-studio/summary.md)), all done by
+   2026-11-10 except ES-4: Fix first items 1 to 5 were done. Item 6, Animate mode: the At the playhead fields do not follow the playhead (SA-2); a single pose key slides back to rest by t=1
    and the studio never says why (SA-5, a decision: draw the implicit rest keys, or change the rule); keyed parameter lanes and the ruler sit
    under five empty lanes (SA-8); the transport row overflows at 1024 px and phone width (SA-7); in narrow layouts the wheel zooms the stage
    instead of scrolling the page (SA-6). Then the S3s (polish) of sa.md, sd.md and sr.md, and the decisions the summary still lists (seconds

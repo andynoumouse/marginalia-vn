@@ -83,6 +83,10 @@ const setInert = (screen: HTMLElement, on: boolean) => {
 
 export class Menus {
   private stack: HTMLElement[] = [];
+  /** What had focus on each screen when another screen covered it: Back returns there, not to the first button (UX round PI-7). */
+  private openers = new Map<HTMLElement, { el: HTMLElement | null; id: string }>();
+  /** The element just pressed on a screen whose clicks hand focus back to the story (title, pause), so nothing is focused when it opens the next. */
+  private pressedOn: { screen: HTMLElement; id: string } | null = null;
   private mode: 'save' | 'load' = 'load';
   private page = 0; // -1 = autosave, -2 = quick save (Load only)
   private onConfirm: (() => void) | null = null;
@@ -326,8 +330,25 @@ export class Menus {
   private focusIn(screen: HTMLElement) {
     autoFocus(screen.querySelector<HTMLElement>('[autofocus], button:not(:disabled), input, select'));
   }
+  /** The element id (in the screen's layer) that had focus when `screen` was covered: a redraw that brings the screen back focuses it. */
+  returnId(screen: HTMLElement) { return this.openers.get(screen)?.id ?? ''; }
+  /** An element `id` of `screen`'s layer was pressed: what it opens returns to it. */
+  pressed(screen: HTMLElement, id: string) { this.pressedOn = { screen, id }; }
+  /** Focus what opened the screen covering `screen` (its element, or the element with its id after a redraw), else the first button. */
+  private refocus(screen: HTMLElement) {
+    const was = this.openers.get(screen);
+    // A screen is drawn in its layer, the element after it (#saves, #savesui).
+    const layer = document.getElementById(`${screen.id}ui`);
+    const el = was?.el?.isConnected && !was.el.closest('[data-leaving]') ? was.el : was?.id ? layer?.querySelector<HTMLElement>(`:scope > :not([data-leaving]) [data-id="${CSS.escape(was.id)}"][data-on="true"]`) : null;
+    if (!autoFocus(el)) this.focusIn(screen);
+  }
   private push(screen: HTMLElement) {
     const top = this.stack.at(-1);
+    const active = document.activeElement;
+    if (top && active instanceof HTMLElement && active !== document.body) this.openers.set(top, { el: active, id: active.dataset.id ?? '' });
+    else if (top && this.pressedOn?.screen === top) this.openers.set(top, { el: null, id: this.pressedOn.id });
+    else if (top) this.openers.delete(top);
+    this.pressedOn = null;
     // A dialog (yes/no, a save's name) leaves the screen it was asked from in sight, just out of reach.
     const dialog = screen === confirmEl || screen === saveNameEl;
     screen.dataset.over = String(dialog && !!top);
@@ -347,13 +368,15 @@ export class Menus {
       setInert(prev, false);
       prev.hidden = false;
       if (prev === savesEl) this.renderSaves();
-      this.focusIn(prev);
+      this.refocus(prev);
     }
     this.act.screens(this.open);
   }
   hideAll() {
     for (const s of SCREENS) { s.hidden = true; setInert(s, false); }
     this.stack = [];
+    this.openers.clear();
+    this.pressedOn = null;
     this.act.screens(false);
   }
 

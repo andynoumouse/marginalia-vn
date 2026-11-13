@@ -1,7 +1,7 @@
 import { ANIM_NAMES, EASE_NAMES } from './anim.js';
 import { BLIP_PRESETS, type RigManifest } from './assets.js';
 import { rigAnimNames, rigPartNames, rigLookNames, rigSlotNames } from './rig.js';
-import { BURST_NAMES, FILTER_NAMES, WEATHER_NAMES } from './fx.js';
+import { BURST_NAMES, DIRECTIONS, FILTER_NAMES, WEATHER_NAMES } from './fx.js';
 import { TRANSITIONS, type Program } from './types.js';
 import type { CommandWord } from './parser.js';
 import { childNodes, isClickable, SELECT_SETTINGS, SLIDER_SETTINGS, type ScreenNode } from './screens.js';
@@ -34,9 +34,9 @@ const FUNCTION_SNIPPETS: Suggestion[] = Object.entries(FUNCTIONS).map(([name, f]
 const anchorWords = (program: Program) => Object.keys(program.anchors ?? ANCHORS).map(n => `anchor=${n}`);
 const COMMANDS = [
   ['label', 'label name:  |  label name(param, ...):'], ['menu', 'menu ["prompt"] [style=<name>] [timeout 8s]:'], ['on', 'on timeout:  (last block of a menu with a timeout: what happens when time runs out)'], ['if', 'if condition:'], ['elif', 'elif condition:'], ['else', 'else:'],
-  ['scene', 'scene <background> [transition] [mask=<image>] [duration]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade 1s]'],
-  ['hide', 'hide <character> [fade 1s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= flip= anchor=] <duration>'],
-  ['shake', 'shake <character|screen> [duration]'], ['hop', 'hop <character> [duration]'],
+  ['scene', 'scene <background> [transition] [mask=<image>] [duration]  |  scene <background> fade [#color] [duration] [hold=0.5s]'], ['show', 'show <character> [look ...] [slot=variant] [at pos] [order=front|back | behind=<char>] [fade 1s]'],
+  ['hide', 'hide <character> [fade 1s]'], ['move', 'move <character> [to <pos>] [y= scale= rot= alpha= tint= flip= anchor=] [duration] [ease=]'],
+  ['shake', 'shake <character|screen> [duration] [strength=8]'], ['hop', 'hop <character> [duration]'],
   ['animate', 'animate <character> <name|stop> [duration] [loop]  |  animate <character> pose=<name> | <parameter>=<value> ... [over <duration>]'],
   ['hud', 'hud on <screen> [keep] | hud off <screen>  (keep a screen up while the story runs)'],
   ['image', 'image show <name> <file> [at x,y] [layer=] | image move <name> ... | image hide <name>'],
@@ -45,12 +45,12 @@ const COMMANDS = [
   ['focus', 'focus on | focus off  (speaker focus: dim who is not speaking, game.json "speakerFocus")'],
   ['behaviors', 'behaviors on | behaviors off  (rig.json "auto" animations: idling, blinking and talking by themselves)'],
   ['camera', 'camera zoom <factor> [at pos] [y=0-1] [duration] | camera pan <pos> | camera roll <degrees> | camera reset'],
-  ['weather', 'weather <rain|snow|petals|embers> [intensity] [duration] | weather off'], ['wind', 'wind <right|left> [strength] [gusts=] [duration] | wind off'], ['gravity', 'gravity <factor> | gravity reset'], ['filter', 'filter <blur|grayscale|sepia|night|vignette> [strength] [duration] | filter off'],
+  ['weather', 'weather <rain|snow|petals|embers|leaves|fog|fireflies> [intensity] [duration] | weather off'], ['wind', 'wind <right|left> [strength] [gusts=] [duration] | wind off'], ['gravity', 'gravity <factor> | gravity reset'], ['filter', 'filter <name> [strength] [+ <name> [strength]] [duration] | filter + <name> | filter - <name> | filter off  (blur, grayscale, sepia, night, invert, vignette, glow, sunbeams, chromatic, wave, pixelate, crt, grain, glitch, speedlines)'], ['letterbox', 'letterbox [bar height 0-0.4] [duration] | letterbox off  (cinematic bars)'],
    ['music', 'music play <name> [loop] [fade 1s] | music stop | music pause | music resume'], ['sound', 'sound play <name> [duck] | sound loop <name> [fade 1s] | sound stop [<name>] [fade 1s]'], ['movie', 'movie play <name> [noskip | loop]'], ['wait', 'wait <duration>'],
   ['nvl', 'nvl on | nvl off | nvl clear  (full-screen narration pages)'], ['textbox', 'textbox hide  (hide the text box until the next line)'], ['set', 'set name = expression  (set persistent.name = ... keeps it across playthroughs)'], ['input', 'input <variable> "Prompt" [default="Name"] [max=16]'], ['jump', 'jump <label>'], ['call', 'call <label>  |  call <label>(arguments)  (the arguments fill the label parameters)'], ['return', 'return'],
   ['screen', 'screen name:  or  screen name(a, inout b):  (a page of hotspots and buttons; show it with show screen name or name(1, b); an inout parameter is copied in from the story variable the call names and written back when the screen answers)'],
   ['transform', 'transform name:  (indented lines: [x=] [y=] [scale=] [rot=] [alpha=] [tint=] [flash=] [duration] [ease=], wait <duration>, repeat [times]; play it with animate <char|image> name)'],
-  ['end', 'end'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
+  ['end', 'end ["Ending name"]'], ['unlock', 'unlock <flag>  (persistent; read as unlocked.<flag>)'], ['define', 'define id "Name" color=#rrggbb [text=# font="" size= italic speed= blip= style= focus=off side=]'],
 ] as const;
 // The compiler keeps this list and the parser's COMMAND_WORDS in step (`on` is the menu's timeout block, not a statement of its own).
 type CommandsOk = Exclude<CommandWord | 'on', (typeof COMMANDS)[number][0]> | Exclude<(typeof COMMANDS)[number][0], CommandWord | 'on'>;
@@ -90,7 +90,6 @@ const SCREEN_ELEMENTS: [string, string][] = [
   ['each', 'each <list> as <name> [at x,y] [step dx,dy] [limit n]:'], ['default', 'default <element id>'], ['cancel', 'cancel [keep]  (the cancel key answers "" and drops the inout changes; cancel keep applies them)'], ['textbox', 'textbox off  (hide the text box while the screen is up)'],
 ];
 const elementIds = (nodes: ScreenNode[]): string[] => nodes.flatMap(n => (isClickable(n) ? [n.id, ...elementIds(childNodes(n))] : childNodes(n).length ? elementIds(childNodes(n)) : []));
-const DIRECTIONS = ['left', 'right', 'up', 'down'];
 const EASES = [...EASE_NAMES.map(n => `ease=${n}`), 'ease=bezier(0.25,0.1,0.25,1)'];
 
 /** The screens the project declares (not the starter title and pause screens the shell adds when it has none). */
@@ -254,8 +253,9 @@ function storyArguments(c: ArgCtx): Suggestion[] | undefined {
       return arg === 0 ? [...characters, { label: 'screen', kind: 'keyword' as const }] : kw(['strength=8', 'nowait']);
     case 'scene': {
       if (arg === 0) return assets([...program.ops.flatMap(o => (o.op === 'scene' ? [o.bg] : [])), ...folderNames(files, 'bg', IMAGE_FILE, true)], 'background');
-      if (last === 'wipe') return kw(DIRECTIONS);
+      if (last === 'wipe' || last === 'push') return kw([...DIRECTIONS]);
       if (arg === 1) return kw(TRANSITIONS);
+      if (prev.includes('fade')) return kw(['#ffffff', 'hold=0.5s', 'nowait']);
       return [...kw(['nowait']), ...folderNames(files, 'transitions', IMAGE_FILE).map(n => ({ label: `mask=${n}`, kind: 'keyword' as const, detail: 'image mask' }))];
     }
     case 'image': {
@@ -263,7 +263,7 @@ function storyArguments(c: ArgCtx): Suggestion[] | undefined {
       const shown = [...new Set(program.ops.flatMap(o => (o.op === 'image' && o.action === 'show' ? [o.name] : [])))];
       if (arg === 1) return prev[1] === 'show' ? [] : shown.map(label => ({ label, kind: 'keyword' as const, detail: 'overlay image' }));
       if (prev[1] === 'hide') return kw(['fade']);
-      if (prev[1] === 'move') return last === 'to' ? [] : kw([...(prev.includes('to') ? [] : ['to']), 'scale=1', 'rot=0', 'alpha=1', ...anchorWords(program), ...EASES, 'nowait']);
+      if (prev[1] === 'move') return last === 'to' ? [] : kw([...(prev.includes('to') ? [] : ['to']), 'scale=1', 'rot=0', 'alpha=1', 'tint=#ff8080', 'tint=none', ...anchorWords(program), ...EASES, 'nowait']);
       if (arg === 2) {
         const used = new Set(program.ops.flatMap(o => (o.op === 'image' && o.action === 'show' ? [o.file] : [])));
         return [...[...used].map(label => ({ label, kind: 'asset' as const, detail: 'image', path: true })), ...imagePaths(files).filter(s => !used.has(s.label) && !used.has(stripExt(s.label)))];
@@ -274,7 +274,8 @@ function storyArguments(c: ArgCtx): Suggestion[] | undefined {
     case 'weather': return arg === 0 ? kw([...WEATHER_NAMES, 'off']) : kw(['nowait']);
     case 'gravity': return arg === 0 ? kw(['0', '0.3', '1', '-0.3', 'reset']) : kw(['nowait']);
     case 'wind': return arg === 0 ? kw(['right', 'left', 'off']) : kw(['gusts=0.4', 'nowait']);
-    case 'filter': return arg === 0 ? kw([...FILTER_NAMES, 'off']) : kw(['nowait']);
+    case 'filter': return arg === 0 ? kw([...FILTER_NAMES, '+', '-', 'off']) : last === '+' || last === '-' ? kw([...FILTER_NAMES]) : kw(['+', 'nowait']);
+    case 'letterbox': return arg === 0 ? kw(['off', '0.12']) : kw(['nowait']);
     case 'nvl': return arg === 0 ? kw(['on', 'off', 'clear']) : [];
     case 'textbox': return arg === 0 ? kw(['hide']) : [];
     case 'focus': case 'behaviors': return arg === 0 ? kw(['on', 'off']) : [];
@@ -339,7 +340,7 @@ function screenArguments(c: ArgCtx): Suggestion[] | undefined {
       return [...bound, ...kw(cmd !== 'hotspot' ? ['at', 'size', 'style=', 'hover', 'tooltip', 'sub', 'up', 'down', 'left', 'right', 'on', 'loop', 'action', 'if', 'enabled'] : ['at', 'size', 'ellipse', 'poly', 'mask', 'cursor', 'hover', 'tooltip', 'up', 'down', 'left', 'right', 'on', 'loop', 'action', 'if', 'enabled'])];
     case 'slider': return arg === 0 ? kw(Object.keys(SLIDER_SETTINGS)) : kw(['at', 'size', 'readout', 'if']);
     case 'select': return arg === 0 ? kw([...SELECT_SETTINGS]) : kw(['at', 'size', 'font', 'if']);
-    case 'text': return last === 'on' ? kw(['enter']) : last === 'enter' ? kw(ENTER_EFFECTS) : last === 'loop' ? kw(LOOP_EFFECTS) : last === 'slide' ? kw(SLIDE_DIRS) : last === 'align' ? kw(['left', 'center', 'right']) : last === 'width' ? kw(['full']) : kw(['at', 'style=', 'font', 'width', 'align', 'if', 'on', 'loop']);
+    case 'text': return last === 'on' ? kw(['enter', 'exit']) : last === 'enter' || last === 'exit' ? kw(ENTER_EFFECTS) : last === 'loop' ? kw(LOOP_EFFECTS) : last === 'slide' ? kw(SLIDE_DIRS) : last === 'align' ? kw(['left', 'center', 'right']) : last === 'width' ? kw(['full']) : kw(['at', 'style=', 'font', 'width', 'align', 'color', 'lines', 'fit', 'if', 'on', 'loop']);
     case 'scroll': return kw(['at', 'size', 'start', 'bar', 'if']);
     case 'panel': return last === 'edge' ? kw(['stretch', 'repeat', 'round']) : last === 'size' ? kw(['full']) : kw(['at', 'size', 'image', 'slice', 'edge', 'padding', 'color', 'if']);
     case 'bar': return arg === 0 ? variables : last === 'edge' ? kw(['stretch', 'repeat', 'round']) : kw(['max', 'min', 'at', 'size', 'back', 'fill', 'slice', 'edge', 'padding', 'color', 'readout', 'if']);

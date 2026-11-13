@@ -15,8 +15,9 @@ model in [animation-studio-parameters.md](animation-studio-parameters.md) (`engi
   add their points.
 - Warp parameters are ordinary parameters, so poses, `animate`, timeline lanes and physics drive them with no new
   `SpriteState` field.
-- Variants of a slot share the lattice (the PSD places them in one image box). A frame track on a warped part is a
-  `checkRig` error, and a slot whose variants differ in size is a warning.
+- Variants of a slot share the lattice (the PSD places them in one image box), and a slot whose variants differ in size would be a
+  warning (not built: the manifest has no sizes). A frame track on a warped part is allowed (2026-11-11; it was an error until then): the part is rebuilt with the new frame's
+  texture on the same points, and robo's blink and talk play under `head_warp`. A free mesh clips what a frame draws past its outline.
 
 ## Group warps (a lattice over several parts)
 
@@ -72,7 +73,7 @@ the manifest has no sizes). `checkDeformers` takes a `boneOf` map for the "diffe
 ## Checks (`checkRig`, none in `checkAssets`)
 
 Unique deformer id; `part` exists and is not a bone; grid two integers within the cap; parameter ids and ranges as in
-`checkParams`; point indices in range; at most one deformer per part; the frame-track conflict above.
+`checkParams`; point indices in range; at most one deformer per part. (The frame-track conflict was dropped when frame tracks were allowed, above.)
 
 ## Studio
 
@@ -86,7 +87,8 @@ Unique deformer id; `part` exists and is not a bone; grid two integers within th
 As built (steps 2 and 3), in the layout of [studio-ux.md](studio-ux.md): the **Warp** tool (key **D**, Model mode only) sits
 beside Pivot and Move and the **Warp** section (Model mode, closed until the tool is chosen) holds everything else, so there is
 no tab. The pure part is `engine/src/warp-edit.ts`; `preview/studio-gizmo.ts` draws the lattice; `editor/anim-warp.ts` is the
-section. Decisions:
+section. (Since then the section is Properties › Deform plus the Warp tool's options bar, and it has no parameter of its own:
+its keys are the active parameter's, see [studio-inspector.md](studio-inspector.md).) Decisions:
 
 - **One parameter at a time.** The section picks a parameter (default: the first one this warp is keyed to) and edits its
   one-parameter keyform, `param` + `keys`. The slider in the section is the Parameters section's own control, so the value

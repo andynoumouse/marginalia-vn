@@ -234,7 +234,12 @@ export class MaskPanel {
     if (!d) return;
     const next = movePolygonPoint(d.base, d.point, [d.start[0] + delta[0], d.start[1] + delta[1]]);
     d.drag.put({ ...this.host.shapes(), [d.name]: next });
-    if (phase === 'end') { this.dragging = null; d.drag.end(); }
+    if (phase === 'end') {
+      this.dragging = null;
+      d.drag.end();
+      // The drag moved the rest outline, whatever the parameters show: a shape's keys are written by hand (MD-2).
+      if (d.base.keyforms?.length) this.host.note(`Moved point ${point} of ${d.name}'s rest outline. Its keys are not drawn here: write their points in rig.json (docs/rig-json.md, masks). Ctrl+Z undoes.`);
+    }
   }
   /** A click on an edge of the outline: a point is added there, before point `index`. */
   added(shape: string, index: number, at: [number, number]) {

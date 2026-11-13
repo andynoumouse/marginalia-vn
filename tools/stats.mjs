@@ -1,4 +1,5 @@
-// Script statistics: words, lines and reading time per script, label and character (engine/src/stats.ts).
+// Script statistics: words, lines and reading time per script, label and character, and per route to each ending (engine/src/stats.ts;
+// the routes come from the playtest bot).
 //   node tools/stats.mjs [--json] [--wpm <words a minute>]
 // Run after "npm run build".
 
@@ -8,7 +9,7 @@ import { projectData } from './project-data.mjs';
 
 const root = projectRoot();
 checkEngineVersion(root);
-const { compile, namedAnchors, namedPositions, stageSize, scriptStats, statsText } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href)
+const { compile, namedAnchors, namedPositions, stageSize, scriptStats, statsText, playtest } = await import(new URL('../dist/engine/src/index.js', import.meta.url).href)
   .catch(() => { console.error('Engine not built. Run "npm run build" first.'); process.exit(1); });
 
 const args = process.argv.slice(2);
@@ -21,4 +22,7 @@ const program = compile(project.scripts, namedPositions(project.game), namedAnch
 for (const d of program.diagnostics.filter(d => d.severity === 'error')) console.warn(`error ${d.file}:${d.line} ${d.message}`);
 
 const stats = scriptStats(program, wpm);
-console.log(args.includes('--json') ? JSON.stringify(stats, null, 2) : statsText(stats, `Script statistics of ${path.basename(root)}`));
+const { endings, unreachedEndings } = playtest(program, { game: project.game }); // the bot walks the routes to count the words to each ending
+const routes = endings.filter(e => e.words).map(e => ({ file: e.src.file, line: e.src.line, kind: e.kind, title: e.title, words: e.words }));
+const unreached = unreachedEndings.map(e => ({ file: e.src.file, line: e.src.line, title: e.title }));
+console.log(args.includes('--json') ? JSON.stringify({ ...stats, routes, unreached }, null, 2) : statsText(stats, `Script statistics of ${path.basename(root)}`, endings, unreachedEndings));

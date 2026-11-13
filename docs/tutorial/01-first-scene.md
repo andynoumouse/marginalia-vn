@@ -36,7 +36,7 @@ All three give you the same editor and the same project folder. Whichever you us
 - **Left: Files.** The scripts, `game.json`, your characters and assets. Ctrl+B shows or hides it.
 - **Red marks in the text.** Mistakes in the script are underlined as you type; F8 steps through them.
 
-![The editor: the script on the left, the running game on the right](img/editor-hub.png)
+![The editor: Files on the left, the script in the middle, the running game on the right](img/editor-hub.png)
 
 ## Read the template's script
 

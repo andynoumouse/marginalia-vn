@@ -295,7 +295,7 @@ export class OutlineView {
       class: `ol-node${n.entry ? ' entry' : ''}${n.reachable ? '' : ' orphan'}`, transform: `translate(${p.x} ${p.y})`,
       tabindex: 0, role: 'button', 'aria-label': `Label ${n.name}`, 'data-name': n.name,
     });
-    g.dataset.info = `${n.name}  (${n.src.file}:${n.src.line})  ${n.lines} lines${n.menus ? `, ${n.menus} choice menu` : ''}${n.ends ? ', ends the story' : ''}${n.returns ? ', returns' : ''}${n.reachable ? '' : '  - never reached from the start'}`;
+    g.dataset.info = `${n.name}  (${n.src.file}:${n.src.line})  ${n.lines} line${n.lines === 1 ? '' : 's'}, ${n.words} word${n.words === 1 ? '' : 's'}${n.menus ? `, ${n.menus} choice menu` : ''}${n.ends ? ', ends the story' : ''}${n.returns ? ', returns' : ''}${n.reachable ? '' : '  - never reached from the start'}`;
     const go = () => { this.close(); this.goTo(n.src.file, n.src.line); };
     g.addEventListener('click', () => { if (!this.dragged) go(); });
     g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
@@ -304,7 +304,7 @@ export class OutlineView {
     g.append(
       svg('rect', { width: NODE_W, height: NODE_H, rx: 6 }),
       svg('text', { x: 10, y: 22, class: 'name' }, n.name.length > 22 ? `${n.name.slice(0, 21)}…` : n.name),
-      svg('text', { x: 10, y: 41, class: 'meta' }, `${n.lines} line${n.lines === 1 ? '' : 's'}${flags ? ` · ${flags}` : ''}`),
+      svg('text', { x: 10, y: 41, class: 'meta' }, `${n.words} word${n.words === 1 ? '' : 's'}${flags ? ` · ${flags}` : ''}`),
     );
     return g;
   }

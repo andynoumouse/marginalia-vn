@@ -20,12 +20,13 @@ Files panel) shows the title in the preview, and edits then appear live.
 ```json
 { "title": "Evening in the Park",
   "titleScreen": { "background": "bg_park_evening", "music": "evening_theme", "showTitle": true,
-                   "align": "center", "buttons": ["new_game", "continue", "options"] },
+                   "buttons": ["continue", "gallery"] },
   "labels": { "new_game": "Begin" },
   "theme": "default" }
 ```
 
-- `buttons` sets the order and visibility of the title buttons.
+- `buttons` picks which optional title buttons show (`continue`, `gallery`, `music_room`, `chapters`, `achievements`; all
+  when left out). New game, Load and Options always show.
 - `labels` overrides menu text in the source language.
 - `theme.font` applies to story text and menus.
 - `intro` names a script label played as a cutscene before the title screen (Esc skips).
@@ -97,7 +98,8 @@ Saves, settings and read-text tracking are stored per game; see [exporting.md](e
 ## Options
 
 Master / music / sound volume, text speed (up to instant), auto speed, text sounds, skip read / all text, text size,
-text box opacity, reduce motion, sound captions, screen reader dialogue, language and fullscreen, grouped in Audio,
+text box opacity, reduce motion, sound captions, screen reader dialogue, touch gestures, speaker focus, timed choices,
+theme, language, voice language and fullscreen (a row shows only when the game has something for it), grouped in Audio,
 Game and Accessibility tabs. They are saved per browser in localStorage.
 
 - **Reduce motion** (on by default when the system asks for it) drops shake, hop, flash and weather, makes wipes,
@@ -183,9 +185,13 @@ The dev preview's **Debug** button opens a console (not in exported games).
 | `set <name> = <expr>` | Change a variable now |
 | `trust + 1` (any expression) | Print its value |
 | `jump <label>` | Start a new playthrough there |
+| `labels` | List every label |
+| `flags` | List the unlock flags |
 | `unlock <flag>` / `lock <flag>` | Edit the flags |
+| `persistent` | List the persistent values |
 | `reset <gallery\|music\|chapters\|flags\|options\|persistent\|seen\|saves\|progress\|all>` | Clear what persists (`progress` is everything but saves) |
 | `memory` | Estimated size of the loaded images and audio against the budget (`"memoryBudgetMB"` in `game.json`), and how many files the story had to wait for |
+| `clear` | Empty the log |
 | `help` | List the commands |
 
 Up/Down recall earlier commands.

@@ -21,7 +21,7 @@ define thought "" italic                 # thought: ... shows no name tag
 | `italic` | Italic text |
 | `focus=off` | Never dimmed by speaker focus |
 | `blip` | A text sound voice (see below) |
-| `style` | A style from the theme's `styles` (`box` is the old name) |
+| `style` | A style from the theme's `styles` |
 | `side` | A portrait shown in the text box while the character speaks. Opt in with `"sideImages": true` in `game.json`; `assets/side/<name>_<pose>.png` follows their pose on stage |
 
 ## Text sounds (blips)

@@ -11,6 +11,6 @@
     "strings": "vn strings"
   },
   "devDependencies": {
-    "marginalia-vn": "file:.."
+    "marginalia-vn": "file:../.."
   }
 }

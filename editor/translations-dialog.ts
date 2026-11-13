@@ -3,7 +3,7 @@
 // The list is virtual (virtual-list.ts): projects can have tens of thousands of strings, so only the rows in (and just around)
 // the viewport exist in the DOM.
 
-import { dropUnused, translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
+import { dropUnused, importTranslatorCsv, translationStatus, translatorCsv, uiLabelRows, outdatedIds, type SourceSnapshot, type StringRow, type StringTable } from '../engine/src/index.js';
 import { VirtualList } from './virtual-list.js';
 import { mountModal } from './modal.js';
 import { choiceAsk } from './ask.js';
@@ -27,7 +27,7 @@ const ROW_HEIGHT = 88;
 const SAVE_DELAY = 500;
 const FILTER_DELAY = 150;
 const LANG = /^[A-Za-z]{2,3}([_-][A-Za-z0-9]+)?$/;
-const KIND: Record<StringRow['kind'], string> = { say: 'line', choice: 'choice', reason: 'disabled choice', prompt: 'menu prompt', input: 'input prompt', other: 'screen / item', label: 'menu label' };
+const KIND: Record<StringRow['kind'], string> = { say: 'line', choice: 'choice', reason: 'disabled choice', prompt: 'menu prompt', input: 'input prompt', ending: 'ending name', other: 'screen / item', label: 'menu label' };
 
 export class TranslationsDialog {
   private readonly root: HTMLDivElement;
@@ -59,12 +59,13 @@ export class TranslationsDialog {
           <button type="button" class="close" aria-label="Close translations">Close</button></header>
         <div class="tr-bar">
           <label>Language <select class="tr-lang" aria-label="Language"></select></label>
-          <input class="tr-new" type="text" placeholder="new language, e.g. fi" aria-label="New language code" size="14">
+          <input class="tr-new" type="text" placeholder="new language, e.g. fi" aria-label="New language code" size="20">
           <button type="button" class="tr-add">Add</button>
           <input class="tr-filter" type="search" placeholder="Filter by text, id, speaker, label or file" aria-label="Filter strings">
           <label><input class="tr-todo" type="checkbox"> Untranslated only</label>
           <label><input class="tr-changed" type="checkbox"> Source changed only</label>
           <button type="button" class="tr-csv" title="Download every string with its context and all translations as a spreadsheet for translators">Export CSV</button>
+          <button type="button" class="tr-import" title="Read translations back from a CSV sheet with an id column and a column per language code (empty cells keep what is there)">Import CSV</button>
         </div>
         <div class="tr-ids" hidden><span class="tr-ids-msg"></span><button type="button" class="tr-ids-add">Add ids to all files</button></div>
         <div class="tr-status"><div class="tr-summary" role="status"></div><button type="button" class="tr-prune" hidden title="Delete the entries whose id no line of the script has any more">Remove unused</button></div>
@@ -80,6 +81,7 @@ export class TranslationsDialog {
     q('.tr-add').addEventListener('click', () => this.addLanguage());
     this.newLang.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); this.addLanguage(); } });
     q('.tr-csv').addEventListener('click', () => this.exportCsv());
+    q('.tr-import').addEventListener('click', () => this.pickCsv());
     this.prune = q('.tr-prune');
     this.prune.addEventListener('click', () => void this.removeUnused());
     this.idsBar = q('.tr-ids');
@@ -162,11 +164,13 @@ export class TranslationsDialog {
     const source = this.h.source();
     if (!LANG.test(code) || code.toLowerCase() === source.toLowerCase()) { this.summary.textContent = `A language code is 2-3 letters, optionally with a region (fi, pt-BR); ${source} is the script itself.`; return; }
     this.newLang.value = '';
+    const isNew = !this.tables[code];
     this.tables[code] ??= {};
     this.snaps[code] ??= {};
     this.lang = code;
     this.fillLanguages();
     this.refilter();
+    if (isNew) this.flush(code); // locale/<code>.json is written at once, so the language stays when the dialog closes before a line is typed (ED-3)
   }
 
   /** The filter, language or table changed: recompute which rows show and redraw the window. */
@@ -217,6 +221,7 @@ export class TranslationsDialog {
     this.flush(lang);
     this.flushSnap(lang);
     if (lang === this.lang) this.refilter();
+    this.summary.textContent = `Removed ${n} from locale/${lang}.json. ${this.summary.textContent ?? ''}`; // it said nothing (ED-11)
     this.filter.focus(); // the button hides once nothing is left to remove
   }
 
@@ -299,5 +304,40 @@ export class TranslationsDialog {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'translations.csv' });
     a.click();
     URL.revokeObjectURL(a.href);
+  }
+
+  private pickCsv() {
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.csv,.tsv,.txt,text/csv' });
+    input.addEventListener('change', () => { const f = input.files?.[0]; if (f) void f.text().then(t => this.importCsv(t, f.name)); });
+    input.click();
+  }
+
+  /** Merge a translators' sheet into the tables, after showing what it would change and asking. */
+  private async importCsv(text: string, name: string) {
+    const out = importTranslatorCsv(text, this.rows, this.tables, this.snaps, this.h.source());
+    if (out.error) { this.summary.textContent = `Could not import ${name}: ${out.error}`; return; }
+    const langs = out.languages.filter(l => l.added.length || l.changed.length);
+    const notes = [
+      out.unknown.length ? `Skipped ${out.unknown.length === 1 ? 'an id' : `${out.unknown.length} ids`} no line of the script has (${out.unknown.slice(0, 5).map(id => `#${id}`).join(', ')}${out.unknown.length > 5 ? ', ...' : ''}).` : '',
+      out.ignored.length ? `Columns not read: ${out.ignored.join(', ')}.` : '',
+    ].filter(Boolean).join(' ');
+    if (!langs.length) { this.summary.textContent = `${name} has nothing new to import.${notes ? ` ${notes}` : ''}`; return; }
+    const lines = langs.map(l => `${l.lang}${l.isNew ? ' (new language)' : ''}: `
+      + [l.added.length && `${l.added.length} new`, l.changed.length && `${l.changed.length} changed`].filter(Boolean).join(', ')
+      + (l.outdated.length ? ` (${l.outdated.length} made against older source text, shown as changed source)` : ''));
+    const pick = await choiceAsk(`Import ${name}? ${lines.join('; ')}. Changed translations are overwritten in ${langs.map(l => `locale/${l.lang}.json`).join(', ')}, with no undo.${notes ? ` ${notes}` : ''}`, ['Import']);
+    if (pick !== 0) return;
+    for (const l of langs) {
+      // In place: the rows on screen write their edits into these same objects.
+      const table = this.tables[l.lang] ??= {}, snap = this.snaps[l.lang] ??= {};
+      for (const id of [...l.added, ...l.changed]) { table[id] = l.table[id]; snap[id] = l.snapshot[id]; }
+      this.flush(l.lang);
+      this.flushSnap(l.lang);
+    }
+    if (!this.tables[this.lang]) this.lang = langs[0].lang;
+    this.fillLanguages();
+    this.refilter();
+    this.summary.textContent = `Imported ${name}: ${lines.join('; ')}. ${this.summary.textContent ?? ''}`; // it said nothing (ED-11)
+    this.filter.focus();
   }
 }

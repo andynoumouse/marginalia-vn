@@ -15,7 +15,8 @@ Items tagged **NEEDS PLANNING** get a short design (in `docs/design/`) before an
 
 Small, concrete, and each finishes something already started.
 
-Nothing open right now; pick from the topic sections below.
+- [~] Several timeline keys at once (UX round 3 AN-13, [plan](docs/design/timeline-multi-select.md)): choosing, group drag, nudge,
+  Delete and ease are built for channel and parameter keys. Left: frame blocks in the selection, and Copy and Paste of chosen keys.
 
 ## Documentation
 
@@ -102,7 +103,7 @@ Nothing open right now; pick from the topic sections below.
   What is left, most useful first:
   - [~] The camera as an animation target (`animate camera shake loop`, presets, transforms, `auto`) is built and was seen working in the preview (a steady shake, stopped by `animate camera stop`); parallax and `camera roll` likewise. A browser test ("camera shake, roll, tint, choreography, burst and the glitch filter") covers the shake, roll and zoom through `vnStage()`; nothing tests parallax. Left: parallax for `scene` background art (only pictures have it). The overscan (`overscanZoom`, a roll or shake zooms in just enough to hide the stage edge) is unit-tested and not seen in the preview.
   - [~] Per-sprite effects: `move`/`image` `tint=` (multiply, tweened) and `flash <char|picture>` (color-matrix hit flash) are built and were seen working in the preview on the flat sample character (not on a rig with stencil masks). `tint=` and `flash=` are also transform-step channels (browser-tested on the flat character, not on a masked rig; not in rig.json keys or the studio's lanes). Left: brightness, blur, silhouette.
-  - [~] More filters: `glow`, `chromatic` and `glitch` are built (one-pass shaders in `preview/scene-effects.ts`), seen working in the preview; the browser test only checks that the glitch shader compiles without console errors. Left: filters on a single character or picture (needs a per-sprite filter slot, as `flash` uses), and a true multi-pass bloom if the one-pass glow looks too crude.
+  - [~] More filters: the shader filters (`glow`, `sunbeams`, `chromatic`, `wave`, `pixelate`, `crt`, `grain`, `glitch`, `speedlines`; one-pass, in `preview/scene-effects.ts`) stack and were seen working in the preview; the browser test only checks the glitch shader and a sepia + glitch stack for console errors. Left: a browser test that turns every shader filter on, filters on a single character or picture (needs a per-sprite filter slot, as `flash` uses), and a true multi-pass bloom if the one-pass glow looks too crude.
   - [~] Choreography: `choreography name:` with timed `<seconds> <actor>: <step>` lines and `perform name` is built (characters, pictures and the camera; a fixed timetable compiled into one padded transform per actor), seen working in the preview; the browser test plays one and checks the script compiles. Left: `perform` seconds-stretch and strength, `parallel` / `if` / `pick` / `repeat` inside a choreography, a choreography that loops or runs `auto`, relative start times (`after alice`), and keeping a running one in saves (a rollback during it shows only where the parts left things).
   - [~] Lip sync: `speaking` now follows a voice recording's loudness (open/closed, with a hold) on voiced lines; unit-tested for the gate only, not heard or seen in a browser. Left: phoneme or viseme shapes (several mouth shapes from the audio; see [animation-studio-parameters.md](docs/design/animation-studio-parameters.md)).
   - [~] Particle emitters: `burst <sparkle|smoke|confetti|dust> at <character|position>` is built (a transient puff, not kept in saves, seen working in the preview; the browser test fires one and checks for errors). Left: a continuous emitter that stays on a character or point and is kept in saves (`emit ... off`), kinds with other shapes (hearts, stars; needs textures), and a burst that follows a moving character.
@@ -176,7 +177,7 @@ Nothing open right now; pick from the topic sections below.
       the block under the list shows the bound parts, the keys, the pose and which parameters move the chosen part, + column / + row grow a grid
       (`engine/src/keyform-edit.ts`, `engine/src/param-bind.ts`, `editor/anim-bind.ts`; docs/design/animation-studio-parameters.md) and Model
       **edits the parameters and pads** (new, rename through keyforms, poses, tracks, deformers, masks and physics, range, default,
-      category, ease, delete; categories are their own list: add, rename, delete, reorder, drag controls between them; `engine/src/param-edit.ts`); **Animate mode keys the values on the timeline**. Copy keys (the Copy row of the bound list, with Mirror) takes over another part's keys on the same parameter or pad, or any part's on another parameter of the same kind (`copyKeys` in `engine/src/key-copy.ts` maps min to min, default to default). Bind parts… has a checkbox that also binds what hangs on a ticked bone (the bones below it and their parts); the Parts tree's marks only show what is bound. Left: a curve editor per track ([plan](docs/design/param-curve-editor.md)), part keys becoming
+      category, ease, delete; categories are their own list: add, rename, delete, reorder, drag controls between them; `engine/src/param-edit.ts`); **Animate mode keys the values on the timeline**. Copy keys (the Copy row of the bound list, with Mirror) takes over another part's keys on the same parameter or pad, or any part's on another parameter of the same kind (`copyKeys` in `engine/src/key-copy.ts` maps min to min, default to default). Bind parts… has a checkbox that also binds what hangs on a ticked bone (the bones below it and their parts); the Parts tree's marks only show what is bound. Left: part keys becoming
       parameters (both kinds of key exist side by side now), easing between keyforms for pad grids, warps and masks (a slider's pose keys have a per-key `ease`, set in the Pose row), a handle for keyform opacity (a field only), a rename that also follows script lines (`animate robo look_x=...`).
     - [~] Masking: **built** (shape parts and `clip` links in rig.json `parts`; the first build's `masks` list is no longer read;
       [docs/rig-json.md](docs/rig-json.md#masks), design in
@@ -211,8 +212,7 @@ Nothing open right now; pick from the topic sections below.
       number-field editor instead of JSON, a `physicsOff` for poses and a script switch, wind in the studio's Shake preview (the strand
       amplitudes were set by estimate, not tuned by eye), no browser test of the Physics tab, `wind` or `gravity`, an opt-in gravity
       for chains (hair that hangs by weight), and Mina's hair redrawn in layers so strands read as separate locks.
-    - [~] Frame tracks: thumbnails in the blocks, onion skinning and a packed spritesheet per slot (asset loading). A frame track on
-      a warped part is a `checkRig` error (it would need a mesh per variant). The rest (format, evaluation, renderer, Frames tab) is done.
+    - [~] Frame tracks: thumbnails in the blocks, onion skinning and a packed spritesheet per slot (asset loading). The rest (format, evaluation, renderer, Frames tab) is done.
     - [~] Standalone studio and movie export. **Built:** the studio runs with no game project ([docs/standalone-studio.md](docs/standalone-studio.md)):
       `editor/studio.html` (served by `vn dev` and `vn character`; Chromium's File System Access folder picker) and **Open Character...** on Marginalia
       Studio's projects screen open a character folder (the PSD converter's output with or without a rig.json, one image per pose, or a game
@@ -242,8 +242,6 @@ Nothing open right now; pick from the topic sections below.
   and import saves in the web build (a file download/upload), so a player can move between browsers or keep a backup before
   clearing site data.
   A restore at a choice puts the line before it back in the box in one piece, so a line long enough to page (it types page by page on the first visit) is not paged there and is untested.
-- [ ] The end of the game: the words are now translatable labels (`end_title`, `end_hint`, `rotate_device`) over a dimmed stage. Left:
-  a short ending has no name of its own (PC-4; the quick menu now goes down at the end).
 - [~] The quick bar (the labels have 28 px text and a dark halo). Left: it still overlaps the text box edge, touch targets are
   under 44 px, a tap beside it advances the story (PI-2, PI-3), and the editor's preview pane shows it at about 8 px (EA-19). Belongs with the touch steps of [docs/design/mobile.md](docs/design/mobile.md).
 - [ ] The exported game's first load (UX round, [docs/design/ux-test-2026-11/px.md](docs/design/ux-test-2026-11/px.md)): the page says
@@ -260,8 +258,7 @@ Nothing open right now; pick from the topic sections below.
   focus falls to the page and Narrator reads the page title; and with Narrator on, key and focus navigation break (arrows,
   Space, Enter, numbers). Left: find out why (try NVDA and a plain browser window first); NVL pages and history are not
   announced separately.
-- [ ] Focus and structure in the stock screens (UX round, [docs/design/ux-test-2026-11/pi.md](docs/design/ux-test-2026-11/pi.md)): closing
-  a screen puts focus on the first button, not the one that opened it (PI-7); Tab does nothing during narration (it is Skip) and no screen lists the keys (PI-8); no landmarks or headings, and the
+- [ ] Focus and structure in the stock screens (UX round, [docs/design/ux-test-2026-11/pi.md](docs/design/ux-test-2026-11/pi.md)): Tab does nothing during narration (it is Skip) and no screen lists the keys (PI-8); no landmarks or headings, and the
   Options tabs have no tablist or tabpanel (PI-6, PI-12); switches read "Reduce motion: Off" but are not `role=switch`.
 - [-] **DEFERRED (much later)** A dyslexia-friendly font option and text-to-speech (self-voicing). (A high-contrast theme is
   built in; a game offers it by listing `high-contrast` in game.json `themes`.)
@@ -274,10 +271,7 @@ Nothing open right now; pick from the topic sections below.
   file is renamed); no rename of characters (converted or flat); no drag-and-drop moves inside the tree; no Undo for Rename.
 - [~] Story outline. Left: back edges arc below the nodes and can cross labels in the same columns; a 300-label story lays out in
   one long row and Fit shows a thin strip (UX round EL-12; the layout itself is unit-tested for 400 labels).
-- [~] "Did you mean" quick fixes. Left: game.json names and rig.json keys.
-- [~] Translations dialog. Left: no import of a translated CSV; no translator notes.
-- [~] Script statistics (`vn stats`, the palette's **Story: Script Statistics**, `engine/src/stats.ts`). Left: words per
-  route (the playtest bot's endings, shortest and longest way to each); counts in the Outline's label nodes.
+- [ ] Translations dialog: translator notes (a comment per string that the CSV export carries).
 - [ ] Brand icon in the editor header in place of the "Marginalia VN" text (the page title stays text).
 - [ ] Spell check for dialogue and menu text only (not ids, tags, `[variables]` or commands), as Monaco warnings with
   "add to project dictionary" (a word list in the project); a dictionary per locale is a later step.
@@ -387,7 +381,7 @@ to "Next up" as a task and leave a pointer here. Format: *As a ..., I want ... s
   iOS/Android. Planned in [docs/design/mobile.md](docs/design/mobile.md); steps 1 (fit, safe areas, rotate cover), 2
   (swipes, long press, `touch` in game.json) and 6 (installable app, game.json `pwa`) are built, step 3 (touch targets, text floor, Phone preview) mostly, and step 4 partly
   (wake lock, audio resume). Left: tap zones, a Problems check for small buttons and tap-to-inspect (3); the virtual keyboard for
-  `input` and a low-end Android memory check (4, both need a real device); portrait (5), the iOS hint, a fullscreen button outside Options and progressive caching for big games (6), native wrapper (7);
+  `input` and a low-end Android memory check (4, both need a real device); portrait (5: the title, pause and quick menus at phone size, other landscape sizes and near-square stages), the iOS hint, a fullscreen button outside Options and progressive caching for big games (6), native wrapper (7);
   nothing tried on a real phone.
 - [ ] As a player, I want a map of the routes I have seen (the Outline's flowchart, limited to labels reached in any
   playthrough, with jumps to chapter starts), so that finding the last ending is not guesswork. Opt-in in game.json.

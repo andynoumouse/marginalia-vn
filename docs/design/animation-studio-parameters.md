@@ -1,7 +1,8 @@
 # Parameter-driven animation studio
 
-Status: proposed 2026-11-05, not started. The model below is designed (parameters, poses, physics, frame tracks, gizmos);
-the Open questions still need answers before any code. Backward compatibility is not required: the rig.json and
+Status: proposed 2026-11-05, since built: parameters, poses, physics, frame tracks, gizmos, masks, the standalone studio and
+the movie export (the "as built" notes below; what is left is under each "Not built" and in TODO.md). The Decisions answer the
+first open questions. Backward compatibility is not required: the rig.json and
 animation formats may change freely.
 
 The goal is a more Live2D-like animation studio for layered characters: named parameters (sliders and 2D pads) drive
@@ -45,7 +46,7 @@ It builds on the rigid-part rigs and the studio (now Model | Animate, see [studi
 
 - A target (a part transform, a mesh's vertices, an opacity, a mask) stores authored poses at chosen parameter values
   and blends between them: linearly for a slider, bilinearly on the grid for a pad (the 3x3 head-turn case).
-- The same part may be affected by several parameters. Open question: how those combine (see below).
+- The same part may be affected by several parameters. How those combine was decided: additively (see Decisions).
 - A part key in the old sense (rotate this part to 30 degrees at 0.5 s) becomes a key on an auto-generated parameter for
   that part's transform. One animation channel, one keyframe format, one kind of timeline track. Leaning this way
   because compatibility is not a constraint; the cost is a larger rewrite of the studio, `animate` and rig.json.
@@ -65,7 +66,7 @@ It builds on the rigid-part rigs and the studio (now Model | Animate, see [studi
 
   Each parameter interpolates linearly (with its easing) from its current value to the target; parameters not named
   stay where they are. Because keyform blending is itself linear, a straight tween between two parameter sets always
-  gives a sensible in-between pose. The exact syntax is settled at planning time.
+  gives a sensible in-between pose. The syntax as built is in [commands.md](../commands.md#animate).
 - A straight blend is not always right (a rotation swinging the long way round, a mouth shape that looks wrong halfway).
   Per-parameter easing handles most cases; a transition can also pass through an intermediate pose.
 - Poses double as expression presets.
@@ -102,22 +103,22 @@ the silhouette trace, bending a shape with a warp) and `mask-edit.ts` (the studi
   are avoided as the task asked, since they need render textures. A drawn `polygon` is in PSD canvas pixels like pivots.
 - **"The shape is a keyform target" means its points.** A polygon's vertices take `DeformerKeyform`s (`pts` per vertex, the unit and the
   evaluation of a lattice: `evalPointKeyforms`, which `evalDeformer` now shares), so a parameter reshapes it (the eyelids close on
-  `eye_open`). Where the shape sits comes from what it follows: a `from` part's whole transform and warp, or a polygon's `on` bone or part
+  `eye_open`). Where the shape sits comes from what it follows: a `from` part's whole transform and warp, or a polygon's `bone` or `follow` part
   (a bone's world matrix from `placeRig`; a part's container; a warped part bends the polygon through its lattice with `warpPoints`).
-  A mask is not a keyform target of its own transform: put the polygon `on` a bone and key the bone.
+  A mask is not a keyform target of its own transform: put the polygon on a bone (`bone`) and key the bone.
 - **Where a stencil lives.** Pixi 8 masks any container with a `Graphics`: the shape hangs in the container of the part it follows (or a holder
   placed with a bone) and is `mask` of the clipped part's container, so draw order, bones and animation need no new code and the shape is
   redrawn only when its own parameters or its frame part's warp changed. A part clipped by a clipped part gets the second shape on its image
   (`container.mask` and `sprite.mask`: nested stencils, one level). Variants are rebuilt by `dress()` like everything else; a `from` part's
   outline is traced per variant texture and cached.
-- **Hidden source, hidden part.** When a look hides the `from` part (or the `on` part) there is nothing to clip to, so the clipped part is
+- **Hidden source, hidden part.** When a look hides the `from` part (or the `follow` part) there is nothing to clip to, so the clipped part is
   hidden: an iris beside no eye should not float.
 - **Studio (shapes as parts).** The working copy holds `shapes` (name to `{ bone?, follow?, polygon, keyforms? }`) and `clips` (clipped part to its
   shape or part) in place of the old one-mask-per-part list (`StudioDoc`, engine/src/studio-doc.ts); `studioWrites` writes them with `writeShapes` into `parts`. The pure edits are in `engine/src/mask-edit.ts` on a `ShapeSet` (shapes, clips and the deformers, since a group lists shapes as
   members): `addShape`, `renameShape` (every clip and group member follows; the name is unique among parts, bones and shapes), `deleteShape` (clipped parts are
   freed, the shape leaves its groups, the note says so, nothing is asked), `setClip` (the `checkMasks` rules), `moveShape` (bone, follow), `clipGroupIssues` and
   `addToGroup` (the group warp warning and its fix). A shape has a row in the Parts tree (editor/anim-tree.ts, under **Shapes**); choosing it, or a part clipped
-  to it, makes the Mask section (editor/anim-mask.ts) and the Mask tool edit it. The stage (`studioMasks { shapes, clips }`, `studioMask { shape, part, tool, point }`)
+  to it, makes the Mask section (editor/anim-mask.ts; since then the Clip block of Properties and the Mask tool's options bar) and the Mask tool edit it. The stage (`studioMasks { shapes, clips }`, `studioMask { shape, part, tool, point }`)
   draws a shape that clips nothing too (the renderer's `maskView(..., unclipped)`: a node that is never a mask), outlines every shape with the Mask tool, and picks
   one on a click within 8 screen pixels of its outline (`shapeAtEdge`), or inside it where no part's art is hit (`shapeAtInside`); the answer is the ordinary
   `studioSelect`. The renderer keeps the studio's shapes and clips and puts them back whenever `studioPivots` replaces `parts`. The bone gizmo and the pivot tool
@@ -162,9 +163,8 @@ authoring flow; the flow itself (the parameter is picked first) is the next sect
 - **A renderer fix found on the way.** The game's per-frame stepping (`PixiRenderer.stepFx`) also ran in the studio and posed every part from the
   *default* parameter values each frame, over what the studio had posed, for any rig with keyforms: a pose the author set (a slider, a drag) was
   drawn for one frame and then replaced. The studio now poses actors only through `studioPose`.
-- **Not built:** curves between keys other than linear (the blend is linear, as it is in the game), mirror / copy of keyforms between parameters or parts,
-  editing opacity with a handle (it is a field), keyforms of a target other than a bone or part (mesh points are the Warp section's), and selecting several
-  parts to pose at once.
+- **Not built:** editing opacity with a handle (it is a field) and keyforms of a target other than a bone or part (mesh points are the Warp
+  section's). Since built: a per-key `ease`, copy / mirror of keys (`engine/src/key-copy.ts`) and posing several parts at once (Ctrl-click).
 
 #### Parameter-first authoring in Model mode (as built, 2026-11-07)
 
@@ -181,7 +181,7 @@ corner snap), `editor/anim-tree.ts` (the bind ticks) and `editor/anim-studio.ts`
   stage, so it cannot hurt, and the keyform is valid data (a rig may hold bound parts that were never posed; `checkRig` is happy with it). The default is a line on every grid but
   2 × 2, because the rest pose there is what the ends are posed against.
 - **What a pick binds depends on the tool.** With Move, Rotate or Scale on, a pick binds the part's *pose* (the bone it sits on, as when a click
-  chooses it); with the Warp tool on, its lattice (`deformers`); with Mask, its drawn polygon (`masks`). The three have the same keys and the same list; only a slider can be the
+  chooses it); with the Warp tool on, its lattice (`deformers`); with Mask, its shape part's polygon. The three have the same keys and the same list; only a slider can be the
   parameter of a warp or a mask, as in their own data. A pick on something already bound is a plain choose, so a second click does not unbind; the ✕ in the **Bound parts**
   list and Ctrl+Z are the ways back (the tree's mark is a display). A drag with the gizmo on a part that is not bound writes nothing and says to bind it: binding is its own verb.
 - **A click only selects; binding is a verb.** A click on the stage or a row never binds. **Bind parts…** (with a parameter in focus) opens a checklist of the parts in the right column and binds the ticked ones;
@@ -194,18 +194,18 @@ corner snap), `editor/anim-tree.ts` (the bind ticks) and `editor/anim-studio.ts`
   "Arm_L, 2 of 3. Click again for the next."
 - **Keys are removed, the keyform stays.** The keyform is the binding, so **Remove this key** only takes the key out (a pad corner goes back to rest), and the key at the default goes
   back to rest instead of out. **Unbind** ends the binding and takes every key of it.
-- **One palette.** Every slider and pad is in the Parameters section. The Warp section has no parameter select or slider of its own: its keys are
+- **One palette.** Every slider and pad is in the Parameters section. The Warp section (since then Properties › Deform and the Warp tool's options bar) has no parameter select or slider of its own: its keys are
   the active parameter's, and its key buttons put that parameter's slider on the key. The list of controls scrolls inside its own box so the block under it stays in view.
 - **Animate and Model are the two modes.** `StudioMode` is `model | animate`. Pivots, bone
-  editing, the Pivot tool, physics and "By itself" are Model's; the Warp and Mask tools and the gizmo drag work parameter first.
-- **Not built:** posing several parts at once (a pick adds one part), copy / mirror of a part's keys to another
-  part or the other half of a pad, binding a whole bone subtree with one pick, and the corner buttons a pad could list the way a slider lists its keys.
+  editing, the Pivot tool and physics (a tab of the rig strip) are Model's; the Warp and Mask tools and the gizmo drag work parameter first.
+- **Not built:** the corner buttons a pad could list the way a slider lists its keys. Since built: posing several parts at once,
+  copy / mirror of a part's keys, and binding a whole bone subtree with one pick.
 
 ### Physics (secondary motion)
 
 Most of what reads as alive in a Live2D model is secondary motion: hair and ribbons swinging when the head turns,
-cloth settling, a body that breathes. Rigid parts on bones cannot fake it, so physics is a planned part of the model,
-built after parameters and mesh deformers (see Suggested order). It adds no new kind of data to the rest of the model:
+cloth settling, a body that breathes. Rigid parts on bones cannot fake it, so physics is part of the model,
+built after parameters (see Suggested order). It adds no new kind of data to the rest of the model:
 a physics chain reads parameters and writes parameters.
 
 - A **physics chain** lives in the rig next to the parameters. It has **inputs** (parameters or bone channels, such as
@@ -235,7 +235,7 @@ a physics chain reads parameters and writes parameters.
   deformation it drives, not the simulation. Chains of a character that is off stage are not stepped.
 - **Not planned:** collision between chains or with the body, cloth as a 2D grid and any solver heavier than a damped
   pendulum or spring chain. A hem or sleeve is a short chain driving a warp, which is what Live2D's physics does too.
-- **Interim:** until deformers exist, a chain's output can drive a **bone rotation** directly (a hair part on a bone, as in
+- **Bone outputs:** a chain's output can also drive a **bone rotation** directly (first an interim before deformers, kept since) (a hair part on a bone, as in
   rig-hierarchy.md). It looks stiff, but it settles the format and the studio panel in advance; the mesh warp then
   improves the look without changing the data.
 
@@ -276,15 +276,14 @@ studio only needs a way to key it on the timeline.
 
 - **Viewport:** wheel zooms toward the cursor, middle-drag or space-drag pans, a key fits the view. Pivot handles, mesh
   points and mask outlines keep a constant on-screen size when zoomed. The timeline zooms and pans too.
-- **Bone gizmos:** today the stage only places a pivot (a click or a drag of the pivot handle). Bones and parts should
-  also be posed directly on the stage, as in Spine and Inochi Creator:
+- **Bone gizmos** (built): bones and parts are posed directly on the stage, as in Spine and Inochi Creator:
   - Select a bone by clicking its handle or its part (the hit test picks the topmost part whose pixels are opaque
     under the cursor, then maps it to its bone), or in the bone tree; the selection is shared between both.
   - A bone draws as a line from its pivot to its children's pivots, with a handle at the pivot. Three tools, switched by
     keys (for example W move, E rotate, R scale): **move** drags the bone in its parent's space, **rotate** turns it around its
     pivot with a ring handle (shift snaps to 15 degrees), **scale** stretches it from the pivot with axis handles
     (shift keeps the ratio, alt scales from the center).
-  - In Model mode (Rig, then) a drag on a bone that a parameter drives edits that parameter's keyform at its current value, and the
+  - In Model mode a drag on a bone that a parameter drives edits that parameter's keyform at its current value, and the
     panel says which one; the pivot is placed with its own tool. In Animate mode a drag writes a key (or updates the key
     under the playhead) on that bone's transform channels; with auto-key off, the drag only previews and a key button
     commits it, so a stray drag cannot ruin an animation. (Both are built, see Keyform authoring, as built.)
@@ -355,7 +354,7 @@ server's studio-only mode and the Studio's `character:*` bridge (`studio/main.cj
 
 The user-facing description is in [rig-json.md](../rig-json.md#exporting-a-movie); the code is `engine/src/movie-export.ts` (the plan, frame times,
 framing, file names, the run loop, stored options), `ZipStream` in `zip.ts`, the stage page's `studioExportBegin / Frame / End`
-messages (`preview/studio.ts`, `PixiRenderer.studioCapture`), the dialog `editor/anim-export.ts` and the Studio's `movie` bridge
+messages (`preview/studio.ts`, `StudioPixiRenderer.studioCapture` in `preview/pixi-studio.ts`), the dialog `editor/anim-export.ts` and the Studio's `movie` bridge
 (`studio/preload.cjs`, `main.cjs`). What was decided and why:
 
 - **Time is arithmetic, not a clock.** Frame N is at N / fps seconds (`frameTime`); a looped export wraps by time, a single play holds the last
@@ -398,7 +397,7 @@ Decided 2026-11-06:
   a scene change where the character stays, the chain state is kept, not reset. Only "inputs / pendulum / outputs" is
   taken from the Live2D vocabulary.
 - **Frame tracks:** `frames` sequences are stored as written and expanded in memory. A frame track on a mesh-warped part
-  is a `checkRig` error for now (it would need a mesh per variant).
+  was a `checkRig` error at first; since 2026-11-11 a warped part may swap frames (see [mesh-warp.md](mesh-warp.md)).
 - **Movie export:** render in the browser, frame by frame with a fixed timestep (not MediaRecorder, which captures in
   real time and drops frames; not node, which would need a headless GL renderer). A PNG sequence with alpha first;
   webm / mp4 later through WebCodecs or an ffmpeg the Electron Studio bundles.
@@ -418,14 +417,14 @@ Ideas that fit the model but can be added without changing the format:
 
 ## Suggested order
 
-1. Parameter model, keyforms and the timeline on parameters, replacing direct part keys. Stepped frame tracks can
-   come with it, as they need only the slot model and the timeline.
-2. Poses and the script surface (`pose=`, `param=value`, tweens).
-3. Viewport zoom and pan, then the bone gizmos (they share the constant-size handles; a bone drag works without the
+1. Parameter model, keyforms and the timeline on parameters, replacing direct part keys (built, except replacing the
+   direct part keys). Stepped frame tracks can come with it, as they need only the slot model and the timeline.
+2. Poses and the script surface (`pose=`, `param=value`, tweens) (built).
+3. (Built.) Viewport zoom and pan, then the bone gizmos (they share the constant-size handles; a bone drag works without the
    parameter model, so this can also come before step 1 on the rigid rigs).
-4. Mesh-warp deformers.
+4. Mesh-warp deformers (built).
 5. Masking (built, 2026-11-07).
-6. Physics chains (the pure simulation and its tests first, then the studio panel). A chain driving a bone rotation
+6. (Built.) Physics chains (the pure simulation and its tests first, then the studio panel). A chain driving a bone rotation
    can ship before step 4 if secondary motion is wanted early; its outputs move to warp parameters later.
 7. Standalone packaging and movie export (the PNG-sequence export and the standalone studio are built, 2026-11-07; webm / mp4 are not).
 8. Items under Later.

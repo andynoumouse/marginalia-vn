@@ -20,6 +20,7 @@ import { checkFrames, framesNeeded, frameTracks } from './frames.js';
 import { checkDeformers, checkParams, checkPoses, type DeformerDef, type KeyformDef, type PadDef, type ParamDef, type PoseDef } from './params.js';
 import { checkClipGroups, checkMasks, shapePartNames, type PartEntry } from './masks.js';
 import { checkPhysics, type RigPhysicsChain } from './physics-rig.js';
+import { closest, didYouMean, type ProblemReport } from './suggest.js';
 
 export interface RigData {
   order?: string[];
@@ -148,7 +149,7 @@ export const rigAnimNames = (rig: RigManifest): string[] => Object.keys(rig.rig?
 export const rigSlotNames = (rig: RigManifest): string[] => [...slotsOf(rig).keys()];
 
 /** A problem in rig.json; `at` is the key it is about, so the editor can find its line. */
-export interface RigProblem { message: string; at: string }
+export interface RigProblem { message: string; at: string; fix?: { word: string; options: string[] } }
 
 const AUTO_KEYS = ['every', 'while'];
 const REACTION_KEYS = ['when', 'pose', 'over', 'ease'];
@@ -156,31 +157,31 @@ const REACTION_KEYS = ['when', 'pose', 'over', 'ease'];
 const BUILTIN_NAMES = ['speaking', 'always'];
 
 /** Problems in a condition text: it must parse, and name only the built-ins, `param.<id>` of a defined parameter, or (when the project's variables are known) a script variable. */
-function checkCondition(src: unknown, at: string, where: string, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+function checkCondition(src: unknown, at: string, where: string, paramIds: Set<string>, vars: readonly string[] | undefined, problem: ProblemReport): void {
   if (typeof src !== 'string' || !src.trim()) { problem(`${where}: needs a condition (an expression such as "speaking" or "affection > 3")`, at); return; }
   const e = parseCondition(src);
   if (!e) { problem(`${where}: "${src}" is not a valid expression`, at); return; }
   for (const name of collectVars(e)) {
     if (BUILTIN_NAMES.includes(name)) continue;
-    if (name.startsWith('param.')) { if (!paramIds.has(name.slice(6))) problem(`${where}: no parameter "${name.slice(6)}" (parameters: ${[...paramIds].join(', ') || 'none'})`, at); continue; }
-    if (vars && !vars.includes(name)) problem(`${where}: "${name}" is no script variable (speaking, always, param.<id>, ${vars.join(', ') || 'no variables'})`, at);
+    if (name.startsWith('param.')) { if (!paramIds.has(name.slice(6))) problem(`${where}: no parameter "${name.slice(6)}" (parameters: ${[...paramIds].join(', ') || 'none'})`, at, name.slice(6), paramIds); continue; }
+    if (vars && !vars.includes(name)) problem(`${where}: "${name}" is no script variable (speaking, always, param.<id>, ${vars.join(', ') || 'no variables'})`, at, name, vars);
   }
 }
 
 /** An animation's `auto`: `every` and/or `while`, valid. */
-function checkAuto(name: string, def: AnimDef, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+function checkAuto(name: string, def: AnimDef, paramIds: Set<string>, vars: readonly string[] | undefined, problem: ProblemReport): void {
   const au = (def as { auto?: unknown }).auto, where = `animations.${name}.auto`;
   if (au === undefined) return;
   if (!au || typeof au !== 'object' || Array.isArray(au)) { problem(`${where}: needs an object with "every" and/or "while"`, name); return; }
   const a = au as Record<string, unknown>;
-  for (const k of Object.keys(a)) if (!AUTO_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${AUTO_KEYS.join(', ')})`, name);
+  for (const k of Object.keys(a)) if (!AUTO_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${AUTO_KEYS.join(', ')})`, name, k, AUTO_KEYS);
   if (a.every === undefined && a.while === undefined) problem(`${where}: give "every" (a wait in seconds, or { "min", "max" }) and/or "while" (a condition)`, name);
   if (a.every !== undefined && !everyBounds(a.every)) problem(`${where}.every: use seconds (more than 0) or { "min", "max" } with 0 < min <= max`, name);
   if (a.while !== undefined) checkCondition(a.while, name, `${where}.while`, paramIds, vars, problem);
 }
 
 /** `reactions`: an ordered list of { when, pose, over, ease }. */
-function checkReactions(data: RigData, paramIds: Set<string>, vars: readonly string[] | undefined, problem: (message: string, at: string) => void): void {
+function checkReactions(data: RigData, paramIds: Set<string>, vars: readonly string[] | undefined, problem: ProblemReport): void {
   const raw = data.reactions as unknown;
   if (raw === undefined) return;
   if (!Array.isArray(raw)) { problem('reactions: needs a list of { "when", "pose", "over", "ease" }', 'reactions'); return; }
@@ -188,9 +189,9 @@ function checkReactions(data: RigData, paramIds: Set<string>, vars: readonly str
     const where = `reactions[${i}]`;
     if (!r || typeof r !== 'object' || Array.isArray(r)) { problem(`${where}: not a reaction`, 'reactions'); return; }
     const x = r as Record<string, unknown>;
-    for (const k of Object.keys(x)) if (!REACTION_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${REACTION_KEYS.join(', ')})`, 'reactions');
+    for (const k of Object.keys(x)) if (!REACTION_KEYS.includes(k)) problem(`${where}.${k}: unknown (use ${REACTION_KEYS.join(', ')})`, 'reactions', k, REACTION_KEYS);
     checkCondition(x.when, 'reactions', `${where}.when`, paramIds, vars, problem);
-    if (typeof x.pose !== 'string' || !Object.hasOwn(data.poses ?? {}, x.pose)) problem(`${where}.pose: no pose "${String(x.pose)}" (poses: ${Object.keys(data.poses ?? {}).join(', ') || 'none'})`, 'reactions');
+    if (typeof x.pose !== 'string' || !Object.hasOwn(data.poses ?? {}, x.pose)) problem(`${where}.pose: no pose "${String(x.pose)}" (poses: ${Object.keys(data.poses ?? {}).join(', ') || 'none'})`, 'reactions', String(x.pose), Object.keys(data.poses ?? {}));
     if (x.over !== undefined && !(typeof x.over === 'number' && x.over >= 0)) problem(`${where}.over: seconds, 0 or more (default ${DEFAULT_REACTION_OVER})`, 'reactions');
     const bad = x.ease !== undefined ? rigEaseProblem(x.ease) : null;
     if (bad) problem(`${where}.ease: ${bad}`, 'reactions');
@@ -202,14 +203,17 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
   const data = rig.rig;
   if (!data) return [];
   const out: RigProblem[] = [];
-  const problem = (message: string, at: string) => out.push({ message, at });
+  const problem: ProblemReport = (message, at, word, known) => {
+    const options = word !== undefined && known ? closest(word, known) : [];
+    out.push({ message: message + didYouMean(options), at, ...(options.length ? { fix: { word: word!, options } } : {}) });
+  };
   const slots = slotsOf(rig);
   const names = new Set((rig.parts ?? []).map(partName));
   const variants = variantNames(rig);
   const shapes = new Set(shapePartNames(data.parts));
   for (const n of data.order ?? []) {
     if (shapes.has(n) && !names.has(n)) problem(`order: "${n}" is a shape part, which has no art to stack; leave it out`, n);
-    else if (!names.has(n)) problem(`order: no part named "${n}"`, n);
+    else if (!names.has(n)) problem(`order: no part named "${n}"`, n, n, names);
   }
   const raw = data as Record<string, unknown>;
   if (raw.masks !== undefined) problem('masks was replaced by shape parts and clip links: a drawn shape is an entry of parts with a polygon (and bone or follow), and the clipped part has "clip": "<shape or part>"; see rig-json.md', 'masks');
@@ -221,10 +225,10 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
     if (!def || typeof def !== 'object') { problem(`looks.${name}: needs an object of slot: variant`, name); continue; }
     for (const [k, v] of Object.entries(def)) {
       if (typeof v !== 'string') { problem(`looks.${name}.${k}: must be a string`, name); continue; }
-      if (k === 'look') { if (!lookNames.has(v)) problem(`looks.${name}: look "${v}" is no look`, name); continue; }
+      if (k === 'look') { if (!lookNames.has(v)) problem(`looks.${name}: look "${v}" is no look`, name, v, lookNames); continue; }
       const have = slots.get(k);
-      if (!have) problem(`looks.${name}: no slot "${k}"`, k);
-      else if (v !== 'none' && !have[v]) problem(`looks.${name}: slot "${k}" has no variant "${v}"`, name);
+      if (!have) problem(`looks.${name}: no slot "${k}"`, k, k, slots.keys());
+      else if (v !== 'none' && !have[v]) problem(`looks.${name}: slot "${k}" has no variant "${v}"`, name, v, Object.keys(have));
     }
     const loop = [name];
     for (let cur = def.look; typeof cur === 'string' && Object.hasOwn(data.looks!, cur); cur = data.looks![cur]?.look) {
@@ -234,13 +238,13 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
     }
   }
   for (const [part, pv] of Object.entries(data.pivots ?? {})) {
-    if (!names.has(part)) problem(`pivots: no part named "${part}"${Object.hasOwn(data.bones ?? {}, part) ? ' (a bone takes its pivot in bones)' : ''}`, part);
+    if (!names.has(part)) problem(`pivots: no part named "${part}"${Object.hasOwn(data.bones ?? {}, part) ? ' (a bone takes its pivot in bones)' : ''}`, part, part, names);
     else if (!Array.isArray(pv) || pv.length !== 2 || !pv.every(Number.isFinite)) problem(`pivots.${part}: use [x, y] in pixels of the PSD canvas`, part);
   }
   checkBones(data, names, shapes, problem);
   checkParams(data, new Set([...names, ...Object.keys(data.bones ?? {})]), problem);
   checkPoses(data, problem);
-  checkDeformers(data, names, new Set(Object.keys(data.bones ?? {})), new Set(Object.values(data.animations ?? {}).flatMap(a => frameTracks(a?.frames).map(f => f.slot))), problem,
+  checkDeformers(data, names, new Set(Object.keys(data.bones ?? {})), problem,
     new Map(Object.entries(data.parts ?? {}).flatMap(([p, def]) => (def && typeof def.bone === 'string' ? [[p, def.bone] as [string, string]] : []))), new Set(shapePartNames(data.parts)));
   checkMasks(data, names, new Set(Object.keys(data.bones ?? {})), problem);
   checkClipGroups(data, problem);
@@ -267,13 +271,13 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
     def.keys.forEach((k, i) => {
       const at = `animations.${name}.keys[${i}]`;
       if (!k || typeof k !== 'object') { problem(`${at}: not a key`, name); return; }
-      if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(data.bones ?? {}, k.part)) problem(`${at}: no part or bone named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name);
+      if (k.part !== undefined && !names.has(k.part) && !Object.hasOwn(data.bones ?? {}, k.part)) problem(`${at}: no part or bone named "${k.part}" (${rigPartNames(rig).join(', ') || 'no parts'})`, name, k.part, [...names, ...Object.keys(data.bones ?? {})]);
       if (!(k.t >= 0 && k.t <= 1)) problem(`${at}: t must be a number from 0 to 1`, name);
       const bad = k.ease !== undefined ? rigEaseProblem(k.ease) : null;
       if (bad) problem(`${at}: ${bad}`, name);
       const channels = KEY_CHANNELS.filter(c => k[c] !== undefined);
       for (const c of channels) if (!Number.isFinite(k[c])) problem(`${at}: ${c} must be a number`, name);
-      for (const key of Object.keys(k)) if (key !== 't' && key !== 'ease' && key !== 'part' && !(KEY_CHANNELS as readonly string[]).includes(key)) problem(`${at}: unknown channel "${key}" (${KEY_CHANNELS.join(', ')})`, name);
+      for (const key of Object.keys(k)) if (key !== 't' && key !== 'ease' && key !== 'part' && !(KEY_CHANNELS as readonly string[]).includes(key)) problem(`${at}: unknown channel "${key}" (${KEY_CHANNELS.join(', ')})`, name, key, ['t', 'ease', 'part', ...KEY_CHANNELS]);
       if (!channels.length) problem(`${at}: sets no channel (${KEY_CHANNELS.join(', ')})`, name);
     });
   }
@@ -281,11 +285,11 @@ export function checkRig(rig: RigManifest, vars?: readonly string[]): RigProblem
 }
 
 /** The `params` tracks of animation `name`: each is a list of { t, v, ease? } for a defined parameter. */
-function checkTracks(name: string, tracks: Record<string, unknown>, defs: RigData['parameters'], problem: (message: string, at: string) => void): void {
+function checkTracks(name: string, tracks: Record<string, unknown>, defs: RigData['parameters'], problem: ProblemReport): void {
   const byId = new Map((defs ?? []).map(d => [d.id, d]));
   for (const [id, keys] of Object.entries(tracks)) {
     const at = `animations.${name}.params.${id}`, def = byId.get(id);
-    if (!def) problem(`${at}: no parameter "${id}" (parameters: ${[...byId.keys()].join(', ') || 'none'})`, name);
+    if (!def) problem(`${at}: no parameter "${id}" (parameters: ${[...byId.keys()].join(', ') || 'none'})`, name, id, byId.keys());
     if (!Array.isArray(keys) || !keys.length) { problem(`${at}: needs a list of keys { t, v }`, name); continue; }
     keys.forEach((k: Record<string, unknown>, i) => {
       if (!k || typeof k !== 'object') { problem(`${at}[${i}]: not a key`, name); return; }
@@ -295,13 +299,13 @@ function checkTracks(name: string, tracks: Record<string, unknown>, defs: RigDat
       const bad = k.ease !== undefined ? rigEaseProblem(k.ease) : null;
       if (bad) problem(`${at}[${i}]: ${bad}`, name);
       if (k.bezier !== undefined && !isBezier(k.bezier)) problem(`${at}[${i}]: bezier needs [x1, y1, x2, y2], numbers, with x1 and x2 from 0 to 1`, name);
-      for (const key of Object.keys(k)) if (key !== 't' && key !== 'v' && key !== 'ease' && key !== 'bezier') problem(`${at}[${i}]: unknown field "${key}" (t, v, ease, bezier)`, name);
+      for (const key of Object.keys(k)) if (key !== 't' && key !== 'v' && key !== 'ease' && key !== 'bezier') problem(`${at}[${i}]: unknown field "${key}" (t, v, ease, bezier)`, name, key, ['t', 'v', 'ease', 'bezier']);
     });
   }
 }
 
 /** The `bones` and `parts` keys of rig.json: a bone's parent and pivot, the bone each part sits on, and bones that do nothing. */
-function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, problem: (message: string, at: string) => void): void {
+function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, problem: ProblemReport): void {
   const isPoint = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every(Number.isFinite);
   const bones: Record<string, BoneDef> = {};
   for (const [b, def] of Object.entries(data.bones ?? {})) {
@@ -309,7 +313,7 @@ function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, prob
     bones[b] = def;
   }
   for (const [b, def] of Object.entries(bones)) {
-    if (def.parent !== undefined && (typeof def.parent !== 'string' || !Object.hasOwn(bones, def.parent))) problem(`bones.${b}.parent: no bone named "${String(def.parent)}" (bones: ${Object.keys(bones).join(', ')})`, b);
+    if (def.parent !== undefined && (typeof def.parent !== 'string' || !Object.hasOwn(bones, def.parent))) problem(`bones.${b}.parent: no bone named "${String(def.parent)}" (bones: ${Object.keys(bones).join(', ')})`, b, String(def.parent), Object.keys(bones));
     if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`bones.${b}.pivot: use [x, y] in pixels of the PSD canvas`, b);
     if (def.tip !== undefined && !isPoint(def.tip)) problem(`bones.${b}.tip: use [x, y] in pixels of the PSD canvas`, b);
     if (names.has(b)) problem(`bones: "${b}" is also a part name; the part wins where a script or key names it`, b);
@@ -318,11 +322,11 @@ function checkBones(data: RigData, names: Set<string>, shapes: Set<string>, prob
   const onBone = new Map<string, number>();
   for (const [part, def] of Object.entries(data.parts ?? {})) {
     const shape = shapes.has(part) && !names.has(part);
-    if (!names.has(part) && !shape) { problem(`parts.${part}: no part (slot or layer) named "${part}"`, part); continue; }
+    if (!names.has(part) && !shape) { problem(`parts.${part}: no part (slot or layer) named "${part}"`, part, part, names); continue; }
     if (!def || typeof def !== 'object' || Array.isArray(def)) { problem(`parts.${part}: needs an object with bone and/or pivot`, part); continue; }
     if (def.pivot !== undefined && !isPoint(def.pivot)) problem(`parts.${part}.pivot: use [x, y] in pixels of the PSD canvas`, part);
     if (def.bone === undefined) continue;
-    if (typeof def.bone !== 'string' || !Object.hasOwn(bones, def.bone)) problem(`parts.${part}.bone: no bone named "${String(def.bone)}" (bones: ${Object.keys(bones).join(', ')})`, part);
+    if (typeof def.bone !== 'string' || !Object.hasOwn(bones, def.bone)) problem(`parts.${part}.bone: no bone named "${String(def.bone)}" (bones: ${Object.keys(bones).join(', ')})`, part, String(def.bone), Object.keys(bones));
     else if (!shape) onBone.set(def.bone, (onBone.get(def.bone) ?? 0) + 1); // a shape moves with its bone but cannot measure a pivot from it
   }
   // A bone that a skinned mesh weights moves that mesh: it has something on it (and a pivot can be measured from nothing there, but it moves art).

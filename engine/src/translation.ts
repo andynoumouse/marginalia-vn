@@ -6,7 +6,7 @@ import type { StringTable } from './locale.js';
  * language table has got. Pure: the editor's Translations dialog and the CSV export both draw on it.
  */
 
-export type StringKind = 'say' | 'choice' | 'reason' | 'prompt' | 'input' | 'other' | 'label';
+export type StringKind = 'say' | 'choice' | 'reason' | 'prompt' | 'input' | 'ending' | 'other' | 'label';
 
 export interface StringRow {
   id: string;
@@ -38,6 +38,7 @@ export function stringRows(program: Pick<Program, 'ops' | 'labels' | 'strings' |
     const { file, line } = op.src;
     if (op.op === 'say') add(op.id, 'say', op.who, file, line, label);
     else if (op.op === 'input') add(op.id, 'input', null, file, line, label);
+    else if (op.op === 'end') add(op.id ?? null, 'ending', null, file, line, label);
     else if (op.op === 'menu') {
       add(op.promptId, 'prompt', null, file, line, label);
       for (const o of op.options) {
@@ -113,4 +114,109 @@ export function translatorCsv(rows: StringRow[], tables: Record<string, StringTa
       return [cell, outdatedIds([r], tables[l] ?? {}, snapshots[l]).length ? snapshots[l][r.id] : ''];
     })]);
   return [head, ...lines].map(cells => cells.map(csvCell).join(',')).join('\r\n') + '\r\n';
+}
+
+/**
+ * The cells of a CSV file (RFC 4180: quoted cells may hold commas, quotes and line breaks). A byte-order mark is dropped, and the
+ * delimiter is the header line's comma, semicolon or tab, whichever appears (spreadsheets in some locales save with semicolons).
+ */
+export function parseCsv(text: string): string[][] {
+  if (text.startsWith('\uFEFF')) text = text.slice(1);
+  const head = text.slice(0, text.search(/\r?\n|$/));
+  const sep = head.includes(',') ? ',' : head.includes(';') ? ';' : head.includes('\t') ? '\t' : ',';
+  const out: string[][] = [];
+  let row: string[] = [], cell = '', quoted = false, i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i += 2; continue; }
+      if (c === '"') quoted = false; else cell += c;
+      i++;
+      continue;
+    }
+    if (c === '"' && cell === '') quoted = true;
+    else if (c === sep) { row.push(cell); cell = ''; }
+    else if (c === '\r' || c === '\n') {
+      row.push(cell); out.push(row); row = []; cell = '';
+      if (c === '\r' && text[i + 1] === '\n') i++;
+    } else cell += c;
+    i++;
+  }
+  if (cell !== '' || row.length) { row.push(cell); out.push(row); }
+  return out.filter(r => r.some(c => c !== ''));
+}
+
+/** The columns of `translatorCsv` that are context, not a language. */
+const CONTEXT_COLUMNS = new Set(['id', 'file', 'line', 'label', 'kind', 'speaker', 'source']);
+const LANG_CODE = /^[A-Za-z]{2,3}([_-][A-Za-z0-9]+)?$/;
+
+export interface CsvImportLanguage {
+  lang: string;
+  /** The table with the sheet's translations merged in (a copy; entries the sheet leaves empty are kept). */
+  table: StringTable;
+  /** The source snapshot to go with it: each imported translation records the source text the sheet showed the translator. */
+  snapshot: SourceSnapshot;
+  /** Ids that had no translation before. */
+  added: string[];
+  /** Ids whose translation the sheet replaces. */
+  changed: string[];
+  /** Imported ids whose sheet source differs from the script's: the line was reworded after the sheet was exported. */
+  outdated: string[];
+  /** The language has no table yet. */
+  isNew: boolean;
+}
+
+export interface CsvImport {
+  languages: CsvImportLanguage[];
+  /** Ids in the sheet that match no string (with a translation in some language column), in sheet order. */
+  unknown: string[];
+  /** Header cells that are neither context nor a language code (or are the source language), left alone. */
+  ignored: string[];
+  /** Why nothing could be read (no `id` column, no language column); the rest is empty then. */
+  error?: string;
+}
+
+/**
+ * Reads a translators' sheet back (the `translatorCsv` layout, or any sheet with an `id` column and a column per language code): what
+ * it would change in each language's table, without changing the inputs. An empty cell keeps the current translation, so a partly
+ * filled sheet removes nothing; `<lang> previous source` columns are only for reading and are skipped.
+ */
+export function importTranslatorCsv(csv: string, rows: Pick<StringRow, 'id' | 'source'>[], tables: Record<string, StringTable>,
+  snapshots: Record<string, SourceSnapshot> = {}, sourceLang = 'en'): CsvImport {
+  const [head = [], ...body] = parseCsv(csv);
+  const names = head.map(h => h.trim());
+  const idCol = names.findIndex(h => h.toLowerCase() === 'id');
+  const srcCol = names.findIndex(h => h.toLowerCase() === 'source');
+  const ignored: string[] = [];
+  const langCols: [string, number][] = [];
+  names.forEach((h, i) => {
+    if (CONTEXT_COLUMNS.has(h.toLowerCase()) || / previous source$/i.test(h)) return;
+    if (LANG_CODE.test(h) && h.toLowerCase() !== sourceLang.toLowerCase() && !langCols.some(([l]) => l === h)) langCols.push([h, i]);
+    else if (h) ignored.push(h);
+  });
+  if (idCol < 0) return { languages: [], unknown: [], ignored, error: 'The sheet has no "id" column.' };
+  if (!langCols.length) return { languages: [], unknown: [], ignored, error: 'The sheet has no language column (a header such as "fi" or "pt-BR").' };
+  const source = new Map(rows.map(r => [r.id, r.source]));
+  const unknown = new Set<string>();
+  const languages = langCols.map(([lang, col]): CsvImportLanguage => {
+    const before = tables[lang] ?? {};
+    const table = { ...before }, snapshot = { ...(snapshots[lang] ?? {}) };
+    // Sets, in sheet order: a sheet can hold tens of thousands of rows, and a repeated id counts once (its last cell wins).
+    const added = new Set<string>(), changed = new Set<string>(), outdated = new Set<string>();
+    for (const cells of body) {
+      const id = (cells[idCol] ?? '').trim().replace(/^#/, '');
+      const text = cells[col] ?? '';
+      if (!id || !text) continue;
+      const now = source.get(id);
+      if (now === undefined) { unknown.add(id); continue; }
+      const seen = srcCol >= 0 ? cells[srcCol] ?? now : now;
+      if (table[id] === text) continue;
+      if (!added.has(id) && !changed.has(id)) (before[id] ? changed : added).add(id);
+      table[id] = text;
+      snapshot[id] = seen;
+      if (seen !== now) outdated.add(id); else outdated.delete(id);
+    }
+    return { lang, table, snapshot, added: [...added], changed: [...changed], outdated: [...outdated], isNew: !tables[lang] };
+  });
+  return { languages, unknown: [...unknown], ignored };
 }

@@ -29,7 +29,7 @@ const problems = d => {
   const out = [];
   checkParams({ categories: d.categories, parameters: d.parameters, pads: d.pads, keyforms: d.keyforms }, new Set(['head', 'eyes', 'arm']), m => out.push(m));
   checkPoses({ poses: d.poses, parameters: d.parameters }, m => out.push(m));
-  checkDeformers({ deformers: d.deformers, parameters: d.parameters }, new Set(['torso']), new Set(), new Set(), m => out.push(m));
+  checkDeformers({ deformers: d.deformers, parameters: d.parameters }, new Set(['torso']), new Set(), m => out.push(m));
   return out;
 };
 

@@ -18,6 +18,7 @@ import { isNum, isObj } from './util.js';
 import { traceLoops } from './contour.js';
 import { signedArea } from './geometry.js';
 import { sampleLattice, type GroupStage } from './warp.js';
+import type { ProblemReport } from './suggest.js';
 
 export type MaskPoint = [number, number];
 
@@ -315,7 +316,7 @@ export function writeShapes(parts: Record<string, PartEntry>, shapes: Readonly<R
  * move and its clip would stay. A clip source counts as bent with the group when it is a member, or a shape that `follow`s a member.
  * Nothing is said when neither is in a group.
  */
-export function checkClipGroups(data: { deformers?: unknown; parts?: unknown }, problem: (message: string, at: string) => void): void {
+export function checkClipGroups(data: { deformers?: unknown; parts?: unknown }, problem: ProblemReport): void {
   if (!Array.isArray(data.deformers)) return;
   const groupOf = new Map<string, string>();
   for (const d of data.deformers as { id?: unknown; members?: unknown }[]) {
@@ -338,7 +339,7 @@ export function checkClipGroups(data: { deformers?: unknown; parts?: unknown }, 
  * names, `bones` the bone names. Shape names that clash with a part or bone, bad polygons and keyforms, `follow` that is no image part,
  * unknown `clip` targets, a part clipped to itself, loops, nesting beyond MASK_MAX_SHAPES, and too many masks.
  */
-export function checkMasks(data: { parameters?: unknown; parts?: unknown }, parts: Set<string>, bones: Set<string>, problem: (message: string, at: string) => void): void {
+export function checkMasks(data: { parameters?: unknown; parts?: unknown }, parts: Set<string>, bones: Set<string>, problem: ProblemReport): void {
   const entries = isObj(data.parts) ? data.parts : {};
   const defs = new Map<string, ParamDef>();
   if (Array.isArray(data.parameters)) for (const p of data.parameters as ParamDef[]) if (p && typeof p.id === 'string') defs.set(p.id, p);
@@ -350,7 +351,7 @@ export function checkMasks(data: { parameters?: unknown; parts?: unknown }, part
     const poly = def.polygon as unknown;
     if (!Array.isArray(poly) || poly.length < MASK_MIN_POINTS || poly.length > MASK_MAX_POINTS) problem(`${where}.polygon: needs ${MASK_MIN_POINTS} to ${MASK_MAX_POINTS} points [x, y] in pixels of the PSD canvas`, name);
     else poly.forEach((p, k) => { if (!Array.isArray(p) || p.length !== 2 || !p.every(isNum)) problem(`${where}.polygon[${k}]: use [x, y] in pixels of the PSD canvas`, name); });
-    if (def.follow !== undefined && (typeof def.follow !== 'string' || !parts.has(def.follow))) problem(`${where}.follow: no part with art named "${String(def.follow)}" (a shape follows a bone with "bone", or the drawn mesh of a part with "follow"; parts: ${[...parts].join(', ') || 'none'})`, name);
+    if (def.follow !== undefined && (typeof def.follow !== 'string' || !parts.has(def.follow))) problem(`${where}.follow: no part with art named "${String(def.follow)}" (a shape follows a bone with "bone", or the drawn mesh of a part with "follow"; parts: ${[...parts].join(', ') || 'none'})`, name, String(def.follow), parts);
     if (def.clip !== undefined) problem(`${where}.clip: a shape part is not itself clipped`, name);
     if (def.keyforms !== undefined) {
       if (!Array.isArray(def.keyforms)) problem(`${where}.keyforms: needs a list`, name);

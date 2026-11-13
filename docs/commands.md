@@ -12,8 +12,8 @@ text and `every 3s..6s` on a transform take the unit too; a menu's `timeout` tak
 Visual commands (everything under "Stage") accept `nowait` to run in the background while the script goes on.
 
 Contents: [Story](#story) · [Dialogue](#dialogue) · [Text tags](#text-tags) · [Stage](#stage) · [Effects](#effects) ·
-[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Persistent flags](#persistent-flags-and-data) ·
-[Editor keys](#editor-keys)
+[Audio](#audio) · [Logic](#logic) · [Flow](#flow) · [Player input](#player-input) · [Screens](#screens) ·
+[Persistent flags](#persistent-flags-and-data) · [Editor keys](#editor-keys)
 
 ## Story
 
@@ -203,12 +203,20 @@ alice: This line moves on by itself.{nw}
 ### scene
 `scene <background> [transition] [duration]` replaces the background, removes all shown characters and resets
 `tint`, `camera`, `weather`, `wind`, `gravity` and `filter`. Transitions: `cut` (default), `fade`, `dissolve`,
-`wipe <left|right|up|down>`, `iris` (a circle opening from the middle), `blinds` (twelve vertical slats) and
-`pixelate` (the picture breaks into growing blocks, is swapped, and sharpens again). Background `<name>` is `assets/bg/<name>.png|webp|jpg`.
+`wipe <left|right|up|down>` (the new picture is uncovered from that side), `push <left|right|up|down>` (it slides in from
+that side and shoves the old one out the other), `iris` (a circle opening from the middle), `blinds` (twelve vertical slats),
+`pixelate` (the picture breaks into growing blocks, is swapped, and sharpens again), `zoom` (the old picture rushes toward
+you and fades, uncovering the new one) and `ripple` (both pictures bend in waves as one dissolves into the other: a dream, a
+memory). A wipe or push with no side comes from the left. Transitions move the background only: the characters of the new
+scene appear at once. Reduced motion turns the moving ones into a dissolve. Background `<name>` is `assets/bg/<name>.png|webp|jpg`.
 
 `dissolve mask=<name>` reveals the new picture by the brightness of a grayscale image: dark pixels show it first and white
 pixels last, with a soft edge (the Ren'Py ImageDissolve look). The mask is `assets/transitions/<name>.png|webp|jpg`,
 stretched to the stage; `mask=<name>` alone means `dissolve`. A missing mask gives a plain dissolve and a warning.
+
+`fade` goes through black unless you give it a color: `fade #ffffff` is a white-out (a flashback, a blinding light). `hold=<duration>`
+keeps the screen on that color between going out and coming in, on top of the fade's own seconds: a long hold on black reads
+as time passing, or the end of a chapter.
 
 ```
 scene bg_park_evening fade 0.5s
@@ -216,7 +224,11 @@ scene bg_park_night dissolve 1.2s
 scene bg_room wipe right 0.8s
 scene bg_attic iris 1.0s
 scene bg_hall pixelate 0.8s
+scene bg_street push right 0.8s
+scene bg_dream ripple 1.5s
 scene bg_park_night dissolve mask=wipe_clock 0.8s
+scene bg_memory fade #ffffff 1.2s
+scene bg_room fade 1s hold=1.5s
 ```
 
 ### show / hide
@@ -226,8 +238,14 @@ tag from the PSD (`show mina smile`), and `slot=variant` overrides one slot (`gl
 may stand on the line and apply left to right, the last winning per slot (`show mina shy casual`); `slot=variant` beats
 every look (see [rig-json.md](rig-json.md#looks)). A look-less show keeps the character's current looks. For a flat
 character the first word names the image (`show iris smile`). `y=`, `scale=` and `flip=` place the character in the same
-units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)). The animation studio's
+units as [move](#move), without a slide; leave them out to keep what the character has. `anchor=` is the point it scales, turns and mirrors about (see [move](#move)).
+`pose=<name>` sets the rig's parameters from a pose of the character's `rig.json` `poses` (a snapshot of some parameters,
+see [rig-json.md](rig-json.md#poses)); several names after the commas lay over each other, the last winning. It sets the
+values at once, without a tween, and leaves the parameters it does not name where they are (a new character starts at
+the defaults). For a tween see [animate](#animate).
+
 The **Place in scene** section of the animation studio (Character: Animation Studio, Animate mode) writes the whole line for you: drag the character where it should stand. The line includes the look and slot variants chosen under Look and in the Properties section, and "Insert in script" puts it under the line the cursor was on.
+
 `hide <char> [fade <duration>]`.
 
 Characters are drawn in the order they were first shown, the newest in front. `order=front` or `order=back` moves a
@@ -259,7 +277,7 @@ changes how it is drawn, all together over the seconds (instant when omitted). T
 - `tint=`: a color the character is multiplied by, `tint=#ff8080` for a reddish cast and `tint=none` to go back to its own colors. It tweens, lasts until changed (a `hide` or `scene` ends it), is kept in saves, and combines with the dimming of [speaker focus](#focus). A multiply tint can only darken or color: it cannot whiten, use [flash](#flash) for that.
 - `flip=on|off`: mirrors the character. It is not tweened: it applies as the move starts.
 - `anchor=`: the point `scale=`, `rot=` and `flip=` turn about: `feet` (default), `center`, `head`, `top`, or two fractions of the sprite like `0.5,0.3` (0,0 is its top left), or a name from game.json `anchors`. `y=` and `at` still say where the feet stand, so only the pivot changes. Not tweened: it applies as the move starts, and a `show` without `anchor=` keeps the character's current one.
-- `ease=`: `linear`, `in`, `out`, `inout` (default), `back` (overshoots the end), `bounce`, `elastic`, or your own curve as `bezier(x1,y1,x2,y2)` (the control points of a CSS `cubic-bezier`, written without spaces: `ease=bezier(0.2,0,0.4,1)`; `x1` and `x2` run from 0 to 1, a `y` outside 0 to 1 overshoots). Every `ease=` in the script commands and in `transform` steps takes either form.
+- `ease=`: `linear`, `in`, `out`, `inout` (default), `back` (overshoots the end), `bounce`, `elastic`, `step` (holds, then jumps at the end with no tween), or your own curve as `bezier(x1,y1,x2,y2)` (the control points of a CSS `cubic-bezier`, written without spaces: `ease=bezier(0.2,0,0.4,1)`; `x1` and `x2` run from 0 to 1, a `y` outside 0 to 1 overshoots). Every `ease=` in the script commands and in `transform` steps takes either form.
 
 ```
 move alice to right 0.6s ease=out
@@ -284,11 +302,6 @@ continuous shake use `animate <char> shake loop`.
 Commands refuse arguments they do not know (`shake iris loop`, `scene bg fadee`) with an error rather than ignoring them.
 
 ### animate
-`pose=<name>` sets the rig's parameters from a pose of the character's `rig.json` `poses` (a snapshot of some parameters,
-see [rig-json.md](rig-json.md#poses)); several names after the commas lay over each other, the last winning. It sets the
-values at once, without a tween, and leaves the parameters it does not name where they are (a new character starts at
-the defaults). For a tween see [animate](#animate).
-
 `animate <char> <name> [duration] [loop] [strength=1] [part=<part>]` plays a named animation on a character (a preset below, or a
 keyframe animation from the character's `rig.json`, see [rig-json.md](rig-json.md)); `animate <char> stop` ends
 its loop. The animation adds to where the character stands (`move`, `show at`), so the two combine. Without `loop`
@@ -591,13 +604,16 @@ burst smoke at right 2s
 ```
 
 ### weather
-`weather <rain|snow|petals|embers> [intensity 0-1] [duration]` lets particles fall (embers rise) over the scene;
-intensity is how many (0.6 by default) and the seconds are the fade-in. A new kind replaces the old one.
+`weather <rain|snow|petals|embers|leaves|fog|fireflies> [intensity 0-1] [duration]` lets particles fall (embers rise) over the scene;
+intensity is how many (0.6 by default) and the seconds are the fade-in. A new kind replaces the old one. `leaves` are autumn
+leaves tumbling down; `fog` is slow banks of mist drifting in from the side the wind comes from (the left in still air);
+`fireflies` wander anywhere on the screen, glowing brighter and dimmer.
 It lasts until `weather off [duration]` or the next `scene`, and is kept in saves. Reduced motion shows none.
 
 ```
 weather rain 0.8 2s
 weather snow
+weather fog 0.5 3s
 weather off 1.5s
 ```
 
@@ -632,18 +648,48 @@ gravity reset
 ```
 
 ### filter
-`filter <blur|grayscale|sepia|night|vignette|glow|chromatic|glitch> [strength 0-1] [duration]` changes the look of the whole scene
-(strength 1 by default; the seconds are the fade-in). One filter at a time: a new one replaces the old.
-It lasts until `filter off [duration]` or the next `scene`. It does not touch the text box.
+`filter <blur|grayscale|sepia|night|invert|vignette|glow|sunbeams|chromatic|wave|pixelate|crt|grain|glitch|speedlines> [strength 0-1] [duration]` changes the look of the whole scene
+(strength 1 by default; the seconds are the fade-in). Filters stack: join them with `+` on one line
+(`filter sepia 0.8 + vignette 0.6 1s`, a flashback). A `filter` line names the whole look, so it replaces what was on, and the
+old filters fade out over the same seconds as the new ones fade in. To change one filter and keep the rest, start the line
+with `+` (`filter + glow 0.4` adds a glow, or sets its strength if it is already on) or `-` (`filter - vignette 1s` takes
+it away). It lasts until `filter off [duration]` or the next `scene`. It does not touch the text box.
+
+However they are written, the filters are drawn in one order: the blur, then the color filters (grayscale, sepia, night, invert,
+combined into one), then glow, sunbeams, chromatic, wave, pixelate, crt, grain, glitch and speedlines, then the vignette over them all.
 
 - `glow`: a soft bloom, the bright parts bleeding into their surroundings (a sunset, a lamp, a dream). Around 0.4 to 0.6 is gentle; 1 is strong.
+- `sunbeams`: soft warm shafts of light fanning down from above the top left corner and swaying slowly (sunlight through a window or trees, a holy moment). Around 0.5 is gentle. Reduced motion holds them still.
 - `chromatic`: red and blue pulled apart toward the edges of the picture, like a cheap lens (a shock, a drug, a fever).
+- `invert`: a photographic negative (a vision, a shock). Half strength is a flat gray, so it is meant at full or fading through.
+- `wave`: the picture bends in slow waves, like heat haze or a view under water (a dream, dizziness, a desert). It moves; reduced motion holds it still.
+- `pixelate`: the scene breaks into square blocks, up to a fiftieth of the stage width at strength 1 (a censored picture, a game world, a memory breaking up).
+- `crt`: scanlines and darkened corners, like an old monitor or a security camera.
+- `grain`: film noise and a faint flicker (old footage, a flashback, a horror scene). It moves; reduced motion holds the noise still.
 - `glitch`: bands of the picture torn sideways with a color split, jumping about twelve times a second (a broken screen, a signal lost). It moves, so reduced motion shows none of it.
+- `speedlines`: manga focus lines, thin white streaks aimed at the middle of the screen, redrawn about twelve times a second (a shock, a dash, a dramatic reveal). More and longer as the strength goes up; reduced motion holds them still.
 
 ```
 filter sepia 1 0.8s
 filter night 0.7
+filter sepia 0.8 + vignette 0.6 1s
+filter + glow 0.4
+filter - vignette 0.5s
 filter off 1s
+```
+
+### letterbox
+`letterbox [height 0-0.4] [duration]` slides black bars in at the top and bottom of the stage, for a cutscene or a moment
+that should read like film. The height is each bar's share of the stage height: 0.12 by default, about a 2.39:1 frame on a 16:9
+stage. The seconds are how long they take to slide in, and a second `letterbox` line moves them to the new height.
+`letterbox off [duration]` slides them out. The bars stay through `scene` changes until then, are kept in saves, and do not shake
+with the screen or move with the camera; the text box is drawn over them. Reduced motion puts them in place at once.
+
+```
+letterbox 0.6s
+"Three years later."
+letterbox 0.18 1s
+letterbox off 0.6s
 ```
 
 ## Audio
@@ -793,12 +839,15 @@ else:
 
 ### jump / call / return / end
 `jump <label>` continues there. `call <label>` runs a label as a subroutine and `return` comes back after the
-`call`. `end` finishes the story.
+`call`. `end` finishes the story. `end "<Ending name>"` names the ending: the end screen shows the name in place of
+"The End" (`ui.end_title`), so a short ending reads as one. `npm run ids` gives the name a localization id, so it is
+translated like dialogue.
 
 ```
 call helper
 jump bench_talk
 end
+end "The Quiet Ending" #ab12
 ```
 
 **Parameters.** A label can declare names, and `call` gives them values, so one label serves every case instead of copies:
@@ -952,12 +1001,12 @@ A container hands its clauses to every element it holds, a child's own `on enter
 A `hotspot` does not move (its clickable area stays where the art is), so it can only `on enter fade` and `loop glow`.
 
 ```
-panel at 400,200 size 1120,680 image "ui/frame.png" slice 40 on enter fade 0.3
-    text at 40,40 "Journal" on enter slide down 0.4 delay 0.1
-    each notes as n at 40,120 step 0,64 on enter slide right 0.25 stagger 0.06:
+panel at 400,200 size 1120,680 image "ui/frame.png" slice 40 on enter fade 0.3s:
+    text at 40,40 "Journal" on enter slide down 0.4s delay 0.1s
+    each notes as n at 40,120 step 0,64 on enter slide right 0.25s stagger 0.06s:
         text at 0,0 "[n]"
-button close at 1500,60 "Close" on enter pop 0.2 delay 0.4
-image "ui/new.png" at 1700,90 loop pulse 1.2
+button close at 1500,60 "Close" on enter pop 0.2s delay 0.4s
+image "ui/new.png" at 1700,90 loop pulse 1.2s
 ```
 
 The default screens (what the game draws when a project declares none, and what the editor's Edit button copies into the project) carry matching `on enter` and `on exit` clauses to edit or remove.
@@ -974,14 +1023,14 @@ screen's elements can fade or slide out; the game does not wait for it. Elements
 (game.json `quickMenu` then only fills in the variables below). Nothing is recorded in saves; Auto and Skip show `aria-pressed` while they are on, so a theme can style them.
 The screen is redrawn before every line like a HUD, so `[variables]`, `if` and `enabled` work. The shell fills in `quick_items` (the buttons game.json `quickMenu.items` lists, in
 order; the replay `voice` button only on a voiced line) and `quick_place` (an anchor place from `quickMenu.position` and `align`, like `topleft` or `bottom`). In `each quick_items as q`, `[q.label]` is
-the button's name in the player's language and the entry `q` is the action's name. A button's action can come from a variable like that, `action [q]`, and a layout's `anchor [quick_place]`
+the button's name in the player's language, `[q.hint]` the key that does the same (empty when there is none) and the entry `q` is the action's name. A button's action can come from a variable like that, `action [q]`, and a layout's `anchor [quick_place]`
 is pinned to a place named by a variable; an unknown action does nothing and an unknown place is the center. `font n` on a button sets its label size in pixels (default 40). The default screen:
 
 ```
 screen quickmenu:
   row anchor [quick_place] margin 14,160,10,160 gap 6:
     each quick_items as q:
-      button q "[q.label]" font 24 action [q]
+      button q "[q.label]" font 28 tooltip "[q.hint]" action [q]
 ```
 
 ```
@@ -1104,15 +1153,16 @@ The starter:
 
 ```
 screen history:
-  panel size full color rgba(4,6,10,.62) on enter fade 0.2 on exit fade 0.15
-  text at 160,50 "History" font 52 on enter fade 0.3 on exit fade 0.15
+  panel size full color rgba(4,6,10,.62) on enter fade 0.2s on exit fade 0.15s
+  text at 160,50 "History" font 52 on enter fade 0.3s on exit fade 0.15s
   text at 160,170 "Nothing yet." if total == 0
-  scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3 distance=30 on exit fade 0.15:
+  scroll at 160,140 size 1600,760 start bottom on enter slide up 0.3s distance=30 on exit fade 0.15s:
     each lines as ln step 0,140:
-      text at 0,0 "[ln.name]" font 26 if ln.name != ""
+      text at 0,0 "[ln.name]" font 26 color [ln.color] if ln.name != ""
       button ln at 0,40 size 1500,84 "[ln.text]" action line
-      button ln.voice at 1512,40 size 68,84 "♪" action voice if ln.voiced
-  button done at 1500,960 "Back" action close
+      button ln.voice at 1512,40 size 68,84 "♪" tooltip "Hear this line" action voice if ln.voiced
+  row anchor bottomright margin 0,160,56,0 gap 20:
+    button done size 200,64 "Back" action close
 ```
 
 The gallery is the screen named `gallery` (Esc closes it). Without one in your project the game draws a default screen (a dimmed backdrop, a grid of tiles with their pictures and titles, Back); declare your own to change it. Open it from a title screen with `action gallery`
@@ -1142,10 +1192,11 @@ The shell fills in `file` (the picture's file under `assets/`, empty when there 
 ```
 screen viewer:
   panel size full color #000
-  image "[file]" at 0,0 size 1920,1080 on enter fade 0.3 on exit fade 0.2
+  image "[file]" at 0,0 size 1920,1080 on enter fade 0.3s on exit fade 0.2s
+  hotspot shut at 0,0 size 1920,1080 "Close" hover none tooltip off action close
   text at 80,40 "[title]  [position] / [total]"
-  button prev at 80,960 "<" action prev if total > 1
-  button next at 1700,960 ">" action next if total > 1
+  button prev at 80,960 "<" tooltip "Previous picture" action prev if total > 1
+  button next at 1700,960 ">" tooltip "Next picture" action next if total > 1
   button done at 1500,960 "Back" action close
 ```
 
@@ -1385,7 +1436,7 @@ that answer it; a numeric `inout` stays at its initial value, and elements shown
 
 ### continuation
 A long element line can go on over the next lines. A line indented deeper than the element and starting with a clause word
-(`on`, `if`, `enabled`, `hover`, `tooltip`, `cursor`, `up`, `down`, `left`, `right`, `action`, `style=`) continues the
+(`on`, `if`, `enabled`, `hover`, `tooltip`, `sub`, `cursor`, `up`, `down`, `left`, `right`, `action`, `loop`, `style=`) continues the
 element's line: the lines are joined with a single space and read as one, so this is the same toggle as the one-line form:
 
 ```
@@ -1505,13 +1556,13 @@ Keys of the editor at `/editor/` (Ctrl+P, then `>`, lists every command with its
 | Ctrl+Enter | preview from the cursor line |
 | Alt+1 / Alt+2 / Alt+3 | focus the editor / the preview (play the game with the keyboard) / the Files panel filter (work from anywhere) |
 | Ctrl+M | Tab moves focus out of the script instead of indenting; Ctrl+M again makes Tab indent again |
-| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the hover icons on headings and folders make a script or folder or add files, drop files on the assets list too; a **Themes** section lists the theme files (click to edit, the sliders icon opens the theme panel, + makes one); click a section title to fold it (remembered); right-click or Shift+F10 on a row for its menu, see the README; F2 renames or moves the row, Delete deletes it) |
+| Ctrl+B | show or hide the Files panel (scripts as a folder tree; the hover icons on headings and folders make a script or folder or add files, drop files on the assets list too; a **Themes** section lists the theme files (click to edit, the sliders icon opens the theme panel, + makes one); click a section title to fold it (remembered); right-click or Shift+F10 on a row for its menu, see [editor.md](editor.md); F2 renames or moves the row, Delete deletes it) |
 | Ctrl+S | save (edits are also saved by themselves) |
 | Alt+W | close the tab |
 | F2 | rename the label or variable under the cursor everywhere |
 | Shift+F12 | list every use of the label or variable under the cursor (the same set F2 renames) |
 | Ctrl+Shift+F | find and replace in all files (starts from the selection, else the word under the cursor) |
-| F12 | on an `animate <char> <name>` line: open that animation in the character's Animation studio (Esc returns to the line; its "Try in scene" button applies the changes, saves, and plays the game from that line) |
+| F12 | on an `animate <char> <name>` line: open that animation in the character's Animation studio (Esc returns to the line; its "Try in scene" button applies the changes, saves, and plays the game from that line; when another animation is on show, it first asks to name that one in the line) |
 | Ctrl+. | quick fix ("did you mean") on a marked name |
 | F8 / Shift+F8 | next / previous problem |
 | Alt+Z | toggle word wrap |

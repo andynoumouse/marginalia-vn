@@ -1,3 +1,4 @@
+import { filterLooks, nextLooks } from './fx.js';
 import { layerPoses } from './params.js';
 import { CAMERA_TARGET, type DisplayState, type SpriteState, type VisualOp } from './types.js';
 
@@ -150,7 +151,11 @@ const HANDLERS: Handlers = {
     state.weather = op.kind ? { kind: op.kind, intensity: op.intensity } : null;
   },
   filter(state, op) {
-    state.filter = op.name ? { name: op.name, strength: op.strength } : null;
+    const looks = nextLooks(filterLooks(state.filter), op.looks, op.merge);
+    state.filter = looks.length ? looks : null;
+  },
+  letterbox(state, op) {
+    if (op.size > 0) state.letterbox = op.size; else delete state.letterbox;
   },
   gravity(state, op) {
     state.gravity = op.factor === 1 ? null : op.factor;

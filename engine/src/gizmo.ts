@@ -33,6 +33,11 @@ export interface GizmoDrag {
   axis?: GizmoAxis;
   /** Rest-pose point that alt scales around (the middle of the bone's parts); without it alt does nothing. */
   center?: GizmoPoint;
+  /**
+   * Rotate: the degrees the pointer has swept along its path (sum the `rotateSweep` of each move), used in place of the angle
+   * between `from` and `to`, so a drag can go round more than half a turn.
+   */
+  sweep?: number;
 }
 
 export const SNAP_DEG = 15;
@@ -64,10 +69,23 @@ export function gizmoFrame(parent: Matrix, o: Offset, pivot: GizmoPoint, unit: n
 export const wrapDeg = (deg: number): number => { const r = ((deg + 180) % 360 + 360) % 360 - 180; return r === -180 ? 180 : r; };
 
 /**
+ * The degrees the pointer turns around the bone's pivot going from `d.from` to `d.to`, within half a turn either way. Summed
+ * over the moves of a drag it follows the pointer round as many turns as it goes (`GizmoDrag.sweep`).
+ */
+export function rotateSweep(d: Pick<GizmoDrag, 'start' | 'pivot' | 'parent' | 'unit' | 'from' | 'to'>): number {
+  const inv = invertMatrix(d.parent);
+  if (!inv) return 0;
+  const unit = d.unit || 1;
+  const centre: GizmoPoint = [d.pivot[0] + d.start.dx * unit, d.pivot[1] + d.start.dy * unit]; // the pivot in the parent's space
+  const a = applyMatrix(inv, d.from[0], d.from[1]), b = applyMatrix(inv, d.to[0], d.to[1]);
+  return wrapDeg((Math.atan2(b[1] - centre[1], b[0] - centre[0]) - Math.atan2(a[1] - centre[1], a[0] - centre[0])) * 180 / Math.PI);
+}
+
+/**
  * The bone's new offset after a pointer drag. Move shifts dx / dy (`axis` limits it to one axis of `space`); rotate turns
- * by the angle the pointer swept around the pivot, and shift snaps the resulting rot to 15 degrees; scale stretches along
- * the bone's own axes from the pivot, with shift keeping the ratio and alt scaling from `center` instead. A sweep of more
- * than half a turn from the start point wraps (the angle is read between two points, not along the path).
+ * by the angle the pointer swept around the pivot (`sweep` when given, else the angle from `from` to `to`, which wraps past
+ * half a turn), and shift snaps the resulting rot to 15 degrees; scale stretches along the bone's own axes from the pivot,
+ * with shift keeping the ratio and alt scaling from `center` instead.
  */
 export function dragBone(d: GizmoDrag): Offset {
   const inv = invertMatrix(d.parent);
@@ -87,9 +105,7 @@ export function dragBone(d: GizmoDrag): Offset {
   }
   const centre: GizmoPoint = [d.pivot[0] + o.dx * unit, d.pivot[1] + o.dy * unit]; // the pivot in the parent's space
   if (d.tool === 'rotate') {
-    const a = pToLocal(d.from), b = pToLocal(d.to);
-    const sweep = (Math.atan2(b[1] - centre[1], b[0] - centre[0]) - Math.atan2(a[1] - centre[1], a[0] - centre[0])) * 180 / Math.PI;
-    let rot = o.rot + wrapDeg(sweep);
+    let rot = o.rot + (d.sweep ?? rotateSweep(d));
     if (mods.shift) rot = Math.round(rot / SNAP_DEG) * SNAP_DEG;
     return { ...o, rot };
   }

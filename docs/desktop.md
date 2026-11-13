@@ -1,8 +1,8 @@
 # Desktop build
 
 `vn export --desktop` writes an Electron app folder (default `build/desktop` in the project) that plays the game in
-its own window, keeps saves as files and hides the assets. The engine repo does not depend on Electron: the
-generated folder installs its own copy.
+its own window, keeps saves as files and hides the assets. The engine does not depend on Electron (only the
+Studio's dev dependency does): the generated folder installs its own copy.
 
 ```
 npm run export -- --desktop      # or: vn export --desktop [--out build/desktop]
@@ -63,7 +63,7 @@ use an image meant to be seen as the icon, not a piece of hidden art.
   reads the key.
 - **Saves as files.** Saves, settings and read-text tracking use the same keys as the browser build, stored as one
   file per key in the app's user data folder under `saves/` (Windows `%APPDATA%/<app name>/saves`, macOS
-  `~/Library/Application Support/<app name>`, Linux `~/.config/<app name>`). Files are written to a temp file and
+  `~/Library/Application Support/<app name>/saves`, Linux `~/.config/<app name>/saves`). Files are written to a temp file and
   renamed, so a crash cannot leave half a save. Delete the folder to reset a player. Code: `preview/storage.ts`
   (backend), `tools/desktop/` (`preload.cjs`, `save-files.cjs`, `main.cjs`).
 
@@ -71,7 +71,7 @@ Saves from the web build are not migrated.
 
 ## Not done
 
-- Modifier scripts that override variables (see TODO.md).
+- Modifier scripts that override variables.
 - Verified only on Windows so far. Nothing in the code is Windows-specific; the ready-to-run app is built for Windows
   and Linux only (macOS needs an .app bundle).
 - The exe's icon is one 256 px PNG image that Windows scales down for small views; there are no hand-made 16/32/48 px

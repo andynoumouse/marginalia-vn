@@ -171,6 +171,19 @@ export function boundParts(doc: BindDoc, driver: BindDriver): BoundPart[] {
   return out;
 }
 
+/** The warp that bends `part`: its own, else the group warp it is a member of. */
+export const warpOf = (deformers: readonly DeformerDef[], part: string): DeformerDef | undefined => deformerOf(deformers, part) ?? groupOf(deformers, part);
+
+/**
+ * Is `part` bound to `driver` through a warp: its own or its group's has keys on that slider (`param` + `keys`) or on that pad's grid
+ * (`params` + `grid` + `forms`, as a group warp often is)?
+ */
+export function warpBound(deformers: readonly DeformerDef[], part: string, driver: BindDriver): boolean {
+  return [deformerOf(deformers, part), groupOf(deformers, part)].some(d => (d?.keyforms ?? []).some(k => ('params' in driver
+    ? Array.isArray(k.params) && k.params[0] === driver.params[0] && k.params[1] === driver.params[1]
+    : k.param === driver.param)));
+}
+
 /** What affects `target`: the parameters and pads it is bound to, as a pose, and the parameters its warp and its mask polygon are keyed to. */
 export function affectedBy(doc: BindDoc, target: string): { driver: BindDriver; kind: BindKind }[] {
   const out: { driver: BindDriver; kind: BindKind }[] = keyformDrivers(doc.keyforms as KeyformDef[], target).map(driver => ({ driver, kind: 'pose' }));

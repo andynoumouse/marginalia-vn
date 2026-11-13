@@ -41,9 +41,10 @@ export function initScreenSync(host: ScreenSyncHost) {
     const view = host.runtime()?.titleView(!!newest && titleWants('continue'), has('gallery', counts.gallery), has('music_room', counts.music),
       has('chapters', counts.chapters), has('achievements', counts.achievements), game.title ?? 'Untitled', game.titleScreen?.showTitle !== false, newest?.text ?? '') ?? null;
     titleEl.dataset.custom = String(!!view);
-    // With a save to go on from, Enter lands on Continue, not on New game, which starts over (UX round PC-3).
+    // Back from a screen the title opened lands on its button (UX round PI-7). Otherwise, with a save to go on from, Enter lands on
+    // Continue, not on New game, which starts over (UX round PC-3).
     const goOn = view?.parts.find(p => 'act' in p && p.act === 'continue' && p.enabled);
-    void renderer.title(view && !titleEl.hidden ? view : null, false, goOn && 'id' in goOn ? goOn.id : '');
+    void renderer.title(view && !titleEl.hidden ? view : null, false, menus.returnId(titleEl) || (goOn && 'id' in goOn ? goOn.id : ''));
   }
   watch(titleEl, syncTitle);
   const titleActions: Record<string, () => void> = {
@@ -63,7 +64,7 @@ export function initScreenSync(host: ScreenSyncHost) {
   function syncPause() {
     const view = host.runtime()?.pauseView() ?? null;
     pauseEl.dataset.custom = String(!!view);
-    void renderer.pause(view && !pauseEl.hidden ? view : null);
+    void renderer.pause(view && !pauseEl.hidden ? view : null, menus.returnId(pauseEl));
   }
   watch(pauseEl, syncPause);
   const pauseActions: Record<string, () => void> = {
@@ -214,10 +215,12 @@ export function initScreenSync(host: ScreenSyncHost) {
   }, true);
   renderer.slots.onAction.pause = item => {
     const act = item?.act;
+    if (item) menus.pressed(pauseEl, item.id);
     if (act) pauseActions[act]?.();
   };
   renderer.slots.onAction.title = item => {
     const act = item?.act;
+    if (item) menus.pressed(titleEl, item.id);
     if (act) titleActions[act]?.();
   };
 

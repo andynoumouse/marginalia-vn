@@ -24,6 +24,7 @@ export type StageEvent =
   | { type: 'weightsSelect'; id: string; points: number[]; mode: 'set' | 'add' | 'toggle' }
   | { type: 'weightsBrush'; phase: 'start' | 'move' | 'end'; id: string; hits: [number, number][] }
   | { type: 'maskBox'; part: string; x: number; y: number; w: number; h: number }
+  | { type: 'partBoxes'; boxes: Record<string, { x: number; y: number; w: number; h: number }> }
   | { type: 'time'; t: number; playing?: boolean }
   | { type: 'exportReady'; id: number; frames: number; width: number; height: number }
   | { type: 'exportData'; id: number; n: number; bytes: ArrayBuffer }
@@ -43,6 +44,11 @@ export class StageBridge {
   private narrow = matchMedia('(max-width: 900px)');
 
   constructor(private slot: HTMLElement, private onEvent: (e: StageEvent) => void) {
+    // The stage's frame lights while the keys go to it (KL-8). An iframe matches no :focus-visible, :has() does not follow its focus and it
+    // fires no focus event of its own: the page's blur says the focus went into a frame, and any focusin here that it came back.
+    const lit = () => this.slot.classList.toggle('as-stage-focus', !!this.frame && document.activeElement === this.frame);
+    window.addEventListener('blur', () => setTimeout(lit));
+    document.addEventListener('focusin', lit);
     window.addEventListener('message', e => this.onMessage(e));
     this.narrow.addEventListener('change', () => this.postScrolls());
   }
@@ -127,6 +133,10 @@ export class StageBridge {
     } else if (m?.type === 'studioMaskBox') {
       const g = m as unknown as { part: string; x: unknown; y: unknown; w: unknown; h: unknown };
       if (typeof g.part === 'string' && num(g.x) && num(g.y) && num(g.w) && num(g.h)) this.onEvent({ type: 'maskBox', part: g.part, x: g.x, y: g.y, w: g.w, h: g.h });
+    } else if (m?.type === 'studioPartBoxes') {
+      const g = m as unknown as { boxes: unknown }, boxes: Record<string, { x: number; y: number; w: number; h: number }> = {};
+      if (g.boxes && typeof g.boxes === 'object') for (const [k, b] of Object.entries(g.boxes as Record<string, Record<string, unknown>>)) if (b && num(b.x) && num(b.y) && num(b.w) && num(b.h)) boxes[k] = { x: b.x, y: b.y, w: b.w, h: b.h };
+      this.onEvent({ type: 'partBoxes', boxes });
     } else if (m?.type === 'studioTime' && num(m.t)) this.onEvent({ type: 'time', t: m.t, playing: m.playing });
     else if (m?.type === 'studioExportReady') {
       const g = m as unknown as { id: unknown; frames: unknown; width: unknown; height: unknown };

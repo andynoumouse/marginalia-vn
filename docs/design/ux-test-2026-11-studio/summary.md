@@ -100,7 +100,7 @@ Ranked by harm, how many testers hit it, and how much of the studio it touches. 
    - a bar's buttons must not make Esc close the studio (item 1).
 
    They also sorted every Warp, Weights and Mask control into bar or inspector (sd.md, "Where each tool's controls are").
-6. **Animate mode:**
+6. **Animate mode** (*done 2026-11-10*):
    - the "At the playhead" fields do not follow the playhead (SA-2);
    - a single pose key slides back to rest by t=1 while a parameter key holds, and the studio never says why (SA-5);
    - keyed parameter lanes and the ruler sit below five empty whole-character lanes (SA-8);
@@ -215,10 +215,13 @@ With batch F every batch is done. The leftovers, done after it (2026-11-10):
   own as in Cubism. The bone is reached by Alt-click or the breadcrumb, and the focus header names the target ("gizmo: eyes").
   - The alternative: the bind offers to bind the bone instead.
   - Either way, the line over the stage that docs/rig-json.md promises does not exist.
+  - *Decided* in Fix-first item 2: the gizmo poses a part bound by itself, else its bone (`poseTarget`).
 - **A single pose key: hold or return to rest (SA-5).** The engine's rule (every channel is 0 at t=0 and t=1 unless keyed) is documented. Parameter
-  lanes hold. The studio could draw the implicit rest keys instead of changing the rule.
-- **Mirror in Copy keys (SR-11).** Keep the face-style flip of the range, add a values-only mirror, or offer both.
-- **Seconds or fractions for key times (ES-7)** and **undo that switches to what it changed (ES-5)**, both still open from the first round.
+  lanes hold. The studio could draw the implicit rest keys instead of changing the rule. *Decided:* the rest keys are drawn on the timeline.
+- **Mirror in Copy keys (SR-11).** Keep the face-style flip of the range, add a values-only mirror, or offer both. *Decided* in
+  Fix-first item 4: separate mirror and reverse checkboxes.
+- **Seconds or fractions for key times (ES-7)** and **undo that switches to what it changed (ES-5)**, open from the first round
+  when this was written; both closed since (see the first round's summary).
 - **Apply rewrites rig.json's formatting (SR-20).** A mesh's weights go from one line per vertex to three, so one edit is a 375-line diff.
   *Fixed 2026-11-10,* first by keeping the text of unchanged parts. Then, since rig.json is mostly written by the editor, it was
   replaced by one fixed layout that every writer uses (`formatRig`): short objects such as a vertex's weights on one line, number lists

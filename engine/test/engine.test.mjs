@@ -229,6 +229,20 @@ test('unlock flags persist, and a playthrough reads them as they were when it be
   assert.deepEqual(await play([], { file: 'a.vn', line: 4 }), ['Hello.', 'Now unlocked.']);
 });
 
+// UX round 3 ED-4: Preview from cursor guesses a route to the line; the unlocks on it are not the player's, so none is reported (and
+// so none is toasted or stored), while the story there still reads them. A save's replay reports them again, as before.
+test('a restore to a script line keeps its unlocks to itself', async () => {
+  const p = compile([{ file: 'a.vn', text: 'label start:\n  unlock town_visit\n  "In town."\n  if unlocked.town_visit:\n    "Remembered."\n' }]);
+  const reported = [];
+  const rt = new Runtime(p, new NullRenderer());
+  rt.onUnlock = name => reported.push(name);
+  await rt.restore({ file: 'a.vn', line: 5 }, []);
+  assert.deepEqual(reported, [], 'nothing reported on the way to the line');
+  assert.deepEqual(rt.unlocks, ['town_visit'], 'the story there still has it');
+  await rt.start();
+  assert.deepEqual(reported, ['town_visit'], 'a playthrough reports it');
+});
+
 test('diagnostics for bad scripts', () => {
   const bad = [
     'label start:',
@@ -726,6 +740,14 @@ test('help: topic under the cursor', () => {
   assert.equal(helpTopicAt('  alice: Hi {wait} there', 22), 'speech-and-narration');
   assert.equal(helpTopicAt('  # a comment'), null);
   assert.equal(helpTopicAt('   '), null);
+  // Screen words without a heading of their own go to the section that explains them; `on timeout` stays the menu's.
+  const doc = parseHelp(readFileSync(new URL('../../docs/commands.md', import.meta.url), 'utf8'));
+  for (const [line, topic] of [['  text at 0,0 "Hi"', 'screen'], ['  slider music at 0,0', 'screen'], ['  select language at 0,0', 'screen'],
+    ['  default stacks', 'screen'], ['  image "ui/a.png" at 0,0', 'screen'], ['      on enter fade 0.2s', 'screen'], ['  cancel keep', 'state'],
+    ['    on timeout:', 'on'], ['  image show a cg/a', 'image']]) {
+    assert.equal(helpTopicAt(line), topic, line);
+    assert.ok(doc.find(topic), `${topic} is a help topic`);
+  }
 });
 
 test('help: rig.json section under the cursor', () => {

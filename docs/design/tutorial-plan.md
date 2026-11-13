@@ -1,7 +1,8 @@
-# Tutorial plan (draft)
+# Tutorial plan
 
-The current tutorial (`docs/tutorial/`) is organised by feature and walks through the demo game. It is to be
-rewritten from scratch, organised by what the reader wants to finish. This is the outline for that rewrite.
+Status: written. Pages 1-5 and Go deeper A-H are in `docs/tutorial/` (H, the editor tour, was added after this outline);
+the per-page checkpoints are not built (TODO.md). The tutorial of the time was organised by feature and walked through the
+demo game; this was the outline for rewriting it from scratch, organised by what the reader wants to finish.
 
 ## Principles
 
@@ -17,7 +18,7 @@ rewritten from scratch, organised by what the reader wants to finish. This is th
 - **Placeholders are a feature.** The story is written before the art exists; art is swapped in on page 4.
 - **Every snippet is tested.** Snippets are extracted from the tutorial game's scripts (as today from the demo), and a
   test compiles each checkpoint, so the pages cannot drift from the engine again.
-- **Public voice.** Pages speak to readers, with no notes-to-Claude phrasing and no commit hashes.
+- **Public voice.** Pages speak to readers, with no notes-to-self phrasing and no commit hashes.
 
 ## Start here
 
@@ -124,7 +125,7 @@ Playtest bot options, script statistics, art and audio checks, the Errors-in-exp
 - Studio is Windows-only today. The main path leads with Studio and the online demo, with `npm` as the aside;
   confirm that is the positioning wanted.
 - The tutorial game's genre: a short mystery on a train (hotspots would come in "Go deeper C") or a plain
-  choice-driven story. The sketch above assumes the second, to keep page 2 clean.
+  choice-driven story. The sketch above assumes the second, to keep page 2 clean. *Decided: the second (The Last Train).*
 - Whether screenshots are retaken by a script (a playwright pass over the tutorial game's checkpoints) so they can be
   regenerated with every editor change.
 

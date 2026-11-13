@@ -33,8 +33,8 @@ deformer stays as it is.
 - The renderer builds a Pixi `Mesh` with a `MeshGeometry` (positions, UVs from the rest positions over the image box,
   indices) in place of the `MeshPlane`. The dirty key, buffer upload and per-part container are the same.
 - `checkDeformers`: at most 500 vertices; indices in range; at least one triangle; no degenerate (zero-area) triangles; no
-  vertex outside the part's box plus a margin; one deformer per part; `pts` indices in range; the frame-track conflict as
-  for the lattice.
+  vertex outside the part's box plus a margin; one deformer per part; `pts` indices in range. (A frame-track conflict as for the lattice was planned too; a
+  warped part may swap frames since 2026-11-11.)
 
 ## Core (pure, `engine/src`)
 
@@ -56,7 +56,7 @@ New pure modules (with tests in `engine/test/`):
   interior points on a jittered or hex grid at the detail spacing; constrained Delaunay triangulation; clamped to the cap
   (coarsens until it fits). Input is an alpha array, so it runs in node; the browser supplies pixels from the part image.
 - `mesh-edit.ts`: add vertex (split the containing triangle or edge), delete vertex (re-triangulate the hole), move vertex,
-  flip edge, add / remove edge (constrained), and `dropMeshKeyforms`. All return a new mesh and never leave a degenerate or
+  flip edge, add / remove edge (constrained), and dropping the keyforms (built as part of `setMeshGeometry`). All return a new mesh and never leave a degenerate or
   overlapping triangle (an edit that would is refused).
 - `mesh.ts`: barycentric lookup, adjacency, edges, the lookups above.
 
@@ -68,7 +68,8 @@ mesh itself is the data.
 
 ## Studio
 
-A **Mesh** section and tool beside Warp (Model mode), reusing the Warp overlay, selection and soft-reach machinery:
+A **Mesh** section and tool beside Warp (Model mode; as built, a Mesh row in Properties › Deform and Edit topology in the
+Warp tool's options bar), reusing the Warp overlay, selection and soft-reach machinery:
 
 - **Generate** with the detail control and a preview of the vertex count; Regenerate is a topology edit (confirm if keyforms exist).
 - **Vertex editing** (keyform mode, never gated): drag a vertex into the parameter's keyform exactly as a lattice point;

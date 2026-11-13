@@ -1,5 +1,5 @@
-// The rig.json `physics` section: chains by id, each reading parameters or bone channels and writing parameters or (the
-// interim, until deformers exist) a part or bone's rotation. This file turns that into physics.ts chains, steps them for
+// The rig.json `physics` section: chains by id, each reading parameters or bone channels and writing parameters or a part
+// or bone's rotation. This file turns that into physics.ts chains, steps them for
 // one character and checks the section; the simulation itself is physics.ts. Pure, no DOM.
 //
 //   "physics": { "hair": {
@@ -12,6 +12,7 @@ import { restState, stepChain, type PhysicsChain, type PhysicsSegment, type Phys
 import type { Offset } from './anim.js';
 import type { KeyformDef, ParamDef } from './params.js';
 import { isNum } from './util.js';
+import type { ProblemReport } from './suggest.js';
 
 export const PHYSICS_CHANNELS = ['dx', 'dy', 'sx', 'sy', 'rot'] as const;
 export type PhysicsChannel = typeof PHYSICS_CHANNELS[number];
@@ -96,7 +97,7 @@ const formParams = (k: KeyformDef): string[] => [...(k.param ? [k.param] : []), 
  */
 export function checkPhysics(
   data: { physics?: unknown; parameters?: ParamDef[]; keyforms?: KeyformDef[] },
-  targets: Set<string>, problem: (message: string, at: string) => void,
+  targets: Set<string>, problem: ProblemReport,
 ): void {
   if (data.physics === undefined) return;
   if (!data.physics || typeof data.physics !== 'object' || Array.isArray(data.physics)) { problem('physics: needs an object of chain id: { inputs, segments, outputs }', 'physics'); return; }
@@ -117,11 +118,11 @@ export function checkPhysics(
       if (!i || typeof i !== 'object') { problem(`${where}: not an input`, id); return; }
       if ((i.param === undefined) === (i.bone === undefined)) problem(`${where}: name either a param or a bone (with a channel)`, id);
       else if (i.param !== undefined) {
-        if (!params.has(i.param)) problem(`${where}: no parameter "${i.param}" (parameters: ${known()})`, id); else r.add(`p:${i.param}`);
+        if (!params.has(i.param)) problem(`${where}: no parameter "${i.param}" (parameters: ${known()})`, id, i.param, params.keys()); else r.add(`p:${i.param}`);
         if (i.channel !== undefined) problem(`${where}: channel belongs to a bone input`, id);
       } else {
-        if (!targets.has(i.bone!)) problem(`${where}: no part or bone named "${i.bone}"`, id); else r.add(`b:${i.bone}`);
-        if (i.channel !== undefined && !(PHYSICS_CHANNELS as readonly string[]).includes(i.channel)) problem(`${where}: unknown channel "${String(i.channel)}" (${PHYSICS_CHANNELS.join(', ')})`, id);
+        if (!targets.has(i.bone!)) problem(`${where}: no part or bone named "${i.bone}"`, id, i.bone!, targets); else r.add(`b:${i.bone}`);
+        if (i.channel !== undefined && !(PHYSICS_CHANNELS as readonly string[]).includes(i.channel)) problem(`${where}: unknown channel "${String(i.channel)}" (${PHYSICS_CHANNELS.join(', ')})`, id, String(i.channel), PHYSICS_CHANNELS);
       }
       if (!isNum(i.weight)) problem(`${where}.weight: must be a number`, id);
       if (i.smoothing !== undefined && !(isNum(i.smoothing) && i.smoothing >= 0 && i.smoothing < 1)) problem(`${where}.smoothing: must be from 0 up to (not including) 1`, id);
@@ -138,8 +139,8 @@ export function checkPhysics(
       const where = `${at}.outputs[${n}]`;
       if (!o || typeof o !== 'object') { problem(`${where}: not an output`, id); return; }
       if ((o.param === undefined) === (o.part === undefined)) problem(`${where}: name either a param or a part (its rotation)`, id);
-      else if (o.param !== undefined) { if (!params.has(o.param)) problem(`${where}: no parameter "${o.param}" (parameters: ${known()})`, id); else w.add(`p:${o.param}`); }
-      else if (!targets.has(o.part!)) problem(`${where}: no part or bone named "${o.part}"`, id);
+      else if (o.param !== undefined) { if (!params.has(o.param)) problem(`${where}: no parameter "${o.param}" (parameters: ${known()})`, id, o.param, params.keys()); else w.add(`p:${o.param}`); }
+      else if (!targets.has(o.part!)) problem(`${where}: no part or bone named "${o.part}"`, id, o.part!, targets);
       else w.add(`r:${o.part}`);
       if (!isNum(o.scale)) problem(`${where}.scale: must be a number`, id);
       if (o.min !== undefined && !isNum(o.min)) problem(`${where}.min: must be a number`, id);

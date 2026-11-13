@@ -9,6 +9,8 @@ export interface PlaceHost {
   studio(): StudioHost;
   /** What the line dresses: the character, its look and the slot variants set on the stage. */
   dress(): { char: string; pose: string | null; overrides: Record<string, string> };
+  /** The animation on show, null for none (Insert animate line: AN-16). */
+  animation(): string | null;
   post(msg: object): void;
   note(text: string): void;
   /** Placing and picking a pivot exclude each other; this ends picking. */
@@ -26,6 +28,7 @@ export class PlacePanel {
   private anchorBox: HTMLInputElement;
   private line: HTMLInputElement;
   private insertBtn: HTMLButtonElement;
+  private animBtn: HTMLButtonElement;
 
   constructor(root: HTMLElement, private host: PlaceHost) {
     const q = <T extends Element>(s: string) => root.querySelector<T>(s)!;
@@ -52,13 +55,18 @@ export class PlacePanel {
       void navigator.clipboard?.writeText(this.line.value).then(() => host.note('Copied the show line.'), () => host.note('Press Ctrl+C to copy the selected line.'));
     });
     this.insertBtn.addEventListener('click', () => host.note(host.studio().insertLine?.(this.line.value) ?? ''));
+    this.animBtn = q('.as-place-anim');
+    this.animBtn.addEventListener('click', () => {
+      const anim = host.animation();
+      host.note(anim ? host.studio().insertLine?.(`animate ${host.dress().char} ${anim}`) ?? '' : 'Choose an animation first.');
+    });
   }
 
   /** A new opening: the default place, and "Insert in script" only when the studio was opened from a script. */
   reset() {
     this.placing = false;
     this.place = { ...START };
-    this.insertBtn.hidden = !this.host.studio().insertLine;
+    this.insertBtn.hidden = this.animBtn.hidden = !this.host.studio().insertLine;
   }
 
   setPlacing(on: boolean) {

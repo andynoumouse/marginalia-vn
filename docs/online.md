@@ -10,8 +10,8 @@ npm run serve:online          # serves it at http://localhost:5180/marginalia-vn
 ```
 
 The code in `dist/` is bundled and minified with esbuild: one file per page (`editor.js`, `help-page.js`, `preview.js`,
-`projects.js` and the service worker `sw.js`) instead of the roughly 100 modules `tsc` writes. PixiJS stays a separate
-file in `vendor/`.
+`projects.js` and the service worker `sw.js`) instead of the roughly 100 modules `tsc` writes. PixiJS and ag-psd stay
+separate files in `vendor/` (Monaco too).
 
 Upload `build/online/` to any static host that serves HTTPS, at the root or in a subfolder (GitHub Pages works:
 `https://<user>.github.io/<repo>/`). Service workers need HTTPS (localhost counts as secure).
@@ -22,7 +22,7 @@ The repository's `.github/workflows/online-demo.yml` builds and publishes it to 
 ## What visitors get
 
 - **A project list** (the site's front page): each bundled demo has **Play** (adds it to your projects and starts
-  playing) and **Open in editor** (opens it in the editor); or start a blank project, import a project `.zip`,
+  playing) and **Open in editor** (opens it in the editor); or start a new project from a template, import a project `.zip`,
   then open, play, rename, duplicate, download as `.zip`, or delete. The bundled demo, Rainy Day Library, opens on a
   feature index: pages of small playgrounds, one card for each group of script commands, where you fire an effect,
   change it and fire it again. The guided tour and the library map are one click away from it.

@@ -11,6 +11,7 @@
 
 import { easing, lerp, rigEaseProblem } from './anim.js';
 import { isNum } from './util.js';
+import type { ProblemReport } from './suggest.js';
 
 /** `ease`: the curve a script tween of this parameter follows (anim.ts EASES); linear when left out. */
 export interface ParamDef { id: string; min: number; max: number; default: number; group?: string; ease?: string }
@@ -138,7 +139,7 @@ export function evalAll(keyforms: KeyformDef[] | undefined, params: Record<strin
 const ascending = (a: unknown): a is number[] => Array.isArray(a) && a.every(isNum) && a.every((n, i) => i === 0 || n > a[i - 1]);
 
 /** Problems in the `categories`, `parameters`, `pads` and `keyforms` sections; `targets` are the names a keyform may drive (bones and parts). */
-export function checkParams(data: { categories?: unknown; parameters?: unknown; pads?: unknown; keyforms?: unknown }, targets: Set<string>, problem: (message: string, at: string) => void): void {
+export function checkParams(data: { categories?: unknown; parameters?: unknown; pads?: unknown; keyforms?: unknown }, targets: Set<string>, problem: ProblemReport): void {
   const ids = new Map<string, ParamDef>();
   const categories = new Set<string>();
   if (data.categories !== undefined && !Array.isArray(data.categories)) problem('categories: needs a list of names', 'categories');
@@ -176,7 +177,7 @@ export function checkParams(data: { categories?: unknown; parameters?: unknown; 
       if (!p || typeof p !== 'object' || typeof p.id !== 'string' || !p.id) { problem(`${at}: needs an id, x and y`, 'pads'); return; }
       if (seen.has(p.id)) problem(`pads: "${p.id}" is defined twice`, p.id);
       seen.add(p.id);
-      for (const axis of ['x', 'y'] as const) if (typeof p[axis] !== 'string' || !ids.has(p[axis])) problem(`pads.${p.id}.${axis}: no parameter "${String(p[axis])}" (parameters: ${known()})`, p.id);
+      for (const axis of ['x', 'y'] as const) if (typeof p[axis] !== 'string' || !ids.has(p[axis])) problem(`pads.${p.id}.${axis}: no parameter "${String(p[axis])}" (parameters: ${known()})`, p.id, String(p[axis]), ids.keys());
       checkGroup('pads', p.id, p.group);
       if (p.x === p.y && ids.has(p.x)) problem(`pads.${p.id}: x and y are the same parameter`, p.id);
     });
@@ -185,7 +186,7 @@ export function checkParams(data: { categories?: unknown; parameters?: unknown; 
   (data.keyforms as KeyformDef[] | undefined)?.forEach((k, i) => {
     const at = `keyforms[${i}]`;
     if (!k || typeof k !== 'object') { problem(`${at}: not a keyform`, 'keyforms'); return; }
-    if (typeof k.target !== 'string' || !targets.has(k.target)) problem(`${at}: no part or bone named "${String(k.target)}"`, 'keyforms');
+    if (typeof k.target !== 'string' || !targets.has(k.target)) problem(`${at}: no part or bone named "${String(k.target)}"`, 'keyforms', String(k.target), targets);
     const oneD = k.param !== undefined || k.keys !== undefined, twoD = k.params !== undefined || k.grid !== undefined || k.forms !== undefined;
     if (oneD === twoD) { problem(`${at}: use either param + keys, or params + grid + forms`, 'keyforms'); return; }
     const checkForm = (f: unknown, where: string) => {
@@ -197,14 +198,14 @@ export function checkParams(data: { categories?: unknown; parameters?: unknown; 
           if (bad) problem(`${where}.ease: ${bad}`, 'keyforms');
           continue;
         }
-        if (!(FORM_FIELDS as readonly string[]).includes(field)) problem(`${where}: unknown field "${field}" (${FORM_FIELDS.join(', ')})`, 'keyforms');
+        if (!(FORM_FIELDS as readonly string[]).includes(field)) problem(`${where}: unknown field "${field}" (${FORM_FIELDS.join(', ')})`, 'keyforms', field, FORM_FIELDS);
         else if (!isNum(v)) problem(`${where}.${field}: must be a number`, 'keyforms');
         else if (field === 'opacity' && v < 0) problem(`${where}.opacity: must not be negative`, 'keyforms');
       }
     };
     const checkParam = (id: unknown, where: string, lo?: number, hi?: number) => {
       const def = typeof id === 'string' ? ids.get(id) : undefined;
-      if (!def) problem(`${where}: no parameter "${String(id)}" (parameters: ${known()})`, 'keyforms');
+      if (!def) problem(`${where}: no parameter "${String(id)}" (parameters: ${known()})`, 'keyforms', String(id), ids.keys());
       else if (lo !== undefined && hi !== undefined && (lo < def.min || hi > def.max)) problem(`${where}: values ${lo} to ${hi} lie outside "${def.id}" (${def.min} to ${def.max})`, 'keyforms');
     };
     if (oneD) {
@@ -256,7 +257,7 @@ export function lerpParams(defs: ParamDef[] | undefined, from: Record<string, nu
 }
 
 /** Problems in the `poses` section: each pose is a map of parameter id to a value inside that parameter's range. */
-export function checkPoses(data: { poses?: unknown; parameters?: unknown }, problem: (message: string, at: string) => void): void {
+export function checkPoses(data: { poses?: unknown; parameters?: unknown }, problem: ProblemReport): void {
   if (data.poses === undefined) return;
   if (!data.poses || typeof data.poses !== 'object' || Array.isArray(data.poses)) { problem('poses: needs an object of pose name: { parameter: value }', 'poses'); return; }
   const defs = new Map<string, ParamDef>();
@@ -268,7 +269,7 @@ export function checkPoses(data: { poses?: unknown; parameters?: unknown }, prob
     if (!Object.keys(pose).length) problem(`poses.${name}: names no parameter`, name);
     for (const [id, v] of Object.entries(pose)) {
       const def = defs.get(id);
-      if (!def) problem(`poses.${name}: no parameter "${id}" (parameters: ${known()})`, name);
+      if (!def) problem(`poses.${name}: no parameter "${id}" (parameters: ${known()})`, name, id, defs.keys());
       else if (!isNum(v)) problem(`poses.${name}.${id}: must be a number`, name);
       else if (v < def.min || v > def.max) problem(`poses.${name}.${id}: ${v} lies outside "${id}" (${def.min} to ${def.max})`, name);
     }
@@ -397,10 +398,10 @@ const validGrid = (g: unknown): g is [number, number] => Array.isArray(g) && g.l
 
 /**
  * Problems in the `deformers` section. `parts` are the part names, `bones` the bone names (a deformer needs a part),
- * `framed` the slots a frame track drives (a warped part cannot swap frames), `boneOf` the bone each part sits on (a group warp
+ * `boneOf` the bone each part sits on (a group warp
  * of parts on different bones is warned about: its displacement is in each part's own space, so a turning bone would skew it).
  */
-export function checkDeformers(data: { deformers?: unknown; parameters?: unknown }, parts: Set<string>, bones: Set<string>, framed: Set<string>, problem: (message: string, at: string) => void, boneOf: ReadonlyMap<string, string> = new Map(), shapes: ReadonlySet<string> = new Set(), boxes: ReadonlyMap<string, readonly [number, number]> = new Map()): void {
+export function checkDeformers(data: { deformers?: unknown; parameters?: unknown }, parts: Set<string>, bones: Set<string>, problem: ProblemReport, boneOf: ReadonlyMap<string, string> = new Map(), shapes: ReadonlySet<string> = new Set(), boxes: ReadonlyMap<string, readonly [number, number]> = new Map()): void {
   if (data.deformers === undefined) return;
   if (!Array.isArray(data.deformers)) { problem('deformers: needs a list of { id, part or members, grid, keyforms }', 'deformers'); return; }
   const defs = new Map<string, ParamDef>();
@@ -417,13 +418,12 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
     ids.add(d.id);
     if (d.members !== undefined) {
       if (d.part !== undefined) problem(`${where}: has both part and members; a deformer warps one part or a group, not both`, d.id);
-      checkMembers(d, where, parts, bones, framed, inGroup, boneOf, problem, shapes, skinned);
+      checkMembers(d, where, parts, bones, inGroup, boneOf, problem, shapes, skinned);
     } else if (typeof d.part !== 'string' || !parts.has(d.part)) problem(`${where}.part: ${typeof d.part === 'string' && bones.has(d.part) ? `"${d.part}" is a bone, a deformer needs a part (or list parts in members)` : d.part === undefined ? 'needs a part, or members for a group warp' : `no part named "${String(d.part)}"`}`, d.id);
     else {
       const other = onPart.get(d.part);
       if (other !== undefined) problem(`${where}.part: part "${d.part}" already has deformer "${other}" (one per part)`, d.id);
       else onPart.set(d.part, d.id);
-      if (framed.has(d.part)) problem(`${where}.part: "${d.part}" has a frame track in an animation; a warped part cannot swap frames`, d.id);
     }
     if (d.box !== undefined && d.members === undefined) problem(`${where}.box: only a group warp (members) has a box; a part warp covers the part's image`, d.id);
     if (d.grid !== undefined && !validGrid(d.grid)) problem(`${where}.grid: use [cols, rows], two whole numbers from 1 to ${DEFORMER_MAX_GRID}`, d.id);
@@ -444,7 +444,7 @@ export function checkDeformers(data: { deformers?: unknown; parameters?: unknown
  * Problems in a free mesh; returns its vertex count (0 when `verts` is unusable). `size` is the part's image [width, height] when
  * known: no vertex may lie further than MESH_BOX_MARGIN outside it.
  */
-function checkMesh(mesh: unknown, where: string, at: string, size: readonly [number, number] | undefined, problem: (message: string, at: string) => void, bones: ReadonlySet<string> = new Set()): number {
+function checkMesh(mesh: unknown, where: string, at: string, size: readonly [number, number] | undefined, problem: ProblemReport, bones: ReadonlySet<string> = new Set()): number {
   if (!mesh || typeof mesh !== 'object' || Array.isArray(mesh)) { problem(`${where}: needs { verts, tris }`, at); return 0; }
   const { verts, tris } = mesh as DeformerMesh;
   if (!Array.isArray(verts) || verts.length % 2 !== 0 || !verts.every(isNum)) { problem(`${where}.verts: needs a list of x, y numbers, two per vertex`, at); return 0; }
@@ -470,10 +470,10 @@ function checkMesh(mesh: unknown, where: string, at: string, size: readonly [num
 }
 
 /** Problems in a mesh's `weights` and `defaultBone` (n is the vertex count). */
-function checkSkin(mesh: DeformerMesh, n: number, where: string, at: string, bones: ReadonlySet<string>, problem: (message: string, at: string) => void): void {
+function checkSkin(mesh: DeformerMesh, n: number, where: string, at: string, bones: ReadonlySet<string>, problem: ProblemReport): void {
   const known = (b: string) => bones.has(b);
   const list = () => [...bones].join(', ') || 'no bones';
-  if (mesh.defaultBone !== undefined && (typeof mesh.defaultBone !== 'string' || !known(mesh.defaultBone))) problem(`${where}.defaultBone: no bone named "${String(mesh.defaultBone)}" (bones: ${list()})`, at);
+  if (mesh.defaultBone !== undefined && (typeof mesh.defaultBone !== 'string' || !known(mesh.defaultBone))) problem(`${where}.defaultBone: no bone named "${String(mesh.defaultBone)}" (bones: ${list()})`, at, String(mesh.defaultBone), bones);
   const w = mesh.weights;
   if (w === undefined) return;
   if (!w || typeof w !== 'object' || Array.isArray(w)) { problem(`${where}.weights: needs { "<vertex>": { "<bone>": weight } }`, at); return; }
@@ -485,7 +485,7 @@ function checkSkin(mesh: DeformerMesh, n: number, where: string, at: string, bon
     if (!entries.length) { problem(`${vertex}: is empty (leave the vertex out to bind it to defaultBone)`, at); continue; }
     let sum = 0, ok = true;
     for (const [bone, x] of entries) {
-      if (!known(bone)) { problem(`${vertex}: no bone named "${bone}" (bones: ${list()})`, at); ok = false; }
+      if (!known(bone)) { problem(`${vertex}: no bone named "${bone}" (bones: ${list()})`, at, bone, bones); ok = false; }
       if (!(typeof x === 'number' && Number.isFinite(x) && x > 0)) { problem(`${vertex}.${bone}: a weight is a number above 0`, at); ok = false; } else sum += x;
     }
     if (entries.length > MAX_INFLUENCES) problem(`${vertex}: ${entries.length} bones, at most ${MAX_INFLUENCES} may pull one vertex`, at);
@@ -494,8 +494,7 @@ function checkSkin(mesh: DeformerMesh, n: number, where: string, at: string, bon
 }
 
 /**
- * The `members` and `box` of a group warp: image parts or shape parts that exist (once each, in one group at most), no frame tracks
- * on image parts, ideally on one bone. The default box is the union of the image members' boxes, so a group of shapes only needs one.
+ * The `members` and `box` of a group warp: image parts or shape parts that exist (once each, in one group at most), ideally on one bone. The default box is the union of the image members' boxes, so a group of shapes only needs one.
  */
 /**
  * The bones a group warp's members sit on ('' for none), in member order, leaving out skinned meshes (their weights place their points).
@@ -506,7 +505,7 @@ export function groupBones(members: Iterable<string>, boneOf: (m: string) => str
   return [...new Set([...members].filter(m => !skinned(m)).map(m => boneOf(m) ?? ''))];
 }
 
-function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: Set<string>, framed: Set<string>, inGroup: Map<string, string>, boneOf: ReadonlyMap<string, string>, problem: (message: string, at: string) => void, shapes: ReadonlySet<string> = new Set(), skinned: ReadonlySet<string> = new Set()): void {
+function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: Set<string>, inGroup: Map<string, string>, boneOf: ReadonlyMap<string, string>, problem: ProblemReport, shapes: ReadonlySet<string> = new Set(), skinned: ReadonlySet<string> = new Set()): void {
   const members = d.members;
   if (!Array.isArray(members) || !members.length) { problem(`${where}.members: needs a list of one or more part names`, d.id); return; }
   const seen = new Set<string>();
@@ -517,7 +516,6 @@ function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: 
     const other = inGroup.get(m);
     if (other !== undefined) problem(`${where}.members: part "${m}" is already in group warp "${other}" (one group per part)`, d.id);
     else inGroup.set(m, d.id);
-    if (parts.has(m) && framed.has(m)) problem(`${where}.members: "${m}" has a frame track in an animation; a warped part cannot swap frames`, d.id);
   }
   if (d.box === undefined && seen.size && ![...seen].some(m => parts.has(m))) problem(`${where}.box: a group of shapes only has no image box to take; give a box [x, y, width, height] in pixels of the PSD canvas`, d.id);
   const onBones = groupBones(seen, m => boneOf.get(m), m => skinned.has(m));
@@ -530,7 +528,7 @@ function checkMembers(d: DeformerDef, where: string, parts: Set<string>, bones: 
  * grid shapes, and point indices below `n`. `where` names the list in messages, `outside` what a bad index lies outside of, and
  * `at` is the key the editor jumps to.
  */
-export function checkPointKeyforms(keyforms: DeformerKeyform[], n: number, where: string, outside: string, defs: Map<string, ParamDef>, at: string, problem: (message: string, at: string) => void): void {
+export function checkPointKeyforms(keyforms: DeformerKeyform[], n: number, where: string, outside: string, defs: Map<string, ParamDef>, at: string, problem: ProblemReport): void {
   const known = () => [...defs.keys()].join(', ') || 'none';
   const checkPts = (pts: unknown, w: string) => {
     if (pts === undefined) return;
@@ -542,7 +540,7 @@ export function checkPointKeyforms(keyforms: DeformerKeyform[], n: number, where
   };
   const checkParam = (id: unknown, w: string, lo: number, hi: number) => {
     const def = typeof id === 'string' ? defs.get(id) : undefined;
-    if (!def) problem(`${w}: no parameter "${String(id)}" (parameters: ${known()})`, at);
+    if (!def) problem(`${w}: no parameter "${String(id)}" (parameters: ${known()})`, at, String(id), defs.keys());
     else if (lo < def.min || hi > def.max) problem(`${w}: values ${lo} to ${hi} lie outside "${def.id}" (${def.min} to ${def.max})`, at);
   };
   keyforms.forEach((k, j) => {

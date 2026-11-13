@@ -19,6 +19,19 @@ const TOOL_NAMES: Record<StageTool, string> = { move: 'Move', rotate: 'Rotate', 
  * The mode label at the bar's left end: the tool and what it works on, `Warp · torso`, `Weights · Add on hair_1_0` (the brush mode and the
  * active bone), `Mask · lid_shape`. `target` is the chosen part (null: none); `brush` and `bone` are the Weights tool's.
  */
+/**
+ * What the Warp tool still needs before a lattice drag can be kept, for the bar's label ('' when nothing): a lattice drag keys the warp to the
+ * active slider, so with none active, or a pad, the drag is refused. `active` is the active control (null: none); `grid` names the warp when
+ * it is already keyed to that pad's grid, which the stage shows but the studio cannot edit yet (docs/design/warp-pad-grid.md; MD-1): a key on
+ * one of the pad's sliders would add on top of the grid, so the hint does not send the user there.
+ */
+export function warpBarHint(hasWarp: boolean, active: { name: string; pad: boolean; grid?: string | null } | null): string {
+  if (!hasWarp) return '';
+  if (!active) return "click a slider's name in Parameters, then drag the points: the drag keys the warp to it";
+  if (active.pad && active.grid) return `${active.grid} is keyed to ${active.name}'s grid: shown, not editable in the studio yet`;
+  return active.pad ? `${active.name} is a pad, and a lattice drag keys one slider: click a slider's name` : '';
+}
+
 export function modeLabel(tool: StageTool, target: string | null, brush?: WeightsBrush, bone?: string | null): string {
   const name = TOOL_NAMES[tool];
   if (tool === 'weights') {
@@ -133,10 +146,14 @@ export interface GizmoLineState {
   other?: readonly ('warp' | 'mask')[];
   /** Model, no parameter active: the parameters that move the chosen part already (a click on one keeps the part), and whether the rig has any. */
   movedBy?: readonly string[];
+  /** Model, no parameter active, the part itself moved by none: its bone and the parameters that move the bone (MD-15: the line pointed nowhere). */
+  boneMovedBy?: { bone: string; params: readonly string[] } | null;
   hasParams?: boolean;
   /** Animate: the animation on show (null: none), whether it is a preset, and whether Auto-key is on. */
   anim?: { name: string; preset: boolean } | null;
   autoKey?: boolean;
+  /** Rotate or Scale on a part with no pivot of its own that sits on a bone: that bone, whose joint the part turns and scales about (MR-1). */
+  pivotFrom?: string | null;
 }
 
 /**
@@ -145,6 +162,12 @@ export interface GizmoLineState {
  */
 export function gizmoLine(s: GizmoLineState): string {
   if (s.chosen === null || s.subject === null) return 'Nothing chosen: click a part on the stage, or choose it in the Parts tree';
+  // A blink squashed about the neck slides the eyes down: say where the part turns, and how to give it its own point, before the drag.
+  const line = gizmoWrites(s as GizmoLineState & { chosen: string; subject: string });
+  return s.pivotFrom && s.subject === s.chosen ? `${line} · about ${s.pivotFrom}'s joint: Q, then a click, gives ${s.chosen} a pivot of its own` : line;
+}
+
+function gizmoWrites(s: GizmoLineState & { chosen: string; subject: string }): string {
   const poses = s.subject === s.chosen ? `poses ${s.subject}` : `poses ${s.subject}, the bone ${s.chosen} sits on`;
   if (s.mode === 'animate') {
     if (!s.anim) return `${poses} · no animation: choose one to key`;
@@ -156,11 +179,15 @@ export function gizmoLine(s: GizmoLineState): string {
     if (s.hasParams === false) return `${poses} · this character has no parameters: + in Parameters adds one`;
     const by = s.movedBy ?? [];
     if (by.length) return `${poses} · no parameter is active: ${by.join(', ')} ${by.length > 1 ? 'move' : 'moves'} ${s.chosen}, click ${by.length > 1 ? 'one' : 'it'} in Parameters; ◆ on another parameter binds ${s.chosen} to it`;
+    const bb = s.boneMovedBy;
+    if (bb?.params.length) return `${poses} · ${s.chosen} is bound to no parameter, its bone ${bb.bone} is (${bb.params.join(', ')}): Alt-click ${s.chosen} chooses ${bb.bone}, or Bind to parameter… binds ${s.chosen} itself`;
     return `${poses} · ${s.chosen} is bound to no parameter: Bind to parameter…, or ◆ on a parameter's row, binds it (a click on a name would choose the parameter alone)`;
   }
   if (s.bound) return `${poses} · a drag writes its keyform of ${s.param}`;
   const other = (s.other ?? []).map(k => (k === 'warp' ? `D keys ${s.chosen}'s warp` : `M keys ${s.chosen}'s mask`));
-  return `${poses} · ${s.subject} is not bound to ${s.param}: ${other.length ? other.join(', ') : `nothing to drag until it is (Bind parts…, or ◆ on ${s.param}'s row, binds it)`}`;
+  // Bound another way (a warp, a mask): the gizmo has no pose to write, but the part is bound, so say which tool keys it rather than "not bound".
+  if (other.length) return `${poses} · ${s.subject} has no pose on ${s.param}, ${other.join(', ')}`;
+  return `${poses} · ${s.subject} is not bound to ${s.param}: nothing to drag until it is (Bind parts…, or ◆ on ${s.param}'s row, binds it)`;
 }
 
 /** Why the gizmo is locked (`gizmoLock`). */
@@ -297,7 +324,7 @@ export function focusHeader(s: FocusHeaderState): FocusHeaderView | null {
   return {
     formOps: kind === 'keyform' ? formOps(s) : [],
     kind,
-    empty: 'Nothing in focus: choose a parameter, or a part on the stage or in the tree',
+    empty: 'Nothing in focus: choose a parameter or a part',
     noPart: 'no part',
     noParam: 'no parameter',
     partPick: {
@@ -596,7 +623,7 @@ function deformBlock(s: PropBlocksState, row: PropBlocksState['row'], name: stri
   // The line has one verb that adds: a group when there is something to make it from (a bone, or parts ticked), else the part's own warp.
   const primary: PropVerb | null = seed !== null && (row === 'bone' || 'parts' in seed)
     ? { id: 'addGroupWarp', label: `Add group warp from ${from}`, enabled: !noParam, title: noParam || `One lattice over ${'bone' in seed ? `the parts on ${from}` : `the ${from}`}, like a parent deformer: it bends them together, after each one's own warp` }
-    : part && !d.own ? { id: 'addWarp', label: `Add warp to ${name}`, enabled: !noParam, title: noParam || `A lattice over ${name}'s image: dragging its points in a parameter's keyform bends ${name} as the parameter moves (a mesh: Generate mesh below)` }
+    : part && !d.own ? { id: 'addWarp', label: `Add warp to ${name}`, enabled: !noParam, title: noParam || `Add warp to ${name}: a lattice over its image; dragging its points in a parameter's keyform bends ${name} as the parameter moves (a mesh: Generate mesh below)` }
     : null;
   const destructive: PropVerb | null = row === 'shape' || d.kind === 'none' ? null
     : d.kind === 'group' ? { id: 'removeWarp', label: 'Remove group warp', enabled: true, title: `Remove the group warp ${g?.id ?? ''}: its members (${members}) are no longer bent by it; its keyforms go with it (Ctrl+Z brings them back)` }

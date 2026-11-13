@@ -60,8 +60,7 @@ same colours would muddy both.
 - **Stage:** one renderer query for a sprite's posed corners, plus `draw()` drawing the outlines, the ring and the tag. A
   `studioFocus` change already redraws.
 - **Browser test:** with a part chosen, then its bone, the overlay has a dashed outline or the bone's thick line, and the matching
-  tag. Two stage screenshots go in the hand-over note, not the repository.
-- **Size:** one session.
+  tag.- **Size:** one session.
 
 ## Questions
 

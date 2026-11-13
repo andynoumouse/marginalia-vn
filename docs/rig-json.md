@@ -6,7 +6,7 @@ In the editor open it from the Files panel (Characters) or Ctrl+P then `#`: a ch
 a generated skeleton that stays unsaved until you save. The tab completes part, slot and variant names, marks
 mistakes as warnings, and **Character: Update Rig from Reconverted Art** (Ctrl+P, then `>`) adds new parts to `order`, and bones (with the new parts on them) for new PSD `+folders`; bones and parts you already have are left alone.
 
-A flat character (one image per pose, no PSD) can have a `rig.json` too, without a `sprite.json`: only `animations`,
+A flat character (one image per pose, no PSD) can have a `rig.json` too, without a `sprite.json`: only
 `animations` (automatic ones included) apply, and keys move the whole body (no `part`). Characters with a rig.json appear in
 Characters and open in the animation studio.
 
@@ -66,7 +66,8 @@ bone with nothing on it and nothing below it, about a bone with nothing to turn 
 
 Which bone each part (a slot or plain layer) sits on: `{ "bone": "head" }`. A part may also give a `pivot` of its own,
 for one that must turn about another point than its bone's. A part without an entry sits directly on the character.
-`checkRig` rejects entries naming no part and bones that do not exist.
+`checkRig` rejects entries naming no part (other than shape parts, which carry a `polygon`; see [masks](#masks)) and bones
+that do not exist.
 
 ## looks
 
@@ -95,7 +96,7 @@ looks themselves: they are expanded into the slot variants when the line runs, s
 keeps what is on stage, and a `show` with a look starts again from the defaults. Taking one outfit off while keeping
 the rest is not supported yet; write a look that sets those slots.
 
-`poses`, which this replaced, is reported by `checkRig`: rename it to `looks` and its `"pose"` key to `"look"`. So is `groups`: give the members one bone (`parts.<name>.bone`) and key the bone instead.
+`groups`, which bones replaced, is reported by `checkRig`: give the members one bone (`parts.<name>.bone`) and key the bone instead.
 
 ## pivots
 
@@ -214,7 +215,7 @@ Keyframe animations of your own, played with `animate <char> <name>` (see the `a
 `dur` is the default length in seconds (1 when left out); `animate mina wave 2s` stretches it, and `loop` repeats it.
 Each key is at progress `t` from 0 to 1 (the studio shows and takes it in seconds) and sets any of these channels (offsets from where the character stands):
 
-- `x`, `y`: sideways and vertical, as a fraction of the stage height (negative `y` is up).
+- `x`, `y`: sideways and vertical, as a fraction of the stage's shorter side (its height on a landscape stage; negative `y` is up).
 - `scale`: added to the size, so `0.05` is 5% bigger.
 - `rot`: tilt in degrees, clockwise, about the feet (about the pivot for a part).
 - `opacity`: a factor on the alpha, `1` as drawn and `0` gone (never below 0). It rests at 1, not 0: with no key the channel is 1,
@@ -223,9 +224,11 @@ Each key is at progress `t` from 0 to 1 (the studio shows and takes it in second
   Use it to fade a layer in and out; a slot's `none` frame hides it without fading.
 - `part`: not a channel but a target: a key with a `part` moves just that part (a slot or layer name; a bone name moves the bone and what hangs on it, see `bones`) with its
   `x`, `y`, `scale`, `rot` and `opacity`; keys without one move the whole character.
-- `ease`: how the channels reach this key (`linear`, `in`, `out`, `inout` by default, `back`, `bounce`, `elastic`, or a curve
+- `ease`: how the channels reach this key (`linear`, `in`, `out`, `inout` by default, `back`, `bounce`, `elastic`, `step` to hold the previous value and switch at this key, or a curve
   `bezier(x1,y1,x2,y2)` as in a script's `ease=`; every `ease` in rig.json takes one, and the studio's ease selects end with
-  **curve…**, which asks for one).
+  **curve…**, which opens a curve dialog: drag the two handles, pick a preset (linear, in, out, inout, back) or type the four
+  numbers, and a dot runs with the curve's timing; above the square overshoots, below it pulls back first. **Use curve** writes it,
+  Esc keeps the ease as it was).
 
 An animation can also key **parameters**: `params` holds a track per parameter, a list of `{ "t", "v", "ease" }`. `v` is the
 parameter's own value (not an offset); it holds the first key before it and the last key after it, and `ease` is how the
@@ -257,7 +260,8 @@ flick, a wave). A track is one of two forms, both stored as written:
   time, so instant mode and skip land on the right frame. A frame swap does not move anything: draw the frames in place and
   move the character or a bone with ordinary keys alongside.
 - `checkRig` rejects an unknown slot or variant, two tracks on one slot, and a plain layer (only slots have variants). Every
-  frame of a track is preloaded with the character. A mesh-warped part cannot take a frame track (`checkRig` rejects it).
+  frame of a track is preloaded with the character. A warped part may take a frame track: each frame is drawn on the same
+  lattice or mesh (see [deformers](#deformers)).
 
 In the studio the **Frames** section and a row of blocks under the timeline edit them: **Frames from this slot** fills a track with
 every variant at the chosen fps (when they end before the animation does, it asks whether to loop them, spread them over the whole length, or play
@@ -325,18 +329,23 @@ for theirs (or use the switch in the header), the palette command and a script's
   with no key folds to a thin row, so the parameter lanes stay in view; double-click it to add a key at rest, which opens the lane. The
   times sit in a ruler over the lanes that stays put when they scroll, and a lane that appears scrolls into view; the ▾ at the end of the transport folds the timeline away so the stage takes its room (▸ brings it back). While an animation plays, the stage shows the whole character, not the chosen part alone. On the stage the wheel zooms toward the cursor (in a window 900 px wide or less, where the columns stack and scroll, the wheel scrolls past the stage and Ctrl+wheel or a pinch zooms), middle-drag (or Space and drag) pans and **F**
   fits the character (**Shift+F** the whole stage). In a script, a hover on an `animate` or `show` line of a rigged character links to the studio, as F12 does. Model opens fitted to the character and Animate to the stage, and a fit is kept when the stage's box changes size, until you zoom or pan. Click a part or a bone handle to choose it, then **W** moves, **E** rotates and **R** scales it with a gizmo
-  (a rotation drag can start anywhere inside the ring, while a click there still chooses; shift snaps a rotation to 15 degrees; **X** switches between the bone's axes and the stage's). In Animate a drag writes a key at
+  (a rotation drag can start anywhere inside the ring, and with Move a drag can start on the art of the chosen part, or of a part on the chosen bone, while a click there still chooses; shift snaps a rotation to 15 degrees; **X** switches between the bone's axes and the stage's). In Animate a drag writes a key at
   the playhead, or with **Auto-key** off only previews until you press **Key** (K; Shift+K turns Auto-key on or off). In Model a drag writes the keyform of the active parameter
   at its current value. The stage dims the other parts so the chosen one
   stands out. With Move, Rotate or Scale the stage also says which is chosen when a part sits on a bone (the gizmo then poses
   the bone either way): a chosen part has a dashed outline and its bone a plain dot, with a tag by the gizmo such as
   `upper_l · part — the gizmo poses its bone arm_l`; a chosen bone has its body drawn from its joint, its dot ringed around the
   gizmo, its parts faintly outlined and a tag such as `arm_l · bone · 3 parts`. An animation that keys only parts opens at the first of them.
-  **Keys, wherever the focus is** (a click on the stage included): **Space** plays or pauses; **Tab** moves on from the stage to the
+  **Keys, wherever the focus is** (a click on the stage included): **Space** plays or pauses (except on a focused button, which Space presses, and in a field); **Tab** moves on from the stage to the
   transport; a click on a key or a frame block selects it and takes the focus, so **Delete** removes it and the arrow keys nudge it.
+  **Several keys** (channel and parameter keys): **Ctrl**-click adds a key or takes it away, **Shift**-click adds the keys between
+  the last chosen one and the clicked one, **Shift**+drag on a lane draws a box (with Ctrl too, it adds), **Ctrl+A** chooses every key
+  on show and **Esc** lets go. With two or more chosen, a drag of one moves them all in time (they stop at the start or the end as a
+  group), Left and Right nudge them, **Delete** removes them and the ease select sets them all; each is one undo step. A plain drag
+  on a lane still scrubs.
   **Esc** closes an open ▾ panel of the tool options bar first; then, in a field, it puts back what you typed; then, with Warp or Weights
   on, it clears the tool's selection; then any tool but Move goes back to Move (the focus goes to the Move button); on Move it closes the
-  studio (asking first about changes not applied). **Ctrl+Z** undoes the studio's last step, except
+  studio. With changes not applied it asks first, and the next Esc takes the question back: only **Discard and close** throws changes away. **Ctrl+Z** undoes the studio's last step, except
   in a field with an edit not committed yet, where it undoes the typing. Undo and redo (**Ctrl+Y**) go to what they change: the mode, the
   animation and the part it was in. The status line says what was undone (`Undid: wave: Length 1.1 s → 3 s`), and the Undo and Redo
   buttons name their step in their tooltips.
@@ -347,7 +356,7 @@ for theirs (or use the switch in the header), the palette command and a script's
   strip under the stage. A section layout stored when those two were sections here drops them and keeps its order. The animation picker has an **Automatic** line (below) and marks the animations that start by themselves with ⟳. Properties is the chosen row's own controls (below).
 
 Nothing is written until **Apply**, which puts the changes into the rig.json tab in one undo step. The studio sets the values it edits
-(`animations`, `pivots`, `bones`, `parts`, `looks`, `parameters`, `pads`, `keyforms`, `poses`, `physics`, `deformers`, `reactions`) and
+(`animations`, `pivots`, `bones`, `parts`, `looks`, `categories`, `parameters`, `pads`, `keyforms`, `poses`, `physics`, `deformers`, `reactions`) and
 keeps everything else.
 
 The file is written in one fixed layout, the same one used for a new rig.json and for updates from the art:
@@ -491,7 +500,8 @@ fields, keys outside the parameter's range, and grids with unsorted axes or the 
 The studio's **Parameters** section shows the sliders and pads under their categories (a category folds; controls without one sit under **Other**), and a reset to the default for each (a filter field appears above 12 parameters). In Model mode a **+** in the section header adds a **New parameter**, a **New pad** or a **New category**, and a **✕** on the active control's row deletes it (its other properties are the right column's **Parameter** section). Each category's header has one **+**: its menu adds a new parameter or pad in it, **Rename category** (the controls in it follow; in Model mode clicking the name does the same, and the arrow folds) and **Delete category** (its controls move to Other). Drag a control by its name onto another category, or in front of a row, to move it; drag a category header onto another to reorder them. The separate **Poses** section (both modes, above Parameters) holds the poses: **Use pose** sets the controls from the chosen pose, **Save as pose** stores the values that differ from their defaults, **✕** deletes the chosen pose, **Reset all** sets every parameter to its default and, in Animate, **Key changed** keys them at the playhead. What the Parameters controls write depends on the mode:
 
 - **Animate:** a control's **◆** key button writes a key of that parameter at the playhead into the animation's track, and **Key changed** keys every
-  parameter that differs from its default. Keyed parameters get lanes under the channel lanes of the timeline; double-click one to add a key, drag a
+  parameter that differs from its default. With **Auto-key** on, letting go of a slider or a pad, or typing a value, keys it at once (one undo step
+  per move); with it off the status line says the move is not keyed yet. Keyed parameters get lanes under the channel lanes of the timeline; double-click one to add a key, drag a
   diamond to move it.
 - **Model:** the controls are a palette. Clicking a control's name makes it the *active parameter*; the parts you pick are bound to it and posed at its
   keys, and the **◆** button, the gizmo and the **Pose** fields write the *keyform* of the chosen part or bone at that value (below). Nothing goes on a timeline.
@@ -515,7 +525,7 @@ control's name shows its properties (name, range, default) in the **Parameter** 
 2. **Bind the parts it moves.** Press **Bind parts…** and tick the parts in the list that opens under the action row (it has a filter; a checkbox adds what hangs on a ticked bone), then **Bind**. Each ticked part is *bound* to the
    active parameter and makes its keys at once, all at rest, so the pose on show does not change: a slider gets keys at its minimum, default and maximum (the
    "3 points" of Cubism), a pad gets a grid of corners, **2 × 2** (the ends), **3 × 3** (the ends and the default) or **5 × 5** (and halfway between each two),
-   chosen with **Grid on a pad** (in the Keyforms section while a pad is active) before binding. **Esc** closes the list. From the other side, choose a part, press **Bind to parameter…** and tick parameters in the list. The stage and the left lists only choose; several clicks on one spot walk through the parts
+   chosen with **Grid on the pad** in the Bind parts list (or **Grid on a pad** in the Keyforms section) before binding. A part bound by itself that sits on a bone and has no pivot of its own gets one at the middle of its image, in the same undo step (as in Cubism, so a blink squashes the eyes in place, not toward the neck), unless a key of its own already turns or scales it. **Esc** closes the list. From the other side, choose a part, press **Bind to parameter…** and tick parameters in the list. The stage and the left lists only choose; several clicks on one spot walk through the parts
    under the pointer, and **Ctrl**-click adds a part to the chosen ones. The tree marks the parts bound to the active parameter (a display), and the
    **▾** after the part word of the header lists the parts bound to the active parameter, each with its kind, its keys and how many are posed: a click
    chooses one, and the **✕** beside it unbinds it (its keys go; Ctrl+Z brings them back). **Esc** closes the list. (A click on art chooses the **part**, with every tool but
@@ -610,13 +620,14 @@ so poses, `animate` tracks and [physics](#physics) outputs move them like anythi
   between keys, `params` + `grid` (`{ "x": [...], "y": [...] }`) + `forms` (`{ "pts": {...} }`, `x` row after row) blends bilinearly. `pts` maps a point
   number to `[dx, dy]`, in the unit of `animations` offsets (fractions of the stage); a point left out stays at rest. Several
   keyforms on one deformer add their displacements.
-- All variants of a slot share the lattice, so give them the same image size. A slot with a warped part cannot have a frame track
-  (`checkRig` rejects it).
+- All variants of a slot share the lattice or mesh, so give them the same image size (`checkRig` warns when they differ). A frame
+  track may swap them: each frame is drawn through the same points. A free mesh traced around one frame clips the pixels of another
+  that reach past its outline, so add vertices there, or generate the mesh with the widest frame on show.
 - Reduced motion drops the automatic animations (idle, looping `animate`) but a pose or `param` set by the script still warps the part;
   skipping shows the final shape at once. The studio's preview draws the same mesh. A click in the studio lands on the art as it is
   drawn: the point is looked up on the deformed mesh, so a strongly bent part is picked where you see it.
 
-The sample's robo also has a warp driven by a pad: `head_warp`, a group warp over `face`, `eyes` and `mouth` (3 x 3 cells, keyed to `head_x` / `head_y` with `params` + `grid` + `forms`), squeezes the face as the head turns and slides the features a little further than the outline, so the head reads
+The sample's robo also has a warp driven by a pad: `head_warp`, a group warp over `face`, `eyes`, `mouth` and the `eyelids` shape (3 x 3 cells, keyed to `head_x` / `head_y` with `params` + `grid` + `forms`), squeezes the face as the head turns and slides the features a little further than the outline, so the head reads
 as turning in depth. Drag the `head_turn` pad in the studio, or `show robo pose=lookleft`.
 
 `checkRig` rejects duplicate ids, parts that are missing or are bones, bad grids, unknown or out-of-range parameters and points
@@ -631,7 +642,7 @@ One lattice can bend several parts together, so a head turn is one warp instead 
 { "id": "head_warp", "members": ["face", "eyes", "mouth"], "grid": [3, 3], "keyforms": [ ... ] }
 ```
 
-- `members`: a list of parts with art or [shape parts](#masks) (at least one, none twice, none a bone, no part with art that has a frame track).
+- `members`: a list of parts with art or [shape parts](#masks) (at least one, none twice, none a bone).
   A part or shape is in at most one group warp, and a part may also have a warp of its own (`part`). `part` and `members` are not both allowed.
 - `box` (optional): `[x, y, width, height]` in pixels of the PSD canvas, the area the lattice covers. Left out, it is the union of
   the **image** members' boxes: a shape does not widen it, so a group whose members are all shapes needs an explicit `box` (`checkRig` says so).
@@ -918,7 +929,7 @@ ribbon, a hem). `physics` is an object of chain id to chain; the simulation is i
   A bone channel is the bone's offset after the parameters' keyforms and the animations, before physics.
 - **segments** are the pendulum, first to last: `length` and `mass` (more of either moves it less), `damping` (1/s),
   `stiffness` and `limit` (largest swing, degrees).
-- **outputs** are `{ "param": id }` (an ordinary parameter, so keyforms respond to it) or, until mesh deformers exist,
+- **outputs** are `{ "param": id }` (an ordinary parameter, so keyforms respond to it) or
   `{ "part": name }`, which rotates that part or bone. `scale`, `min`, `max`, and `segment` (0-based, the last by default).
 - **wind** is an optional push of the chain's own: `strength` (degrees/s²), `noise` (0 steady, 1 fully gusting), `frequency`, `seed`.
 - **windScale** is how much of the scene's wind (the script's [`wind`](commands.md#wind) command) the chain feels: 1 by

@@ -1,7 +1,7 @@
 # robo.vn - a layered character with a bone rig: robo.psd has +folders for the head and both arms (each forearm in a
 # folder of its own), so rig.json hangs the hand on the forearm, the forearm on the arm and the arm on the spine.
 # Nothing jumps here: put the cursor on the `label robo_demo:` line and use Preview from cursor (Ctrl+Enter).
-# Open the character in the animation studio (Animate in the Files panel) and switch to Model mode to see the bones.
+# F12 on an animate line opens that animation in the animation studio; Model beside robo in the Files panel shows the bones.
 
 define robo "Robo" color=#7cc4ff
 

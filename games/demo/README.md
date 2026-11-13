@@ -33,7 +33,7 @@ It takes two labels in an `fx_*.vn` script:
 
 ```
 label fx_blink:                      # the setup, which runs on into the loop
-  scene bg_reading_room fade 0.4
+  scene bg_reading_room fade 0.4s
   call fx_open("Blink", "A quick flash of colour over the scene.")
   set fx_a_label = "Colour"
   set fx_a1 = "White"
@@ -43,11 +43,11 @@ label fx_blink_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
     if fx_pa == 1:
-      set fx_fired = "flash #ffffff 0.2"
-      flash #ffffff 0.2
+      set fx_fired = "flash #ffffff 0.2s"
+      flash #ffffff 0.2s
     else:
-      set fx_fired = "flash #ff3030 0.2"
-      flash #ff3030 0.2
+      set fx_fired = "flash #ff3030 0.2s"
+      flash #ff3030 0.2s
     jump fx_blink_loop
   elif act == "reset":
     set fx_fired = "nothing yet"
@@ -63,7 +63,7 @@ The panel reads these variables, which `fx_open` clears:
 
 Then wire the card into the index: a `button <id>` in the grid of its page in `screen feature_index` (a grid holds
 twelve cards) and an `elif card == "<id>":` branch in `label index_loop` that does `call fx_<id>` and `call fx_close`.
-`fx_close` switches off what a card may have left on (its `scene` clears the filter, tint, weather and camera), so a card does not need to. A card that needs a screen of its own,
+`fx_close` switches off what a card may have left on (the letterbox, and through its `scene` the filter, tint, weather and camera), so a card does not need to. A card that needs a screen of its own,
 such as a map, shows it in place of `fx_panel` (see `script/fx_screens.vn`). Run `npm run ids` and `npm run strings` after.
 
 Nothing in the tour or the library may lead back to the index. The playtest bot (the editor's Playtest) tells situations

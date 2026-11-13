@@ -146,6 +146,7 @@ export const studioHtml = (): string => `
                 <input type="text" class="as-place-line" readonly aria-label="The show line for this placement" size="38">
                 <button type="button" class="as-place-copy">Copy</button>
                 <button type="button" class="as-place-insert" hidden>Insert in script</button>
+                <button type="button" class="as-place-anim" hidden title="Put an animate line for the animation on show into the script, under the line the studio was opened from">Insert animate line</button>
                 <span class="as-pivot-hint">Drag the character on the stage, then insert or paste the line into the script. It includes the look and slot variants chosen on the left.</span>
               </div>`)}
           </div></div>

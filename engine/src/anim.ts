@@ -18,7 +18,10 @@ const outBounce: EaseFn = t => {
   return n * (t -= 2.625 / d) * t + 0.984375;
 };
 
-/** Easing curves by name, as written after `ease=`. `back`, `bounce` and `elastic` overshoot or rebound at the end. */
+/**
+ * Easing curves by name, as written after `ease=`. `back`, `bounce` and `elastic` overshoot or rebound at the end; `step` holds
+ * the start until the end and then jumps (a key eased by it switches the value at its own time, with no tween).
+ */
 export const EASES: Record<string, EaseFn> = {
   linear: t => t,
   in: t => t * t * t,
@@ -27,6 +30,7 @@ export const EASES: Record<string, EaseFn> = {
   back: t => { const c = 1.70158; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; },
   bounce: outBounce,
   elastic: t => (t === 0 || t === 1 ? t : 2 ** (-10 * t) * Math.sin((t * 10 - 0.75) * ((2 * Math.PI) / 3)) + 1),
+  step: t => (t >= 1 ? 1 : 0),
 };
 export const EASE_NAMES = Object.keys(EASES);
 export const DEFAULT_EASE = 'inout';
@@ -65,7 +69,7 @@ export function bezierEase([x1, y1, x2, y2]: Bezier): EaseFn {
   };
 }
 
-/** The Bezier closest to the named ease, to start a handle drag from; null for `bounce` and `elastic`, which no Bezier makes. */
+/** The Bezier closest to the named ease, to start a handle drag from; null for `bounce`, `elastic` and `step`, which no Bezier makes. */
 export function presetBezier(name: string | undefined): Bezier | null {
   const named: Record<string, Bezier> = {
     linear: [0, 0, 1, 1], in: [0.32, 0, 0.67, 0], out: [0.33, 1, 0.68, 1], inout: [0.65, 0, 0.35, 1], back: [0.34, 1.56, 0.64, 1],
@@ -81,6 +85,23 @@ export function parseBezierSpec(spec: string): Bezier | null {
   if (parts.length !== 4 || parts.some(p => p.trim() === '')) return null;
   const b = parts.map(Number);
   return isBezier(b) ? b : null;
+}
+
+/** `b` written as an `ease=` value, `bezier(0.25,0.1,0.25,1)`: at most three decimals, no spaces (parseBezierSpec reads it back). */
+export const bezierSpec = (b: Bezier): string => `bezier(${b.map(n => String(Math.round(n * 1000) / 1000 || 0)).join(',')})`;
+
+/** How far the curve editor lets a handle leave the unit square up and down (an overshoot or an anticipation; `back` reaches 1.56). */
+export const CURVE_Y_MIN = -0.6, CURVE_Y_MAX = 1.6;
+
+/** The curve the curve editor starts from for an ease value: its own Bezier, the named ease's nearest one, else `inout`'s. */
+export const curveStart = (spec: string | undefined): Bezier => parseBezierSpec(spec ?? '') ?? presetBezier(spec || undefined) ?? presetBezier('inout')!;
+
+/** `b` with control point `which` (0: the first, 1: the second) moved to (`x`, `y`), clamped: x to 0-1, y to the editor's range. */
+export function moveHandle(b: Bezier, which: 0 | 1, x: number, y: number): Bezier {
+  const out: Bezier = [...b];
+  out[which * 2] = Math.min(1, Math.max(0, x));
+  out[which * 2 + 1] = Math.min(CURVE_Y_MAX, Math.max(CURVE_Y_MIN, y));
+  return out;
 }
 
 /** Whether `spec` is something `ease=` accepts: a name from EASES or a `bezier(...)` with valid control points. */

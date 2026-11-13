@@ -51,7 +51,7 @@ label fx_shake_hop_loop:
 
 label fx_scene_transitions:
   scene bg_library fade 0.4s
-  call fx_open("Scene transitions", "A new background arrives by cut, fade, dissolve, wipe and more. Pick one and the picture to change to.")
+  call fx_open("Scene transitions", "A new background arrives by cut, fade, dissolve, wipe and more. Pick one and the picture to change to. More scene changes has the rest.")
   set fx_motion = true
   set fx_a_label = "Transition"
   set fx_a1 = "cut"
@@ -123,6 +123,82 @@ label fx_scene_transitions_loop:
     set fx_fired = "scene bg_library fade 0.4s"
     scene bg_library fade 0.4s
     jump fx_scene_transitions_loop
+  return
+
+label fx_scene_more:
+  scene bg_library fade 0.4s
+  call fx_open("More scene changes", "Push slides the new picture in and shoves the old one out; zoom rushes through the old one; ripple bends both in waves. A fade can go through any color and hold on it.")
+  set fx_motion = true
+  set fx_a_label = "Transition"
+  set fx_a1 = "push left"
+  set fx_a2 = "push right"
+  set fx_a3 = "push up"
+  set fx_a4 = "zoom"
+  set fx_a5 = "ripple"
+  set fx_a6 = "white fade"
+  set fx_a7 = "hold on black"
+  set fx_b_label = "Next picture"
+  set fx_b1 = "Room"
+  set fx_b2 = "Window"
+
+label fx_scene_more_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room push left 0.8s"
+        scene bg_reading_room push left 0.8s
+      else:
+        set fx_fired = "scene cg_window_seat push left 0.8s"
+        scene cg_window_seat push left 0.8s
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room push right 0.8s"
+        scene bg_reading_room push right 0.8s
+      else:
+        set fx_fired = "scene cg_window_seat push right 0.8s"
+        scene cg_window_seat push right 0.8s
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room push up 0.8s"
+        scene bg_reading_room push up 0.8s
+      else:
+        set fx_fired = "scene cg_window_seat push up 0.8s"
+        scene cg_window_seat push up 0.8s
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room zoom 1s"
+        scene bg_reading_room zoom 1s
+      else:
+        set fx_fired = "scene cg_window_seat zoom 1s"
+        scene cg_window_seat zoom 1s
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room ripple 1.5s"
+        scene bg_reading_room ripple 1.5s
+      else:
+        set fx_fired = "scene cg_window_seat ripple 1.5s"
+        scene cg_window_seat ripple 1.5s
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room fade #ffffff 1s hold=0.4s"
+        scene bg_reading_room fade #ffffff 1s hold=0.4s
+      else:
+        set fx_fired = "scene cg_window_seat fade #ffffff 1s hold=0.4s"
+        scene cg_window_seat fade #ffffff 1s hold=0.4s
+    else:
+      if fx_pb == 1:
+        set fx_fired = "scene bg_reading_room fade 1s hold=1.5s"
+        scene bg_reading_room fade 1s hold=1.5s
+      else:
+        set fx_fired = "scene cg_window_seat fade 1s hold=1.5s"
+        scene cg_window_seat fade 1s hold=1.5s
+    call fx_step_b(2)
+    jump fx_scene_more_loop
+  elif act == "reset":
+    set fx_fired = "scene bg_library fade 0.4s"
+    scene bg_library fade 0.4s
+    jump fx_scene_more_loop
   return
 
 label fx_show_hide:

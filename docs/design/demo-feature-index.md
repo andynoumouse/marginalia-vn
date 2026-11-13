@@ -3,7 +3,7 @@
 The demo game ("Rainy Day Library", `games/demo/`) used to show the engine only as a story. To see what `filter glitch` or
 `burst confetti` looks like, a visitor had to find the right room and sit through it, and much of the engine was not shown
 at all. New game now opens a **feature index** instead: seven pages (Stage, Effects, Text, Audio, Logic, Screens, Rigs, named
-like the groups in [commands.md](../commands.md)) with 39 cards. The guided tour (`start.vn`, `label tour_start`) and the
+like the groups in [commands.md](../commands.md)) with 42 cards. The guided tour (`start.vn`, `label tour_start`) and the
 library map (`rooms.vn`, `label hub`) are two buttons at the bottom of the index. It is game content only: scripts and
 `game.json`, no engine change. How to add a card is in `games/demo/README.md`.
 
@@ -52,7 +52,7 @@ demo takes it about 3 s with one seed (the test), 12 s with the editor's four. T
 
 ## Leaving a card
 
-`fx_close` runs when a card returns: `focus on`, `nvl off` and `hud off fx_coins_hud`, then a fade back to the library
+`fx_close` runs when a card returns: `focus on`, `letterbox off`, `nvl off` and `hud off fx_coins_hud` (a `scene` leaves all four alone), then a fade back to the library
 backdrop. The `scene` of that fade clears the filter, tint, weather, wind, gravity and camera a card may have left on (it once
 left a running `glitch` filter on in the preview, so `fx_close` turned each off by name until that was fixed).
 A HUD ignores clicks while a blocking screen is up, so the HUD card puts its HUD up and has Iris say a line to click against.

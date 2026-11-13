@@ -4,12 +4,13 @@
 
 import { keepPreviewDevice } from './preview-device.js';
 import {
-  formatHover, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, formatRig, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
+  formatHover, sourceLanguage, declaredVoiceLanguages, stringRows, animateRef, wordSpan, jsonWordSpan, compile, namedAnchors, namedPositions, stageSize, screenStarter, assignIds, existingIds, playtest, playtestDiagnostics, playtestText, scriptStats, statsText, readingTime, checkAssets, checkGame, helpTopicAt, rigHelpTopicAt, buildOutline, checkRig, mergeRig, studioDocOf, studioWrites, rigSkeleton, type UiScreen, writeRigText, formatRig, textChange, type RigWrite, findFileRefs, resolveFileRef, readCapabilities, 
   BUILTIN_THEMES, themeCss, themeStylesheet, resolveTheme, type RigManifest, OwnSaves, SAVE_BASE_HEADER, textHash,
 } from '../engine/src/index.js';
 import { ConflictBar } from './conflict.js';
 import { AssetViewer } from './asset-viewer.js';
 import { AnimStudio, type Mode } from './anim-studio.js';
+import { confirmAsk } from './ask.js';
 import { manifestHost } from './studio-host.js';
 import { HelpDialog } from './help-dialog.js';
 import { FindDialog } from './find-dialog.js';
@@ -273,16 +274,21 @@ function rigMarkers(f: FileState) {
   const manifest = f.char ? liveRigs()[f.char] : undefined;
   const text: string = f.model.getValue();
   const lines = text.split('\n');
-  const mark = (message: string, at?: string) => {
+  const mark = (message: string, at?: string, fix?: { word: string; options: string[] }) => {
     const i = at ? lines.findIndex(l => l.includes(`"${at}"`)) : -1;
-    const line = i >= 0 ? i + 1 : 1;
+    // A "did you mean" marks the unknown name itself: the first line at or after the key's that has it in quotes.
+    const k = fix ? lines.findIndex((l, n) => n >= Math.max(i, 0) && jsonWordSpan(l, fix.word)) : -1;
+    const line = (k >= 0 ? k : i >= 0 ? i : 0) + 1;
+    const span = k >= 0 ? jsonWordSpan(lines[k], fix!.word) : null;
+    if (span) quickFixes.set(fixKey(f.model.uri, line, message), fix!.options);
     return {
       severity: monaco.MarkerSeverity.Warning, message,
-      startLineNumber: line, endLineNumber: line, startColumn: 1, endColumn: f.model.getLineMaxColumn(line),
+      startLineNumber: line, endLineNumber: line,
+      startColumn: span ? span[0] + 1 : 1, endColumn: span ? span[1] + 1 : f.model.getLineMaxColumn(line),
     };
   };
   if (!manifest) return [mark(`${f.char} has no sprite.json yet (convert its PSD first); nothing here is checked`)];
-  return checkRig(manifest).map(p => mark(p.message, p.at));
+  return checkRig(manifest).map(p => mark(p.message, p.at, p.fix));
 }
 
 function recompile() {
@@ -298,15 +304,15 @@ function recompile() {
     S.program.diagnostics.push(...checkGame(game, assetIndex(), gameFile.model.getValue()));
   }
   updateGameSchema();
+  quickFixes.clear();
   for (const f of files.values()) if (f.kind === 'rig') monaco.editor.setModelMarkers(f.model, 'vn', rigMarkers(f));
   S.outlineView?.update(buildOutline(S.program));
-  quickFixes.clear();
   for (const f of [...scripts(), ...(gameFile ? [gameFile] : [])]) {
     const markers = S.program.diagnostics.filter(d => d.file === f.name).map(d => {
       const line = Math.min(Math.max(d.line, 1), f.model.getLineCount());
       const text: string = f.model.getLineContent(line);
       // A "did you mean" marks just the unknown word, and Ctrl+. offers the close names in its place.
-      const span = d.fix ? wordSpan(text, d.fix.word) : null;
+      const span = !d.fix ? null : f === gameFile ? jsonWordSpan(text, d.fix.word) : wordSpan(text, d.fix.word); // in JSON the name is a quoted string
       if (d.fix && span) quickFixes.set(fixKey(f.model.uri, line, d.message), d.fix.options);
       return {
         severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
@@ -335,7 +341,7 @@ function updateProblemCount() {
   problemsEl.dataset.errors = String(errors);
   problemsEl.dataset.warns = String(warns);
   problemsEl.textContent = `Problems: ${errors + warns}`;
-  problemsEl.title = 'Problems in all files, rig.json checks included (the preview header counts the script and game.json only)';
+  problemsEl.title = 'Problems in all files, game.json and rig.json checks included (the preview header counts the scripts only)';
 }
 
 /** The bar over the editor for a file that changed outside it while it had unsaved edits (editor/conflict.ts); made at setup. */
@@ -832,18 +838,34 @@ function openAnimStudio(char?: string, animation?: string, scene?: { file: strin
       const at = Math.min(target.line, m.getLineCount());
       const text: string = m.getLineContent(at);
       const indent = /^\s*/.exec(text)![0];
+      // A show line put under the animate line it was opened from would place the character after the animation ran: it goes above (AN-16).
+      if (/^show\s/.test(line) && new RegExp(`^\\s*animate\\s+${f.char}\\b`).test(text)) {
+        m.pushEditOperations([], [{ range: new monaco.Range(at, 1, at, 1), text: `${indent}${line}\n` }], () => null);
+        target.line = at + 1; // the animate line moved down; the next insert still goes under it
+        if (scene && scene.file === target.file && scene.line >= at) scene.line++; // and Try in scene still plays from it
+        return `Inserted above line ${at} of ${target.file}, before the animate line.`;
+      }
       m.pushEditOperations([], [{ range: new monaco.Range(at, text.length + 1, at, text.length + 1), text: `\n${indent}${line}` }], () => null);
       target.line = at + 1; // the next insert goes under this one
+      if (scene && scene.file === target.file && scene.line > at) scene.line++;
       return `Inserted under line ${at} of ${target.file}.`;
     }) : undefined,
-    tryInScene: scene && (() => {
+    tryInScene: scene && (async (animation: string | null) => {
+      // The line animates another animation than the one on show: ask, and name the one on show in the line if wanted (AN-2).
+      const script = files.get(scene.file), at = script ? Math.min(scene.line, script.model.getLineCount()) : 0;
+      const text: string = script ? script.model.getLineContent(at) : '';
+      const m = new RegExp(`^(\\s*animate\\s+${f.char}\\s+)([\\w-]+)`).exec(text);
+      if (m && animation && m[2] !== animation) {
+        if (!(await confirmAsk(`${scene.file}:${at} plays ${m[2]}, not ${animation}. Try in scene plays from that line: change it to ${animation}?`, `Play ${animation}`))) return false;
+        script!.model.pushEditOperations([], [{ range: new monaco.Range(at, m[1].length + 1, at, m[1].length + m[2].length + 1), text: animation }], () => null);
+      }
       // The saved rig.json makes the preview reload its game; wait for that, or the jump would run on the old rig.
       void (async () => {
         await save(f);
-        const script = files.get(scene.file);
         if (script) await save(script);
         setTimeout(() => postPreview({ type: 'goto', file: scene.file, line: scene.line }), 600);
       })();
+      return true;
     }),
     scene: scene ?? target ?? undefined,
     positions: namedPositions(openGame()),
@@ -923,11 +945,15 @@ function runPlaytest() {
 /** Words, lines and reading time of the scripts as they are in the editor, in the Output panel. */
 function showStats() {
   const stats = scriptStats(S.program);
-  showOutput(statsText(stats));
+  let game: unknown = null;
+  try { game = JSON.parse(files.get(GAME)?.model.getValue() ?? '{}'); } catch { /* the JSON tab shows its own errors */ }
+  const walked = playtest(S.program, { game });
+  showOutput(statsText(stats, undefined, walked.endings, walked.unreachedEndings), true); // the bot walks the routes to count the words to each ending
   setStatus(`${stats.total.words} words, reading time ${readingTime(stats.minutes)}`);
 }
 /** Fill the Output panel; `file.ext:line[:col]` references to open files become links. Stays scrolled to the end if it was there. */
-function showOutput(text: string) {
+/** Show `text` in the Output panel: a task's stream stays at its end when it was there; a report (`fromTop`) opens at its start. */
+function showOutput(text: string, fromTop = false) {
   const atEnd = outputText.scrollTop + outputText.clientHeight >= outputText.scrollHeight - 4;
   const names = [...files.keys()];
   outputText.replaceChildren();
@@ -948,7 +974,8 @@ function showOutput(text: string) {
     outputText.append(row.slice(at));
   }
   outputEl.hidden = false;
-  if (atEnd) outputText.scrollTop = outputText.scrollHeight;
+  if (fromTop) outputText.scrollTop = 0; // the totals and routes first, not the end of the Labels table (ED-9)
+  else if (atEnd) outputText.scrollTop = outputText.scrollHeight;
 }
 
 /** Writes every open file now (pending autosaves included). */

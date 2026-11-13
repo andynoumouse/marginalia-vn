@@ -128,7 +128,7 @@ test('a card sets its panel up with fx_open, falls through into its loop, and th
 // that are not a script line are skipped: prose and formats ("nothing yet", "You have [fx_n] coins."), the tag strings of the
 // Text cards (they hold a zero-width space after each `{` so the tag is shown and not applied), and the three that summarise
 // several lines of a Reset button. A text of several commands lists them joined by "  /  ", in the order they run.
-const COMMANDS = new Set(['shake', 'hop', 'scene', 'show', 'move', 'animate', 'perform', 'flash', 'tint', 'filter', 'camera', 'weather', 'gravity',
+const COMMANDS = new Set(['shake', 'hop', 'scene', 'show', 'move', 'animate', 'perform', 'flash', 'tint', 'filter', 'letterbox', 'camera', 'weather', 'gravity',
   'burst', 'music', 'sound', 'image', 'call', 'focus', 'nvl', 'hide', 'set', 'hud', 'unlock']);
 const SUMMARIES = ['hide both, show iris, then theo', 'set fx_lamp = false, set fx_paper = cream', 'set fx_hp = 50, set fx_charm = 4'];
 const WINDOW = 10;

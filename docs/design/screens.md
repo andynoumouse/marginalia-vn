@@ -75,7 +75,7 @@ the Variables panel. Screens then use `each bag as item` to make one button per 
 Every interactive element has an `id`, an optional `if <expr>` (shown at all) and an optional `enabled <expr>` (shown,
 greyed, not selectable).
 
-**Coordinates: stage pixels, 1920x1080, origin top left, y down.** This is what the stage already is: `#stage` in
+**Coordinates: stage pixels, 1920x1080, origin top left, y down.** (Built; the stage size is now game.json `stage`, 1920x1080 by default.) This is what the stage already is: `#stage` in
 `preview/index.html` is a fixed 1920x1080 element that the shell scales to the window, `theme.ts` already speaks
 "stage pixels (1920x1080)", and the Pixi canvas is created at that size. So a screen scales with the window for free,
 and a map drawn at 1920x1080 can be measured in any image editor and typed straight in. (Characters use fractions of
@@ -142,7 +142,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
 - Elements use the existing theme tokens (box colour, font, focus ring). `docs/game-json.md` gets no new keys in v1
   except an optional `screens` table of per-screen overrides if needed later.
 - `attachPreloads` treats `show screen X` as using every `image` in X; `checkAssets` warns about missing files and
-  about hotspots outside 0..1.
+  about hotspots outside the stage.
 
 ## Build steps (after the list type exists and the open questions are settled)
 
@@ -177,7 +177,7 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
    elements are absolutely positioned children of `#stage` in stage pixels, so they sit exactly over the art, scale with
    the window and get real focus, tab order, text wrapping, hover and ARIA. Pixi is used only for the scene behind.
 3. **Lists first.** Decided (see "Lists first"). Screens wait for them.
-4. **Coordinates: stage pixels, 1920x1080.** Proposed above; confirm.
+4. **Coordinates: stage pixels, 1920x1080.** Decided and built.
 5. **Custom hover shapes: yes, via an SVG layer.** Rectangles and ellipses are plain elements. Polygons (`poly`) go in
    one absolutely positioned `<svg viewBox="0 0 1920 1080">` over the stage, with a `<polygon>` per hotspot: the browser
    hit-tests the exact outline, `:hover`/`:focus` styles and `tabindex` work, and clicks reach only the shape (the SVG
@@ -188,6 +188,9 @@ by variables (`if has_key`). This keeps the plan to one mechanism, as the TODO a
    The pure side (`engine/src/screen-geometry.ts`) holds point-in-polygon, bounding box and centroid, tested without a DOM.
 
 ## Persistent HUD (planned for, built after blocking screens)
+
+*Built:* `hud on|off <screen> [keep]`, with `on click <label>` on an element in place of the `->` syntax proposed below; see
+[commands.md](../commands.md#hud).
 
 Decided: the design must leave room for a screen that stays up while the story runs (an inventory button, a stats strip,
 a phone icon, a point-and-click verb bar). It is built *after* the blocking screen, but nothing in v1 may rule it out.
@@ -214,7 +217,11 @@ a phone icon, a point-and-click verb bar). It is built *after* the blocking scre
 
 ## Later phase: author-designable built-in UI and layout helpers
 
-Not part of v1, but the v1 design must not block it. Today `game.json` `theme` only restyles the text box, name box and
+*Built since:* the layout helpers (`row`, `column`, `grid`, `scroll`, `panel`), and the built-in menus are screens drawn from
+starters in `engine/src/ui-screens.ts` that a project can copy and edit ([commands.md](../commands.md#screens)). What follows
+was the starting point.
+
+Not part of v1, but the v1 design must not block it. At the time `game.json` `theme` only restyles the text box, name box and
 choices (position, size, frame image); the quick menu, title, save, options, history and gallery screens use fixed CSS
 layouts in `preview/index.html`, and `quickMenu`, `titleScreen` and the like choose *what* appears, not *where*.
 
@@ -258,9 +265,9 @@ None. Remaining detail (list syntax, exact `screen` grammar) belongs to the buil
 - Per-locale layout and right-to-left layout: decided out of scope. Positions are the same in every language.
 - Time-limited screens (a countdown that auto-answers): deferred to much later, together with timed choices on `menu`
   (a shared `timeout` would be the model).
-- Drag and drop, scrolling lists, text fields inside screens (use `input` for text).
-- Scripted element actions or callbacks.
-- Animated elements (`animate` targets characters only today).
+- Drag and drop, text fields inside screens (use `input` for text).
+- (Since built, after v1: scrolling lists, `on click | focus | blur set …` handlers and a HUD's `on click <label>`, and
+  `on enter` / `on exit` / `loop` animation of elements.)
 - A visual screen editor in the editor app.
 
 ## Acceptance

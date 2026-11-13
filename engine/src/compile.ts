@@ -81,6 +81,8 @@ class Compiler {
           } else if (b.op === 'input') {
             this.assigned.add(b.name);
             this.registerString(n.src, b.id, b.prompt);
+          } else if (b.op === 'end' && b.title) {
+            this.registerString(n.src, b.id ?? null, b.title);
           } else if (b.op === 'set') {
             if (b.name.startsWith('persistent.')) this.persisted.add(b.name.slice('persistent.'.length));
             else this.assigned.add(b.name);

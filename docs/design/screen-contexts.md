@@ -13,7 +13,7 @@ turning a click into something:
   the label at a safe point (just before a line, menu, input or blocking screen; dropped while a menu, input, blocking screen
   or the pause menu is open, while another event's label runs, or during a replay).
 - **Reserved shell screens** (`title`, `pause`, `options`, `saves`, `history`, `gallery`, `viewer`, `music`, `chapters`,
-  `achievements`, `quickmenu`): the shell reacts to `action <name>`; each screen has its own valid actions and its own hidden
+  `achievements`, `quickmenu`, `achievement_toast`): the shell reacts to `action <name>`; each screen has its own valid actions and its own hidden
   variables (`tab`, `mode`, `page`, `slots` ...).
 
 Availability differs by context:
@@ -90,8 +90,8 @@ first again, rebuilding its state from story variables. Shell screens open each 
 nest, in order of preference:
 
 1. **A dialog inside the same screen.** A confirm box is a `panel` shown while `state confirm = true`, with buttons that set
-   it back. Nothing nests, and it needs no new mechanism beyond local state. This covers the open item "Modal / popup dialog
-   over a screen, without leaving it". While it is up, elements outside it should not take focus (a `modal` flag on the panel).
+   it back. Nothing nests, and it needs no new mechanism beyond local state. This covers the then-open item "Modal / popup dialog
+   over a screen, without leaving it" (now part of the TODO.md item on screen elements). While it is up, elements outside it should not take focus (a `modal` flag on the panel).
 2. **A child screen.** A handler action such as `open pick_item(bag)` shows another screen on top and hands its returned
    value to the parent's local state, not to the story, so the rule that nothing inside a screen touches the story holds.
    The parent keeps its state while the child is up. Only the outermost screen is recorded (one entry with its final
@@ -204,11 +204,10 @@ Decisions for the prototype:
 0. Before step 2: a short renderer spike. Check that a screen can redraw on a local-state change without losing focus or
    scroll position (`ScreenLayer.mount` keeps the focused id for a HUD; a blocking screen has no such path yet), and what
    `action` does on a blocking screen. Then fix nesting (a `hotspot` / `button` with indented children, and blur / focus
-   computed over the chain of ancestors; see the Hover-reveal item in TODO.md), because a tooltip or dialog with
+   computed over the chain of ancestors, as hover-reveal later did), because a tooltip or dialog with
    interactive content needs the same group rule.
 1. Interim (built, not kept in the tree): `toggle`, `radio` and `tab` on blocking screens, each click recorded as an answer,
-   with tests, docs and the DOM drawing. It is saved in the git stash `interim-toggle-radio-tab` (`git stash list`; apply
-   with `git stash apply stash@{n}` for the one with that name). It binds to story variables directly, which this design
+   with tests, docs and the DOM drawing. It was kept aside locally, outside the published history. It binds to story variables directly, which this design
    removes, so treat it as reference. Likely to carry over: the line syntax for `toggle` / `radio` / `tab`, the
    `data-checked` styling and the checkbox / radio marks, and the tests for them. Its per-click recording is what hung
    rollback and replay on a screen with several clicks; the one-entry-per-screen rule avoids that.

@@ -62,9 +62,14 @@ It gives:
 - words, lines and characters (without spaces) in all, per character (what a voice studio quotes by), per script
   file and per label;
 - a reading time, at 200 words a minute by default, with every route read once;
-- a "to translate" count of the localizable strings, each id once, including screen labels and item names.
+- a "to translate" count of the localizable strings, each id once, including screen labels and item names;
+- per route: the words read from the start to each ending a first playthrough reaches (the playtest bot walks the
+  routes), on the shortest route and on the route that reads the most different lines. The shortest counts a line read
+  twice twice, as a player rereads it; the longest counts each line once, so going round a loop again adds nothing.
+  The playtest report shows the same numbers beside each ending. An `end` no route from the start reaches is listed
+  under "Not reached from the start", with no words counted.
 
-Options: `--json` for the numbers, `--wpm 250` for another reading speed. Characters matter more than words for
+Options: `--json` for the numbers (the routes under `routes`), `--wpm 250` for another reading speed. Characters matter more than words for
 languages written without spaces.
 
 ## Checking art and audio

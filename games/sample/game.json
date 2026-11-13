@@ -4,7 +4,6 @@
     "background": "bg_park_evening",
     "music": "evening_theme",
     "showTitle": true,
-    "align": "center",
     "buttons": ["new_game", "continue", "load", "gallery", "music_room", "chapters", "achievements", "options"]
   },
   "quickMenu": {

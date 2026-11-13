@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EASES, EASE_NAMES, DEFAULT_EASE, easing, lerp, ANIM_NAMES, NO_OFFSET, animOffset, addOffset, resolveAnim, ANIMS } from '../../dist/engine/src/index.js';
+import { EASES, EASE_NAMES, DEFAULT_EASE, easing, lerp, ANIM_NAMES, NO_OFFSET, animOffset, addOffset, resolveAnim, ANIMS, trackAt, presetBezier } from '../../dist/engine/src/index.js';
 
 test('every easing curve starts at 0 and ends at 1', () => {
   for (const name of EASE_NAMES) {
@@ -21,6 +21,13 @@ test('back, bounce and elastic overshoot or rebound before settling', () => {
   assert.ok(Math.max(...[...Array(100)].map((_, i) => EASES.back(i / 99))) > 1);
   assert.ok(Math.max(...[...Array(100)].map((_, i) => EASES.elastic(i / 99))) > 1);
   assert.ok([...Array(100)].every((_, i) => EASES.bounce(i / 99) <= 1 + 1e-9));
+});
+
+test('step holds the start, then jumps at the key: a parameter switches with no tween', () => {
+  assert.deepEqual([0, 0.5, 0.999, 1].map(EASES.step), [0, 0, 0, 1]);
+  const keys = [{ t: 0, v: 0 }, { t: 0.5, v: 1, ease: 'step' }, { t: 1, v: 0, ease: 'linear' }];
+  assert.deepEqual([0.25, 0.49, 0.5, 0.75].map(t => trackAt(keys, t)), [0, 0, 1, 0.5]);
+  assert.equal(presetBezier('step'), null);
 });
 
 test('lerp', () => {

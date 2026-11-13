@@ -119,6 +119,11 @@ export class Studio {
       send: msg => window.parent.postMessage(msg, location.origin),
       repose: () => { if (!this.run) this.render(); },
       suspended: () => this.pick !== null || this.placing || this.run !== null,
+      carries: (part, subject) => {
+        if (part === subject) return true;
+        for (let b = this.partBones[part]?.bone, n = 0; b && n < 64; b = this.bones[b]?.parent, n++) if (b === subject) return true; // n: a loop in a bad rig ends
+        return false;
+      },
     });
     stage.addEventListener('click', e => this.onClick(e), true);
     stage.addEventListener('pointerdown', e => this.onDrag(e));
@@ -148,7 +153,8 @@ export class Studio {
     this.renderer.sync(state);
     if (this.size.width) this.renderer.studioPivots(this.char, this.pivots, this.bones, this.partBones); // the editor's working copy, not the file's
     this.render();
-    this.tools.refit(); // a view fitted to the character follows its art once it is there
+    this.tools.settle(); // a view fitted to the character fits its art once it is there, and then stays put
+    if (announce) window.parent.postMessage({ type: 'studioPartBoxes', boxes: this.renderer.studioPartBoxes(this.char) }, location.origin); // the editor centres a new pivot by them
     if (announce) window.parent.postMessage({ type: 'studioReady' }, location.origin);
   }
 

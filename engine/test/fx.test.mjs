@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   compile, Runtime, NullRenderer, getCompletions,
-  filterMatrix, IDENTITY, blurRadius, weatherCount, WEATHER, WEATHER_NAMES, spawnParticle, stepParticle, spawnBurst, stepBurst, windVelocity, WIND_PX, mulberry32,
-  irisRadius, blindsRects, revealShapes, shakeOffset, cameraPivot, pixelBlock, maskReveal, assetContext, opAssets, checkAssets,
+  filterMatrix, IDENTITY, MOVING_FILTERS, filterLooks, nextLooks, blendLooks, lookMatrix, LETTERBOX_SIZE, blurRadius, weatherCount, WEATHER, WEATHER_NAMES, spawnParticle, stepParticle, particleAlpha, spawnBurst, stepBurst, windVelocity, WIND_PX, mulberry32,
+  irisRadius, blindsRects, pushOffsets, zoomLook, rippleAmount, revealShapes, shakeOffset, cameraPivot, pixelBlock, maskReveal, assetContext, opAssets, checkAssets,
 } from '../../dist/engine/src/index.js';
 
 const build = lines => compile([{ file: 'a.vn', text: lines.join('\n') }]);
@@ -42,14 +42,14 @@ test('weather and filter: parsing, lasting state, reset on scene', async () => {
   assert.equal(off1.kind, null);
   assert.equal(petals.kind, 'petals');
   const [sepia, blur] = ops('filter', p);
-  assert.deepEqual([sepia.name, sepia.strength, sepia.dur], ['sepia', 0.5, 1]);
-  assert.deepEqual([blur.name, blur.strength], ['blur', 1]);
+  assert.deepEqual([sepia.looks, sepia.merge, sepia.dur], [[{ name: 'sepia', strength: 0.5 }], false, 1]);
+  assert.deepEqual(blur.looks, [{ name: 'blur', strength: 1 }]);
   const rt = new Runtime(p, new NullRenderer());
   const seen = [];
   rt.renderer.say = async () => { seen.push([rt.state.weather, rt.state.filter]); };
   await rt.start();
-  assert.deepEqual(seen[0], [{ kind: 'rain', intensity: 0.8 }, { name: 'sepia', strength: 0.5 }]);
-  assert.deepEqual(seen[1], [{ kind: 'snow', intensity: 0.6 }, { name: 'blur', strength: 1 }]);
+  assert.deepEqual(seen[0], [{ kind: 'rain', intensity: 0.8 }, [{ name: 'sepia', strength: 0.5 }]]);
+  assert.deepEqual(seen[1], [{ kind: 'snow', intensity: 0.6 }, [{ name: 'blur', strength: 1 }]], 'a filter line without + replaces the look');
   assert.deepEqual(seen[2], [null, null]);
   assert.deepEqual(seen[3], [null, null]); // the scene before it cleared both
 });
@@ -66,7 +66,142 @@ test('weather and filter survive a restore into the middle of the story', async 
   const rt = new Runtime(p, new NullRenderer());
   await rt.restore({ file: 'a.vn', line: 6 });
   assert.deepEqual(rt.state.weather, { kind: 'embers', intensity: 0.3 });
-  assert.deepEqual(rt.state.filter, { name: 'vignette', strength: 1 });
+  assert.deepEqual(rt.state.filter, [{ name: 'vignette', strength: 1 }]);
+});
+
+test('filters stack: + joins them on one line or adds one, - takes one off, off clears them all', async () => {
+  const p = build([
+    'label start:', '  filter sepia 0.8 + vignette 0.6 1s', '  "a"', '  filter + glow 0.4', '  "b"', '  filter + sepia 0.3', '  "c"',
+    '  filter - vignette 0.5s', '  "d"', '  filter night', '  "e"', '  filter off', '  "f"',
+  ]);
+  assert.deepEqual(p.diagnostics, []);
+  const [both, , , minus] = ops('filter', p);
+  assert.deepEqual([both.looks, both.merge, both.dur], [[{ name: 'sepia', strength: 0.8 }, { name: 'vignette', strength: 0.6 }], false, 1]);
+  assert.deepEqual([minus.looks, minus.merge, minus.dur], [[{ name: 'vignette', strength: 0 }], true, 0.5]);
+  const rt = new Runtime(p, new NullRenderer());
+  const seen = [];
+  rt.renderer.say = async () => { seen.push(structuredClone(rt.state.filter)); };
+  await rt.start();
+  assert.deepEqual(seen, [
+    [{ name: 'sepia', strength: 0.8 }, { name: 'vignette', strength: 0.6 }],
+    [{ name: 'sepia', strength: 0.8 }, { name: 'vignette', strength: 0.6 }, { name: 'glow', strength: 0.4 }],
+    [{ name: 'sepia', strength: 0.3 }, { name: 'vignette', strength: 0.6 }, { name: 'glow', strength: 0.4 }],
+    [{ name: 'sepia', strength: 0.3 }, { name: 'glow', strength: 0.4 }],
+    [{ name: 'night', strength: 1 }],
+    null,
+  ]);
+});
+
+test('filter stacking: bad lines are parse errors', () => {
+  for (const bad of ['filter sepia +', 'filter + ', 'filter -', 'filter - sepia 0.5', 'filter sepia + sepia', 'filter sepia + glitter', 'filter sepia 0.5 vignette', 'filter sepia + blur 2', 'filter - sepia 1s extra']) {
+    const p = build(['label start:', `  ${bad}`]);
+    assert.equal(p.diagnostics.length, 1, bad);
+  }
+});
+
+test('invert is a color matrix: white to black at full, flat gray at half; the new shader filters parse and stack', () => {
+  const apply = (mx, [r, g, b]) => [0, 1, 2].map(i => mx[i * 5] * r + mx[i * 5 + 1] * g + mx[i * 5 + 2] * b + mx[i * 5 + 4]);
+  assert.deepEqual(apply(filterMatrix('invert', 1), [1, 1, 1]), [0, 0, 0]);
+  assert.deepEqual(apply(filterMatrix('invert', 0.5), [0.9, 0.2, 0.4]), [0.5, 0.5, 0.5]);
+  const p = build(['label start:', '  filter wave 0.5 + grain 0.3 + crt + pixelate 0.2', '  filter invert 1s']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(filterLooks(ops('filter', p)[0].looks).map(l => l.name), ['wave', 'pixelate', 'crt', 'grain']);
+});
+
+test('filterLooks, nextLooks, blendLooks and lookMatrix', () => {
+  assert.deepEqual(filterLooks({ name: 'sepia', strength: 1 }), [{ name: 'sepia', strength: 1 }], 'a save from before stacking');
+  assert.deepEqual(filterLooks(null), []);
+  assert.deepEqual(filterLooks([{ name: 'glow', strength: 1 }, { name: 'nope', strength: 1 }, { name: 'blur', strength: 0 }, { name: 'sepia', strength: 0.5 }]),
+    [{ name: 'sepia', strength: 0.5 }, { name: 'glow', strength: 1 }], 'drawing order; unknown and zero dropped');
+  const now = [{ name: 'sepia', strength: 1 }];
+  assert.deepEqual(nextLooks(now, [{ name: 'vignette', strength: 0.5 }], true), [{ name: 'sepia', strength: 1 }, { name: 'vignette', strength: 0.5 }]);
+  assert.deepEqual(nextLooks(now, [{ name: 'vignette', strength: 0.5 }], false), [{ name: 'vignette', strength: 0.5 }]);
+  assert.deepEqual(nextLooks(now, [{ name: 'sepia', strength: 0 }], true), []);
+  assert.deepEqual(blendLooks([{ name: 'sepia', strength: 1 }], [{ name: 'night', strength: 0.5 }], 0.5), [{ name: 'sepia', strength: 0.5 }, { name: 'night', strength: 0.25 }], 'a crossfade');
+  assert.deepEqual(blendLooks(now, [], 1), []);
+  assert.equal(lookMatrix([{ name: 'blur', strength: 1 }]), null);
+  assert.deepEqual(lookMatrix([{ name: 'sepia', strength: 1 }]), filterMatrix('sepia', 1));
+  // grayscale then night: white goes gray (stays white), then night's dim blue; the offsets of night are added once.
+  const m = lookMatrix([{ name: 'grayscale', strength: 1 }, { name: 'night', strength: 1 }]);
+  const apply = (mx, [r, g, b]) => [0, 1, 2].map(i => mx[i * 5] * r + mx[i * 5 + 1] * g + mx[i * 5 + 2] * b + mx[i * 5 + 4]);
+  const twice = apply(filterMatrix('night', 1), apply(filterMatrix('grayscale', 1), [0.2, 0.6, 0.9]));
+  apply(m, [0.2, 0.6, 0.9]).forEach((v, i) => assert.ok(Math.abs(v - twice[i]) < 1e-9, `channel ${i}`));
+});
+
+test('letterbox: parsing, lasting through a scene, off', async () => {
+  const p = build(['label start:', '  scene a', '  letterbox 0.5s', '  "a"', '  scene b', '  "b"', '  letterbox 0.2', '  "c"', '  letterbox off 1s', '  "d"']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(ops('letterbox', p).map(o => [o.size, o.dur]), [[LETTERBOX_SIZE, 0.5], [0.2, 0], [0, 1]]);
+  const rt = new Runtime(p, new NullRenderer());
+  const seen = [];
+  rt.renderer.say = async () => { seen.push(rt.state.letterbox); };
+  await rt.start();
+  assert.deepEqual(seen, [LETTERBOX_SIZE, LETTERBOX_SIZE, 0.2, undefined]);
+  for (const bad of ['letterbox 0', 'letterbox 0.5', 'letterbox 0.1 2', 'letterbox wide', 'letterbox off 1s 2s']) {
+    assert.equal(build(['label start:', `  ${bad}`]).diagnostics.length, 1, bad);
+  }
+});
+
+test('scene fade: through a color and with a hold; both only with fade', () => {
+  const p = build(['label start:', '  scene a fade #ffffff 1s hold=0.5s', '  scene b fade 0.6s', '  scene c fade #f00', '  scene d fade hold=2s']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(ops('scene', p).map(o => [o.transition, o.dur, o.color, o.hold]),
+    [['fade', 1, '#ffffff', 0.5], ['fade', 0.6, undefined, undefined], ['fade', 0.5, '#f00', undefined], ['fade', 0.5, undefined, 2]]);
+  for (const bad of ['scene a dissolve #fff', 'scene a hold=1s', 'scene a wipe left hold=1s', 'scene a fade hold=2', 'scene a fade hold=x', 'scene a fade #ffffff #000000']) {
+    assert.equal(build(['label start:', `  ${bad}`]).diagnostics.length, 1, bad);
+  }
+});
+
+test('push, zoom and ripple: parsed, a push or wipe from a known side only', () => {
+  const p = build(['label start:', '  scene a push right 0.8s', '  scene b push', '  scene c zoom 1s', '  scene d ripple', '  scene e wipe down']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(ops('scene', p).map(o => [o.transition, o.dir, o.dur]), [['push', 'right', 0.8], ['push', 'left', 0.5], ['zoom', null, 1], ['ripple', null, 0.5], ['wipe', 'down', 0.5]]);
+  for (const bad of ['scene a push sideways', 'scene a wipe diagonal 1s', 'scene a zoom left']) assert.equal(build(['label start:', `  ${bad}`]).diagnostics.length, 1, bad);
+});
+
+test('pushOffsets, zoomLook and rippleAmount', () => {
+  const push = (...a) => JSON.parse(JSON.stringify(pushOffsets(...a))); // -0 and 0 are the same place
+  assert.deepEqual(push('right', 0, 100, 50), { old: [0, 0], next: [100, 0] }, 'from the right: the new picture waits off the right edge');
+  assert.deepEqual(push('right', 1, 100, 50), { old: [-100, 0], next: [0, 0] });
+  assert.deepEqual(push('left', 0.5, 100, 50), { old: [50, 0], next: [-50, 0] });
+  assert.deepEqual(push('up', 1, 100, 50), { old: [0, 50], next: [0, 0] });
+  assert.deepEqual(push('down', 0.5, 100, 50), { old: [0, -25], next: [0, 25] });
+  assert.deepEqual(zoomLook(0), { oldScale: 1, oldAlpha: 1, nextScale: 1.15 });
+  assert.deepEqual(zoomLook(1), { oldScale: 1.6, oldAlpha: 0, nextScale: 1 });
+  assert.equal(rippleAmount(0), 0);
+  assert.equal(rippleAmount(0.5), 1);
+  assert.ok(Math.abs(rippleAmount(1)) < 1e-12);
+});
+
+test('leaves, fog and fireflies: fog drifts in from the side it blows from, fireflies anywhere and pulsing, big fog leaves only when out of sight', () => {
+  assert.deepEqual(build(['label start:', '  weather leaves 0.5', '  weather fog 0.8 2s', '  weather fireflies']).diagnostics, []);
+  const rand = mulberry32(7);
+  for (let i = 0; i < 50; i++) {
+    const f = spawnParticle('fog', rand, 1920, 1080, false);
+    assert.ok(f.x < 0 && f.x + f.size / 2 <= 0.001 && f.y >= 0 && f.y <= 1080, 'fog comes in from the left, out of sight, at any height');
+    const g = spawnParticle('fog', rand, 1920, 1080, false, { windVx: -400 });
+    assert.ok(g.x > 1920, 'a wind from the right brings it from the right');
+    const b = spawnParticle('fireflies', rand, 1920, 1080, false);
+    assert.ok(b.x >= 0 && b.x <= 1920 && b.y >= 0 && b.y <= 1080, 'a firefly appears on the screen');
+  }
+  const fog = { x: 1920 + 150, y: 500, vx: 20, vy: 0, size: 500, alpha: 0.1, rot: 0, spin: 0, phase: 0 };
+  assert.ok(stepParticle(fog, 'fog', 0.01, 0, 1920, 1080), 'half of a 500 px blob still shows 150 px past the edge');
+  fog.x = 1920 + 300;
+  assert.equal(stepParticle(fog, 'fog', 0.01, 0, 1920, 1080), false);
+  const fly = { x: 5, y: 5, vx: 0, vy: 0, size: 8, alpha: 1, rot: 0, spin: 0, phase: 0 };
+  const seen = Array.from({ length: 60 }, (_, i) => particleAlpha('fireflies', fly, i * 0.1));
+  assert.ok(Math.min(...seen) < 0.3 && Math.max(...seen) > 0.9, 'a firefly pulses');
+  assert.equal(particleAlpha('snow', { ...fly, alpha: 0.7 }, 3), 0.7);
+});
+
+test('speedlines and sunbeams are moving shader filters and stack', () => {
+  const p = build(['label start:', '  filter speedlines 0.7 + grayscale + sunbeams 0.5']);
+  assert.deepEqual(p.diagnostics, []);
+  assert.deepEqual(filterLooks(ops('filter', p)[0].looks).map(l => l.name), ['grayscale', 'sunbeams', 'speedlines']);
+  for (const n of ['speedlines', 'sunbeams']) {
+    assert.equal(filterMatrix(n, 1), null);
+    assert.ok(MOVING_FILTERS.includes(n), n);
+  }
 });
 
 test('scene accepts the iris, blinds and pixelate transitions', () => {
@@ -80,11 +215,18 @@ test('completions offer the new commands and arguments', () => {
   const labels = line => getCompletions(p, line).map(s => s.label);
   assert.ok(labels('  wea').includes('weather'));
   assert.ok(labels('  fil').includes('filter'));
-  assert.deepEqual(labels('  weather ').slice(0, 5), [...WEATHER_NAMES, 'off']);
+  assert.deepEqual(labels('  weather ').slice(0, WEATHER_NAMES.length + 1), [...WEATHER_NAMES, 'off']);
   assert.ok(labels('  filter ').includes('night'));
+  assert.ok(labels('  filter sepia ').includes('+'));
+  assert.ok(labels('  filter sepia + ').includes('vignette'));
+  assert.ok(labels('  let').includes('letterbox'));
+  assert.ok(labels('  letterbox ').includes('off'));
   assert.ok(labels('  camera ').includes('pan'));
   assert.ok(labels('  camera pan ').includes('right'));
   assert.ok(labels('  scene a ').includes('pixelate'));
+  assert.ok(labels('  scene a ').includes('ripple'));
+  assert.ok(labels('  scene a push ').includes('right'));
+  assert.ok(labels('  scene a fade ').includes('hold=0.5s'));
 });
 
 test('filterMatrix: identity at 0, the full matrix at 1, in between at half; null for blur and vignette', () => {
@@ -103,7 +245,7 @@ test('weather: counts follow the intensity; particles fall, drift and are respaw
   assert.equal(weatherCount('rain', 1), WEATHER.rain.count);
   assert.equal(weatherCount('rain', 0.5), WEATHER.rain.count / 2);
   const rand = mulberry32(1);
-  for (const kind of WEATHER_NAMES) {
+  for (const kind of WEATHER_NAMES.filter(k => !WEATHER[k].enter)) { // fog and fireflies come in another way (their own test)
     const p = spawnParticle(kind, rand, 1920, 1080, true);
     assert.ok(p.y >= 0 && p.y <= 1080, kind);
     const y0 = p.y;

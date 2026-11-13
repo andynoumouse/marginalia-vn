@@ -75,7 +75,7 @@ export function buildCommands(h: CommandHost): Command[] {
     { title: 'Find and Replace in All Files', key: { code: K.CtrlCmd | K.Shift | C.KeyF, label: 'Ctrl+Shift+F' }, run: openFind },
     { title: 'Story: Show Outline (label flowchart)', run: h.toggleOutline },
     { title: 'Story: Playtest All Routes (unreachable lines, endings, unused assets and variables)', run: h.runPlaytest },
-    { title: 'Story: Script Statistics (words, lines and reading time per script, label and character)', run: h.showStats },
+    { title: 'Story: Script Statistics (words, lines and reading time per script, label and character; words on each route to each ending)', run: h.showStats },
     { title: 'Help: Command Reference (for the statement at the cursor)', key: { code: C.F1, label: 'F1' }, run: h.toggleHelp },
     { title: 'Preview from Cursor', key: { code: K.CtrlCmd | C.Enter, label: 'Ctrl+Enter' }, run: () => h.previewFromCursor() },
     { title: 'Preview: Splash (game.json splash cards)', run: () => { showPreviewPane(); postPreview({ type: 'splash' }); } },
@@ -149,6 +149,10 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
     try { localStorage.setItem(RECENT_COMMANDS, JSON.stringify(recentCommands)); } catch { /* ignore */ }
   };
   const errorsIn = errorCount;
+  const labelsOf = () => scripts().flatMap(f => (f.model.getLinesContent() as string[]).flatMap((text, i) => {
+    const m = /^\s*label\s+([\p{L}_][\p{L}\p{N}\p{M}_]*)\s*(?:\([^()]*\))?\s*:/u.exec(text);
+    return m ? [{ name: m[1], file: f.name, line: i + 1 }] : [];
+  }));
 
   const fileMode: PaletteMode = {
     prefix: '', title: 'Go to file', placeholder: 'Go to file (type > for commands, @ for labels, : for a line, ? for help)',
@@ -168,6 +172,9 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
         const chars = Object.keys(S.projectAssets.rigs).sort();
         if (/^(studio|anim|model|rig)/.test(word)) for (const c of chars) items.push({ label: `Animation studio: ${c}`, detail: 'character', run: () => h.openAnimStudio(c) });
         else for (const { entry: c, hits } of rank(chars, q, c => c)) items.push({ label: c, hits, detail: 'Animation studio', run: () => h.openAnimStudio(c) });
+        // A label's name typed without its @ goes to the label, not to a new file of that name (UX round 3 ED-1).
+        const labels = rank(labelsOf(), q, l => l.name).filter(r => r.entry.name.toLowerCase().includes(word)).slice(0, 5);
+        for (const { entry: l, hits } of labels) items.push({ label: `@${l.name}`, hits: hits.map(i => i + 1), detail: `label · ${l.file}:${l.line}`, run: () => h.goToLine(l.file, l.line) });
       }
       const base = h.newFileBase(q);
       if (base && !files.has(`${base}.vn`) && !files.has(q.trim())) {
@@ -188,7 +195,8 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
       // Everything Monaco can do (comment lines, find, change case, ...), after ours.
       // They only appear once something is typed, so the bare list shows the project's own commands.
       const editorActions: PaletteItem[] = (S.editor.getSupportedActions() as any[])
-        .filter(a => q.trim() && a.id !== 'editor.action.quickCommand' && a.label)
+        // Our own context-menu actions (vn.*) are commands above already: listed once (AN-12).
+        .filter(a => q.trim() && a.id !== 'editor.action.quickCommand' && !String(a.id).startsWith('vn.') && a.label)
         .sort((a, b) => a.label.localeCompare(b.label))
         .map(a => ({ label: a.label, detail: 'editor', run: () => { S.editor.focus(); void a.run(); } }));
       return rank([...own, ...editorActions], q, i => i.label).map(({ entry, hits }) => ({ ...entry, hits }));
@@ -198,11 +206,7 @@ export function paletteModes(h: CommandHost, commands: Command[]): PaletteMode[]
   const labelMode: PaletteMode = {
     prefix: '@', title: 'Go to label', placeholder: 'Go to label',
     items: q => {
-      const labels = scripts().flatMap(f => (f.model.getLinesContent() as string[]).flatMap((text, i) => {
-        const m = /^\s*label\s+([\p{L}_][\p{L}\p{N}\p{M}_]*)\s*(?:\([^()]*\))?\s*:/u.exec(text);
-        return m ? [{ name: m[1], file: f.name, line: i + 1 }] : [];
-      }));
-      return rank(labels, q, l => l.name).map(({ entry: l, hits }) => ({
+      return rank(labelsOf(), q, l => l.name).map(({ entry: l, hits }) => ({
         label: l.name, hits, detail: `${l.file}:${l.line}`, run: () => h.goToLine(l.file, l.line),
       }));
     },

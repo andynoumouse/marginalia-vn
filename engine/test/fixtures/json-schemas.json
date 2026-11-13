@@ -58,6 +58,123 @@
        "height"
       ]
      },
+     "psdPrefix": {
+      "type": "string",
+      "default": "+",
+      "description": "Character PSDs: a top-level group whose name starts with this is a folder, not a slot (\"\" turns it off). Used by npm run art."
+     },
+     "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the pre-build checks (vn export --check, the Build dialog).",
+      "properties": {
+       "checks": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "How serious each check is.",
+        "properties": {
+         "script": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "error"
+         },
+         "script-warnings": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "warning"
+         },
+         "ids": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "warning"
+         },
+         "untranslated": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "warning"
+         },
+         "translation-outdated": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "warning"
+         },
+         "voice-outdated": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "warning"
+         },
+         "voice-missing": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "info"
+         },
+         "unused-locale": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "info"
+         },
+         "unmatched-voice": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "info"
+         },
+         "playtest": {
+          "enum": [
+           "error",
+           "warning",
+           "info",
+           "off"
+          ],
+          "default": "info"
+         }
+        }
+       }
+      },
+      "examples": [
+       {
+        "checks": {
+         "untranslated": "error",
+         "voice-missing": "off"
+        }
+       }
+      ]
+     },
      "titleScreen": {
       "type": "object",
       "additionalProperties": false,
@@ -86,18 +203,12 @@
         "description": "Show the game name (turn off when the background art has a logo)."
        },
        "align": {
-        "enum": [
-         "left",
-         "center",
-         "right"
-        ],
-        "default": "center",
-        "description": "Where the title and buttons sit."
+        "deprecationMessage": "No longer read: the title screen is a screen now. To move its buttons, edit it (Built-in screens in the Files panel)."
        },
        "buttons": {
         "type": "array",
         "uniqueItems": true,
-        "description": "Buttons in order. Leave one out to hide it.",
+        "description": "Which optional buttons the default title screen shows: continue, gallery, music_room, chapters, achievements (all when left out). New game, Load and Options always show.",
         "items": {
          "enum": [
           "new_game",
@@ -1023,6 +1134,19 @@
      "theme": {
       "type": "string",
       "description": "The name of a theme file: \"night\" uses themes/night.json."
+     },
+     "themes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+       "type": "string",
+       "examples": [
+        "base",
+        "paper",
+        "high-contrast"
+       ]
+      },
+      "description": "Themes the player can pick in Options (the row shows when there are two or more): theme files or the built-ins (base, paper, high-contrast)."
      }
     }
    }
@@ -1494,7 +1618,8 @@
                 "inout",
                 "back",
                 "bounce",
-                "elastic"
+                "elastic",
+                "step"
                ]
               },
               {
@@ -1592,7 +1717,8 @@
                "inout",
                "back",
                "bounce",
-               "elastic"
+               "elastic",
+               "step"
               ]
              },
              {
@@ -1643,7 +1769,8 @@
             "inout",
             "back",
             "bounce",
-            "elastic"
+            "elastic",
+            "step"
            ]
           },
           {
@@ -1698,7 +1825,8 @@
             "inout",
             "back",
             "bounce",
-            "elastic"
+            "elastic",
+            "step"
            ]
           },
           {
@@ -1822,7 +1950,7 @@
     "properties": {
      "extends": {
       "type": "string",
-      "description": "Another theme file (its name) or the built-in \"base\"; values here win."
+      "description": "Another theme file (its name) or a built-in: \"base\", \"paper\" or \"high-contrast\"; values here win."
      },
      "tokens": {
       "type": "object",

@@ -1,10 +1,10 @@
-# fx_effects.vn - feature index cards about effects on the whole scene: filters and weather. The pattern is the one in fx_stage.vn.
+# fx_effects.vn - feature index cards about effects on the whole scene: filters, letterbox bars and weather. The pattern is the one in fx_stage.vn.
 # An effect stays on the stage until Reset (or the next scene), so fire several and watch one replace the other.
 
 label fx_filter:
   scene bg_reading_room fade 0.4s
   show iris smile at center fade 0.3s
-  call fx_open("Filters", "A filter changes the look of the whole scene, and one replaces the other. Reset takes it off.")
+  call fx_open("Filters", "A filter changes the look of the whole scene. Gentle and Full replace the look; Stack adds to it. Reset takes them all off.")
   set fx_motion = true
   set fx_a_label = "Look"
   set fx_a1 = "blur"
@@ -18,58 +18,91 @@ label fx_filter:
   set fx_b_label = "Strength"
   set fx_b1 = "Gentle"
   set fx_b2 = "Full"
+  set fx_b3 = "Stack"
 
 label fx_filter_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
-    if fx_pa == 1 and fx_pb == 1:
-      set fx_fired = "filter blur 0.4 0.6s"
-      filter blur 0.4 0.6s
-    elif fx_pa == 1:
-      set fx_fired = "filter blur 1 0.6s"
-      filter blur 1 0.6s
-    elif fx_pa == 2 and fx_pb == 1:
-      set fx_fired = "filter grayscale 0.4 0.6s"
-      filter grayscale 0.4 0.6s
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "filter blur 0.4 0.6s"
+        filter blur 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter blur 1 0.6s"
+        filter blur 1 0.6s
+      else:
+        set fx_fired = "filter + blur 0.6 0.6s"
+        filter + blur 0.6 0.6s
     elif fx_pa == 2:
-      set fx_fired = "filter grayscale 1 0.6s"
-      filter grayscale 1 0.6s
-    elif fx_pa == 3 and fx_pb == 1:
-      set fx_fired = "filter sepia 0.4 0.6s"
-      filter sepia 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter grayscale 0.4 0.6s"
+        filter grayscale 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter grayscale 1 0.6s"
+        filter grayscale 1 0.6s
+      else:
+        set fx_fired = "filter + grayscale 0.6 0.6s"
+        filter + grayscale 0.6 0.6s
     elif fx_pa == 3:
-      set fx_fired = "filter sepia 1 0.6s"
-      filter sepia 1 0.6s
-    elif fx_pa == 4 and fx_pb == 1:
-      set fx_fired = "filter night 0.4 0.6s"
-      filter night 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter sepia 0.4 0.6s"
+        filter sepia 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter sepia 1 0.6s"
+        filter sepia 1 0.6s
+      else:
+        set fx_fired = "filter + sepia 0.6 0.6s"
+        filter + sepia 0.6 0.6s
     elif fx_pa == 4:
-      set fx_fired = "filter night 1 0.6s"
-      filter night 1 0.6s
-    elif fx_pa == 5 and fx_pb == 1:
-      set fx_fired = "filter vignette 0.4 0.6s"
-      filter vignette 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter night 0.4 0.6s"
+        filter night 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter night 1 0.6s"
+        filter night 1 0.6s
+      else:
+        set fx_fired = "filter + night 0.6 0.6s"
+        filter + night 0.6 0.6s
     elif fx_pa == 5:
-      set fx_fired = "filter vignette 1 0.6s"
-      filter vignette 1 0.6s
-    elif fx_pa == 6 and fx_pb == 1:
-      set fx_fired = "filter glow 0.4 0.6s"
-      filter glow 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter vignette 0.4 0.6s"
+        filter vignette 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter vignette 1 0.6s"
+        filter vignette 1 0.6s
+      else:
+        set fx_fired = "filter + vignette 0.6 0.6s"
+        filter + vignette 0.6 0.6s
     elif fx_pa == 6:
-      set fx_fired = "filter glow 1 0.6s"
-      filter glow 1 0.6s
-    elif fx_pa == 7 and fx_pb == 1:
-      set fx_fired = "filter chromatic 0.4 0.6s"
-      filter chromatic 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter glow 0.4 0.6s"
+        filter glow 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter glow 1 0.6s"
+        filter glow 1 0.6s
+      else:
+        set fx_fired = "filter + glow 0.6 0.6s"
+        filter + glow 0.6 0.6s
     elif fx_pa == 7:
-      set fx_fired = "filter chromatic 1 0.6s"
-      filter chromatic 1 0.6s
-    elif fx_pb == 1:
-      set fx_fired = "filter glitch 0.4 0.6s"
-      filter glitch 0.4 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter chromatic 0.4 0.6s"
+        filter chromatic 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter chromatic 1 0.6s"
+        filter chromatic 1 0.6s
+      else:
+        set fx_fired = "filter + chromatic 0.6 0.6s"
+        filter + chromatic 0.6 0.6s
     else:
-      set fx_fired = "filter glitch 1 0.6s"
-      filter glitch 1 0.6s
+      if fx_pb == 1:
+        set fx_fired = "filter glitch 0.4 0.6s"
+        filter glitch 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter glitch 1 0.6s"
+        filter glitch 1 0.6s
+      else:
+        set fx_fired = "filter + glitch 0.6 0.6s"
+        filter + glitch 0.6 0.6s
     jump fx_filter_loop
   elif act == "reset":
     set fx_fired = "filter off 0.5s"
@@ -78,16 +111,170 @@ label fx_filter_loop:
   hide iris fade 0.2s
   return
 
+label fx_filter_more:
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
+  call fx_open("More filters", "A negative, a heat-haze wave, a mosaic, an old monitor, film grain, manga speed lines and shafts of sunlight. Stack them on each other or on the looks of the Filters card. Reset takes them all off.")
+  set fx_motion = true
+  set fx_a_label = "Look"
+  set fx_a1 = "invert"
+  set fx_a2 = "wave"
+  set fx_a3 = "pixelate"
+  set fx_a4 = "crt"
+  set fx_a5 = "grain"
+  set fx_a6 = "speedlines"
+  set fx_a7 = "sunbeams"
+  set fx_b_label = "Strength"
+  set fx_b1 = "Gentle"
+  set fx_b2 = "Full"
+  set fx_b3 = "Stack"
+
+label fx_filter_more_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "filter invert 0.4 0.6s"
+        filter invert 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter invert 1 0.6s"
+        filter invert 1 0.6s
+      else:
+        set fx_fired = "filter + invert 0.6 0.6s"
+        filter + invert 0.6 0.6s
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "filter wave 0.4 0.6s"
+        filter wave 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter wave 1 0.6s"
+        filter wave 1 0.6s
+      else:
+        set fx_fired = "filter + wave 0.6 0.6s"
+        filter + wave 0.6 0.6s
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "filter pixelate 0.4 0.6s"
+        filter pixelate 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter pixelate 1 0.6s"
+        filter pixelate 1 0.6s
+      else:
+        set fx_fired = "filter + pixelate 0.6 0.6s"
+        filter + pixelate 0.6 0.6s
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "filter crt 0.4 0.6s"
+        filter crt 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter crt 1 0.6s"
+        filter crt 1 0.6s
+      else:
+        set fx_fired = "filter + crt 0.6 0.6s"
+        filter + crt 0.6 0.6s
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "filter grain 0.4 0.6s"
+        filter grain 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter grain 1 0.6s"
+        filter grain 1 0.6s
+      else:
+        set fx_fired = "filter + grain 0.6 0.6s"
+        filter + grain 0.6 0.6s
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "filter speedlines 0.4 0.6s"
+        filter speedlines 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter speedlines 1 0.6s"
+        filter speedlines 1 0.6s
+      else:
+        set fx_fired = "filter + speedlines 0.6 0.6s"
+        filter + speedlines 0.6 0.6s
+    else:
+      if fx_pb == 1:
+        set fx_fired = "filter sunbeams 0.4 0.6s"
+        filter sunbeams 0.4 0.6s
+      elif fx_pb == 2:
+        set fx_fired = "filter sunbeams 1 0.6s"
+        filter sunbeams 1 0.6s
+      else:
+        set fx_fired = "filter + sunbeams 0.6 0.6s"
+        filter + sunbeams 0.6 0.6s
+    jump fx_filter_more_loop
+  elif act == "reset":
+    set fx_fired = "filter off 0.5s"
+    filter off 0.5s
+    jump fx_filter_more_loop
+  hide iris fade 0.2s
+  return
+
+label fx_letterbox:
+  scene bg_reading_room fade 0.4s
+  show iris smile at center fade 0.3s
+  call fx_open("Letterbox", "Black bars slide in at the top and bottom, for a cutscene or a moment that should read like film. They stay through scene changes until letterbox off.")
+  set fx_a_label = "Bars"
+  set fx_a1 = "Slim"
+  set fx_a2 = "Film"
+  set fx_a3 = "Wide"
+  set fx_a4 = "Off"
+  set fx_b_label = "Speed"
+  set fx_b1 = "Quick"
+  set fx_b2 = "Slow"
+
+label fx_letterbox_loop:
+  show screen fx_panel(fx_pa, fx_pb) as act
+  if act == "fire":
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "letterbox 0.06 0.3s"
+        letterbox 0.06 0.3s
+      else:
+        set fx_fired = "letterbox 0.06 1.2s"
+        letterbox 0.06 1.2s
+    elif fx_pa == 2:
+      if fx_pb == 1:
+        set fx_fired = "letterbox 0.3s"
+        letterbox 0.3s
+      else:
+        set fx_fired = "letterbox 1.2s"
+        letterbox 1.2s
+    elif fx_pa == 3:
+      if fx_pb == 1:
+        set fx_fired = "letterbox 0.2 0.3s"
+        letterbox 0.2 0.3s
+      else:
+        set fx_fired = "letterbox 0.2 1.2s"
+        letterbox 0.2 1.2s
+    else:
+      if fx_pb == 1:
+        set fx_fired = "letterbox off 0.3s"
+        letterbox off 0.3s
+      else:
+        set fx_fired = "letterbox off 1.2s"
+        letterbox off 1.2s
+    jump fx_letterbox_loop
+  elif act == "reset":
+    set fx_fired = "letterbox off 0.4s"
+    letterbox off 0.4s
+    jump fx_letterbox_loop
+  hide iris fade 0.2s
+  return
+
 label fx_weather:
   scene bg_library fade 0.4s
   show iris smile at center fade 0.3s
-  call fx_open("Weather", "Particles fall over the scene (embers rise). Change the kind or the amount while it falls; Reset clears the sky.")
+  call fx_open("Weather", "Particles fall over the scene (embers rise, fog drifts, fireflies wander). Change the kind or the amount while it falls; Reset clears the sky.")
   set fx_motion = true
   set fx_a_label = "Kind"
   set fx_a1 = "rain"
   set fx_a2 = "snow"
   set fx_a3 = "petals"
   set fx_a4 = "embers"
+  set fx_a5 = "leaves"
+  set fx_a6 = "fog"
+  set fx_a7 = "fireflies"
   set fx_b_label = "How much"
   set fx_b1 = "Light"
   set fx_b2 = "Some"
@@ -96,42 +283,76 @@ label fx_weather:
 label fx_weather_loop:
   show screen fx_panel(fx_pa, fx_pb) as act
   if act == "fire":
-    if fx_pa == 1 and fx_pb == 1:
-      set fx_fired = "weather rain 0.3 1s"
-      weather rain 0.3 1s
-    elif fx_pa == 1 and fx_pb == 2:
-      set fx_fired = "weather rain 0.6 1s"
-      weather rain 0.6 1s
-    elif fx_pa == 1:
-      set fx_fired = "weather rain 1 1s"
-      weather rain 1 1s
-    elif fx_pa == 2 and fx_pb == 1:
-      set fx_fired = "weather snow 0.3 1s"
-      weather snow 0.3 1s
-    elif fx_pa == 2 and fx_pb == 2:
-      set fx_fired = "weather snow 0.6 1s"
-      weather snow 0.6 1s
+    if fx_pa == 1:
+      if fx_pb == 1:
+        set fx_fired = "weather rain 0.3 1s"
+        weather rain 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather rain 0.6 1s"
+        weather rain 0.6 1s
+      else:
+        set fx_fired = "weather rain 1 1s"
+        weather rain 1 1s
     elif fx_pa == 2:
-      set fx_fired = "weather snow 1 1s"
-      weather snow 1 1s
-    elif fx_pa == 3 and fx_pb == 1:
-      set fx_fired = "weather petals 0.3 1s"
-      weather petals 0.3 1s
-    elif fx_pa == 3 and fx_pb == 2:
-      set fx_fired = "weather petals 0.6 1s"
-      weather petals 0.6 1s
+      if fx_pb == 1:
+        set fx_fired = "weather snow 0.3 1s"
+        weather snow 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather snow 0.6 1s"
+        weather snow 0.6 1s
+      else:
+        set fx_fired = "weather snow 1 1s"
+        weather snow 1 1s
     elif fx_pa == 3:
-      set fx_fired = "weather petals 1 1s"
-      weather petals 1 1s
-    elif fx_pb == 1:
-      set fx_fired = "weather embers 0.3 1s"
-      weather embers 0.3 1s
-    elif fx_pb == 2:
-      set fx_fired = "weather embers 0.6 1s"
-      weather embers 0.6 1s
+      if fx_pb == 1:
+        set fx_fired = "weather petals 0.3 1s"
+        weather petals 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather petals 0.6 1s"
+        weather petals 0.6 1s
+      else:
+        set fx_fired = "weather petals 1 1s"
+        weather petals 1 1s
+    elif fx_pa == 4:
+      if fx_pb == 1:
+        set fx_fired = "weather embers 0.3 1s"
+        weather embers 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather embers 0.6 1s"
+        weather embers 0.6 1s
+      else:
+        set fx_fired = "weather embers 1 1s"
+        weather embers 1 1s
+    elif fx_pa == 5:
+      if fx_pb == 1:
+        set fx_fired = "weather leaves 0.3 1s"
+        weather leaves 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather leaves 0.6 1s"
+        weather leaves 0.6 1s
+      else:
+        set fx_fired = "weather leaves 1 1s"
+        weather leaves 1 1s
+    elif fx_pa == 6:
+      if fx_pb == 1:
+        set fx_fired = "weather fog 0.3 1s"
+        weather fog 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather fog 0.6 1s"
+        weather fog 0.6 1s
+      else:
+        set fx_fired = "weather fog 1 1s"
+        weather fog 1 1s
     else:
-      set fx_fired = "weather embers 1 1s"
-      weather embers 1 1s
+      if fx_pb == 1:
+        set fx_fired = "weather fireflies 0.3 1s"
+        weather fireflies 0.3 1s
+      elif fx_pb == 2:
+        set fx_fired = "weather fireflies 0.6 1s"
+        weather fireflies 0.6 1s
+      else:
+        set fx_fired = "weather fireflies 1 1s"
+        weather fireflies 1 1s
     jump fx_weather_loop
   elif act == "reset":
     set fx_fired = "weather off 1s"

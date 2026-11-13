@@ -1,6 +1,6 @@
 # Asset loading: findings and recommendation
 
-Answers the TODO "Performance" item. Sections 1-4 describe the code as investigated, before the changes; steps 1-3 of section 5 are now implemented (see README "Loading" and TODO.md). Measured on a synthetic project (24 backgrounds 1920x1080, 6 characters x 10 layers, 4 tracks, 3 sounds; 97 files, 114 MB; localhost): before, all 97 files were requested before the title screen; now 5 (the title background, the title music and 3 short sounds, about 6.4 MB), and the first scene's files load behind the title.
+Answers the TODO "Performance" item. Sections 1-4 describe the code as investigated, before the changes; steps 1-3 of section 5 are now implemented (see [architecture.md](architecture.md#asset-loading)). Measured on a synthetic project (24 backgrounds 1920x1080, 6 characters x 10 layers, 4 tracks, 3 sounds; 97 files, 114 MB; localhost): before, all 97 files were requested before the title screen; now 5 (the title background, the title music and 3 short sounds, about 6.4 MB), and the first scene's files load behind the title.
 
 > The `file:line` references in sections 1-4 point at the code as investigated. Files have been split since (for example `pixi-renderer.ts`, `stage-ui.ts` and `preview.ts`), and `preloadArt` is gone, so the line numbers no longer match; search for the named symbol instead.
 
@@ -22,7 +22,7 @@ Nothing is ever released: no `Assets.unload`, and no `texture.destroy` anywhere 
 
 ## 2. Measurements
 
-`games/sample/assets` is **empty** (only `.gitkeep`), so the sample game runs entirely on placeholders and loads nothing. To get numbers I generated a synthetic project (kept outside the repo): 30 backgrounds 1920x1080 PNG (about 4 MB each, a pessimistic noisy case), 10 characters with 20 PNG layers each (500x700, 240 KB each, `sprite.json` rig), 10 music tracks (20 s stereo WAV, 3.4 MB each), 5 sounds, and a 3-chapter script. Dev server on port 5180, built-in browser, localhost, so no network latency.
+At the time, `games/sample/assets` was **empty** (only `.gitkeep`), so the sample game ran entirely on placeholders and loaded nothing. To get numbers I generated a synthetic project (kept outside the repo): 30 backgrounds 1920x1080 PNG (about 4 MB each, a pessimistic noisy case), 10 characters with 20 PNG layers each (500x700, 240 KB each, `sprite.json` rig), 10 music tracks (20 s stereo WAV, 3.4 MB each), 5 sounds, and a 3-chapter script. Dev server on port 5180, built-in browser, localhost, so no network latency.
 
 - Boot requests: 27 code/API requests, 255 asset requests (230 images, 10 `sprite.json`, 10 music, 5 sounds), about **204 MB** of assets; all of them requested before the title appeared. (The browser tool's network list and `performance` resource timing do not show Pixi's image fetches; the count comes from the asset list and the request ordering.)
 - Time to the title screen: **about 1.0 s** on localhost (page load to "title screen"). The synthetic script only ever shows the first chapter's few backgrounds early on, yet all 30 are loaded. On a real connection the download dominates: 204 MB at 50 Mbit/s is about 33 s before the title appears, because `await renderer.preload()` gates `showTitle()`.

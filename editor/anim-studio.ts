@@ -5,6 +5,7 @@
 
 import { StageBridge, type StageEvent } from './anim-stage.js';
 import { KeyEditor } from './anim-keys.js';
+import { KeySet } from './anim-keyset.js';
 import { ParamPanel, type FormField } from './anim-params.js';
 import { PosePanel } from './anim-poses.js';
 import { PhysicsPanel, type Shake } from './anim-physics.js';
@@ -35,7 +36,7 @@ import { followPointer } from './pointer.js';
 import { wrapTab } from './modal.js';
 import {
    ANCHORS, asKeys, evalAll, posedInfluences, removeBoneWeights, changedParams, deformerById, deformerOf, groupOf, membersFromBone, clipGroupIssues, addToGroup, readLayout, studioDockSpec, studioPresent, readDock, writeDock, defaultDock, isDefaultDock, dockMoveNote, type DockLayout, type DeformerDef, type ShapeDef, type ShapeSet, 
-  addPad, addParam, affectedBy, afterChoosePart, breadcrumb, focusHeader, focusKind, absentByFocus, propBlocks, setView, type SetState, type SetView, subOpenKey, type PropBlockId, type PropBlocksView, type PropVerbId, type StageTool, pasteForm, type FormOpId, pointKeyStrip, addWarpKey, deleteWarpKey, ownDisplacement, pasteWarpForm, replaceDeformer, deformerPoints, warpKeyAt, WARP_KEY_SNAP, poseTarget, cycleHit, cycleLabel, goUp as focusUp, type CycleState, chooseOnStage, keepsSubject, stageMode, dialogEscape, undoInField, toolBar, modeLabel, gizmoLine, gizmoLock, keepNote, type NoteSeen, type GizmoLineState, meshPartOnBone, weightsHint, pickTargets, bindDeformer, bindMask, bindPose, boneSubtree, boundParts, copyKeys, controlOf, DEFAULT_PAD_SIZE, deleteParam, deletePad, dragForms, driverOf, isBound, keyTicks, KEY_SNAP, removeKey, unbindDeformer, unbindMask, unbindPose, warpTicks,
+  addPad, addParam, affectedBy, afterChoosePart, breadcrumb, focusHeader, focusKind, absentByFocus, propBlocks, setView, type SetState, type SetView, subOpenKey, type PropBlockId, type PropBlocksView, type PropVerbId, type StageTool, pasteForm, type FormOpId, pointKeyStrip, addWarpKey, deleteWarpKey, ownDisplacement, pasteWarpForm, replaceDeformer, deformerPoints, warpKeyAt, WARP_KEY_SNAP, poseTarget, cycleHit, cycleLabel, goUp as focusUp, type CycleState, chooseOnStage, keepsSubject, stageMode, dialogEscape, undoInField, toolBar, modeLabel, warpBarHint, gizmoLine, gizmoLock, keepNote, type NoteSeen, type GizmoLineState, meshPartOnBone, weightsHint, pickTargets, bindDeformer, bindMask, bindPose, boneSubtree, boundParts, warpBound, warpOf, copyKeys, controlOf, DEFAULT_PAD_SIZE, deleteParam, deletePad, dragForms, driverOf, isBound, keyTicks, KEY_SNAP, removeKey, unbindDeformer, unbindMask, unbindPose, warpTicks,
   type BindDoc, type BindDriver, type BindKind, type KeyTick, type PadSize, type FullForm, easeAt, extendGrid, formAt, isKeyed, setKeyEase, isPadSpot, moveControl, moveControlTo, addCategory, renameCategory, deleteCategory, moveCategory, padCorners, snapSpot, spotForm, spotLabel, updatePad, updateParam, writeForm,
   type KeyformDef, type KeySpot, type Offset, type ParamDoc, type ParamEdit, sectionOpen, withSection, rigStrip, rigStripOf, rigTabClick, withRigStrip, type RigTab, withSize, withCollapsed, dragColumn, clampLeft, clampRight, clampSplit, LEFT_WIDTH, RIGHT_WIDTH, SPLIT, type StudioSide, type StudioFold, type StudioSizes, type StudioLayout, type StudioMode, frameBlocks, frameTracks, trackOfSlot, DEFAULT_FPS, deleteParamKey, keyParams, paramKeys, sampleTrack, savePose, deletePose, trackIds, type PadDef, type ParamDef, type PoseDef, type RigPhysicsChain, type Positions, type Anchors, ANIMS, animParts, bakePreset, deleteAnim,  duplicateAnim, EASE_NAMES, KEY_CHANNELS, keysOf, newAnim, partsUnder, soloHidden, toggleHidden, renameAnim,
    setBonePivot, setDur, secondsOf, progressOf, timeLabel, retimeAnim, hasKeyTimes, describeChange, type ChangeLabel, setPivot, setPivots, uniqueName, parseCondition, setAuto, autoFields, autoFromFields, type ReactionDef, type Value, type AnimDef, type Anims, type Bones, type Looks, type KeyChannel,  type PartBones, type Pivots, type RigOutline, type StudioDoc,
@@ -43,6 +44,8 @@ import {
 const HISTORY = 100;
 /** The tool options bar's width, in pixels, from which its widest panel (Weights in Select mode) fits on one line. */
 const BAR_ONE_LINE = 780;
+/** Animate's bar has the gizmo's panel only (no deform tools), so it keeps one line far narrower (KL-5: an empty band over the stage). */
+const BAR_ONE_LINE_ANIMATE = 480;
 /** A length in seconds as the studio writes it: `1.1 s`. */
 const fmt3 = (s: number) => `${+s.toFixed(3)} s`;
 
@@ -107,8 +110,11 @@ export interface StudioHost {
   standalone?: StudioStandalone;
   /** The script line the studio was opened from: the stage shows that scene's background and other characters. */
   scene?: { file: string; line: number };
-  /** Set when the studio was opened from a script line: plays the game from that line once the rig.json is saved. */
-  tryInScene?: () => void;
+  /**
+   * Set when the studio was opened from a script line: plays the game from that line once the rig.json is saved. `animation` is the one on
+   * show; when the line animates another, the host asks first and may change the line (AN-2). False: the user kept the studio open.
+   */
+  tryInScene?: (animation: string | null) => Promise<boolean>;
   /** Set when a script tab was in front: puts a line under the cursor line there and says where it went (for the note). */
   insertLine?: (line: string) => string;
 }
@@ -167,6 +173,7 @@ export class AnimStudio {
   private alphaWaits = new Map<number, (r: { w: number; h: number; alpha: Uint8Array } | null) => void>();
   private maskPanel: MaskPanel;
   private ptracks: TrackEditor;
+  private keySet: KeySet; // several timeline keys chosen at once
   private frames: FrameEditor;
   private parameters: ParamDef[] = [];       // rig.json `parameters`, `pads` and `keyforms`: Model mode authors them
   private pads: PadDef[] = [];
@@ -200,6 +207,7 @@ export class AnimStudio {
   private char = '';
   private anims: Anims = {};
   private pivots: Pivots = {};
+  private partBoxes: Record<string, { x: number; y: number; w: number; h: number }> = {}; // each part's image box in canvas pixels (the stage's answer when ready)
   private bones: Bones = {};             // rig.json `bones`, and `parts` (which bone each part sits on)
   private partBones: PartBones = {};
   private looks: Looks = {};              // rig.json `looks`
@@ -267,8 +275,9 @@ export class AnimStudio {
     this.tools = Object.fromEntries(['undo', 'redo', 'apply', 'scene', 'open', 'resetdock'].map(n => [n, q<HTMLButtonElement>(`[data-t="${n}"]`)])) as StudioTools;
     this.fields = Object.fromEntries(['t', ...KEY_CHANNELS].map(n => [n, q<HTMLInputElement>(`[data-f="${n}"]`)])) as Record<'t' | KeyChannel, HTMLInputElement>;
     this.bar = q('.as-toolbar');
-    // One line when the widest panel fits (Weights in Select mode), else two, by the bar's width and never by the tool, so a W / B switch never moves the stage.
-    new ResizeObserver(() => { const rows = this.bar.clientWidth < BAR_ONE_LINE ? '2' : '1'; if (this.bar.dataset.rows !== rows) this.bar.dataset.rows = rows; }).observe(this.bar);
+    // One line when the mode's widest panel fits (Model: Weights in Select mode), else two, by the bar's width and the mode and never by the tool,
+    // so a W / B switch never moves the stage.
+    new ResizeObserver(() => this.fitBar()).observe(this.bar);
     this.pivotPanel = new PivotPanel(q('.as-pivot'), q('.atb[data-bar="pivot"]'), {
       state: () => ({ part: this.part !== null && Object.hasOwn(this.shapes, this.part) ? null : this.part, at: this.selPivot(), isBone: this.selIsBone(this.part), picking: this.picking, pivots: this.pivots, parts: this.host.parts, set: this.setFields() }),
       setPivot: at => this.edit(() => this.setSelPivot(at)),
@@ -384,6 +393,7 @@ export class AnimStudio {
     this.placer = new PlacePanel(this.root, {
       studio: () => this.host,
       dress: () => ({ char: this.char, pose: this.pose, overrides: this.overrides }),
+      animation: () => this.cur?.name ?? null,
       post: msg => this.post(msg),
       note: text => { this.note.textContent = text; },
       stopPicking: () => { if (this.picking) this.setPicking(false); },
@@ -408,7 +418,7 @@ export class AnimStudio {
       vars: () => this.testVars,
       setVars: vars => { this.testVars = vars; this.reactionPanel.sync(); this.postAuto(); },
     });
-    this.easeSel.append(el('option', { value: '', textContent: `(default: inout)` }), ...EASE_NAMES.map(n => el('option', { value: n, textContent: n })));
+    this.easeSel.append(el('option', { value: '', textContent: 'default', title: 'The default ease, inout' }), ...EASE_NAMES.map(n => el('option', { value: n, textContent: n })));
     this.addCh.append(...KEY_CHANNELS.map(c => el('option', { value: c, textContent: c })));
 
     this.root.addEventListener('mousedown', e => { if (e.target === this.root && !this.host.standalone) this.close(); });
@@ -451,6 +461,15 @@ export class AnimStudio {
       time: () => this.t,
       poses: () => this.poses,
       moved: () => { this.sendParams(); this.showRestNote(); this.warpPanel.show(); },
+      // Animate keys a parameter moved by hand as it keys a gizmo drag: at once under Auto-key, else on Key (AN-5).
+      settled: values => {
+        if (this.mode !== 'animate' || !Object.keys(values).length || !this.cur) return;
+        if (this.cur.preset) { this.note.textContent = 'A preset cannot be keyed. Press "Edit copy" first.'; return; }
+        if (!this.gizmo.autoKey) { this.note.textContent = `Not keyed yet: press ◆ on ${Object.keys(values).join(', ')} to write it at the playhead (or turn Auto-key on).`; return; }
+        const c = this.cur;
+        this.edit(() => { this.anims[c.name] = keyParams(c.def, values, this.t); });
+        this.say(`Keyed ${Object.keys(values).join(', ')} at ${+(this.t * c.dur).toFixed(2)} s (Auto-key).`);
+      },
       key: values => {
         const c = this.cur;
         if (!c || c.preset) { this.note.textContent = 'A preset cannot be keyed. Press "Edit copy" first.'; return; }
@@ -531,10 +550,10 @@ export class AnimStudio {
           end: () => { if (!this.commit(before)) this.refreshView(); },
         };
       },
-      useTool: () => this.gizmo.setTool('warp'),
-      selected: () => { this.postWarp(); this.binder.show(); this.showProps(); }, // Keyforms' Reset counts the chosen points; Deform's line follows the Target ▾
+      // A mesh made from the Weights tool's "no mesh yet" stays in Weights, ready to bind bones (MD-3); otherwise the Warp tool shapes it.
+      useTool: () => { if (this.gizmo.tool === 'weights') { this.weightsPanel.show(); this.postWeights(); this.showStatus(); } else this.gizmo.setTool('warp'); },
+      selected: () => { this.postWarp(); this.binder.show(); this.showProps(); this.showStatus(); }, // Keyforms' Reset counts the chosen points; Deform's line follows the Target ▾; the hint names the topology tool
       partAlpha: part => this.requestAlpha(part),
-      framedIn: part => Object.entries(this.anims).find(([, a]) => frameTracks(a?.frames).some(f => f.slot === part))?.[0] ?? null,
       note: text => { this.note.textContent = text; },
     });
     this.weightsPanel = new WeightsPanel(q('.aww'), this.props.pickSlot('skin'), q('.atb[data-bar="weights"]'), {
@@ -600,6 +619,16 @@ export class AnimStudio {
       shake: drive => this.shake(drive),
       note: text => { this.note.textContent = text; },
     });
+    // Several keys at once: before the one-key editors, which it hands the plain clicks to (AN-13).
+    this.keySet = new KeySet({
+      ...this.timelineHost(),
+      view: () => `${this.cur?.name ?? ''}\n${this.part ?? ''}`,
+      single: () => (this.keys?.sel != null ? { kind: 'key', index: this.keys.sel } : this.ptracks?.sel ? { kind: 'param', ...this.ptracks.sel } : null),
+      setSingle: r => {
+        this.keys.sel = r?.kind === 'key' ? r.index : null;
+        this.ptracks.sel = r?.kind === 'param' ? { id: r.id, index: r.index } : null;
+      },
+    });
     this.ptracks = new TrackEditor({
       ...this.timelineHost(),
       lanes: () => this.trackLanes().map(({ id, min, max }) => ({ id, min, max })),
@@ -619,13 +648,13 @@ export class AnimStudio {
     af('frame').addEventListener('change', () => this.frames.setFrame(af('frame').value));
     // Times are typed in seconds; the animation keeps them as fractions of its length (time-units.md).
     af('t').addEventListener('change', () => { const v = Number(af('t').value); if (af('t').value !== '' && Number.isFinite(v)) this.frames.setTime(progressOf(v, this.cur?.dur ?? 1)); else this.refreshView(); });
-    this.root.querySelector('.ap-ease')!.append(el('option', { value: '', textContent: '(default: inout)' }), ...EASE_NAMES.map(n => el('option', { value: n, textContent: n })));
+    this.root.querySelector('.ap-ease')!.append(el('option', { value: '', textContent: 'default', title: 'The default ease, inout' }), ...EASE_NAMES.map(n => el('option', { value: n, textContent: n })));
     for (const input of this.root.querySelectorAll<HTMLInputElement>('[data-pk]')) input.addEventListener('change', () => {
       const v = Number(input.value);
       if (input.value !== '' && Number.isFinite(v)) this.ptracks.patchSelected(input.dataset.pk === 't' ? { t: progressOf(v, this.cur?.dur ?? 1) } : { v });
       else this.refreshView();
     });
-    this.root.querySelector('.ap-ease')!.addEventListener('change', async e => { const ease = await pickEase(e.target as HTMLSelectElement); if (ease !== null) this.ptracks.patchSelected({ ease: ease || undefined }); });
+    this.root.querySelector('.ap-ease')!.addEventListener('change', async e => { const ease = await pickEase(e.target as HTMLSelectElement); if (ease === null) return; if (this.keySet.many) this.keySet.setEase(ease || undefined); else this.ptracks.patchSelected({ ease: ease || undefined }); });
     this.root.querySelector('.ap-delkey')!.addEventListener('click', () => {
       const c = this.cur, sel = this.ptracks.sel;
       if (!c || c.preset || !sel) return;
@@ -717,6 +746,15 @@ export class AnimStudio {
   private wireTransport() {
     this.playBtn.addEventListener('click', () => this.toggle());
     this.slider.addEventListener('input', () => this.seek(Number(this.slider.value) / 1000));
+    // Arrows step 0.05 s (Shift: 0.5 s), not a thousandth of the length, so keys put by keyboard do not land on one another (KL-3).
+    this.slider.title = 'Position in the animation: arrows step 0.05 s, Shift+arrows 0.5 s, Home and End go to the ends';
+    this.slider.addEventListener('keydown', e => {
+      const dir = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+      if (!dir || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      const dur = this.cur?.dur ?? 1;
+      this.seek(Math.min(1, Math.max(0, (Math.round(this.t * dur * 100) / 100 + dir * (e.shiftKey ? 0.5 : 0.05)) / dur)));
+    });
     this.loopBox.addEventListener('change', () => { if (this.playing) this.play(); });
     this.durInput.addEventListener('change', () => void this.changeLength(Number(this.durInput.value)));
     this.tools.undo.addEventListener('click', () => this.undo());
@@ -729,7 +767,11 @@ export class AnimStudio {
   private wireKeyControls() {
     this.keySel.addEventListener('change', () => { this.keys.sel = this.keySel.value === '' ? null : Number(this.keySel.value); this.refreshView(); });
     for (const [name, input] of Object.entries(this.fields)) input.addEventListener('change', () => this.keys.fieldChanged(name as 't' | KeyChannel, input.value));
-    this.easeSel.addEventListener('change', async () => { const ease = await pickEase(this.easeSel); if (ease !== null) this.keys.patchSelected({ ease: ease || undefined }); });
+    this.easeSel.addEventListener('change', async () => {
+      const ease = await pickEase(this.easeSel);
+      if (ease === null) return;
+      if (this.keySet.many) this.keySet.setEase(ease || undefined); else this.keys.patchSelected({ ease: ease || undefined });
+    });
     this.delKey.addEventListener('click', () => this.keys.removeSelected());
     this.addBtn.addEventListener('click', () => this.keys.addAtPlayhead());
   }
@@ -739,7 +781,9 @@ export class AnimStudio {
    * the dialog; a letter picks a gizmo; Ctrl+Z and Ctrl+Y undo and redo (in a field with a typed edit, the typing); Space plays.
    */
   private onKeydown(e: KeyboardEvent) {
-    const field = isField(e.target) ? e.target : null, typing = field !== null, dirty = !!field && this.focus.dirty(field);
+    const field = isField(e.target) ? e.target : null, dirty = !!field && this.focus.dirty(field);
+    // A letter typed in an open menu (the + of Parameters) is not a tool key: typing a name straight after + turned the Pivot tool on (MD-16).
+    const typing = field !== null || (e.target instanceof Element && !!e.target.closest('.ctxmenu'));
     if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
@@ -774,8 +818,20 @@ export class AnimStudio {
 
   /** What the status line says about leaving: the dialog closes with Esc (with a deform tool on, the Esc after the one that goes back to Move), the standalone page's studio is the page and saves with Ctrl+S. */
   private leaveKey(deform = false) { return this.host.standalone ? 'Ctrl+S save' : deform ? 'Esc again closes' : 'Esc close'; }
-  /** Esc that nothing else took (in the side columns, or handed back by the stage): the dialog closes, with its guard for edits not applied. */
-  private closeByKey() { if (!this.host.standalone) this.close(); }
+  /**
+   * Esc that nothing else took (in the side columns, or handed back by the stage): the dialog closes. With edits not applied it warns,
+   * and the next Esc takes the warning back instead of discarding: a run of Escs never throws work away, only Discard and close does (AN-6).
+   */
+  private closeByKey() {
+    if (this.host.standalone) return;
+    if (this.dirty && this.closeWarned) {
+      this.closeWarned = false;
+      this.note.textContent = 'Kept the changes: the studio stays open.';
+      this.showCloseGuard();
+      return;
+    }
+    this.close();
+  }
 
   private mode: Mode = 'animate';
   /** Model is about what the character is (the stage at rest and at the parameter values, no timeline); Animate is about what it does. */
@@ -785,6 +841,10 @@ export class AnimStudio {
    * Model: what the character is (parts, bones, pivots, parameters, physics, what it does by itself), at rest and at the
    * parameter values. Animate: what it does, on a timeline. Same stage, working copy, undo and Apply.
    */
+  private fitBar() {
+    const rows = this.bar.clientWidth < (this.mode === 'animate' ? BAR_ONE_LINE_ANIMATE : BAR_ONE_LINE) ? '2' : '1';
+    if (this.bar.dataset.rows !== rows) this.bar.dataset.rows = rows;
+  }
   private setMode(mode: Mode) {
     const model = mode === 'model', modeling = mode !== 'animate';
     if (mode !== this.mode) this.activeControl = null; // the active parameter belongs to Model
@@ -793,6 +853,7 @@ export class AnimStudio {
     if (this.modeling !== authoring) this.params.build(); // its empty text and + belong to the mode (SR-14)
     this.gizmo.setMode(mode);
     this.root.dataset.mode = mode;
+    this.fitBar();
     for (const b of this.root.querySelectorAll<HTMLButtonElement>('.as-modes button')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
     if (!model) this.physicsPanel.stop();
     this.showStatus();
@@ -1201,7 +1262,7 @@ export class AnimStudio {
     if (this.root.hidden) return;
     if (!force && this.dirty && !this.closeWarned) {
       this.closeWarned = true; // browser confirm dialogs are not shown everywhere: ask in the dialog, close on the second try
-      this.note.textContent = this.host.standalone ? 'There are changes that were not saved. Save them (Ctrl+S), or press Open again to discard them.' : 'There are changes that were not applied. Apply them, or press Discard and close (or Esc) to discard them.';
+      this.note.textContent = this.host.standalone ? 'There are changes that were not saved. Save them (Ctrl+S), or press Open again to discard them.' : 'There are changes that were not applied. Apply them, or press Discard and close to discard them (Esc keeps them).';
       this.showCloseGuard();
       return;
     }
@@ -1295,6 +1356,7 @@ export class AnimStudio {
     else if (e.type === 'maskAdd') this.maskPanel.added(e.shape, e.index, e.at);
     else if (e.type === 'maskRemove') this.maskPanel.removed(e.shape, e.point);
     else if (e.type === 'maskBox') this.maskPanel.box(e.part, { x: e.x, y: e.y, w: e.w, h: e.h });
+    else if (e.type === 'partBoxes') this.partBoxes = e.boxes;
     else if (e.type === 'gizmo') this.gizmo.event(e);
     else if (e.type === 'key') {
       if (e.ctrl && e.key === 's') { if (this.host.standalone) void this.apply(); } // the stage page swallowed the browser's Save Page
@@ -1375,7 +1437,7 @@ export class AnimStudio {
     // Ctrl-click set included.
     const parts = new Set([...this.host.parts, ...Object.keys(this.bones)]);
     if (step.part && (moved || this.part === null) && this.part !== step.part && !this.extras.has(step.part) && parts.has(step.part)) this.choosePart(step.part);
-    this.note.textContent = `${verb}: ${step.label}`;
+    this.say(`${verb}: ${step.label}`);
   }
   /** The Parameters tab's hand-set values (and which of them beat the animation's tracks) go to the stage. */
   private sendParams() { this.post({ type: 'studioParams', values: this.params.base, hold: [...this.params.hold] }); }
@@ -1479,6 +1541,7 @@ export class AnimStudio {
     try { ok = await this.host.apply(change); } catch { ok = false; }
     if (ok) {
       this.baseline = sent;
+      this.closeWarned = false; // nothing is left to discard: Close is Close again (KL-4)
       this.note.textContent = saving?.done ?? 'Applied to rig.json, which the editor saves at once (Ctrl+Z in its tab undoes it).';
     } else this.note.textContent = saving?.failed ?? 'Could not write to rig.json; fix its errors first.';
     this.refreshView();
@@ -1488,9 +1551,8 @@ export class AnimStudio {
   private async tryInScene() {
     await this.apply();
     if (this.dirty) return; // the note says why it could not be applied
-    const go = this.host.tryInScene;
+    if (this.host.tryInScene && !(await this.host.tryInScene(this.cur?.name ?? null))) return;
     this.close(true);
-    go?.();
   }
 
   // ---- the animation list ----
@@ -1523,19 +1585,24 @@ export class AnimStudio {
     this.picker.disabled = !this.entries.length;
   }
 
-  /** Ask for a name in the dialog itself (browser prompts are not shown everywhere) and call `then` with it. */
-  private askName(message: string, value: string, then: (name: string) => void) {
+  /**
+   * Ask for a name in the dialog itself (browser prompts are not shown everywhere) and call `then` with it. When `then` answers with a
+   * reason (a name that is taken), the prompt stays open with the name selected, so nothing is done to another animation (AN-8).
+   */
+  private askName(message: string, value: string, then: (name: string) => string | void) {
     const row = this.root.querySelector<HTMLFormElement>('.as-name')!, input = row.querySelector('input')!;
     row.querySelector('span')!.textContent = message;
     input.value = value;
     row.hidden = false;
-    const done = () => { row.hidden = true; row.onsubmit = null; this.card.focus({ preventScroll: true }); };
+    // The card takes the focus, so the studio's keys work at once; the focus keeper must not hand it to the field at the prompt's place (AN-4).
+    const done = () => { row.hidden = true; row.onsubmit = null; this.focus.forget(); this.card.focus({ preventScroll: true }); };
+    const refuse = (why: string) => { this.note.textContent = why; input.focus(); input.select(); };
     row.onsubmit = e => {
       e.preventDefault();
       const v = input.value.trim();
-      if (!/^[\w-]+$/.test(v)) { this.note.textContent = 'A name has letters, digits, _ and - only.'; input.focus(); return; }
-      done();
-      then(v);
+      if (!/^[\w-]+$/.test(v)) { refuse('A name has letters, digits, _ and - only.'); return; }
+      const why = then(v);
+      if (why) refuse(why); else done();
     };
     row.querySelector<HTMLButtonElement>('button[type="button"]')!.onclick = done;
     input.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(); } };
@@ -1546,7 +1613,7 @@ export class AnimStudio {
 
   private newAnimation() {
     this.askName('Name of the new animation', uniqueName(this.anims, 'anim'), name => {
-      if (Object.hasOwn(this.anims, name)) { this.note.textContent = `${name} exists already.`; return; }
+      if (Object.hasOwn(this.anims, name)) return `${name} exists already: choose another name.`;
       this.edit(() => { this.anims = newAnim(this.anims, name).anims; });
       this.pick(name);
     });
@@ -1556,7 +1623,7 @@ export class AnimStudio {
     if (!c) return;
     this.askName(c.preset ? `Name of the editable copy of ${c.name} (${c.name} itself would replace the preset for this character)` : `Name of the copy of ${c.name}`,
       uniqueName(this.anims, c.preset ? `${c.name}-custom` : `${c.name}-copy`), name => {
-        if (Object.hasOwn(this.anims, name) && Array.isArray(this.anims[name]?.keys)) { this.note.textContent = `${name} exists already.`; return; }
+        if (Object.hasOwn(this.anims, name) && Array.isArray(this.anims[name]?.keys)) return `${name} exists already: choose another name.`;
         this.edit(() => {
           if (c.preset) this.anims = { ...this.anims, [name]: bakePreset(c.name, 16)! };
           else { const d = duplicateAnim(this.anims, c.name); if (d) this.anims = renameAnim(d.anims, d.name, name) ?? d.anims; }
@@ -1570,7 +1637,7 @@ export class AnimStudio {
     this.askName(`New name of ${c.name}`, c.name, name => {
       if (name === c.name) return;
       const renamed = renameAnim(this.anims, c.name, name);
-      if (!renamed) { this.note.textContent = `${name} exists already.`; return; }
+      if (!renamed) return `${name} exists already: choose another name.`;
       this.edit(() => { this.anims = renamed; });
       this.pick(name);
     });
@@ -1609,7 +1676,7 @@ export class AnimStudio {
   }
   private choosePart(part: string | null, keep: string[] = []) {
     // One focus (docs/design/studio-focus-and-verbs.md): a part bound to the active parameter stays under it (a keyform focus), any other replaces it.
-    if (this.modeling) this.activeControl = afterChoosePart({ control: this.keyedControl(), part: this.part }, part, (p, c) => this.boundToControl(p, c)).control;
+    if (this.modeling) this.activeControl = afterChoosePart({ control: this.keyedControl(), part: this.part }, part, (p, c) => this.keepsTogether(p, c)).control;
     this.part = part;
     this.extras = new Set(keep);
     this.keys.sel = null;
@@ -1659,9 +1726,11 @@ export class AnimStudio {
   private modelHint(): string {
     const tool = this.gizmo.tool;
     if (tool === 'pivot') return 'Click the stage to place the pivot of the chosen part · Esc back to Move · Ctrl+Z undo · ' + this.leaveKey(true);
+    const topo = tool === 'warp' ? this.warpPanel.topoHint() : null;
+    if (topo) return `${topo} · Esc leaves Edit topology · Ctrl+Z undo · ${this.leaveKey(true)}`;
     if (tool === 'warp') return 'Choose a part with a warp (Bind parts… keys its lattice to the active parameter), then drag its lattice points at each key; Esc with no point selected goes back to Move · Ctrl+Z undo · ' + this.leaveKey(true);
     if (tool === 'weights') return weightsHint(this.weightsPanel.brush(), this.weightsPanel.activeBone(), this.weightsPanel.target() !== null, this.leaveKey(true));
-    if (tool === 'mask') return 'Click the outline of a shape (or a part clipped to one) to choose it (Bind parts… keys its points to the active parameter), then drag its points at each key; Esc goes back to Move · Ctrl+Z undo · ' + this.leaveKey(true);
+    if (tool === 'mask') return 'Click the outline of a shape (or a part clipped to one) to choose it, then drag its points: a drag edits the rest outline (the keys of a shape are written in rig.json); Esc goes back to Move · Ctrl+Z undo · ' + this.leaveKey(true);
     // A chosen part whose gizmo poses the bone it sits on (the bar says so): how to choose the bone itself.
     const target = this.gizmoSubject(), back = tool === 'move' ? '' : 'Esc back to Move · ';
     const posed = this.part !== null && target !== null && target !== this.part && this.host.parts.includes(this.part) ? "Alt-click the part, or click its bone's dot, to choose the bone · " : '';
@@ -1685,6 +1754,8 @@ export class AnimStudio {
   private checkNote() {
     if (!this.noteCheck) { this.noteCheck = true; queueMicrotask(() => { this.noteCheck = false; this.settleNote(); }); }
   }
+  /** Write a note an action made, even one that reads as the last did (two undos of alike steps): it is new, so settleNote keeps it (AN-9). */
+  private say(text: string) { this.noteSeen = { ...this.noteSeen, text: '' }; this.note.textContent = text; }
   private settleNote() {
     const ctx = [this.mode, this.gizmo.tool, this.part, [...this.extras].join(','), this.activeControl, this.cur?.name, this.revision].join('|');
     if (!keepNote(this.noteSeen, { ctx, text: this.note.textContent ?? '' })) this.note.textContent = '';
@@ -1699,7 +1770,11 @@ export class AnimStudio {
     if (kind === 'weights') {
       const w = this.weightsPanel.label();
       label.textContent = modeLabel('weights', w ? this.part : null, w?.brush, w?.bone);
-    } else if (kind !== 'gizmo') label.textContent = modeLabel(tool, this.part);
+    } else if (kind !== 'gizmo') {
+      const d = this.driver(), hint = kind === 'warp' && this.modeling && this.part && this.parameters.length
+        ? warpBarHint(!!warpOf(this.deformers, this.part), d ? { name: this.activeName() ?? '', pad: 'params' in d, grid: 'params' in d ? this.padGridWarp(this.part, d.params) : null } : null) : '';
+      label.textContent = `${modeLabel(tool, this.part)}${hint ? ` · ${hint}` : ''}`;
+    }
     label.title = label.textContent ?? '';
     if (kind !== 'gizmo') return;
     const line = this.bar.querySelector<HTMLElement>('.atb-line')!, text = gizmoLine(this.gizmoState());
@@ -1709,9 +1784,12 @@ export class AnimStudio {
   /** What the Move, Rotate and Scale gizmo poses and whether a drag on it would be kept: the bar's line, and the lock the stage draws. */
   private gizmoState(): GizmoLineState {
     const part = this.part, subject = this.gizmoSubject();
+    // Rotate or Scale on a part with no pivot of its own: it turns about its bone's joint (MR-1).
+    const tool = this.gizmo.tool, pivotFrom = (tool === 'rotate' || tool === 'scale') && part !== null && subject === part && !this.selIsBone(part)
+      && !this.pivots[part] && !this.partBones[part]?.pivot ? this.partBones[part]?.bone ?? null : null;
     if (!this.modeling) {
       const a = this.cur;
-      return { mode: 'animate', chosen: part, subject, anim: a ? { name: a.name, preset: a.preset } : null, autoKey: this.gizmo.autoKey };
+      return { mode: 'animate', chosen: part, subject, anim: a ? { name: a.name, preset: a.preset } : null, autoKey: this.gizmo.autoKey, pivotFrom };
     }
     const d = this.driver(), shape = this.maskKey(part);
     const other = part && d ? [...new Set(boundParts(this.bindDoc(), d).filter(b => b.kind !== 'pose' && (b.target === part || (b.kind === 'mask' && b.target === shape))).map(b => b.kind as 'warp' | 'mask'))] : [];
@@ -1719,7 +1797,9 @@ export class AnimStudio {
     const movedBy = !d && part && this.binder ? [...new Set(this.bindView().affecting.map(a => a.name))] : [];
     // A drag writes the Ctrl-clicked parts with the chosen one when the gizmo stands on it (keyformDrag).
     const setBound = !!d && subject !== null && subject === part && [...this.extras].some(t => isBound(this.keyforms, t, d));
-    return { mode: 'model', chosen: part, subject, param: d ? this.activeName() : null, bound: !!d && subject !== null && isBound(this.keyforms, subject, d), setBound, other, movedBy, hasParams: this.parameters.length + this.pads.length > 0 };
+    const bone = part !== null && !movedBy.length ? this.partBones[part]?.bone ?? null : null;
+    const boneMovedBy = bone ? { bone, params: [...new Set(this.keyforms.filter(k => k.target === bone).flatMap(k => k.param ? [k.param] : k.params ?? []))] } : null;
+    return { mode: 'model', chosen: part, subject, param: d ? this.activeName() : null, bound: !!d && subject !== null && isBound(this.keyforms, subject, d), setBound, other, movedBy, boneMovedBy, hasParams: this.parameters.length + this.pads.length > 0, pivotFrom };
   }
   /** The bone a row sits on (a part's bone, a mask shape's bone), when it is a bone of the rig; null for a bone row or none. */
   private boneOfRow(name: string): string | null {
@@ -1755,7 +1835,16 @@ export class AnimStudio {
     const d = driverOf(control, this.parameters, this.pads);
     if (!d) return false;
     const shape = this.maskKey(part);
-    return boundParts(this.bindDoc(), d).some(b => b.target === part || (b.kind === 'mask' && b.target === shape));
+    return warpBound(this.deformers, part, d) || boundParts(this.bindDoc(), d).some(b => b.target === part || (b.kind === 'mask' && b.target === shape));
+  }
+  /**
+   * Do the part and the control stay chosen together: they are bound, or the Warp tool is on and the part has a warp and the control is a slider
+   * (the first lattice drag keys the warp to it, so the part must not be dropped before it).
+   */
+  private keepsTogether(part: string, control: string): boolean {
+    if (this.boundToControl(part, control)) return true;
+    const d = driverOf(control, this.parameters, this.pads);
+    return this.gizmo.tool === 'warp' && !!d && 'param' in d && !!warpOf(this.deformers, part);
   }
   /**
    * A control was chosen (its name or row, the ◆, a "Moved by" button). The chosen part stays when the control moves it, which is a keyform focus;
@@ -1763,7 +1852,7 @@ export class AnimStudio {
    */
   private chooseControl(control: string) {
     this.activeControl = control;
-    if (this.modeling && this.part !== null && !this.boundToControl(this.part, control)) { this.choosePart(null); return; }
+    if (this.modeling && this.part !== null && !this.keepsTogether(this.part, control)) { this.choosePart(null); return; }
     this.refreshView(); // the tree's ticks, Deform and the Bind block follow
   }
   private keyedSpot(): KeySpot | null {
@@ -1904,6 +1993,26 @@ export class AnimStudio {
     const id = part === this.part ? this.warpPanel.target() : null;
     return id ? deformerById(this.deformers, id) : deformerOf(this.deformers, part) ?? groupOf(this.deformers, part);
   }
+  /**
+   * A part bound by itself that sits on a bone would turn and scale about the bone's joint, so a blink squashed the eyes onto the neck
+   * (UX round 3 MR-1): give it a pivot at the middle of its image, as Live2D does. Only when nothing changes on screen: it has no pivot
+   * of its own and no key or keyform of its own turns or scales it yet. Call inside the bind's edit (one undo step). True when set.
+   */
+  private centrePivot(part: string): boolean {
+    const box = this.partBoxes[part], on = this.partBones[part];
+    if (!box || !on?.bone || on.pivot || this.pivots[part] || !this.host.parts.includes(part)) return false;
+    const turns = (f: { rot?: number; sx?: number; sy?: number }) => !!(f.rot || f.sx || f.sy);
+    if (this.keyforms.some(k => k.target === part && [...(k.keys ?? []), ...(k.forms ?? [])].some(turns))) return false;
+    if (Object.values(this.anims).some(a => (a?.keys ?? []).some(k => k.part === part && turns(k)))) return false;
+    this.pivots = setPivots(this.pivots, [part], [Math.round(box.x + box.w / 2), Math.round(box.y + box.h / 2)]);
+    this.postPivots();
+    return true;
+  }
+  /** The id of the warp `part` is bent by when it is keyed to the grid of the pad on `params` (shown on the stage, not editable here yet), else null. */
+  private padGridWarp(part: string, params: readonly string[]): string | null {
+    const w = this.warpFor(part);
+    return w?.keyforms?.some(k => k.params?.[0] === params[0] && k.params?.[1] === params[1]) ? w.id : null;
+  }
   private bindPart(part: string): boolean {
     const driver = this.driver(), kind = this.bindKind(), name = this.activeName();
     if (!driver) { this.note.textContent = 'Pick a parameter first: click its name in the Parameters section.'; this.openSection('params'); return false; }
@@ -1911,9 +2020,12 @@ export class AnimStudio {
       this.note.textContent = `A ${kind} is keyed to one slider, not to a pad. Use the buttons under the pad to make ${driver.params.join(' or ')} the active parameter.`;
       return false;
     }
-    let bound = false;
+    let bound = false, centred = false;
     this.edit(() => {
-      if (kind === 'pose') { const r = bindPose(this.keyforms, this.parameters, part, driver, this.bindSize); if (r.bound) { this.keyforms = r.keyforms; bound = true; } }
+      if (kind === 'pose') {
+        const r = bindPose(this.keyforms, this.parameters, part, driver, this.bindSize);
+        if (r.bound) { centred = this.centrePivot(part); this.keyforms = r.keyforms; bound = true; }
+      }
       else if ('param' in driver && kind === 'warp') { const r = bindDeformer(this.deformers, this.parameters, part, driver.param, this.warpFor(part)?.id); if (r.bound) { this.deformers = r.deformers; bound = true; } }
       else if ('param' in driver) { const r = bindMask(this.shapes, this.parameters, this.maskKey(part) ?? part, driver.param); if (r.bound) { this.shapes = r.shapes; bound = true; } }
     });
@@ -1927,7 +2039,7 @@ export class AnimStudio {
     if ('param' in driver) {
       const keys = kind === 'pose' ? keyTicks(this.keyforms, driver.param, part) : warpTicks(kind === 'warp' ? this.warpFor(part)?.keyforms : this.shapes[this.maskKey(part) ?? '']?.keyforms, driver.param);
       const how = kind === 'pose' ? `pose ${part} with the gizmo (W, E, R)` : `drag the ${kind === 'warp' ? 'lattice' : 'mask'} points`;
-      this.note.textContent = `Bound ${part} to ${name}: keys at ${keys.map(k => shown(k.at)).join(', ')}, all at rest. Click a key (or move the slider to one), then ${how} there.`;
+      this.note.textContent = `Bound ${part} to ${name}: keys at ${keys.map(k => shown(k.at)).join(', ')}, all at rest. Click a key (or move the slider to one), then ${how} there.${centred ? ` ${part} now turns and scales about the middle of its image (Q moves its pivot).` : ''}`;
     } else {
       const g = this.keyforms.find(k => k.target === part && k.params?.[0] === driver.params[0] && k.params?.[1] === driver.params[1])?.grid;
       this.note.textContent = `Bound ${part} to ${name}: a ${g?.x.length ?? this.bindSize} × ${g?.y.length ?? this.bindSize} grid of corners, all at rest. Click a corner on the pad (or move its dot there), then pose ${part} with the gizmo (W, E, R).`;
@@ -2069,7 +2181,7 @@ export class AnimStudio {
     const driver = this.driver(), spot = this.keyedSpot(), pad = driver ? 'params' in driver : false;
     if (!driver || !spot) {
       this.note.textContent = this.parameters.length
-        ? `Nothing was written: ${name} is chosen without a parameter. Press one of the buttons in Moved by (or Bind to parameter…) to pose it at a key, then drag again.`
+        ? `Nothing was written: ${name} is chosen without a parameter. Pick one in the ▾ after "no parameter" (or Bind to parameter…) to pose it at a key, then drag again.`
         : 'Nothing was written: this character has no parameters yet. Add one in the Parameters section (New parameter), then pose again.';
       this.openSection('params');
       this.refreshView();
@@ -2228,8 +2340,16 @@ export class AnimStudio {
             : `${name} has no keys on ${who} yet: dragging a point makes the first, with rest at ${shown(wk.param.default)}`,
           values: null, can: true, points: true, name: 'Warp',
         };
-      } else if (kind === 'warp') form = { text: boundOtherwise ? `${boundOtherwise}.` : this.warpFor(part) ? `A warp is keyed to one slider, not to a pad: make ${pad ? `${pad.x} or ${pad.y}` : 'a slider'} the active parameter.` : `${part} has no warp yet: Add warp in Properties › Deform.`, values: null, can: false, name: 'Warp' };
-      else if (kind === 'mask') form = { text: here ? `The keys of ${shapeKey} on ${name} reshape it; they are written in rig.json. The Mask tool (M) edits its rest outline (Properties, Clip).` : boundOtherwise ? `${boundOtherwise}.` : `${part} is not bound to ${name} by a mask yet. Use Bind parts… above and tick it.`, values: null, can: false, name: 'Shape' };
+      } else if (kind === 'warp') {
+        const grid = pad ? this.padGridWarp(part, [pad.x, pad.y]) : null;
+        form = {
+          text: boundOtherwise ? `${boundOtherwise}.`
+            : grid ? `${grid} is keyed to ${name}'s grid of shapes: the stage shows it as the dot moves, but the studio cannot edit a grid yet (edit its forms in rig.json). A key on ${pad!.x} or ${pad!.y} alone would add a second layer on top of the grid.`
+            : this.warpFor(part) ? `A warp is keyed to one slider, not to a pad: make ${pad ? `${pad.x} or ${pad.y}` : 'a slider'} the active parameter.` : `${part} has no warp yet: Add warp in Properties › Deform.`,
+          values: null, can: false, name: 'Warp',
+        };
+      }
+      else if (kind === 'mask') form = { text: here ? `The keys of ${shapeKey} on ${name} reshape it. The studio does not draw them: write their points in rig.json (docs/rig-json.md, masks). The Mask tool (M) edits the rest outline (Properties, Clip).` : boundOtherwise ? `${boundOtherwise}.` : `${part} is not bound to ${name} by a mask yet. Use Bind parts… above and tick it.`, values: null, can: false, name: 'Shape' };
       else if (!poseBound) form = {
         text: onBone ? `${boundOtherwise ? `${boundOtherwise}. ` : ''}Neither ${part} nor its bone ${poser} is bound to ${name} by a pose: Bind parts… above binds ${part} alone, or ${poser} with the parts on it.`
           : boundOtherwise ? `${boundOtherwise}. Bind parts… above adds a pose binding as well.` : `${part} is not bound to ${name} yet. Use Bind parts… above and tick it.`,
@@ -2241,7 +2361,10 @@ export class AnimStudio {
         form = { text: isPadSpot(snapped) ? `${who} at the corner ${spotLabel(snapped)} (the nearest to the dot)` : `${who} at ${spotLabel(snapped)}${stored ? ' (a key)' : ': between keys, a drag or a field makes a key here'}`, values: stored as FullForm | null, can: true, ease: easeAt(this.keyforms, this.parameters, poser, spot) };
       }
     } else form = { text: 'Choose a part (the stage or the tree) to see and edit its pose at the keys.', values: null, can: false };
-    const hint = !bound.length ? `No parts are bound to ${name} yet. Press Bind parts… and tick the parts it moves in the list: that makes their keys at once, all at rest.`
+    // A pad nothing is bound to as a pad may still move parts through its axes, one slider each (robo's head on head_x and head_y): say so (MR-13).
+    const byAxis = !bound.length && 'params' in driver ? [...new Set(driver.params.flatMap(p => boundParts(doc, { param: p }).map(b => b.target)))] : [];
+    const hint = byAxis.length ? `No parts are bound to the pad ${name} as a grid, but ${byAxis.join(', ')} ${byAxis.length > 1 ? 'are' : 'is'} keyed to its axes (${(driver as { params: string[] }).params.join(', ')}) one slider at a time: choose an axis below the pad to see those keys. Bind parts… binds a part to the grid.`
+      : !bound.length ? `No parts are bound to ${name} yet. Press Bind parts… and tick the parts it moves in the list: that makes their keys at once, all at rest.`
       : !part ? `Choose a part bound to ${name} (on the stage, in the tree, or in the ▾ after "no part") to pose it at the keys. Bind parts… binds more.`
       : !here ? (boundOtherwise ? `${boundOtherwise}, or press Bind parts… to bind it by a ${kind} as well.` : `${part} is not bound to ${name}: press Bind parts… and tick it.`)
       : `Click a key to put the slider there, then ${kind === 'warp' ? 'drag the lattice points on the stage' : kind === 'mask' ? 'drag the points of the shape on the stage' : `pose ${onBone ? `${poser}, the bone ${part} sits on,` : 'the chosen part'} with the gizmo (W, E, R)`}. Bind parts… adds more.`;
@@ -2255,10 +2378,12 @@ export class AnimStudio {
         copyFrom.push({ target: k.target, control: c, label: c === control ? k.target : `${k.target} on ${c.startsWith('pad:') ? c.slice(4) : c}` });
       }
     }
-    const valueText = spot ? (isPadSpot(spot) ? spotLabel(snapSpot(this.keyforms, this.parameters, part ?? '', spot) ?? spot) : shown(spot.value)) : '';
+    // A pad's dot as its two values: the crumb before it names the pad already, so its axis names would only crowd the part's name out (MR-6).
+    const padAt = (s: KeySpot) => (isPadSpot(s) ? `${shown(s.at[0])}, ${shown(s.at[1])}` : '');
+    const valueText = spot ? (isPadSpot(spot) ? padAt(snapSpot(this.keyforms, this.parameters, part ?? '', spot) ?? spot) : shown(spot.value)) : '';
     // Whether a key is at the value is asked only of something the gizmo can write (a pad's dot counts at its nearest corner).
     const keyedHere = strip ? (wk ? onKey !== null : null) // a mask drag moves the rest outline and adds no key, so its crumb promises none
-      : poser && spot && kind === 'pose' && poseBound ? isKeyed(this.keyforms, this.parameters, poser, snapSpot(this.keyforms, this.parameters, poser, spot) ?? spot) : null;
+      : poser && spot && kind === 'pose' && poseBound ? (isPadSpot(spot) ? 'corner' as const : isKeyed(this.keyforms, this.parameters, poser, snapSpot(this.keyforms, this.parameters, poser, spot) ?? spot)) : null;
     const crumb = breadcrumb({ control, part }, name, valueText, keyedHere, kind === 'pose' ? poser : null);
     return { active, chosen: part, bound, crumb, header: header(name, bound.length, copyFrom.length, form), prevKey, nextKey, keyAction, keys, size: this.bindSize, form, affecting, copyFrom, hint };
   }
@@ -2419,6 +2544,8 @@ export class AnimStudio {
     const slotSel = q('slot'), sel = this.frames.sel;
     if (slotSel.options.length !== slots.length) slotSel.replaceChildren(...slots.map(([n]) => el('option', { value: n, textContent: n })));
     if (sel && slots.some(([n]) => n === sel.slot)) slotSel.value = sel.slot;
+    // "This slot" is the chosen part when it is a slot, not the first in the list (AN-3); a block chosen on the timeline comes first.
+    else if (this.part !== null && slotSel.value !== this.part && slots.some(([n]) => n === this.part)) slotSel.value = this.part;
     const track = c ? trackOfSlot(c.def, slotSel.value) : undefined, keys = c && track ? asKeys(track, c.dur).keys! : [];
     const k = sel && sel.slot === slotSel.value ? keys[sel.index] : undefined;
     q('fill').disabled = !can || !slots.length;
@@ -2438,8 +2565,9 @@ export class AnimStudio {
   private refreshInspector() {
     const c = this.cur, can = this.editable(), k = this.keys.selectedKey();
     const keys = c ? keysOf(c.def, this.part) : [];
-    this.keySel.replaceChildren(el('option', { value: '', textContent: keys.length ? '(none selected)' : '(no keys)' }),
-      ...keys.map(({ index, key }) => el('option', { value: String(index), textContent: `${timeLabel(key.t, c!.dur)} · ${KEY_CHANNELS.filter(ch => key[ch] !== undefined).map(ch => `${ch} ${key[ch]}`).join(', ')}` })));
+    // Short words and two decimals, so a narrow select still shows the key (AN-17: "(none sele", "rot -82.5384").
+    this.keySel.replaceChildren(el('option', { value: '', textContent: keys.length ? '(none)' : '(no keys)' }),
+      ...keys.map(({ index, key }) => el('option', { value: String(index), textContent: `${timeLabel(key.t, c!.dur)} · ${KEY_CHANNELS.filter(ch => key[ch] !== undefined).map(ch => `${ch} ${+key[ch]!.toFixed(2)}`).join(', ')}` })));
     this.keySel.value = this.keys.sel !== null && keys.some(x => x.index === this.keys.sel) ? String(this.keys.sel) : '';
     this.keySel.disabled = !keys.length;
     this.fields.t.value = k && c ? String(secondsOf(k.t, c.dur)) : '';
@@ -2476,6 +2604,7 @@ export class AnimStudio {
     if (!c) { this.tl.replaceChildren(); this.ruler.replaceChildren(); this.shownLanes = null; return; }
     const tracks = this.trackLanes(), frames = this.frameRows();
     this.playLines = drawTimeline(this.tl, this.ruler, { def: c.def, dur: c.dur, preset: c.preset, editable: this.editable(), part: this.part, sel: this.keys.sel, frozen: this.keys.frozen, ranges: this.ranges, tracks, selParam: this.ptracks.sel, frames, selFrame: this.frames.sel });
+    this.keySet.paint();
     this.showTime();
     // A lane that just appeared (a parameter or frame track keyed, a folded channel opened) scrolls into view, so its first key is seen.
     const rows = drawnRows(this.tl).rows, view = `${c.name}\n${this.part ?? ''}`;

@@ -1,6 +1,6 @@
 # Design notes: themes (tokens, components, styles)
 
-This is a plan, of which phases 1 and 2 are built, except the editor side of phase 2 (see "Phases"). The goal is to restyle every part of the built-in UI, from the
+This was a plan; phases 1, 2, 4, 5 and 6 are built, and phase 3 partly (see "Phases"). The goal is to restyle every part of the built-in UI, from the
 text box to dialogs, menus, sliders and toasts, from one theme file, so that changing a few colors gives a consistent
 result and finer control is there when it is needed. The editor gets a visual panel on top of the same file.
 
@@ -22,7 +22,8 @@ result and finer control is there when it is needed. The editor gets a visual pa
   same stock look as the built-in screens, and `hover` on an element overrides the theme's highlight. Art-heavy screens
   stay a script feature; themes style the built-in UI and the stock look of screen elements.
 - **Related items in `TODO.md`:** a font per language in `theme`, and (deferred) a high-contrast theme and a
-  dyslexia-friendly font option. Both are cheap once the model below exists.
+  dyslexia-friendly font option. Both are cheap once the model below exists. (The font per language and the high-contrast
+  theme are built since, see phase 6.)
 
 ## The model: four layers
 
@@ -119,7 +120,7 @@ Valid screen names are the built-in screen ids (`title`, `pause`, `options`, `sa
 - **`"extends"`** names another theme to start from: a project theme or a built-in one (`"base"`, later `"paper"`,
   `"high-contrast"`). Built-in themes ship as JSON inside the engine, so they double as examples. The chain is resolved
   once in the engine, with a cycle guard.
-- **Later: a Theme option for the player.** `game.json` `"themes": ["default", "night"]` lists the themes the player may
+- **A Theme option for the player (built in phase 6).** `game.json` `"themes": ["default", "night"]` lists the themes the player may
   pick in Options; the choice is a player setting (`settings.ts`), not part of saves, since themes are cosmetic.
   Switching mid-scene re-lays out the text box (its size can differ, and pages are measured from it). Every skin and
   `style=` name a script uses must then exist in each listed theme; the check warns, and a missing one falls back to
@@ -152,6 +153,10 @@ Example:
 ## Implementation
 
 ### Engine (`engine/src/theme.ts`, pure, tested)
+
+*As built*, some names differ: there is no `checkTheme` (the style checks are in `engine/src/assets.ts`), `explainValue` is
+`valueSource` and the contrast note `contrastNote` (`engine/src/theme-edit.ts`, with `contrast` in `engine/src/colors.ts`), and
+there is no `preview/theme.ts` (`preview/preview.ts` uses `themeCss`).
 
 - `normalizeTheme(raw)`: maps a theme file's layered keys onto the flat `Theme`; `resolveTheme` resolves `extends` (with a cycle guard).
 - `checkTheme(theme, assets)`: warnings with a JSON path (unknown key, placement in a style, a bad color, an unknown
@@ -198,7 +203,7 @@ Example:
 - **Contrast warnings** next to colors that make text hard to read.
 - The editor's own look (Monaco's `vn-dark`, the editor and Studio pages) is a separate topic, not covered here.
 
-### Escape hatch: `themes/<name>.css`
+### Escape hatch: `themes/<name>.css` (built)
 
 This comes last, once the class and variable names are stable enough to promise. The CSS is applied after the
 generated rules and scoped to `#stage`. The online demo does not serve it (shared projects must not inject CSS), and the
@@ -216,26 +221,26 @@ Each phase ends usable, with tests (`engine/test/theme.test.mjs`; one browser te
    pixel apart from the dialog buttons, and the selected options tab now follows a themed `accent` (it stayed teal before).
    Tokens other than `accent` and `font` are not settable yet; that comes with theme files. The text box, name tag,
    choices, custom-screen buttons and toasts keep their own colors until phase 3.
-2. **Theme files.** `themes/<name>.json` picked by name in `game.json`, `extends` (project and built-in `base`), the
+2. **Theme files (built).** `themes/<name>.json` picked by name in `game.json`, `extends` (project and built-in `base`), the
    `checkTheme`, the schema, watching, export and the online demo, asset renames inside
    theme files, and `themes/default.json` in new projects. No player Theme option yet.
 3. **Full component set.** Every component in the table, with states and screen overrides; docs for all keys.
-   *Started:* color tokens and `button`, `panel`, `tab`, `row`, `pager`, `toast` (variants and states) are emitted as
+   *Started:* color tokens and `button`, `panel`, `tab`, `row`, `pager`, `toast`, `field`, `quickmenu`, `slider` and `title` (variants and states) are emitted as
    direct `#stage <selector>` overrides from a selector table in `theme.ts`, so the stage CSS did not need to change.
 4. **Editor panel (built).** Palette and component tabs, screen gallery (iframes of the preview's own stage with fixed sample data), inspect, markers, contrast.
 5. **Styles from the script (built).** `define ... style=`, `style=` at the end of a
    dialogue or narration line (before the `#id`), `menu "..." style=` (the style's `choice`), and `style=` on screen
    `button` and `text` elements (the style's `button`, or `text` color and size). Styles drop placement keys (`x`, `y`,
    `width`, `height`). An unknown style name is a warning. Hotspots, images and sliders take no `style=`.
-6. **Later.** `theme.css`; built-in presets (`paper`, `high-contrast`, which closes the deferred TODO item); a font per
-   language (`tokens.font` per locale); a player-selectable theme in Options.
+6. **Built.** `theme.css`; built-in presets (`paper`, `high-contrast`, which closes the deferred TODO item); a font per
+   language (built as `tokens.fonts`); a player-selectable theme in Options (game.json `themes`).
 
 ## Open questions
 
 - **Should `button` also style custom-screen `.sc-btn`s**, or should they get their own `screenButton` component?
-  Sharing is simpler and consistent; a separate component lets map screens look different from menus.
+  Sharing is simpler and consistent; a separate component lets map screens look different from menus. *Decided: shared.*
 - **Token names:** `surface`/`overlay` or `panel`/`dim`. They should match the words the editor panel shows.
 - **Per-language values:** a `locales: { "ja": { "tokens": { "font": ... } } }` layer, or plain styles chosen by
-  language? This matters for the TODO item on CJK fonts.
+  language? This matters for the TODO item on CJK fonts. *Decided: `tokens.fonts`, a font per language code.*
 - **How far the gallery's sample data goes:** fixed samples are cheap; the project's own saves, history and title art
   look truer but need the game state.

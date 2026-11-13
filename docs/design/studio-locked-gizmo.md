@@ -16,7 +16,7 @@ away in these cases:
 | Studio mode | Case | Today's note |
 |---|---|---|
 | Model | The character has no parameters | "this character has no parameters yet. Add one in the Parameters section" |
-| Model | No active parameter (nothing in Moved by is pressed, no slider or pad active) | "chosen without a parameter. Press one of the buttons in Moved by…" |
+| Model | No active parameter (none picked in the focus header's ▾, no slider or pad active) | "chosen without a parameter. Pick one in the ▾ after "no parameter"…" |
 | Model | What the gizmo poses (the part, or the bone it sits on; and every part Ctrl-clicked with it) is not bound to the active parameter by a pose | "not bound to *param* yet. Use Bind parts…", or "bound … by its warp, not by a pose: drag its lattice points with the Warp tool" |
 | Animate | No animation chosen | "Choose an animation first." |
 | Animate | The animation is a preset | "*name* is a preset and cannot be keyed. Press Edit copy…" |

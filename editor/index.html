@@ -310,6 +310,14 @@
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 12px 40px rgba(0,0,0,.6); }
   #outline header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
   #outline header .hint { color: var(--muted); font-size: 12px; margin-left: auto; }
+  /* A narrow window: the header wraps, the search shrinks and the hint goes, so Close stays on screen (ED-10). */
+  @media (max-width: 760px) {
+    #outline { padding: 8px; }
+    #outline header { flex-wrap: wrap; row-gap: 6px; }
+    #outline header .hint { display: none; }
+    #outline header .close { margin-left: auto; }
+    #outline .ol-search { width: auto; flex: 1 1 120px; min-width: 0; }
+  }
   #outline .outline-body { flex: 1; min-height: 0; overflow: hidden; outline: none; cursor: grab; touch-action: none; }
   #outline .outline-body.panning { cursor: grabbing; }
   #outline .outline-body > svg { width: 100%; height: 100%; }

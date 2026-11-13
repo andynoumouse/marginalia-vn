@@ -1,4 +1,4 @@
-import { RE_DEFINE_ITEM, RE_INPUT, RE_INPUT_ID, RE_MENU, RE_NARR, RE_OPT, RE_SAY } from './parser.js';
+import { RE_DEFINE_ITEM, RE_END, RE_INPUT, RE_INPUT_ID, RE_MENU, RE_NARR, RE_OPT, RE_SAY } from './parser.js';
 import { RE_ELEMENT, elementString, splitElementLine } from './screen-syntax.js';
 
 /** `define item key "Key" [#id] [image=...]`: the quoted name and the id after it, if any. */
@@ -28,14 +28,14 @@ export function existingIds(texts: string[]): Set<string> {
       const o = RE_OPT.exec(t);
       if (o?.[5]) ids.add(o[5]);
       const m = o?.[2] ?? RE_MENU.exec(t)?.[2] ?? RE_NARR.exec(t)?.[3] ?? RE_SAY.exec(t)?.[4]
-        ?? (RE_INPUT.test(t) ? RE_INPUT_ID.exec(t)?.[1] : undefined) ?? stringOf(t)?.id ?? undefined;
+        ?? (RE_INPUT.test(t) || RE_END.test(t) ? RE_INPUT_ID.exec(t)?.[1] : undefined) ?? stringOf(t)?.id ?? undefined;
       if (m) ids.add(m);
     }
   }
   return ids;
 }
 
-/** Append a stable id (" #ab12") to every dialogue, narration, menu and `input` prompt line that lacks one. */
+/** Append a stable id (" #ab12") to every dialogue, narration, menu, `input` prompt and named `end` line that lacks one. */
 export function assignIds(text: string, taken: Set<string>, rng: () => number = Math.random): { text: string; added: number } {
   const nl = text.includes('\r\n') ? '\r\n' : '\n';
   let added = 0;
@@ -82,7 +82,7 @@ export function assignIds(text: string, taken: Set<string>, rng: () => number = 
       added++;
       return `${indent}${m[1]}: ${m[2]}${m[3] ? ` style=${m[3]}` : ''} #${newId()}`;
     }
-    if (RE_INPUT.test(t) && !RE_INPUT_ID.test(t)) {
+    if ((RE_INPUT.test(t) || RE_END.test(t)) && !RE_INPUT_ID.test(t)) {
       added++;
       return `${line.trimEnd()} #${newId()}`;
     }

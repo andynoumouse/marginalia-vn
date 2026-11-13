@@ -58,7 +58,7 @@ test('ease=bezier(...): accepted in scripts and transforms, evaluated as a cubic
 
 test('the shader filters are named, parse, and have no color matrix', async () => {
   const { FILTER_NAMES, SHADER_FILTERS, isFilterName, filterMatrix } = await import('../../dist/engine/src/index.js');
-  for (const n of ['glow', 'chromatic', 'glitch']) {
+  for (const n of ['glow', 'sunbeams', 'chromatic', 'wave', 'pixelate', 'crt', 'grain', 'glitch', 'speedlines']) {
     assert.ok(FILTER_NAMES.includes(n) && isFilterName(n) && SHADER_FILTERS.includes(n), n);
     assert.equal(filterMatrix(n, 1), null, `${n} is drawn by a shader, not a matrix`);
   }

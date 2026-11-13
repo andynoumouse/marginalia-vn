@@ -239,14 +239,14 @@ play('choices: number keys pick an option and the story branches', async page =>
 // Problems count, which includes rigs that are not open, can be followed: a click opens one.
 inEditor('problems: opening the rig.json tabs adds no schema warnings, and a click on the count opens a rig that has some', async page => {
   const count = () => page.locator('#problems').innerText();
-  assert.equal(await count(), 'Problems: 3');
+  assert.equal(await count(), 'Problems: 1');
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('#tabs .tab [role=tab]')].filter(t => t.textContent.endsWith('rig.json')).length), 0);
   await page.locator('#problems').click();
   await until(page, () => document.querySelector('#tabs .tab[data-selected="true"] [role=tab]')?.textContent.endsWith('rig.json'));
   await page.locator('#sbList .item', { hasText: 'psd · rig.json' }).filter({ hasText: 'mina' }).first().click();
   await page.locator('#sbList .item', { hasText: 'psd · rig.json' }).filter({ hasText: 'robo' }).first().click();
   await page.waitForTimeout(800);
-  assert.equal(await count(), 'Problems: 3', 'the sample rigs open clean');
+  assert.equal(await count(), 'Problems: 1', 'the sample rigs open clean (mina\'s look casual is also a variant, on purpose)');
 });
 
 // UX round PC-1 and PC-2. A key meant to read the line must not pick for the player as the choices come up: Space or Enter
@@ -375,19 +375,19 @@ play('camera shake, roll, tint, flash channels, choreography, burst and the glit
   });
 });
 
-// A live `scene` clears the filter, the tint and the weather, as docs/commands.md says (a running glitch used to survive it in the preview).
-play('a scene clears a running filter, tint and weather', async page => {
+// A live `scene` clears the filters, the tint and the weather, as docs/commands.md says (a running glitch used to survive it in the preview); the letterbox stays.
+play('a scene clears running filters, tint and weather, and keeps the letterbox', async page => {
   await newGame(page);
   await textDone(page);
-  assert.deepEqual(await page.evaluate(() => window.vnWorld()), { filter: 'glitch', tint: 0.5, weather: 'snow' }, 'on before the scene');
+  assert.deepEqual(await page.evaluate(() => window.vnWorld()), { filter: 'sepia+glitch', letterbox: 0.12, tint: 0.5, weather: 'snow' }, 'on before the scene');
   await page.locator('#stage').click({ position: { x: 4, y: 4 } });
   await until(page, () => /nearly empty/.test(document.getElementById('text')?.textContent ?? ''));
-  assert.deepEqual(await page.evaluate(() => window.vnWorld()), { filter: null, tint: 0, weather: null }, 'the scene cleared them');
+  assert.deepEqual(await page.evaluate(() => window.vnWorld()), { filter: null, letterbox: 0.12, tint: 0, weather: null }, 'the scene cleared them');
 }, async context => {
   await patchProject(context, proj => {
     const NL = String.fromCharCode(10);
     for (const s of proj.scripts) if (s.file === 'park.vn') s.text = s.text.replace('  scene bg_park_evening fade 0.5s' + NL,
-      ['  filter glitch 0.4', '  tint #ff0000 0.5', '  weather snow', '  "Before the scene."', '  scene bg_park_evening', ''].join(NL));
+      ['  filter glitch 0.4 + sepia 0.5', '  letterbox', '  tint #ff0000 0.5', '  weather snow', '  "Before the scene."', '  scene bg_park_evening', ''].join(NL));
   });
 });
 
@@ -897,6 +897,31 @@ play('title: with a save to go on from, the focus starts on Continue, so Enter d
   await page.locator('#pauseui').getByRole('button', { name: 'Main menu' }).click();
   await confirmYes(page);
   await until(page, () => document.activeElement?.dataset.act === 'continue');
+});
+
+play('title and pause: closing a screen they opened puts focus back on its button, not the first one (UX round PI-7)', async page => {
+  const active = () => page.evaluate(() => [document.activeElement?.closest('[id$="ui"]')?.id, document.activeElement?.dataset.act]);
+  for (const act of ['options', 'load']) {
+    await page.locator(`#titleui [data-act="${act}"]`).focus();
+    await page.keyboard.press('Enter');
+    await until(page, () => document.getElementById('title').hidden);
+    await page.keyboard.press('Escape');
+    await until(page, a => document.activeElement?.dataset.act === a && document.activeElement.closest('#titleui'), act);
+  }
+  await newGame(page);
+  await textDone(page);
+  await page.keyboard.press('Escape');
+  await page.locator('#pauseui [data-act="options"]').waitFor();
+  await page.locator('#pauseui [data-act="options"]').focus();
+  await page.keyboard.press('Enter');
+  await until(page, () => !document.getElementById('options').hidden);
+  await page.keyboard.press('Escape');
+  await until(page, () => document.activeElement?.dataset.act === 'options' && document.activeElement.closest('#pauseui'));
+  assert.deepEqual(await active(), ['pauseui', 'options']);
+  // A fresh pause menu starts on its first button again.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await until(page, () => document.activeElement?.closest('#pauseui') && document.activeElement.dataset.act === 'resume');
 });
 
 // A second language is injected into the project the page fetches; the sample ships only English.
@@ -1991,6 +2016,284 @@ browserTest('animation studio: the Model button opens Model mode, and dragging o
   assert.deepEqual(errors, [], 'the page threw errors');
 });
 
+// UX round 3 MR-5, MD-11: a pose that changed the character's bounds fitted the view again, so the art moved under the pointer.
+browserTest('animation studio: Model fits the character once its art is there, a pose leaves the view alone, and F fits again', { viewport: { width: 1280, height: 800 } }, async ({ page, errors }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Model mode"]').click();
+  const studio = page.locator('#animStudio');
+  const view = () => page.frameLocator('#animStudio iframe').locator('#stage').evaluate(e => e.style.transform);
+  // Fitted to the stage first, then to robo once his art is measured: the gizmo's bone dots show that the art is in.
+  await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg.studio-gizmo circle').length > 0);
+  let fitted = '';
+  for (let i = 0; i < 50; i++) {
+    const v = await view().catch(() => '');
+    if (v && v === fitted) break;
+    fitted = v;
+    await page.waitForTimeout(150);
+  }
+  const set = async (id, v) => { const n = studio.locator(`.ap-row[data-ctl="${id}"] .ap-num`); await n.fill(String(v)); await n.press('Enter'); };
+  await set('arm_r_lift', 1);
+  await set('lean', 1);
+  await studio.locator('.as-tree .as-row[data-part="upper_r"]').click(); // choosing a part draws the stage again (the old refit was here)
+  await page.waitForTimeout(400);
+  assert.equal(await view(), fitted, 'posing moved the view');
+  const box = await studio.locator('.as-stage').boundingBox();
+  await page.mouse.click(box.x + 8, box.y + box.height - 40); // the stage takes the keys
+  await page.keyboard.press('f');
+  await page.waitForTimeout(300);
+  assert.notEqual(await view(), fitted, 'F fits the posed character');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 AN-8, AN-4, AN-5, AN-6, KL-4: a taken name, the focus after a new animation, Auto-key on a slider, Esc and the close guard.
+browserTest('animation studio: a new animation keeps its prompt on a taken name, Auto-key keys a slider, and Esc never discards', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.route('**/api/rig*', route => (route.request().method() === 'PUT' ? route.fulfill({ status: 200, body: 'ok' }) : route.continue())); // Apply: the sample stays as it is
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Animate mode"]').click();
+  const studio = page.locator('#animStudio'), note = studio.locator('.as-note'), close = studio.locator('.close');
+  await studio.locator('.as-timeline').waitFor();
+  const ask = async name => {
+    await studio.locator('.as-more').click();
+    await page.getByRole('menuitem', { name: /New animation/ }).click();
+    await studio.locator('.as-name input').fill(name);
+    await studio.locator('.as-name input').press('Enter');
+  };
+  const before = await studio.locator('.as-anim').inputValue();
+  await ask('wave');
+  assert.equal(await studio.locator('.as-name').isVisible(), true, 'the prompt stays open on a taken name');
+  assert.match(await note.textContent(), /wave exists already/);
+  assert.equal(await studio.locator('.as-anim').inputValue(), before, 'nothing else was chosen');
+  await studio.locator('.as-name input').fill('bob');
+  await studio.locator('.as-name input').press('Enter');
+  assert.equal(await studio.locator('.as-anim').inputValue(), 'bob');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('as-card')), true, 'the card has the focus, not a field');
+  await page.keyboard.press('e');
+  assert.equal(await studio.locator('[data-gz="rotate"]').getAttribute('aria-pressed'), 'true', 'the studio took E');
+  const r = await studio.locator('.ap-row[data-ctl="head_x"] input[type=range]').boundingBox();
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.width * 0.8, r.y + r.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await poll(page, async () => /Keyed head_x/.test(await note.textContent()));
+  assert.match(await note.textContent(), /Keyed head_x/, 'Auto-key keys the slider when it is let go');
+  assert.match(await studio.locator('[data-t="undo"]').getAttribute('title'), /head_x/);
+  for (const n of [1, 2, 3]) await page.keyboard.press('Escape'); // back to Move, the warning, then the warning taken back
+  assert.equal(await studio.isVisible(), true, 'a run of Escs does not discard');
+  assert.equal(await close.textContent(), 'Close');
+  await page.keyboard.press('Escape');
+  assert.equal(await close.textContent(), 'Discard and close');
+  await studio.locator('[data-t="apply"]').click();
+  await poll(page, async () => (await close.textContent()) === 'Close');
+  assert.equal(await close.textContent(), 'Close', 'Apply puts Close back');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 MR-2, MR-3, MR-4, MR-12: a drag on the chosen bone's art poses it, the pad grid is chosen in the picker, corners read as corners.
+browserTest('animation studio: a drag on the chosen bone\'s art poses it, a new pad\'s grid is chosen before binding and its corners read as corners', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Model mode"]').click();
+  const studio = page.locator('#animStudio'), crumb = studio.locator('.ab-crumb'), note = studio.locator('.as-note');
+  await studio.locator('.ap-row[data-ctl="head_x"] > label').click();
+  await studio.locator('.as-tree [data-part="head"]').first().click();
+  await studio.locator('.ab-key', { hasText: /^1$/ }).first().click();
+  // The stage page draws the gizmo once its art is in and fitted: only then does a press land on the face.
+  await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg.studio-gizmo circle').length > 0);
+  await page.waitForTimeout(300);
+  const st = await studio.locator('.as-stage').boundingBox(), fx = st.x + st.width * 0.5, fy = st.y + st.height * 0.22; // robo's face
+  await page.mouse.move(fx, fy);
+  await page.mouse.down();
+  await page.mouse.move(fx - 30, fy - 10, { steps: 6 });
+  await page.mouse.up();
+  await poll(page, async () => /^Wrote head at head_x = 1/.test(await note.textContent()));
+  assert.match(await note.textContent(), /^Wrote head at head_x = 1/, 'the drag on the face posed the head bone');
+  await page.mouse.click(fx - 30, fy - 10); // a click there still chooses what is under it
+  await poll(page, async () => !(await crumb.innerText()).startsWith('head'));
+  assert.doesNotMatch(await crumb.innerText(), /^head/, 'a click chose the part under the pointer');
+  await studio.locator('.close').click(); // the guard: the pose is not applied
+  await studio.locator('.close', { hasText: 'Discard and close' }).click();
+  await page.locator('button[title*="studio for mina in Model mode"]').click();
+  await studio.locator('.ap-add').click();
+  await page.getByRole('menuitem', { name: /pad/i }).click();
+  await page.keyboard.type('look');
+  await page.keyboard.press('Enter');
+  assert.deepEqual(await studio.locator('.ap-axisrow > label').allTextContents(), ['x', 'y'], 'axis rows name their axis, not a cut-off look_…');
+  await studio.locator('.ab-bind').click();
+  await studio.locator('.ab-picksize select').selectOption('2');
+  await studio.locator('.ab-picklist label:has(span:text-is("head")) input').check();
+  await studio.locator('.ab-pickgo').click();
+  assert.match(await note.textContent(), /a 2 × 2 grid of corners/);
+  assert.match(await crumb.innerText(), /@ -1, -1\s*·\s*corner/, 'a corner made by the bind is a corner, not "no key here"');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 AN-2, AN-3, AN-7: Try in scene asks before playing a line that animates another animation, Frames' slot is the chosen
+// part, a clicked key shows as chosen.
+browserTest('animation studio: Try in scene asks to name the animation on show in its line, Frames starts on the chosen slot, a clicked key is lit', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  const puts = [];
+  for (const api of ['**/api/rig*', '**/api/script?*']) {
+    await page.route(api, route => (route.request().method() === 'PUT' ? (puts.push(route.request().url()), route.fulfill({ status: 200, body: 'ok' })) : route.continue()));
+  }
+  await page.goto(`${base}editor/`);
+  const studio = page.locator('#animStudio');
+  await page.locator('button[title*="studio for mina in Animate mode"]').click();
+  await studio.locator('.as-tree [data-part="mouth"]').first().click();
+  const frames = studio.locator('button.as-sect-head', { hasText: 'Frames' }).first();
+  if (await frames.getAttribute('aria-expanded') === 'false') await frames.click();
+  assert.equal(await studio.locator('.af-slot').inputValue(), 'mouth', 'the slot is the chosen part, not the first in the list');
+  await studio.locator('.close').click();
+  const n = await actAtCursor(page, ['robo.vn', 'animate robo shrug', 'shrug'], () => page.keyboard.press('F12'), studio.locator('.as-timeline'));
+  assert.equal(await studio.locator('.as-anim').inputValue(), 'shrug');
+  const key = studio.locator('.as-timeline .tl-key').first();
+  await key.click();
+  const fill = sel => studio.locator(sel).first().evaluate(e => getComputedStyle(e).fill);
+  assert.notEqual(await fill('.as-timeline .tl-key.tl-on'), await fill('.as-timeline .tl-key:not(.tl-on)'), 'the clicked key is drawn as chosen');
+  // AN-16: a show line goes above the animate line it was opened from, and the animate line can be inserted too.
+  const place = studio.locator('button.as-sect-head', { hasText: 'Place in scene' }).first();
+  if (await place.getAttribute('aria-expanded') === 'false') await place.click();
+  await studio.locator('.as-place-insert').click();
+  assert.match(await studio.locator('.as-note').textContent(), /^Inserted above line \d+ of robo\.vn, before the animate line\./);
+  assert.equal(await studio.locator('.as-place-anim').isVisible(), true);
+  await studio.locator('.as-anim').selectOption('dance');
+  await studio.locator('[data-t="scene"]').click();
+  await page.getByRole('button', { name: 'Play dance' }).click();
+  await studio.waitFor({ state: 'hidden' });
+  const line = await page.evaluate(at => window.monaco.editor.getEditors()[0].getModel().getLineContent(at), n + 1); // the show line went above it
+  assert.equal(line.trim(), 'animate robo dance', 'the line names the animation on show');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 MD-16, MD-14: letters typed in the + menu are no tool keys; a rotation drag shows the turn so far by the ring.
+browserTest('animation studio: keys typed in the + menu pick no tool, and a rotation drag reads out its turn', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Model mode"]').click();
+  const studio = page.locator('#animStudio');
+  await studio.locator('.ap-add').click();
+  await page.keyboard.type('squash');
+  assert.equal(await studio.locator('[data-gz="pivot"]').getAttribute('aria-pressed'), 'false', 'q in the menu did not pick Pivot');
+  await page.keyboard.press('Escape');
+  await studio.locator('.ap-row[data-ctl="arm_r_lift"] > label').click();
+  await studio.locator('.as-tree [data-part="arm_r"]').first().click();
+  await studio.locator('.ab-key', { hasText: /^1$/ }).first().click();
+  await page.keyboard.press('e');
+  const frame = page.frames().find(f => f.url().includes('studio='));
+  await until(page, () => [...document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg.studio-gizmo circle') ?? []].some(e => +e.getAttribute('r') > 20));
+  const [cx0, cy0, r] = await frame.evaluate(() => { const e = [...document.querySelectorAll('svg.studio-gizmo circle')].find(c => +c.getAttribute('r') > 20); return [+e.getAttribute('cx'), +e.getAttribute('cy'), +e.getAttribute('r')]; });
+  const st = await studio.locator('.as-stage').boundingBox(), cx = st.x + cx0, cy = st.y + cy0;
+  await page.mouse.move(cx + r, cy);
+  await page.mouse.down();
+  for (let a = 0; a <= 400; a += 20) await page.mouse.move(cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180));
+  assert.match(await frame.evaluate(() => document.querySelector('[data-readout="rot"]')?.textContent ?? ''), /^\+\d+(\.\d)?° \(1 turn\)$/);
+  await page.mouse.up();
+  await poll(page, async () => !(await frame.evaluate(() => !!document.querySelector('[data-readout]'))));
+  assert.equal(await frame.evaluate(() => !!document.querySelector('[data-readout]')), false, 'the readout goes with the drag');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 MR-1: a part bound by itself on a bone turned and scaled about the bone's joint (a blink squashed the eyes onto the neck).
+browserTest('animation studio: binding a part by itself gives it a pivot at the middle of its image, in the same undo step', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for mina in Model mode"]').click();
+  const studio = page.locator('#animStudio');
+  await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg.studio-gizmo circle').length > 0); // the art is in: its boxes are known
+  await studio.locator('.ap-add').click();
+  await page.getByRole('menuitem', { name: /New parameter/ }).click();
+  await page.keyboard.press('Enter');
+  await studio.locator('.ap-row[data-ctl="param"] > label').click();
+  await bindParts(studio, 'eyes');
+  assert.match(await studio.locator('.as-note').textContent(), /eyes now turns and scales about the middle of its image/);
+  await studio.locator('.as-tree [data-part="eyes"]').first().click();
+  const x = studio.locator('[data-p="x"]'), y = studio.locator('[data-p="y"]');
+  assert.ok(Number(await x.inputValue()) > 0 && Number(await y.inputValue()) > 0, 'eyes has a pivot of its own');
+  await page.keyboard.press('Control+z');
+  await poll(page, async () => (await x.inputValue()) === '');
+  assert.equal(await x.inputValue(), '', 'the undo takes the pivot back with the bind');
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 AN-11: "curve…" was a text prompt; it is a dialog with handles to drag, presets and the four numbers.
+browserTest('animation studio: "curve…" opens a curve dialog: a handle drag, a preset and a typed number shape the key\'s ease, Esc keeps it', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Animate mode"]').click();
+  const studio = page.locator('#animStudio'), ease = studio.locator('.as-ease');
+  await studio.locator('.as-anim').selectOption('wave');
+  await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
+  await studio.locator('.as-timeline .tl-key').nth(1).click();
+  const before = await ease.inputValue();
+  await ease.selectOption({ label: 'curve…' });
+  const dlg = page.locator('dialog.curve-ask'), nums = () => dlg.locator('.cv-nums input').evaluateAll(es => es.map(e => e.value));
+  await dlg.waitFor();
+  assert.deepEqual(await nums(), ['0.65', '0', '0.35', '1'], 'it starts from the default ease, inout');
+  const h = await dlg.locator('.cv-handle').nth(1).boundingBox();
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(h.x - 20, h.y - 30, { steps: 5 });
+  await page.mouse.up();
+  const dragged = await nums();
+  assert.ok(Number(dragged[2]) < 0.35 && Number(dragged[3]) > 1, `the second handle moved left and up (${dragged})`);
+  await dlg.locator('.cv-presets button[title="back"]').click();
+  await dlg.locator('.cv-nums input').nth(3).fill('1.3');
+  await dlg.getByRole('button', { name: 'Use curve' }).click();
+  await poll(page, async () => (await ease.inputValue()) === 'bezier(0.34,1.56,0.64,1.3)');
+  assert.equal(await ease.inputValue(), 'bezier(0.34,1.56,0.64,1.3)', 'the key takes the curve');
+  assert.match(await studio.locator('[data-t="undo"]').getAttribute('title'), /ease of the key/);
+  await ease.selectOption({ label: 'curve…' });
+  await dlg.waitFor();
+  assert.deepEqual(await nums(), ['0.34', '1.56', '0.64', '1.3'], 'it starts from the key\'s curve');
+  await page.keyboard.press('Escape');
+  await dlg.waitFor({ state: 'detached' });
+  assert.equal(await ease.inputValue(), 'bezier(0.34,1.56,0.64,1.3)', 'Esc keeps the ease');
+  assert.equal(await studio.isVisible(), true, 'and the studio');
+  assert.notEqual(before, await ease.inputValue());
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
+// UX round 3 AN-13: several timeline keys chosen and edited at once.
+browserTest('animation studio: Ctrl-click and Shift+drag choose several keys; a drag moves them all, Delete removes them, Esc lets go', { viewport: { width: 1600, height: 900 } }, async ({ page, errors }) => {
+  await page.route('**/api/rig*', route => (route.request().method() === 'PUT' ? route.fulfill({ status: 200, body: 'ok' }) : route.continue()));
+  await page.goto(`${base}editor/`);
+  await page.locator('button[title*="studio for robo in Animate mode"]').click();
+  const studio = page.locator('#animStudio'), keys = studio.locator('.as-timeline .tl-key'), chosen = studio.locator('.as-timeline .tl-key.tl-on');
+  await studio.locator('.as-anim').selectOption('dance');
+  await studio.locator('.as-tree .as-row[data-part="arm_r"]').click();
+  const times = () => keys.evaluateAll(es => [...new Set(es.map(e => e.querySelector('title')?.textContent.match(/at ([\d.]+) s/)?.[1]))]);
+  const was = await times();
+  assert.equal(was.length, 2, 'dance keys arm_r twice');
+  await keys.nth(0).click();
+  await keys.nth(1).click({ modifiers: ['Control'] });
+  assert.equal(await chosen.count(), 2);
+  assert.match(await studio.locator('.as-note').textContent(), /^2 keys chosen/);
+  const b = await keys.nth(1).boundingBox();
+  await page.mouse.move(b.x + 5, b.y + 5);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 65, b.y + 5, { steps: 6 });
+  await page.mouse.up();
+  const moved = await times();
+  assert.ok(moved.every((t, i) => Number(t) > Number(was[i])), `both moved later (${was} → ${moved})`);
+  assert.match(await studio.locator('[data-t="undo"]').getAttribute('title'), /2 keys moved on arm_r/);
+  await studio.locator('[data-t="undo"]').click();
+  assert.deepEqual(await times(), was, 'one undo step');
+  await keys.nth(0).click();
+  const tl = await studio.locator('.as-timeline').boundingBox();
+  await page.keyboard.down('Shift');
+  await page.mouse.move(tl.x + 150, tl.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(tl.x + tl.width - 5, tl.y + tl.height - 2, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  assert.equal(await chosen.count(), 2, 'the box took both');
+  await keys.nth(0).focus();
+  await page.keyboard.press('Escape');
+  assert.equal(await studio.isVisible(), true, 'Esc let go of the keys, it did not close');
+  assert.ok(await chosen.count() <= 1);
+  await keys.nth(0).click();
+  await page.keyboard.press('Control+a');
+  assert.equal(await chosen.count(), 2);
+  await page.keyboard.press('Delete');
+  assert.equal(await keys.count(), 0);
+  assert.match(await studio.locator('.as-note').textContent(), /^Removed 2 keys/);
+  assert.deepEqual(errors, [], 'the page threw errors');
+});
+
 browserTest('animation studio: bones are edited in the Properties section of Model mode (new bone, parent, part on a bone, pivot, rename, remove) and written by Apply', { viewport: { width: 1280, height: 800 } }, async ({ t, page, errors }) => {
   const saved = [];
   await page.route('**/api/rig*', route => {
@@ -2177,6 +2480,26 @@ async function dragRing(page, deg) {
   await page.waitForTimeout(300);
 }
 
+browserTest('animation studio: a rotate drag goes on past half a turn instead of flipping to the other side', { viewport: { width: 1280, height: 800 } }, async ({ context, page }) => {
+  await context.route(/\/api\/(rig|script|game)(\?|$)/, route => (route.request().method() === 'PUT' ? route.fulfill({ json: { ok: true } }) : route.fallback()));
+  await page.goto(`${base}editor/`);
+  await page.locator('button.anim', { hasText: 'Animate' }).nth(1).click(); // robo
+  const studio = page.locator('#animStudio');
+  await studio.locator('.as-gizmo').waitFor();
+  await studio.locator('.as-more').click();
+  await page.locator('.ctxmenu button', { hasText: 'New animation' }).click();
+  await studio.locator('.as-name input').fill('full_turn');
+  await studio.locator('.as-name button[type="submit"]').click();
+  await studio.locator('.as-tree .as-row[data-part="face"]').click();
+  await studio.locator('.as-gizmo').getByRole('button', { name: 'Rotate', exact: true }).click();
+  const rotField = studio.locator('.as-gz-nums [data-g="rot"]');
+  const rot0 = Number(await rotField.inputValue());
+  for (let i = 0; i < 100 && !page.frames().some(f => f.url().includes('studio=')); i++) await page.waitForTimeout(100); // the stage is still loading
+  await dragRing(page, 300);
+  // Read between the start and end points the 300 degrees would be 60 the other way.
+  await until(page, r0 => Math.abs(Math.abs(Number(document.querySelector('#animStudio .as-gz-nums [data-g="rot"]').value) - r0) - 300) < 5, rot0);
+});
+
 browserTest('animation studio: the tool row is icon buttons with names, key letters and groups, its toggles report their state, and it fits a phone', { viewport: { width: 1280, height: 800 } }, async ({ t, page, errors }) => {
   await page.goto(`${base}editor/`);
   await page.locator('button.anim', { hasText: 'Animate' }).nth(1).click(); // robo
@@ -2223,7 +2546,7 @@ browserTest('animation studio: the tool row is icon buttons with names, key lett
   await studio.locator('.as-tree .as-row[data-part="face"]').click();
   await btn('Rotate').click();
   const shownAnim = await studio.locator('.as-anim').inputValue();
-  assert.equal(await bar.locator('.atb-line').textContent(), `poses face · a drag keys ${shownAnim} at the playhead`, 'the bar says where a drag keys');
+  assert.equal(await bar.locator('.atb-line').textContent(), `poses face · a drag keys ${shownAnim} at the playhead · about head's joint: Q, then a click, gives face a pivot of its own`, 'the bar says where a drag keys, and about what it turns');
   const keys = () => studio.locator('.tl-key').count();
   const k0 = await keys();
   await dragRing(page, 30);
@@ -2401,12 +2724,12 @@ browserTest('animation studio: undo and redo go to what they change, and say it 
   const rot = studio.locator('.as-gz-nums [data-g="rot"]');
   await rot.fill('20');
   await rot.press('Enter');
-  assert.match(await undo.getAttribute('title'), /^Undo: wave: key (added|on arm_r changed)/);
+  assert.match(await undo.getAttribute('title'), /^Undo: wave: key (at [\d.]+ s added|on arm_r changed)/);
   await studio.locator('.as-modes [data-mode="model"]').click();
   await studio.locator('.as-tree').click({ position: { x: 4, y: 4 } }); // the focus away from any field, so Ctrl+Z is the studio's
   await page.keyboard.press('Control+z');
   assert.equal(await studio.getAttribute('data-mode'), 'animate', 'undo switches to the mode its change is in');
-  assert.match(await note.textContent(), /^Undid: wave: key (added|on arm_r changed)/);
+  assert.match(await note.textContent(), /^Undid: wave: key (at [\d.]+ s added|on arm_r changed)/);
   assert.deepEqual(errors, []);
 });
 
@@ -2818,7 +3141,7 @@ browserTest('animation studio: a pad writes the grid corner nearest its dot, a g
   const pad = await studio.locator('.ap-pad').boundingBox();
   await page.mouse.click(pad.x + pad.width - 2, pad.y + pad.height * 0.5); // the pad is picked by using it; this is the right-hand corner of the middle row
   assert.equal(await studio.locator('.as-focus').getAttribute('data-param'), 'head_turn');
-  assert.equal(await studio.locator('.as-row[data-part="eyes"]').getAttribute('aria-pressed'), 'false', 'eyes is not moved by the pad: the pad replaces it in focus');
+  assert.equal(await studio.locator('.as-row[data-part="eyes"]').getAttribute('aria-pressed'), 'true', 'eyes is moved by the pad through the grid of head_warp: it stays chosen');
   assert.equal(await studio.locator('.ap-corner').count(), 0, 'no grid yet');
   await studio.locator('[data-gz="move"]').click();
   // A drag does not bind: Bind parts… and a click on the part make the grid first.
@@ -3456,8 +3779,42 @@ browserTest('animation studio: the Warp tool shows the lattice of the chosen par
   assert.deepEqual(errors, [], 'the page threw errors');
 });
 
+browserTest('animation studio: with the Warp tool a part keeps a slider picked by its name, and the first lattice drag keys the warp to it', { viewport: { width: 1280, height: 800 } }, async ({ page }) => {
+  await page.goto(`${base}editor/`);
+  await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: face is in head_warp, keyed to the head_turn pad's grid
+  const studio = page.locator('#animStudio');
+  await studio.locator('.as-tree .as-row[data-part="face"]').waitFor();
+  const stageFrame = () => page.frames().find(f => f.url().includes('studio='));
+  const handles = () => stageFrame().evaluate(() => [...document.querySelectorAll('svg circle[stroke="#000"]')].map(c => [Number(c.getAttribute('cx')), Number(c.getAttribute('cy'))]));
+  await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelector('svg.studio-gizmo'));
+  await studio.locator('.as-tree .as-row[data-part="face"]').click();
+  await page.keyboard.press('d');
+  await until(page, () => document.querySelector('#animStudio .as-stage iframe')?.contentDocument?.querySelectorAll('svg circle[stroke="#000"]').length === 16);
+  const label = studio.locator('.atb-mode');
+  assert.match(await label.textContent(), /^Warp · face · click a slider's name in Parameters, then drag the points/, 'the bar says what the drag needs');
+  // The pad the group warp is keyed to keeps face; the studio cannot edit the pad's grid yet, and the bar says so (not "use a slider", MD-1).
+  await studio.locator('.ap-padrow > label').first().click();
+  assert.equal(await studio.locator('.as-tree .as-row[data-part="face"]').getAttribute('aria-pressed'), 'true', 'face stays chosen under head_turn');
+  assert.match(await label.textContent(), /head_warp is keyed to head_turn's grid: shown, not editable in the studio yet/);
+  // A slider the warp is not keyed to: with the Warp tool face stays chosen, and the first drag keys head_warp to it.
+  await studio.locator('.ap-row[data-ctl="lean"] > label').click();
+  assert.equal(await studio.locator('.ap-row.ap-active').getAttribute('data-ctl'), 'lean');
+  assert.equal(await studio.locator('.as-tree .as-row[data-part="face"]').getAttribute('aria-pressed'), 'true', 'face stays chosen under lean');
+  assert.equal(await label.textContent(), 'Warp · face');
+  const box = await studio.locator('.as-stage iframe').boundingBox(), at = (await handles())[5];
+  await page.mouse.move(box.x + at[0], box.y + at[1]);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(box.x + at[0] - i * 4, box.y + at[1] - i * 2);
+  await page.mouse.up();
+  const after = (await handles())[5];
+  assert.ok(Math.abs(after[0] - at[0] + 20) < 1 && Math.abs(after[1] - at[1] + 10) < 1, `the point followed the pointer (${after} from ${at})`);
+  await poll(page, async () => !(await studio.locator('[data-t="undo"]').isDisabled())); // the stage's drag end reaches the editor by a message
+  assert.equal(await studio.locator('[data-t="undo"]').isDisabled(), false, 'the drag is an undo step');
+  await studio.locator('[data-t="undo"]').click();
+  assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), true);
+});
+
 browserTest('animation studio: a group warp shows its lattice for each member, a target choice, its members, and Add group warp from a bone', { viewport: { width: 1280, height: 800 } }, async ({ context, page, errors }) => {
-  await withoutRoboFrameTracks(context);
   await page.goto(`${base}editor/`);
   await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: head_warp is a 3x3 group warp over face, eyes and mouth
   const studio = page.locator('#animStudio');
@@ -3513,7 +3870,6 @@ browserTest('animation studio: a group warp shows its lattice for each member, a
 });
 
 browserTest('animation studio: warp points are chosen by rectangle, Shift-click and rows; a drag moves the selection (soft or hard) in one undo step; a group warp point drags too', { viewport: { width: 1280, height: 800 } }, async ({ t, context, page, errors }) => {
-  await withoutRoboFrameTracks(context);
   await page.goto(`${base}editor/`);
   await page.locator('button.anim', { hasText: 'Model' }).nth(1).click(); // robo: the torso has a 2x3 warp on `breathe` (12 points, 3 per row)
   const studio = page.locator('#animStudio');
@@ -3622,17 +3978,6 @@ browserTest('animation studio: warp points are chosen by rectangle, Shift-click 
   assert.ok(Math.abs(g1[12][0] - g0[12][0] - 30) < 1 && Math.abs(g1[12][1] - g0[12][1] - 10) < 1, `the group point followed the pointer (${g1[12]} from ${g0[12]})`);
   assert.equal(await studio.locator('[data-t="apply"]').isDisabled(), false);
   assert.deepEqual(errors, [], 'the page threw errors');
-});
-
-/**
- * robo's blink and talk animations (the sample's automatic ones) key the eyes' and mouth's frames, and a part with a frame
- * track cannot be warped, so the group warp over the head bone refuses. The tests of that warp serve robo's rig.json
- * without those two frame tracks.
- */
-const withoutRoboFrameTracks = context => patchProject(context, proj => {
-  const rig = JSON.parse(proj.rigTexts.robo);
-  for (const name of ['blink', 'talk']) delete rig.animations[name].frames;
-  proj.rigTexts.robo = JSON.stringify(rig, null, 2);
 });
 
 /** The mask shapes' tests share these: the stage page's frame, its dashed outlines and the point handles of the Mask tool. */
@@ -3755,7 +4100,7 @@ browserTest('animation studio: a shape has its own row, the Mask tool outlines e
   assert.deepEqual(await studio.locator('.ab .ab-keybtns button').allTextContents(), ['0', '1']);
   assert.equal(await studio.locator('.ab .ab-keyhere').isVisible(), false, 'a mask key is not added or removed here');
   assert.equal(await studio.locator('.ab .ab-form .as-pivot-name').textContent(), 'Shape');
-  assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^The keys of eyelids on eye_open reshape it; they are written in rig\.json/);
+  assert.match(await studio.locator('.ab .ab-formtext').textContent(), /^The keys of eyelids on eye_open reshape it\. The studio does not draw them: write their points in rig\.json/);
   assert.equal(await studio.locator('.ab .ab-ops').isVisible(), false, 'nothing to copy or paste');
   await studio.locator('[data-gz="move"]').click();
   // Animate mode has neither the tool, the sub-block nor the row.
@@ -5815,6 +6160,14 @@ inEditor('task output: a task streams into the Output panel, file:line links ope
   await output.waitFor({ state: 'hidden' });
 });
 
+// UX round 3 ED-1: a label's name typed without its @ offers the label above "Create <name>.vn", and Enter goes there.
+inEditor('palette: a label name typed in Go to file offers the label first', async (page, puts) => {
+  await palette(page, 'bench_talk');
+  await shownLine(page, 'label bench_talk:');
+  assert.equal(await page.evaluate(() => { const e = monaco.editor.getEditors()[0]; return e.getModel().getLineContent(e.getPosition().lineNumber); }), 'label bench_talk:');
+  assert.equal(puts.length, 0, 'no new script was made');
+});
+
 inEditor('translations dialog: progress, filter, edits saved as you type, changed source, Still correct, a new language', async (page, puts) => {
   const dialog = page.locator('#translations');
   await palette(page, '>Translations: Edit');
@@ -5850,6 +6203,8 @@ inEditor('translations dialog: progress, filter, edits saved as you type, change
   await dialog.locator('.tr-new').press('Enter');
   assert.equal(await dialog.locator('.tr-lang').inputValue(), 'de');
   assert.match(await summary.innerText(), /^0 of \d+ translated/);
+  await poll(page, async () => puts.some(p => p.file === 'de.json'));
+  assert.deepEqual(puts.filter(p => p.file === 'de.json').map(p => p.body.trim()), ['{}'], 'the new language is written at once, so it stays (ED-3)');
 
   // The built-in menu labels are rows too (ui.<key>, the page's own text as the source).
   await dialog.locator('.tr-filter').fill('ui.back');
@@ -5874,6 +6229,36 @@ inEditor('translations dialog: progress, filter, edits saved as you type, change
   await context.route('**/api/locales', route => route.fulfill({ json: {
     'locale/en.json': '{}',
     'locale/fi.json': JSON.stringify({ j30k: 'Hyvä on. Istu.', zzzz: 'Ei käytössä.' }),
+    'locale/fi.src': JSON.stringify({ j30k: 'An older wording.' }),
+  } }));
+});
+
+inEditor('translations dialog: Import CSV asks with a summary, merges into the tables and starts a new language', async (page, puts) => {
+  const dialog = page.locator('#translations');
+  await palette(page, '>Translations: Edit');
+  await until(page, () => /translated/.test(document.querySelector('#translations .tr-summary').textContent));
+  const csv = '﻿id;source;fi;de;notes\nkx0c;whatever;"Istu; puhutaan.";Setz dich.;x\nzzzz;;Ei ole;;\nj30k;;;;\n';
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.locator('.tr-import').click();
+  await (await chooser).setFiles({ name: 'back.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const ask = page.locator('dialog.ask');
+  await ask.waitFor();
+  const text = await ask.locator('p').innerText();
+  assert.equal(text, 'Import back.csv? fi: 1 new (1 made against older source text, shown as changed source); '
+    + 'de (new language): 1 new (1 made against older source text, shown as changed source). Changed translations are overwritten in locale/fi.json, locale/de.json, '
+    + 'with no undo. Skipped an id no line of the script has (#zzzz). Columns not read: notes.');
+  await ask.locator('button', { hasText: 'Import' }).click();
+  await poll(page, () => puts.some(p => p.file === 'de.json') && puts.some(p => p.file === 'fi.src'));
+  assert.deepEqual(JSON.parse(puts.find(p => p.file === 'de.json').body), { kx0c: 'Setz dich.' });
+  const fi = JSON.parse(puts.filter(p => p.file === 'fi.json').at(-1).body);
+  assert.equal(fi.kx0c, 'Istu; puhutaan.');
+  assert.equal(fi.j30k, 'Hyvä on. Istu.', 'an empty cell keeps the translation');
+  assert.equal(JSON.parse(puts.filter(p => p.file === 'fi.src').at(-1).body).kx0c, 'whatever');
+  assert.deepEqual(await dialog.locator('.tr-lang option').allInnerTexts(), ['de', 'fi']);
+  assert.match(await dialog.locator('.tr-summary').innerText(), /^Imported back\.csv: .*\. 2 of \d+ translated · 2 with changed source/, 'the import says what it did (ED-11)');
+}, async context => {
+  await context.route('**/api/locales', route => route.fulfill({ json: {
+    'locale/fi.json': JSON.stringify({ j30k: 'Hyvä on. Istu.' }),
     'locale/fi.src': JSON.stringify({ j30k: 'An older wording.' }),
   } }));
 });
@@ -6042,7 +6427,6 @@ browserTest('animation studio: the Mesh row generates a free mesh at a chosen de
   await until(page, n => document.querySelector('#animStudio .as-sub[data-sub="deform"] .as-sub-sum').textContent === `Mesh ${n} vertices`, high);
   // Apply writes the mesh into rig.json.
   await studio.locator('[data-t="apply"]').click();
-  await until(page, () => true);
   await poll(page, () => saved.length, 50);
   const rig = JSON.parse(saved.at(-1)), legs = rig.deformers.find(d => d.part === 'legs');
   assert.equal(legs.mesh.verts.length, high * 2);

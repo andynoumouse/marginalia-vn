@@ -105,6 +105,12 @@ export const ENGINE_CHANGES: Record<string, string[]> = {
     'Group and variant names from a PSD that scripts cannot say are made script names ("Group 1" becomes Group_1), as part names already were.',
     'flash <name> warns when the name is neither a character nor a picture, and an .svg dropped on the Assets panel is refused.',
   ],
+  '0.13': [
+    'A new step ease holds the previous value and switches at the key; scene transitions add push, zoom, ripple and fade through a color.',
+    'filter takes several looks at once (filter sepia + grain), and filter + / filter - change one; saves holding a single filter still load.',
+    'A frame track on a warped part (lattice, free mesh or group member) is no longer a rig.json error.',
+    'end "Name" names an ending for the end screen; game.json titleScreen.align, unread since the title became a screen, is marked deprecated.',
+  ],
 };
 
 const minorKey = (v: string) => { const [maj, min = 0] = v.split('.').map(n => Number(n) || 0); return maj * 1000 + min; };

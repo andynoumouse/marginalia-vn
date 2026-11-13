@@ -12,7 +12,7 @@ errors is not saved. Pixel values are on the stage, 1920x1080 unless `stage` say
   "title": "Evening in the Park",
   "splash": ["studio_logo", { "text": "A game by someone", "duration": 2 }],
   "titleScreen": { "background": "bg_park_evening", "music": "evening_theme", "showTitle": true,
-                   "buttons": ["new_game", "continue", "load", "gallery", "options"], "fade": 0.4 },
+                   "buttons": ["continue", "gallery"], "fade": 0.4 },
   "quickMenu": { "items": ["back", "history", "auto", "skip"], "position": "bottom", "align": "center" },
   "gallery": [ { "image": "cg_epilogue", "title": "Epilogue", "unlock": "good_ending" } ],
   "musicRoom": [ { "track": "evening_theme", "title": "Evening Theme" } ],
@@ -68,6 +68,7 @@ What follows the size and what does not:
 | `saveVersion` | A whole number (default 0). Raise it when a release breaks old saves: Continue, Load and quick load then ask "made with an older version, load anyway?" for saves made under a lower number (saves from before the field count as 0). The engine itself loads any save it finds. |
 | `psdPrefix` | Character PSDs: a top-level group whose name starts with this is a folder, not a slot (default `"+"`; `""` turns it off). Used by `npm run art`. |
 | `build` | `{ "checks": { "<check>": "error" \| "warning" \| "info" \| "off" } }`: how serious each pre-build check is, below. |
+| `themes` | The themes the player can pick in Options, see [theme](#theme). |
 | `intro` | A script label played once at start, below. |
 | `splash` | Logo cards shown once at start, below. |
 | `titleScreen` | The title screen, below. |
@@ -366,7 +367,7 @@ Menu text in the source language, e.g. `"new_game": "Begin"`. Other languages us
 `preview/index.html`, and the quick menu buttons as `q_<item>` (`q_skip`). The editor completes the full list, and the Translations dialog lists every label as a row (`menu label`,
 id `ui.<key>`) beside the script's strings, so they are translated, filtered and exported to CSV the same way.
 Two of them are on screens people meet without opening a menu: `end_title` and `end_hint` are the words shown when the
-story ends ("The End", "Click to return to the title screen"), and `rotate_device` is the cover that asks a phone held
+story ends ("The End", "Click to return to the title screen"; an `end "Name"` shows its own name in place of "The End"), and `rotate_device` is the cover that asks a phone held
 the wrong way to turn.
 
 ## theme
@@ -378,7 +379,7 @@ Without a pick, `theme` is used.
 A theme can also have a stylesheet, `themes/<name>.css`, added after everything the JSON makes (and after those of the themes it
 extends), for what the keys cannot say: the stage is `#stage`, and the stage's `--vn-*` variables and the component selectors are
 the ones `themeCss` writes. Use paths like `url("assets/ui/frame.png")`; `@import` and `url()` of a web address are removed. Edit it in the editor from a theme's sidebar menu (Open Stylesheet) or the command `Theme: Open or Create a Theme Stylesheet`.
-Edit the file in any text editor; the preview reloads when it changes (the editor has no tab for it yet).
+Or edit the file in any text editor; the preview reloads when it changes.
 A theme file holds `tokens` (`accent`, `font`), `components` (`textbox`, `namebox`,
 `text`, `choice`, `hotspot` with `background`/`border`/`borderWidth`, `tooltip` with `background`/`color`/`font`) and
 `styles`. `"extends": "other"` starts from another theme file or a built-in one (`base`, the light warm `paper`, or the black-and-white `high-contrast`); the child's
@@ -391,8 +392,9 @@ confirm dialog, history, chapters and a toast, drawn from fixed sample data and 
 of one opens the component (and state) that styles it. A color that would be hard to read (WCAG contrast under 4.5:1 for
 text, 3:1 for accent colors; only hex and `rgb()` colors are judged) is marked with its ratio.
 
-In a theme file, `tokens` also takes `radius` (corner radius of menu buttons, panels, fields and toasts, in pixels), `borderWidth` (border width of menu buttons, panels and fields, default 2), `gap` (spacing in menu columns and the options grid, default 18), `uiSize` (menu text size, default 40), `uiFont` (menu font, default `font`), `fonts` (a font per language code, e.g. `{"ja": "Noto Sans JP"}`: in that language, the picked one replaces `font` and `uiFont`; `ja` also covers `ja-JP`; put a font file in `assets/fonts/` for a font the player may not have) and the colors `text`, `muted`, `surface`, `line`, `danger` and `warn`, and `components` A color may be a token reference: `"$accent"`, or `"$accent/15"` for the token at 15% opacity (only `accent` and the colors above can be named; a token that is not set drops the value).
-takes these menu building blocks. A key is the component, or `component.variant`; each has the look keys below, and
+In a theme file, `tokens` also takes `radius` (corner radius of menu buttons, panels, fields and toasts, in pixels), `borderWidth` (border width of menu buttons, panels and fields, default 2), `gap` (spacing in menu columns and the options grid, default 18), `uiSize` (menu text size, default 40), `uiFont` (menu font, default `font`), `fonts` (a font per language code, e.g. `{"ja": "Noto Sans JP"}`: in that language, the picked one replaces `font` and `uiFont`; `ja` also covers `ja-JP`; put a font file in `assets/fonts/` for a font the player may not have) and the colors `text`, `muted`, `surface`, `line`, `danger` and `warn`. A color may be a token reference: `"$accent"`, or `"$accent/15"` for the token at 15% opacity (only `accent` and the colors above can be named; a token that is not set drops the value).
+
+`components` takes these menu building blocks. A key is the component, or `component.variant`; each has the look keys below, and
 the states `hover`, `focus`, `disabled` and `selected` (only the ones that make sense for it apply) list what changes.
 
 | Component | Styles |
@@ -436,11 +438,11 @@ Unknown screen names are ignored.
 | `components.choice` | Choice buttons. Like a box but without `x`/`y`; also `size` and `gap` (space between buttons). |
 | `styles` | Named styles: `{ "alice": { "textbox": {...}, "namebox": {...}, "text": {...}, "choice": {...}, "button": {...} } }`. A character with `define alice ... style=alice` uses `alice` while speaking; `alice: "..." style=whisper` uses `whisper` for one line, `menu ... style=urgent` styles that menu's `choice` buttons (with `hover`, `focus`, `disabled`), and `button ... style=x` / `text ... style=x` in a screen use `button` and `text`. Appearance only: `x`, `y`, `width`, `height` are ignored. |
 
-A box (`textbox`, `namebox`, `choices`) takes:
+A box (`textbox`, `namebox`, `choice`) takes:
 
 | Key | Meaning |
 |---|---|
-| `x`, `y` | Top-left corner in stage pixels (not for `choices`). |
+| `x`, `y` | Top-left corner in stage pixels (not for `choice`). |
 | `width`, `height` | Width, and minimum height. |
 | `padding` | One number, or `[top, right, bottom, left]`. |
 | `background` | A CSS color, e.g. `"rgba(10,13,19,.84)"`. |

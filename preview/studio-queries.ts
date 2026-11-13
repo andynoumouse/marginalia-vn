@@ -78,6 +78,12 @@ export class StudioQueries {
     if (!a || !rig || !sp || sp.texture === Texture.EMPTY) return null;
     return { x: sp.x + (rig.width ?? 0) / 2, y: sp.y + (rig.height ?? 0), w: sp.texture.width, h: sp.texture.height };
   }
+  /** Every drawn part's image box in canvas pixels, by name: where a part bound by itself gets its pivot (the middle of its image). */
+  studioPartBoxes(char: string): Record<string, { x: number; y: number; w: number; h: number }> {
+    const out: Record<string, { x: number; y: number; w: number; h: number }> = {};
+    for (const name of this.actors.get(char)?.parts.keys() ?? []) { const b = this.studioPartBox(char, name); if (b) out[name] = b; }
+    return out;
+  }
   /** A point in canvas pixels (the space bone pivots and tips are written in) as a stage pixel, at rest: no pose is applied. */
   studioCanvasToStage(char: string, p: [number, number]): [number, number] | null {
     const a = this.actors.get(char), rig = this.files().rigs[char];

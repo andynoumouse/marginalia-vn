@@ -21,7 +21,7 @@ any line, Ctrl+P jumps to files, labels and assets, and panels show your variabl
 
 ## Features
 
-- Own script language with characters, choices, variables, calls, screens, animation (including your own `transform` sequences), camera, weather and text effects
+- Own script language with characters, choices, variables, calls, screens, animation (including your own `transform` sequences), camera, weather, stacking screen filters, letterbox bars and text effects
 - Editor with live preview, quick fixes, rename refactoring, flowchart outline, translations and voice dialogs
 - Game shell: title screen, saves, rollback, history, skip/auto, gamepad support, options, gallery and extras
 - Localization with stable string ids, plus voice lines per language
@@ -75,7 +75,7 @@ label start:                            # entry point
     "Walk away":
       jump caught
   if trust >= 2:  ...  else:  ...
-  call helper  /  return  /  jump label  /  end
+  call helper  /  return  /  jump label  /  end  /  end "The Quiet Ending"   # a named ending replaces "The End"
 ```
 
 Every command is in the [command reference](docs/commands.md); [docs/script-syntax.md](docs/script-syntax.md) has a

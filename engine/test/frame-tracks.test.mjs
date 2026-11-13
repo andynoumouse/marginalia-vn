@@ -53,6 +53,7 @@ test('studio edits: from slot, retime, duplicate, reorder, set, delete', () => {
   assert.deepEqual(t.keys, [{ t: 0, frame: '01' }, { t: 0.25, frame: '02' }, { t: 0.5, frame: '03' }]);
   assert.equal(framesFromSlot('walk', ['a', 'b', 'c'], 1, 2).keys.length, 2); // past the end dropped
   assert.deepEqual(retimeFrame(t, 1, 0.6).keys.map(k => k.frame), ['01', '03', '02']);
+  assert.equal(retimeFrame(t, 1, 0.5), t, 'not onto another block\'s time, where that block would last no time (UX round 3 AN-15)');
   const d = duplicateFrame(t, 0);
   assert.deepEqual(d.keys.map(k => [k.t, k.frame]), [[0, '01'], [0.125, '01'], [0.25, '02'], [0.5, '03']]);
   assert.equal(duplicateFrame(t, 0, 0.25), t);

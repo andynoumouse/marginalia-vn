@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkAssets, closest, compile, editDistance, wordSpan } from '../../dist/engine/src/index.js';
+import { checkAssets, checkGame, checkRig, closest, compile, editDistance, jsonWordSpan, wordSpan } from '../../dist/engine/src/index.js';
 
 test('editDistance counts inserts, deletes, changes and swaps of neighbours, ignoring case', () => {
   assert.equal(editDistance('show', 'show'), 0);
@@ -113,4 +113,45 @@ test('missing assets suggest the close file names', () => {
   assert.deepEqual([fix(3), fix(4), fix(5), fix(6), fix(7)], [['park'], ['evening_theme'], ['click'], ['happy'], ['nod']]);
   assert.match(ds.find(d => d.line === 3).message, /^No background "parck" in assets\/bg \(did you mean "park"\?\)$/);
   assert.match(ds.find(d => d.line === 8).message, /\(a placeholder is drawn\)$/);
+});
+
+test('jsonWordSpan finds a name as a whole quoted string', () => {
+  assert.deepEqual(jsonWordSpan('    "music": "thme",', 'thme'), [14, 18]);
+  assert.equal(jsonWordSpan('    "music": "themes",', 'theme'), null);
+  assert.equal(jsonWordSpan('    "music": "thme",', ''), null);
+});
+
+test('game.json: a missing asset close to an existing one offers it, as a message hint and a fix', () => {
+  const index = { files: ['bg/park.png', 'bg/station.png', 'music/theme.ogg', 'ui/frame.png', 'sound/chime.ogg'] };
+  const out = checkGame({
+    titleScreen: { background: 'prak', music: 'thmee' }, musicRoom: ['zzzz'],
+    theme: { textbox: { image: 'fram' } }, achievementToast: { sound: 'chim' },
+  }, index);
+  const by = word => out.find(d => d.message.includes(`"${word}"`));
+  assert.equal(by('prak').message, 'titleScreen.background: no image "prak" in assets/bg (did you mean "park"?)');
+  assert.deepEqual(by('prak').fix, { word: 'prak', options: ['park'] });
+  assert.deepEqual(by('thmee').fix, { word: 'thmee', options: ['theme'] });
+  assert.deepEqual(by('fram').fix?.options, ['frame']);
+  assert.deepEqual(by('chim').fix?.options, ['chime']);
+  assert.equal(by('zzzz').fix, undefined, 'nothing is close');
+  assert.equal(by('zzzz').message, 'musicRoom: no track "zzzz" in assets/music');
+});
+
+test('rig.json: unknown parts, bones, slots, variants, poses and keys offer the close names', () => {
+  const m = {
+    width: 100, height: 100,
+    parts: [{ file: 'body.png' }, { file: 'hair.png' }, { slot: 'eyes', default: 'open', variants: { open: { file: 'o.png' }, closed: { file: 'c.png' } } }],
+    rig: {
+      order: ['body', 'hiar'],
+      bones: { torso: {}, head: { parent: 'troso' } },
+      parts: { hair: { bone: 'haed' } },
+      looks: { sleepy: { eyse: 'closed' }, wink: { eyes: 'clsoed' } },
+      parameters: [{ id: 'smile', min: 0, max: 1, default: 0 }],
+      poses: { happy: { smile: 1 } },
+      reactions: [{ when: 'speaking', pose: 'hapy', ovr: 1 }],
+    },
+  };
+  const fixes = Object.fromEntries(checkRig(m).filter(p => p.fix).map(p => [p.fix.word, p.fix.options]));
+  assert.deepEqual(fixes, { hiar: ['hair'], troso: ['torso'], haed: ['head'], eyse: ['eyes'], clsoed: ['closed'], hapy: ['happy'], ovr: ['over'] });
+  assert.ok(checkRig(m).some(p => p.message === 'order: no part named "hiar" (did you mean "hair"?)'));
 });

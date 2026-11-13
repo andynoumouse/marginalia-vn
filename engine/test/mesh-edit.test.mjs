@@ -4,7 +4,7 @@ import { addDeformer, checkDeformers, generateMesh, hasKeyforms, meshReplaces, m
 
 const quad = { verts: [0, 0, 10, 0, 10, 10, 0, 10], tris: [0, 1, 2, 0, 2, 3] };
 const sway = { id: 'sway', min: 0, max: 1, default: 0 };
-const problems = ds => { const out = []; checkDeformers({ deformers: ds, parameters: [sway] }, new Set(['p', 'q']), new Set(), new Set(), m => out.push(m)); return out; };
+const problems = ds => { const out = []; checkDeformers({ deformers: ds, parameters: [sway] }, new Set(['p', 'q']), new Set(), m => out.push(m)); return out; };
 
 test('a part with no deformer gets a mesh deformer named after it, with the detail hint', () => {
   const next = setPartMesh([], 'p', quad, 'high');

@@ -213,8 +213,10 @@ export class BuildDialog {
   private rowHtml(f: BuildFinding, i: number) {
     const where = this.target_(f);
     const lang = f.lang ? ` <span class="bd-lang">${esc(f.lang)}</span>` : '';
+    // The message starts with its language for the command line; here the language is in the title already ("fi fi:", ED-7).
+    const message = f.lang && f.message.startsWith(`${f.lang}: `) ? f.message.slice(f.lang.length + 2) : f.message;
     return `<div class="bd-row" data-check="${f.check}"><span class="bd-badge" data-severity="${f.severity}">${f.severity}</span>
-      <span class="bd-msg"><span class="bd-title">${esc(CHECK_TITLES[f.check as CheckId] ?? f.check)}${lang}</span> ${esc(f.message)}</span>
+      <span class="bd-msg"><span class="bd-title">${esc(CHECK_TITLES[f.check as CheckId] ?? f.check)}${lang}${f.lang ? ':' : ''}</span> ${esc(message)}</span>
       ${where ? `<button type="button" class="bd-goto" data-go="${i}">${esc(where)}</button>` : ''}${f.check === 'ids' && this.h.addIds ? `<button type="button" class="bd-goto" data-fix="ids" title="Give every line without an id one, in every script, then run the checks again">Add Localization IDs</button>` : ''}</div>`;
   }
 

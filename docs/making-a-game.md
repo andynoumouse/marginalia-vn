@@ -32,7 +32,7 @@ The game folder holds only content:
 | `masters/` | PSD masters (Git LFS) |
 | `build/` | Export output (git-ignored) |
 
-Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings`), which runs the engine's tools on the
+Its npm scripts call the `vn` command (`vn dev | export | art | ids | strings | voice | playtest | stats`), which runs the engine's tools on the
 current folder. `vn character` needs no project: it serves only the [character studio](standalone-studio.md).
 
 ## Engine versions

@@ -15,6 +15,7 @@ import type { AssetIndex } from './assets.js';
 import { interpolate } from './text.js';
 import { abstraction, type Abstraction } from './playtest-abstraction.js';
 import { strings, unusedAssets, variableUse } from './static-use.js';
+import { countText } from './stats.js';
 import type { Diagnostic, FallThroughOp, Op, Program, Src, Vars } from './types.js';
 
 export interface PlaytestOptions {
@@ -40,10 +41,19 @@ export interface PlaytestEnding {
   kind: 'end' | 'return' | 'fall';
   /** The `end` or `return` that stopped the story (for `fall`: the last op, the script ran off its end). */
   src: Src;
+  /** The ending's name (`end "Name"`), in the script's language. */
+  title?: string;
   /** The shortest route found: the options and screen elements taken, in order. */
   route: string[];
   /** Flags (`unlock`) set on that route. */
   unlocks: string[];
+  /**
+   * Words read on the way here in a first playthrough from `start` (dialogue, narration, menu prompts and the options shown, input
+   * prompts, the ending's name). `min`: the shortest route, a line read twice counting twice. `max`: the most different lines one
+   * route reads (each once, so going round a loop adds nothing), left out for very large stories. Absent for endings only reached
+   * from another label or in a later playthrough.
+   */
+  words?: { min: number; max?: number };
 }
 
 export interface LineRange { file: string; from: number; to: number }
@@ -57,6 +67,8 @@ export interface PlaytestReport {
   choices: number;
   steps: number;
   endings: PlaytestEnding[];
+  /** `end` lines no route reaches (statistics name them, so an ending missing from the routes is explained: UX round 3 ED-2). */
+  unreachedEndings: { src: Src; title?: string }[];
   /** Lines (grouped in ranges) no route executes. */
   unreachableLines: LineRange[];
   /** Labels whose first line is never reached. */
@@ -88,8 +100,14 @@ interface Sim {
   /** Label pc the entry jump goes to instead of `start` (null: start). */
   entry: number | null;
   route: string[];
+  /** The route graph node this state left (a choice situation, or ROUTE_START), the words read since then and the ops that showed them. */
+  node: string;
+  words: number;
+  read: number[];
 }
 
+const ROUTE_START = 'start';
+const words = (t: string | null | undefined) => (t ? countText(t).words : 0);
 const HUD_RETURN = Number.MIN_SAFE_INTEGER; // return address of a HUD handler: running into it ends that path quietly
 const SEGMENT_STEPS = 20000;               // ops between two choices before a path counts as a loop
 const HANDLER_RUNS = 20;                   // times a screen's handlers are started per label
@@ -101,7 +119,7 @@ type Stop =
   | { kind: 'fork'; states: Sim[] }
   | { kind: 'loop' | 'done' | 'stuck'; at: number };
 
-const copy = (s: Sim): Sim => ({ ...s, stack: [...s.stack], frames: [...s.frames], vars: { ...s.vars }, unlocks: [...s.unlocks], persistent: { ...s.persistent }, route: [...s.route] });
+const copy = (s: Sim): Sim => ({ ...s, stack: [...s.stack], frames: [...s.frames], vars: { ...s.vars }, unlocks: [...s.unlocks], persistent: { ...s.persistent }, route: [...s.route], read: [...s.read] });
 
 const short = (t: string) => { const one = t.replace(/\s+/g, ' ').replace(/\{[^}]*\}/g, '').trim(); return one.length > 40 ? `${one.slice(0, 39)}…` : one; };
 
@@ -164,6 +182,7 @@ class Bot {
           const scope = this.scope(s, base);
           const visible = op.options.filter(o => !o.cond || Boolean(evalExpr(o.cond, scope)));
           if (visible.length === 0) { s.pc++; break; }
+          this.read(s, here, words(op.prompt) + visible.reduce((n, o) => n + words(o.text), 0)); // the player reads the question and every option
           // Which target an option leads to is part of the state, so the key is the op plus everything that decides what happens next.
           const choices: Choice[] = visible.map(o => ({ label: short(o.text), line: o.from, apply: t => { t.pc = o.target; } }));
           // The clock can always run out (the player's timed-choices setting is ignored), unless it is a fixed number of 0 or less.
@@ -216,6 +235,7 @@ class Bot {
           return { kind: 'choice', at: here, key: this.key(s), choices };
         }
         case 'input':
+          this.read(s, here, words(op.prompt));
           s.vars[op.name] = interpolate(op.default, this.scope(s, base));
           s.pc++;
           break;
@@ -278,7 +298,12 @@ class Bot {
           break;
         }
         case 'end':
-          return { kind: 'end', ending: { kind: 'end', src: op.src } };
+          this.read(s, here, words(op.title));
+          return { kind: 'end', ending: { kind: 'end', src: op.src, ...(op.title ? { title: op.title } : {}) } };
+        case 'say':
+          this.read(s, here, words(op.text));
+          s.pc++;
+          break;
         default: // lines and visual commands change nothing the story can see
           op satisfies FallThroughOp;
           s.pc++;
@@ -329,12 +354,14 @@ class Bot {
         case 'stuck': { const src = this.program.ops[stop.at].src; this.stuck.set(`${src.file}:${src.line}`, src); break; }
         case 'end': {
           const id = `${stop.ending.kind}:${stop.ending.src.file}:${stop.ending.src.line}`;
+          this.edge(s, `end ${id}`);
           if (!this.endings.has(id)) this.endings.set(id, { ...stop.ending, route: s.route, unlocks: [...s.unlocks] });
           for (const f of s.unlocks) this.unlocksSeen.add(f);
           Object.assign(this.persistentSeen, s.persistent);
           break;
         }
         case 'choice': {
+          this.edge(s, stop.key);
           const known = seen.get(stop.at) ?? seen.set(stop.at, new Set()).get(stop.at)!;
           if (known.has(stop.key)) break;
           if (known.size >= this.o.maxPerChoice) { this.notes.add(`more than ${this.o.maxPerChoice} different situations at ${this.where(stop.at)}; the rest were skipped`); this.truncated = true; break; }
@@ -344,6 +371,9 @@ class Bot {
           for (const c of stop.choices) {
             const t = copy(s);
             c.apply(t);
+            t.node = stop.key;
+            t.words = 0;
+            t.read = [];
             if (c.line !== undefined) this.taken.add(`${this.program.ops[stop.at].src.file}\0${c.line}`);
             t.route.push(c.label);
             queue.push(t);
@@ -354,10 +384,76 @@ class Bot {
     }
   }
   truncated = false;
+  /** While set, the first playthrough from `start` is being explored: the moves between situations are recorded with the words they read. */
+  routes: RouteGraph | null = null;
+  /** Words each op that shows text puts in front of the player (a menu: the most it showed). */
+  readonly lineWords = new Map<number, number>();
+  private read(s: Sim, pc: number, n: number) {
+    if (!this.routes || !n) return;
+    s.words += n;
+    s.read.push(pc);
+    this.lineWords.set(pc, Math.max(this.lineWords.get(pc) ?? 0, n));
+  }
+  private edge(s: Sim, to: string) {
+    if (!this.routes) return;
+    const out = this.routes.get(s.node) ?? this.routes.set(s.node, new Map()).get(s.node)!;
+    const was = out.get(to); // two ways between the same two situations (options that join again): the fewest words, and the lines of the wordier
+    out.set(to, !was ? { min: s.words, max: s.words, read: s.read } : { min: Math.min(was.min, s.words), ...(s.words > was.max ? { max: s.words, read: s.read } : { max: was.max, read: was.read }) });
+  }
   private where(pc: number) { const src = this.program.ops[pc].src; return `${src.file}:${src.line}`; }
 }
 
 interface Round { unlocks: Set<string>; persistent: Record<string, Value> }
+
+/** From each situation, the situations (or `end <id>` endings) the story moves to next, with the fewest and the most words read on the way. */
+type RouteGraph = Map<string, Map<string, { min: number; max: number; read: number[] }>>;
+/** Above this many situations the longest routes are not worked out (each keeps a set of the lines read on the way). */
+const LONGEST_NODES = 20000;
+
+/**
+ * The words read from ROUTE_START to every node of `g`. The fewest is exact (Dijkstra; a line read twice counts twice). The most
+ * is counted in different lines read: along the moves left once those that close a loop are dropped (a depth-first search marks
+ * them), each node keeps the way to it that has read the most, a real route though not always the wordiest one. Absent when the
+ * graph is too large to keep a set of lines per node.
+ */
+function routeWords(g: RouteGraph, lineWords: Map<number, number>): Map<string, { min: number; max?: number }> {
+  const min = new Map<string, number>([[ROUTE_START, 0]]);
+  const done = new Set<string>();
+  // The graphs are small enough (a node per situation at a choice) for a plain scan in place of a heap.
+  for (;;) {
+    let at: string | null = null;
+    for (const [n, d] of min) if (!done.has(n) && (at === null || d < min.get(at)!)) at = n;
+    if (at === null) break;
+    done.add(at);
+    for (const [to, e] of g.get(at) ?? []) if (!done.has(to) && (min.get(to) ?? Infinity) > min.get(at)! + e.min) min.set(to, min.get(at)! + e.min);
+  }
+  if (g.size > LONGEST_NODES) return new Map([...min].map(([n, d]) => [n, { min: d }]));
+  // Depth-first, without recursion: the order nodes finish in, and the moves that lead back to a node still open (a loop).
+  const state = new Map<string, 1 | 2>(), order: string[] = [], back = new Map<string, Set<string>>();
+  const stack: [string, Iterator<string>][] = [[ROUTE_START, (g.get(ROUTE_START) ?? new Map()).keys()]];
+  state.set(ROUTE_START, 1);
+  while (stack.length) {
+    const top = stack[stack.length - 1];
+    const next = top[1].next();
+    if (next.done) { state.set(top[0], 2); order.push(top[0]); stack.pop(); continue; }
+    const to = next.value;
+    if (state.get(to) === 1) (back.get(top[0]) ?? back.set(top[0], new Set()).get(top[0])!).add(to);
+    else if (!state.has(to)) { state.set(to, 1); stack.push([to, (g.get(to) ?? new Map()).keys()]); }
+  }
+  const best = new Map<string, { lines: Set<number>; words: number }>([[ROUTE_START, { lines: new Set(), words: 0 }]]);
+  for (const n of order.reverse()) {
+    const here = best.get(n);
+    if (!here) continue;
+    for (const [to, e] of g.get(n) ?? []) {
+      if (back.get(n)?.has(to)) continue;
+      const lines = new Set(here.lines);
+      let words = here.words;
+      for (const pc of e.read) if (!lines.has(pc)) { lines.add(pc); words += lineWords.get(pc) ?? 0; }
+      if (words > (best.get(to)?.words ?? -1)) best.set(to, { lines, words });
+    }
+  }
+  return new Map([...min].map(([n, d]) => [n, { min: d, max: Math.max(d, best.get(n)?.words ?? d) }]));
+}
 
 /** The labels game.json starts the story from besides `start`: `intro` and the `chapters`. */
 function gameRoots(game: unknown, labels: Record<string, number>): string[] {
@@ -399,7 +495,11 @@ export function playtest(program: Program, opts: PlaytestOptions = {}): Playtest
     for (let seed = 1; seed <= seeds && !bot.exhausted; seed++) {
       const seen = new Map<number, Set<string>>();
       for (const entry of roots) {
-        bot.explore({ pc: 0, stack: [], frames: [], vars: {}, unlocks: [], persistent: {}, rng: seed * 7919, entry, route: [] }, base, seen);
+        bot.routes = round === 0 && seed === 1 && entry === null ? new Map() : null; // words per route: a first playthrough from start
+        const routes = bot.routes;
+        bot.explore({ pc: 0, stack: [], frames: [], vars: {}, unlocks: [], persistent: {}, rng: seed * 7919, entry, route: [], node: ROUTE_START, words: 0, read: [] }, base, seen);
+        bot.routes = null;
+        if (routes) for (const [node, w] of routeWords(routes, bot.lineWords)) if (node.startsWith('end ')) { const e = bot.endings.get(node.slice(4)); if (e) e.words = w; }
       }
     }
     const grown = [...bot.unlocksSeen].some(f => !base.unlocks.has(f)) || Object.keys(bot.persistentSeen).some(k => !(k in base.persistent));
@@ -445,6 +545,7 @@ export function playtest(program: Program, opts: PlaytestOptions = {}): Playtest
   return {
     complete, notes: [...bot.notes], choices: bot.choices, steps: bot.steps,
     endings: [...bot.endings.values()],
+    unreachedEndings: program.ops.flatMap((op, pc) => (op.op === 'end' && !bot.covered.has(pc) ? [{ src: op.src, ...(op.title ? { title: op.title } : {}) }] : [])),
     unreachableLines, unreachableLabels,
     loops: [...bot.loops.values()], stuck: [...bot.stuck.values()],
     unusedVariables, unsetVariables, unusedFlags,
@@ -467,6 +568,11 @@ export function playtestDiagnostics(report: PlaytestReport): Diagnostic[] {
   return out;
 }
 
+/** `70 to 74 words`, or `70 words` when the shortest and the longest route read the same (`70+ words` with no longest). */
+export function routeWordsText(w: { min: number; max?: number }): string {
+  return w.max === undefined ? `${w.min}+ words` : w.max === w.min ? `${w.min} words` : `${w.min} to ${w.max} words`;
+}
+
 /** The report as plain text (the CLI prints it, the editor shows it in the Output panel). */
 export function playtestText(report: PlaytestReport, title = 'Playtest'): string {
   const out: string[] = [];
@@ -478,8 +584,8 @@ export function playtestText(report: PlaytestReport, title = 'Playtest'): string
   out.push(`${title}: ${report.choices} choices explored, ${report.steps} steps${report.complete ? '' : ' (INCOMPLETE)'}`);
   for (const n of report.notes) out.push(`  note: ${n}`);
   section('Endings reached', report.endings, e => {
-    const what = e.kind === 'end' ? 'end' : e.kind === 'return' ? 'return' : 'end of script';
-    return `${what} at ${at(e.src)}  via ${e.route.length ? e.route.join(' > ') : '(no choices)'}${e.unlocks.length ? `  unlocks ${e.unlocks.join(', ')}` : ''}`;
+    const what = e.kind === 'end' ? (e.title ? `end "${e.title}"` : 'end') : e.kind === 'return' ? 'return' : 'end of script';
+    return `${what} at ${at(e.src)}${e.words ? `  ${routeWordsText(e.words)}` : ''}  via ${e.route.length ? e.route.join(' > ') : '(no choices)'}${e.unlocks.length ? `  unlocks ${e.unlocks.join(', ')}` : ''}`;
   });
   section('Lines no route reaches', report.unreachableLines, r => `${r.file}:${r.from}${r.to > r.from ? `-${r.to}` : ''}`);
   section('Labels no route reaches', report.unreachableLabels, l => l);

@@ -12,7 +12,6 @@
     "background": "bg_library",
     "music": "evening_theme",
     "showTitle": true,
-    "align": "center",
     "buttons": [
       "new_game",
       "continue",

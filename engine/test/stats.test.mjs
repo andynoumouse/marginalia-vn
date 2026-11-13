@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compile, countText, plainText, readingTime, scriptStats, statsText } from '../../dist/engine/src/index.js';
+import { buildOutline, compile, countText, plainText, readingTime, scriptStats, statsText } from '../../dist/engine/src/index.js';
 
 test('tags are left out, a variable is one word, punctuation alone is no word', () => {
   assert.equal(plainText('{b}Hello{/b} there{pause=0.5s} [name]!'), 'Hello there  x!');
@@ -47,4 +47,16 @@ test('reading time in words', () => {
   assert.equal(readingTime(12.4), 'about 12 min');
   assert.equal(readingTime(60), 'about 1 h');
   assert.equal(readingTime(83), 'about 1 h 23 min');
+});
+
+test('the Outline gives each label node the words the statistics count for that label', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const dir = new URL('../../games/sample/script/', import.meta.url);
+  const p = compile(readdirSync(dir).filter(f => f.endsWith('.vn')).map(f => ({ file: f, text: readFileSync(new URL(f, dir), 'utf8') })));
+  const byLabel = Object.fromEntries(scriptStats(p).labels.filter(l => l.name !== '(top level)').map(l => [l.name, l.words]));
+  const nodes = buildOutline(p).nodes;
+  assert.ok(nodes.some(n => n.words > 0));
+  for (const n of nodes) assert.equal(n.words, byLabel[n.name] ?? 0, n.name);
+  const one = buildOutline(compile([{ file: 'a.vn', text: 'label start:\n  "One two three."\n  menu "Go?":\n    "Yes":\n      end "The End Of It"\n' }])).nodes[0];
+  assert.equal(one.words, 3 + 1 + 1 + 4);
 });

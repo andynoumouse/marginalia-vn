@@ -26,6 +26,9 @@ Script errors refuse the export. Untranslated or reworded lines, missing ids and
 | `--check` | Only print the report, build nothing |
 | `--locales fi,ja` | Ship only these translations. The other languages are not checked |
 | `--voice en,ja` | Ship only these voice languages. Name the source language for the default takes |
+| `--no-playtest` | Skip the playtest bot's check |
+| `--out <folder>` | Write the build there (relative to the project folder) instead of the default folder |
+| `--no-build` | Use the engine code as it is built, without compiling it first |
 
 The Build dialog has a tick for each language. `build.checks` in `game.json` sets each check's level; see
 [game-json.md](game-json.md). Art and audio checks are described in [checks-and-tools.md](checks-and-tools.md).

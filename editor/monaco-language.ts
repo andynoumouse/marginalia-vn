@@ -145,8 +145,9 @@ function registerCompletions(host: { liveRigs(): Record<string, RigManifest> }) 
 }
 
 function registerQuickFixes() {
-  // Quick fixes (Ctrl+.) for the markers with a "did you mean": replace the unknown word with a close name.
-  monaco.languages.registerCodeActionProvider('vn', {
+  // Quick fixes (Ctrl+.) for the markers with a "did you mean": replace the unknown word with a close name. game.json and the rig
+  // tabs are JSON models; only markers with an entry in quickFixes get actions, so Monaco's own JSON markers are left alone.
+  const provider = {
     provideCodeActions(model: any, _range: any, context: any) {
       const actions = (context.markers as any[]).flatMap(m => {
         const options = quickFixes.get(fixKey(model.uri, m.startLineNumber, m.message)) ?? [];
@@ -163,5 +164,6 @@ function registerQuickFixes() {
       });
       return { actions, dispose() {} };
     },
-  });
+  };
+  for (const language of ['vn', 'json']) monaco.languages.registerCodeActionProvider(language, provider);
 }

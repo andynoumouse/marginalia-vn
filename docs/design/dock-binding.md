@@ -5,6 +5,10 @@ the DOM layer (`editor/dock-ui.ts`) and its bench (`editor/dock-sandbox.html`, `
 
 ## What becomes movable
 
+*Since changed:* the sections are now tree, poses, params, keyforms, param, sel (titled Properties), frames and place; Warp,
+Mask, Physics and By itself are gone from the dock (see [studio-inspector.md](studio-inspector.md)), and the defaults are
+`START` in `engine/src/studio-layout.ts`. The timeline folds to its transport row (built later).
+
 The sections: Parts (`tree`), Parameters (`params`), Keyforms, Selection (`sel`), Warp, Mask, Physics, By itself (`auto`), Frames, Place in
 scene (`place`). Not the stage, its tool row, the transport row or the timeline: the centre stays as it is (folding the timeline to its
 transport row is a separate item).

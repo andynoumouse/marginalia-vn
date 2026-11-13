@@ -32,7 +32,9 @@ const CASES = [
   'tint #ff8800', 'tint #ff8800 0.5', 'tint #ff8800 0.5 2s', 'tint off', 'tint off 2s', 'tint', 'tint red', 'tint #ff8800 2', 'tint off x',
   'camera zoom 1.5', 'camera zoom 2 at left', 'camera zoom 2 at left y=0.3 1s', 'camera pan right', 'camera pan 0.3 y=0.4 2s', 'camera roll 5', 'camera roll -8 1.5s ease=out', 'camera roll', 'camera roll x', 'camera roll 5 y=0.2', 'camera reset', 'camera reset 1s', 'camera', 'camera tilt', 'camera zoom',
   'weather rain', 'weather snow 0.5', 'weather petals 0.5 3s', 'weather off', 'weather off 2s', 'weather', 'weather fog', 'weather rain 2',
-  'filter blur', 'filter glow', 'filter chromatic 0.6 1s', 'filter glitch 0.5', 'filter sepia 0.5 2s', 'filter off', 'filter off 1s', 'filter', 'filter glitter', 'filter night x',
+  'filter blur', 'filter glow', 'filter chromatic 0.6 1s', 'filter glitch 0.5', 'filter sepia 0.5 2s', 'filter off', 'filter off 1s', 'filter', 'filter glitter', 'filter night x', 'filter wave 0.5', 'filter grain + crt 0.6 1s', 'filter invert', 'filter pixelate 0.3', 'filter sepia 0.8 + vignette 0.6 1s', 'filter + glow 0.4', 'filter - vignette 0.5s', 'filter sepia + sepia', 'filter sepia +',
+  'scene bg_park push right 0.8s', 'scene bg_park push', 'scene bg_park push sideways', 'scene bg_park zoom 1s', 'scene bg_park ripple 1.2s', 'scene bg_park fade #ffffff 1s hold=0.5s', 'scene bg_park dissolve #fff', 'scene bg_park hold=1s',
+  'letterbox', 'letterbox 0.2 1s', 'letterbox off 0.5s', 'letterbox 0', 'letterbox wide',
   'focus on', 'focus off', 'focus', 'focus maybe', 'focus on off', 'behaviors on', 'behaviors off', 'behaviors',
   // hud / image
   'hud on bar', 'hud on bar keep', 'hud off bar', 'hud on', 'hud on bar stay', 'hud toggle bar', 'hud on 1bad',
@@ -47,7 +49,7 @@ const CASES = [
   // wait / call / jump / return / end
   'wait', 'wait 2s', 'wait 0.5s', 'wait x', 'wait 1 2',
   'call other', 'call other(1, "a")', 'call nowhere', 'call', 'call other(', 'jump other', 'jump nowhere', 'jump', 'jump other extra',
-  'return', 'return 1', 'end', 'end now',
+  'return', 'return 1', 'end', 'end now', 'end "The Quiet Ending"', 'end "The Quiet Ending" #ql01', 'end #ql01', 'end "A" "B"', 'end "A" now',
   // nvl / textbox / unlock / input
   'nvl on', 'nvl off', 'nvl clear', 'nvl', 'nvl maybe', 'nvl on off',
   'textbox hide', 'textbox', 'textbox show', 'textbox hide now',

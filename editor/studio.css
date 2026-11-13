@@ -42,6 +42,9 @@
 /* The column grips take a press 12 px wide (ES-19), mostly on the stage's side so the columns' scrollbars stay clickable; the line drawn on
    hover is 4 px, on the column's edge. */
 #animStudio .as-grip:is(:hover, :focus-visible, :active) { opacity: .6; outline: none; }
+/* Reached by Tab, a grip and the stage show it plainly, not only as the faint hover line (KL-8). */
+#animStudio .as-grip:focus-visible { opacity: 1; box-shadow: 0 0 0 2px var(--accent); }
+#animStudio .as-stage.as-stage-focus { border-color: var(--accent); } /* set by anim-stage.ts while the stage has the keys */
 #animStudio :is(.as-grip-v, .as-grip-r) { top: 0; bottom: 0; left: calc(var(--as-left, 300px) - 2px); width: 12px; cursor: col-resize; }
 #animStudio .as-grip-v:is(:hover, :focus-visible, :active) { background: linear-gradient(to right, var(--accent) 0 4px, transparent 4px); }
 #animStudio .as-grip-r { left: auto; right: calc(var(--as-right, 340px) - 2px); }
@@ -274,8 +277,9 @@
 #animStudio .as-toolbar .atb { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
 #animStudio .as-toolbar .si-btn { width: 28px; height: 28px; }
 #animStudio .as-toolbar .atb[hidden], #animStudio .as-toolbar [hidden] { display: none; }
-#animStudio .atb-mode { flex: none; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 600; }
-#animStudio .atb-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The mode label and the gizmo line say what a drag needs: two lines in the bar's height before they are cut (MD-6, KL-9), the rest in the tooltip. */
+#animStudio .atb-mode { flex: 0 1 auto; min-width: 120px; max-width: min(380px, 50%); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 15px; color: var(--text); font-weight: 600; }
+#animStudio .atb-line { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 15px; }
 #animStudio .atb[data-bar="gizmo"] { flex-wrap: nowrap; }
 #animStudio .atb-grp { display: inline-flex; align-items: center; gap: 2px 6px; }
 #animStudio .atb-grp + .atb-grp::before { content: ""; flex: none; width: 1px; height: 18px; margin-right: 2px; background: var(--line); }
@@ -330,9 +334,11 @@
 #animStudio .as-transport label { display: flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
 #animStudio .as-slider { flex: 1 1 120px; min-width: 80px; accent-color: var(--accent); }
 #animStudio .as-time { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); min-width: 96px; text-align: right; white-space: nowrap; }
-#animStudio .as-tlwrap { max-height: 38vh; overflow-y: auto; background: var(--ink); border-top: 1px solid var(--line); }
+/* One height whatever the lanes hold, so keying a part or choosing another never moves the transport or resizes the stage (AN-1): the
+   lanes scroll inside it, and folded lanes leave their room to the timeline. */
+#animStudio .as-tlwrap { height: 38vh; overflow-y: auto; background: var(--ink); border-top: 1px solid var(--line); }
 /* A short window keeps more of its height for the stage: the timeline scrolls sooner (ES-4; ▾ in the transport folds it away). */
-@media (max-height: 700px) and (min-width: 901px) { #animStudio .as-tlwrap { max-height: 26vh; } }
+@media (max-height: 700px) and (min-width: 901px) { #animStudio .as-tlwrap { height: 26vh; } }
 #animStudio .as-ruler { display: block; width: 100%; position: sticky; top: 0; z-index: 1; background: var(--ink); border-bottom: 1px solid var(--line); pointer-events: none; } /* the times stay in view while the lanes scroll */
 #animStudio .tl-fold { cursor: copy; } #animStudio .tl-label.tl-flabel { font-weight: 400; fill: var(--muted); pointer-events: none; } /* a channel with no key: a thin row */
 #animStudio .as-timeline { display: block; width: 100%; background: var(--ink); cursor: col-resize; touch-action: none; user-select: none; }
@@ -356,6 +362,8 @@
 #animStudio .tl-pkey { fill: #6fc3a8; }
 #animStudio .tl-pkey.tl-on { fill: var(--accent); }
 #animStudio .tl-key { fill: var(--warn); stroke: var(--ink); stroke-width: 1; }
+#animStudio .tl-box { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 4 3; pointer-events: none; } /* Shift+drag on a lane (AN-13) */
+#animStudio .tl-key.tl-on { fill: var(--accent); stroke: var(--text); stroke-width: 2.5; } /* after .tl-key, so a clicked key shows as chosen at once (AN-7) */
 #animStudio .tl-rest { fill: var(--ink); stroke: var(--warn); stroke-width: 1.5; stroke-dasharray: 2 2; } /* the implicit rest at an end with no key; hover shows why */
 #animStudio .tl-play { stroke: var(--bad); stroke-width: 1.5; pointer-events: none; }
 /* Parameters: groups that fold, sliders and pads. Animate keys them on the timeline; Model keys the chosen part's keyforms (a mark on the track for each key; the active parameter is highlighted) and edits the controls. */
@@ -380,6 +388,7 @@
 #animStudio .ap-cat-btn:hover, #animStudio .ap-cat-btn:focus-visible { color: var(--accent); }
 #animStudio .ap-cat-name { flex: 1 1 auto; min-width: 0; font: inherit; letter-spacing: inherit; text-transform: none; color: var(--text); background: var(--ink); border: 1px solid var(--accent); border-radius: 3px; padding: 1px 4px; }
 #animStudio .ap-empty { margin: 4px 0 6px; }
+#animStudio .ap-none { margin: 4px 8px 8px 12px; } /* the no-parameters note sat at the column's edge (MR-14) */
 /* A pad's two sliders sit under it, indented: they are part of it. */
 #animStudio .ap-axisrow { margin-left: 14px; border-left: 1px solid var(--line); padding-left: 6px; }
 #animStudio .ap-model .ap-group h4[draggable="true"] { cursor: grab; }
@@ -427,17 +436,17 @@
 #animStudio .ap-padrow label { grid-area: l; }
 #animStudio .ap-pad { grid-area: pad; position: relative; width: 112px; height: 112px; background: var(--ink); border: 1px solid var(--line); border-radius: 4px; touch-action: none; cursor: crosshair; background-image: linear-gradient(var(--line), var(--line)), linear-gradient(var(--line), var(--line)); background-size: 1px 100%, 100% 1px; background-position: 50% 0, 0 50%; background-repeat: no-repeat; }
 #animStudio .ap-pad:focus-visible { outline: 2px solid var(--accent); }
+#animStudio .ap-pad::after { content: ""; position: absolute; inset: -6px; } /* a press just outside the edge takes the corner there (MR-7) */
 #animStudio .ap-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--accent); border: 2px solid var(--text); pointer-events: none; }
 #animStudio .ap-btns { grid-area: btn; display: flex; flex-wrap: wrap; gap: 4px; }
-/* Narrow panel: the controls follow the panel's width, not the window's. A slider row stays one line (ES-10): a shorter name, the slider,
-   a narrower value and the ◆; the chosen row's ↺ and ✕ join that line instead of taking one of their own. A pad row puts its buttons beside
-   the name and the pad beside its grid buttons. */
+/* Narrow panel: the controls follow the panel's width, not the window's. A slider row is one line: a shorter name, the slider, a narrower
+   value, the ◆ and, in Animate, the ↺. The chosen Model row's ↺ and ✕ take a line of their own under it, as in a wide panel, so its slider keeps the length of the
+   others. A pad row puts its buttons beside the name and the pad beside its grid buttons. */
 #animStudio .ap { container: ap / inline-size; }
 #animStudio .ap-body { overflow-x: hidden; }
 @container ap (max-width: 340px) {
-  #animStudio .ap-row { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto; gap: 3px; }
-  #animStudio .ap-model .ap-row.ap-active { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto auto auto; }
-  #animStudio .ap-model .ap-row.ap-active .ap-tools { display: contents; }
+  #animStudio .ap-row { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto auto; gap: 3px; }
+  #animStudio .ap-model .ap-row.ap-active { grid-template-columns: minmax(0, 60px) minmax(40px, 1fr) 44px auto; }
   #animStudio .ap-num { width: 44px; }
   #animStudio :is(.ap-key, .ap-reset, .ap-del-btn) { padding: 3px 5px; }
   #animStudio .ap-padrow { grid-template-columns: 112px minmax(0, 1fr); grid-template-areas: "l btn" "pad axes"; }
@@ -456,7 +465,7 @@
   #animStudio .as-grip-r { right: calc(min(var(--as-right, 340px), 280px) - 2px); }
 }
 @media (max-width: 900px) {
-  #animStudio .as-body { grid-template-columns: 1fr; flex: none; }
+  #animStudio .as-body { grid-template-columns: minmax(0, 1fr); flex: none; } /* minmax: a wide row inside wraps or clips, never widens the page */
   /* The left column comes apart so the stage is above the fold (studio-ux.md, Narrow windows; ES-4): the picker and its Automatic line,
      then the stage and timeline, then Look, Poses, Parameters and Parts, then the right column. */
   #animStudio .as-side { display: contents; }
@@ -501,7 +510,7 @@
 #animStudio .as-focus { position: relative; flex: none; box-sizing: border-box; height: 64px; padding: 6px 12px; display: flex; flex-direction: column; justify-content: center; gap: 6px; border-bottom: 1px solid var(--line); }
 #animStudio[data-mode="animate"] .as-focus, #animStudio .as-focus[hidden], #animStudio .as-focus [hidden] { display: none; }
 #animStudio .ab-crumb { display: flex; align-items: center; gap: 2px; min-width: 0; height: 22px; font-size: 12px; white-space: nowrap; overflow: hidden; }
-#animStudio .ab-slot { display: inline-flex; align-items: center; gap: 1px; min-width: 0; flex: 0 1 auto; }
+#animStudio .ab-slot { display: inline-flex; align-items: center; gap: 1px; min-width: min(5em, max-content); flex: 0 1 auto; } /* a name keeps a few letters, the status shrinks first (MR-6) */
 #animStudio .ab-slot > :is(.ab-crumbbtn, .ab-crumbword) { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #animStudio .ab-crumbpick { flex: none; padding: 0 4px; min-width: 0; line-height: 18px; }
 #animStudio .ab-crumbpick::after { content: "▾"; }

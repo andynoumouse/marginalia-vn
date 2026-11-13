@@ -11,10 +11,10 @@ A `screen` is a page of clickable things, declared once. `show screen` waits and
 
 ```
 screen library_map:
-  image "bg/bg_library.png" size 1920,1080
+  image "bg/bg_library_map.png" size 1920,1080
   hotspot stacks at 160,300 size 420,380 "The stacks" hover tint rgba(255,220,120,.30)
   hotspot desk ellipse at 800,640 size 460,220 "The front desk" hover scale 1.06
-  button leave at 80,940 "Find a seat" hover scale 1.08
+  button leave at 80,950 size 420,64 "Find a seat" hover scale 1.04
   default stacks
 
 label hub:

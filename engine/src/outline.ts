@@ -7,6 +7,7 @@ import type { Program, Src } from './types.js';
 import { successors } from './assets.js';
 import { formatExpr } from './expr.js';
 import { hudLabels } from './screens.js';
+import { opWords } from './stats.js';
 
 export type OutlineEdgeKind = 'jump' | 'call' | 'next';
 
@@ -29,6 +30,7 @@ export interface OutlineNode {
   /** Source position of the label's first statement (the label line itself is not kept by the compiler). */
   src: Src;
   lines: number;       // dialogue lines in the body
+  words: number;       // words the player reads in the body (as in the script statistics)
   menus: number;       // choice menus in the body
   ends: boolean;       // contains `end`
   returns: boolean;    // contains `return`
@@ -48,7 +50,7 @@ function scanLabel(program: Program, succ: number[][], labelAt: Map<number, stri
   const next = names[i + 1];
   const end = next === undefined ? ops.length : labels[next];
   const node: OutlineNode = {
-    name, src: ops[start]?.src ?? { file: '', line: 1 }, lines: 0, menus: 0, ends: false, returns: false,
+    name, src: ops[start]?.src ?? { file: '', line: 1 }, lines: 0, words: 0, menus: 0, ends: false, returns: false,
     entry: name === entryName, reachable: false, layer: 0, row: 0,
   };
   if (start >= end) { // empty body: runs on into the next label
@@ -85,6 +87,7 @@ function scanLabel(program: Program, succ: number[][], labelAt: Map<number, stri
   };
   for (let pc = start; pc < end; pc++) {
     const op = ops[pc];
+    node.words += opWords(op);
     while (active.length && active[active.length - 1].end <= pc) {
       const done = active.pop()!;
       const closing = ops[done.end - 1];

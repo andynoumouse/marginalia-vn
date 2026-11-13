@@ -17,10 +17,13 @@ export function windVelocity(wind: WorldWind | null | undefined, t: number): num
   return wind.strength * WIND_PX * (1 - g + g * (0.5 + 0.5 * windWave(t, 0.35, 0)));
 }
 
-export const FILTER_NAMES = ['blur', 'grayscale', 'sepia', 'night', 'vignette', 'glow', 'chromatic', 'glitch'] as const;
+/** In the order they are applied (`filterLooks` sorts by it): the blur, the color matrices, then the shaders; the vignette is a sprite drawn over them all. */
+export const FILTER_NAMES = ['blur', 'grayscale', 'sepia', 'night', 'invert', 'vignette', 'glow', 'sunbeams', 'chromatic', 'wave', 'pixelate', 'crt', 'grain', 'glitch', 'speedlines'] as const;
 
-/** The filters drawn by a shader of their own (preview/scene-effects.ts), not a color matrix or a blur; `glitch` moves, so reduced motion drops it. */
-export const SHADER_FILTERS: readonly FilterName[] = ['glow', 'chromatic', 'glitch'];
+/** The filters drawn by a shader of their own (preview/scene-effects.ts), not a color matrix or a blur. */
+export const SHADER_FILTERS: readonly FilterName[] = ['glow', 'sunbeams', 'chromatic', 'wave', 'pixelate', 'crt', 'grain', 'glitch', 'speedlines'];
+/** The filters that move by themselves: reduced motion holds `sunbeams`, `wave`, `grain` and `speedlines` still and drops `glitch`, whose look is the jumping. */
+export const MOVING_FILTERS: readonly FilterName[] = ['sunbeams', 'wave', 'grain', 'glitch', 'speedlines'];
 export type FilterName = typeof FILTER_NAMES[number];
 export const isFilterName = (s: string): s is FilterName => (FILTER_NAMES as readonly string[]).includes(s);
 
@@ -33,6 +36,8 @@ const FULL: Partial<Record<FilterName, ColorMatrix>> = {
   sepia: [0.393, 0.769, 0.189, 0, 0, 0.349, 0.686, 0.168, 0, 0, 0.272, 0.534, 0.131, 0, 0, 0, 0, 0, 1, 0],
   // Dark and blue: red and green dimmed, blue kept, a little blue added.
   night: [0.45, 0, 0, 0, 0, 0, 0.55, 0, 0, 0.01, 0, 0.05, 0.9, 0, 0.05, 0, 0, 0, 1, 0],
+  // A photographic negative; half strength is a flat gray.
+  invert: [-1, 0, 0, 0, 1, 0, -1, 0, 0, 1, 0, 0, -1, 0, 1, 0, 0, 0, 1, 0],
 };
 
 /** The matrix of a colour filter at a strength 0-1 (identity at 0), or null for a filter that is not a colour matrix. */
@@ -43,12 +48,62 @@ export function filterMatrix(name: FilterName, strength: number): ColorMatrix | 
   return IDENTITY.map((v, i) => v + (full[i] - v) * k);
 }
 
+/** One filter of the scene's look at a strength 0-1. */
+export interface FilterLook { name: FilterName; strength: number }
+
+/** The filters on the scene in the order they are drawn, from a state's `filter`: a list, or one look as saves from before filters stacked hold it. */
+export function filterLooks(f: readonly FilterLook[] | FilterLook | null | undefined): FilterLook[] {
+  const list = !f ? [] : Array.isArray(f) ? f : [f as FilterLook];
+  return list.filter(l => isFilterName(l?.name) && l.strength > 0).sort((a, b) => FILTER_NAMES.indexOf(a.name) - FILTER_NAMES.indexOf(b.name));
+}
+
+/** The look after a `filter` line: with `merge` (`filter +` / `filter -`) only the named filters change and a strength of 0 takes one off; otherwise the line is the whole look. */
+export function nextLooks(now: readonly FilterLook[], looks: readonly FilterLook[], merge: boolean): FilterLook[] {
+  if (!merge) return filterLooks(looks);
+  return filterLooks([...now.filter(l => !looks.some(n => n.name === l.name)), ...looks]);
+}
+
+/** The look part way (k 0-1) from one look to another: each filter goes from its old strength to its new one, 0 where a side lacks it. */
+export function blendLooks(from: readonly FilterLook[], to: readonly FilterLook[], k: number): FilterLook[] {
+  const names = [...new Set([...from, ...to].map(l => l.name))];
+  const at = (side: readonly FilterLook[], name: FilterName) => side.find(l => l.name === name)?.strength ?? 0;
+  return filterLooks(names.map(name => ({ name, strength: at(from, name) + (at(to, name) - at(from, name)) * k })));
+}
+
+/** `b` applied after `a`, as one matrix (the fifth column is an offset). */
+function chainMatrix(a: ColorMatrix, b: ColorMatrix): ColorMatrix {
+  const out: number[] = [];
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 5; c++) {
+      let v = c === 4 ? b[r * 5 + 4] : 0;
+      for (let k = 0; k < 4; k++) v += b[r * 5 + k] * a[k * 5 + c];
+      out.push(v);
+    }
+  }
+  return out;
+}
+
+/** One colour matrix for all the colour filters of a look, in their drawing order, or null when it has none. */
+export function lookMatrix(looks: readonly FilterLook[]): ColorMatrix | null {
+  let m: ColorMatrix | null = null;
+  for (const l of looks) {
+    const f = filterMatrix(l.name, l.strength);
+    if (f) m = m ? chainMatrix(m, f) : f;
+  }
+  return m;
+}
+
+/** `letterbox` with no height: each bar this share of the stage height, about a 2.39:1 film frame on a 16:9 stage. */
+export const LETTERBOX_SIZE = 0.12;
+/** The tallest a letterbox bar may be, as a share of the stage height. */
+export const LETTERBOX_MAX = 0.4;
+
 /** Blur radius in stage pixels for a strength 0-1. */
 export const blurRadius = (strength: number) => 24 * Math.max(0, Math.min(1, strength));
 
 // ---- weather ----
 
-export const WEATHER_NAMES = ['rain', 'snow', 'petals', 'embers'] as const;
+export const WEATHER_NAMES = ['rain', 'snow', 'petals', 'embers', 'leaves', 'fog', 'fireflies'] as const;
 export type WeatherName = typeof WEATHER_NAMES[number];
 export const isWeatherName = (s: string): s is WeatherName => (WEATHER_NAMES as readonly string[]).includes(s);
 
@@ -67,6 +122,12 @@ export interface WeatherSpec {
   alpha: [number, number];
   /** How much of the scene's wind it feels (heavy rain less, petals more). */
   windy: number;
+  /** Where new ones come in: over the top edge (under the bottom for things that rise; the default), from the side they drift from (fog), or anywhere on the screen (fireflies). */
+  enter?: 'edge' | 'side' | 'anywhere';
+  /** Drawn as a soft blob that fades out to its edge, not a solid dot. */
+  soft?: boolean;
+  /** Glows brighter and dimmer by itself (fireflies). */
+  pulse?: boolean;
 }
 
 export const WEATHER: Record<WeatherName, WeatherSpec> = {
@@ -74,6 +135,9 @@ export const WEATHER: Record<WeatherName, WeatherSpec> = {
   snow: { count: 260, color: 0xffffff, vy: [70, 160], vx: [-20, 20], size: [3, 8], streak: false, sway: 40, alpha: [0.6, 0.95], windy: 1 },
   petals: { count: 70, color: 0xffb7d0, vy: [70, 130], vx: [60, 150], size: [8, 15], streak: false, sway: 90, alpha: [0.75, 1], windy: 1.3 },
   embers: { count: 90, color: 0xffa040, vy: [-150, -60], vx: [-30, 30], size: [2, 5], streak: false, sway: 50, alpha: [0.5, 1], windy: 0.8 },
+  leaves: { count: 45, color: 0xc8702a, vy: [90, 170], vx: [30, 110], size: [12, 20], streak: false, sway: 120, alpha: [0.85, 1], windy: 1.4 },
+  fog: { count: 34, color: 0xdde4ea, vy: [-4, 4], vx: [12, 36], size: [320, 600], streak: false, sway: 6, alpha: [0.22, 0.4], windy: 0.5, enter: 'side', soft: true },
+  fireflies: { count: 40, color: 0xd8ff70, vy: [-18, 18], vx: [-18, 18], size: [16, 28], streak: false, sway: 25, alpha: [0.6, 1], windy: 0.3, enter: 'anywhere', soft: true, pulse: true },
 };
 
 export interface Particle {
@@ -93,10 +157,15 @@ export function spawnParticle(kind: WeatherName, rand: () => number, w: number, 
   const lead = wind ? Math.max(-w, Math.min(w, wind * ((h + pad) / Math.max(60, Math.abs((s.vy[0] + s.vy[1]) / 2 * g))))) : 0; // how far it drifts while it crosses the screen
   const x = rand() * (w + 2 * pad) - pad - (s.vx[1] > 40 ? w * 0.2 * rand() : 0) - (anywhere ? 0 : lead * rand());
   const y = anywhere ? rand() * h : rising ? h + pad * rand() : -pad * rand();
-  return {
-    x, y, vx: between(s.vx, rand()), vy: between(s.vy, rand()), size: between(s.size, rand()), alpha: between(s.alpha, rand()),
-    rot: rand() * Math.PI * 2, spin: (rand() - 0.5) * 3, phase: rand() * Math.PI * 2,
-  };
+  const p = { x, y, vx: between(s.vx, rand()), vy: between(s.vy, rand()), size: between(s.size, rand()), alpha: between(s.alpha, rand()),
+    rot: rand() * Math.PI * 2, spin: (rand() - 0.5) * 3, phase: rand() * Math.PI * 2 };
+  if (s.enter === 'anywhere') { p.x = rand() * w; p.y = rand() * h; }
+  else if (s.enter === 'side') {
+    // In at a random height from the side the air carries it from, just out of sight (anywhere across the screen at the start).
+    p.x = anywhere ? rand() * w : p.vx + wind >= 0 ? -p.size / 2 : w + p.size / 2;
+    p.y = rand() * h;
+  }
+  return p;
 }
 
 /** Move a particle on by `dt` seconds at time `t`; false once it has left the screen (to be respawned). */
@@ -107,7 +176,14 @@ export function stepParticle(p: Particle, kind: WeatherName, dt: number, t: numb
   p.y += vy * dt;
   p.rot += p.spin * dt;
   // Gone once outside and not coming back: a particle that starts outside, upwind or against gravity, is on its way in.
-  return !(p.y > h + 80 && vy >= 0) && !(p.y < -80 && vy <= 0) && !(p.x < -120 && vx <= 0) && !(p.x > w + 120 && vx >= 0);
+  // A big one (fog) has to be its own half-size further out before none of it shows.
+  const my = Math.max(80, p.size / 2 + 20), mx = Math.max(120, p.size / 2 + 20);
+  return !(p.y > h + my && vy >= 0) && !(p.y < -my && vy <= 0) && !(p.x < -mx && vx <= 0) && !(p.x > w + mx && vx >= 0);
+}
+
+/** How bright a particle is drawn at time `t`: its own alpha, pulsing slowly for a kind that glows (fireflies). */
+export function particleAlpha(kind: WeatherName, p: Particle, t: number): number {
+  return WEATHER[kind].pulse ? p.alpha * (0.15 + 0.85 * (0.5 + 0.5 * Math.sin(t * 2.2 + p.phase))) : p.alpha;
 }
 
 /** How many of the spec's particles are alive at an intensity 0-1. */
@@ -148,6 +224,27 @@ export function revealShapes(transition: 'wipe' | 'iris' | 'blinds', dir: string
   if (dir === 'down') return [{ rect: { x: 0, y: h * (1 - k), w, h: h * k } }];
   return [{ rect: { x: 0, y: 0, w: w * k, h } }];
 }
+
+/** The sides a wipe or a push can come from. */
+export const DIRECTIONS = ['left', 'right', 'up', 'down'] as const;
+
+/** A push at progress `k` (0-1): how far (px) the old and the new picture sit from their place. The new one comes in from `dir`'s side and shoves the old one out the other way. */
+export function pushOffsets(dir: string, k: number, w: number, h: number): { old: [number, number]; next: [number, number] } {
+  const t = Math.max(0, Math.min(1, k));
+  if (dir === 'right') return { old: [-w * t, 0], next: [w * (1 - t), 0] };
+  if (dir === 'up') return { old: [0, h * t], next: [0, -h * (1 - t)] };
+  if (dir === 'down') return { old: [0, -h * t], next: [0, h * (1 - t)] };
+  return { old: [w * t, 0], next: [-w * (1 - t), 0] };
+}
+
+/** A zoom at progress `k` (0-1): the old picture rushes toward the viewer and fades, uncovering the new one as it settles from a little too close. */
+export function zoomLook(k: number): { oldScale: number; oldAlpha: number; nextScale: number } {
+  const t = Math.max(0, Math.min(1, k));
+  return { oldScale: 1 + 0.6 * t, oldAlpha: 1 - t, nextScale: 1 + 0.15 * (1 - t) };
+}
+
+/** How strongly a ripple bends the picture at progress `k` (0-1): none at either end, most halfway, when the pictures cross. */
+export const rippleAmount = (k: number) => Math.sin(Math.PI * Math.max(0, Math.min(1, k)));
 
 /** The screen shake's horizontal offset at progress `k` (0-1): `s` pixels, swinging out and back in with fading swings. */
 export function shakeOffset(s: number, k: number): number {
